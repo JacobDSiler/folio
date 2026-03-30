@@ -4,1394 +4,1346 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Folio — Beautiful Book Formatter</title>
-<meta name="description" content="Format your book manuscript into beautiful PDFs, EPUBs, MOBI-ready files, and Word documents.">
-
-<!-- Fonts -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&family=IM+Fell+English:ital@0;1&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
-
-<!-- Libraries via CDN -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
-
+<script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
 <style>
-/* ── Reset & Base ── */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-:root {
-  --sidebar-w: 340px;
-  --bg: #f0ede6;
-  --surface: #ffffff;
-  --border: rgba(0,0,0,0.1);
-  --border-mid: rgba(0,0,0,0.2);
-  --text: #1a1a1a;
-  --muted: #6b6b6b;
-  --hint: #aaa;
-  --accent-ui: #2a1f0e;
-  --radius: 8px;
-  --radius-lg: 12px;
-  --sans: 'Inter', system-ui, sans-serif;
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --sidebar-w:360px;
+  --bg:#f0ede6;--surface:#ffffff;
+  --border:rgba(0,0,0,0.1);--border-mid:rgba(0,0,0,0.2);
+  --text:#1a1a1a;--muted:#6b6b6b;--hint:#aaa;
+  --accent-ui:#2a1f0e;
+  --radius:8px;--radius-lg:12px;
+  --sans:'Inter',system-ui,sans-serif;
 }
+html,body{height:100%}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.app{display:grid;grid-template-columns:var(--sidebar-w) 1fr;flex:1;overflow:hidden}
+.sidebar{background:var(--surface);border-right:0.5px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.sidebar-header{padding:1.1rem 1.25rem 0.9rem;border-bottom:0.5px solid var(--border);flex-shrink:0}
+.sidebar-header h1{font-size:16px;font-weight:500;letter-spacing:-0.02em;display:flex;align-items:center;gap:8px}
+.sidebar-header h1 span{font-size:19px}
+.sidebar-header p{font-size:11px;color:var(--muted);margin-top:2px}
+.sidebar-scroll{flex:1;overflow-y:auto}
+.sidebar-scroll::-webkit-scrollbar{width:4px}
+.sidebar-scroll::-webkit-scrollbar-thumb{background:var(--border-mid);border-radius:2px}
+.section{padding:0.9rem 1.25rem;border-bottom:0.5px solid var(--border)}
+.section-title{font-size:10px;font-weight:500;letter-spacing:0.1em;text-transform:uppercase;color:var(--hint);margin-bottom:0.75rem}
+label{display:block;font-size:12px;color:var(--muted);margin-bottom:3px;margin-top:9px}
+label:first-of-type{margin-top:0}
+input[type=text],input[type=number],select,textarea{width:100%;font-size:12.5px;font-family:var(--sans);padding:7px 10px;border:0.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);outline:none;transition:border-color 0.15s}
+input:focus,select:focus,textarea:focus{border-color:#888}
+textarea{resize:vertical;font-family:'Crimson Pro',Georgia,serif;font-size:13px;line-height:1.6}
+.theme-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.theme-card{border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;cursor:pointer;transition:all 0.15s;background:var(--surface)}
+.theme-card:hover{border-color:#888}
+.theme-card.active{border-color:var(--accent-ui);background:#faf8f3}
+.theme-card .t-name{font-size:12px;font-weight:500}
+.theme-card .t-desc{font-size:10px;color:var(--hint);margin-top:1px}
+.theme-preview{height:18px;border-radius:3px;margin-bottom:6px;display:flex;gap:3px}
+.theme-preview span{flex:1;border-radius:2px}
+.color-row{display:flex;gap:6px;flex-wrap:wrap}
+.swatch{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:all 0.15s}
+.swatch.active{border-color:var(--text);transform:scale(1.18)}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:2px;background:var(--border-mid);outline:none;border:none;padding:0}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:var(--accent-ui);cursor:pointer}
+.range-row{display:flex;align-items:center;gap:10px}
+.range-row input[type=range]{flex:1}
+.range-val{font-size:11px;color:var(--muted);min-width:36px;text-align:right}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+.toggle-row span{font-size:12px;color:var(--muted)}
+.toggle{position:relative;width:34px;height:18px;flex-shrink:0}
+.toggle input{opacity:0;width:0;height:0}
+.tog-track{position:absolute;inset:0;background:var(--border-mid);border-radius:18px;cursor:pointer;transition:0.2s}
+.tog-track::before{content:'';position:absolute;height:12px;width:12px;left:3px;top:3px;background:#fff;border-radius:50%;transition:0.2s}
+.toggle input:checked+.tog-track{background:var(--accent-ui)}
+.toggle input:checked+.tog-track::before{transform:translateX(16px)}
+.orn-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
+.orn-btn{border:0.5px solid var(--border-mid);border-radius:6px;padding:6px;cursor:pointer;background:transparent;font-size:15px;text-align:center;transition:all 0.15s;line-height:1}
+.orn-btn:hover{background:var(--bg)}
+.orn-btn.active{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
+.file-drop{border:1.5px dashed var(--border-mid);border-radius:8px;padding:14px;text-align:center;cursor:pointer;font-size:12px;color:var(--muted);transition:all 0.15s;margin-top:4px;position:relative}
+.file-drop:hover,.file-drop.dragover{background:var(--bg);border-color:#888}
+.file-drop .drop-icon{font-size:22px;display:block;margin-bottom:5px}
+.img-chips,.file-chips{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
+.img-chip,.file-chip{background:var(--bg);border-radius:6px;font-size:11px;padding:3px 7px;display:flex;align-items:center;gap:4px;border:0.5px solid var(--border)}
+.img-chip img{width:16px;height:16px;object-fit:cover;border-radius:2px}
+.chip-type{font-size:9px;padding:1px 5px;border-radius:3px;font-weight:500;text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;user-select:none}
+.chip-pre{background:#dbeafe;color:#1e40af}
+.chip-ch{background:#dcfce7;color:#166534}
+.chip-post{background:#fef3c7;color:#92400e}
+.chip-rm{color:#c44;font-weight:700;font-size:13px;cursor:pointer;line-height:1;margin-left:2px}
+.export-section{padding:0.9rem 1.25rem 1.1rem}
+.export-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.exp-btn{padding:9px 8px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid;transition:all 0.15s;text-align:center;font-family:var(--sans);display:flex;flex-direction:column;align-items:center;gap:2px}
+.exp-btn .fmt{font-size:15px}
+.exp-btn .lbl{font-size:10px;opacity:0.75;font-weight:400}
+.exp-btn.primary{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
+.exp-btn.primary:hover{opacity:0.85}
+.exp-btn.secondary{background:transparent;color:var(--accent-ui);border-color:var(--accent-ui)}
+.exp-btn.secondary:hover{background:#faf8f3}
+.exp-btn:disabled{opacity:0.4;cursor:not-allowed}
+.status-bar{padding:6px 1.25rem;font-size:11px;color:var(--hint);background:#faf9f7;border-top:0.5px solid var(--border);flex-shrink:0}
+.preview-area{overflow-y:auto;background:#e4e0d8;padding:2rem;display:flex;flex-direction:column;align-items:center}
+.preview-area::-webkit-scrollbar{width:6px}
+.preview-area::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.2);border-radius:3px}
+.preview-wrap{width:100%;display:flex;flex-direction:column;align-items:center;gap:1.5rem}
+.book-page{box-shadow:0 6px 40px rgba(0,0,0,0.22),0 1px 4px rgba(0,0,0,0.1);position:relative;overflow:hidden;flex-shrink:0}
+.tabs{display:flex;gap:0;border-bottom:0.5px solid var(--border);flex-shrink:0;overflow-x:auto}
+.tabs::-webkit-scrollbar{display:none}
+.tab-btn{padding:8px 11px;font-size:11.5px;font-family:var(--sans);border:none;background:transparent;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-0.5px;transition:all 0.15s;white-space:nowrap;flex-shrink:0}
+.tab-btn.active{color:var(--text);border-bottom-color:var(--accent-ui)}
+@media(max-width:768px){.app{grid-template-columns:1fr}.preview-area{display:none}}
+[data-tip]{position:relative}
+[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:#333;color:#fff;font-size:10px;padding:3px 7px;border-radius:4px;white-space:nowrap;pointer-events:none;z-index:10}
+.small-note{font-size:10.5px;color:var(--hint);margin-top:5px;line-height:1.5}
 
-html, body { height: 100%; }
-body {
-  font-family: var(--sans);
-  background: var(--bg);
-  color: var(--text);
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  overflow: hidden;
-}
+/* ── Chapter Manager ── */
+.ch-list{display:flex;flex-direction:column;gap:4px;margin-top:6px}
+.ch-item{border:0.5px solid var(--border-mid);border-radius:8px;background:var(--surface);transition:all 0.15s;cursor:grab}
+.ch-item.dragging{opacity:0.5;cursor:grabbing}
+.ch-item.drag-over{border-color:var(--accent-ui);box-shadow:0 0 0 2px rgba(42,31,14,0.15)}
+.ch-item-head{display:flex;align-items:center;gap:6px;padding:7px 10px}
+.ch-drag-handle{color:var(--hint);font-size:13px;cursor:grab;flex-shrink:0;user-select:none}
+.ch-title-input{flex:1;font-size:12.5px;font-family:var(--sans);border:none;background:transparent;color:var(--text);padding:0;outline:none;min-width:0}
+.ch-title-input:focus{background:#faf8f3;border-radius:3px;padding:1px 4px}
+.ch-expand-btn{background:none;border:none;cursor:pointer;color:var(--hint);font-size:11px;padding:2px 4px;border-radius:3px;transition:all 0.15s;flex-shrink:0}
+.ch-expand-btn:hover{background:var(--bg);color:var(--text)}
+.ch-item-body{padding:0 10px 10px;display:none}
+.ch-item-body.open{display:block}
+.ch-preview{font-size:11px;color:var(--muted);line-height:1.6;margin-bottom:6px;max-height:60px;overflow:hidden;font-family:'Crimson Pro',Georgia,serif}
+.ch-content-area{font-size:12px;font-family:'Crimson Pro',Georgia,serif;line-height:1.6;color:var(--text);border:0.5px solid var(--border-mid);border-radius:6px;padding:8px;resize:vertical;width:100%;background:var(--surface);min-height:100px;outline:none}
+.ch-content-area:focus{border-color:#888}
+.ch-meta{display:flex;gap:5px;align-items:center;margin-top:6px;flex-wrap:wrap}
+.ch-src{font-size:10px;color:var(--hint);background:var(--bg);padding:2px 6px;border-radius:4px;border:0.5px solid var(--border)}
+.ch-rm-btn{margin-left:auto;font-size:10px;color:#c44;background:none;border:0.5px solid #c4444430;border-radius:4px;padding:2px 7px;cursor:pointer;font-family:var(--sans);transition:all 0.15s}
+.ch-rm-btn:hover{background:#ffeaea}
+.stats-bar{display:flex;gap:8px;font-size:10.5px;padding:5px 0;margin-bottom:4px;color:var(--muted)}
+.stat-pill{padding:2px 7px;border-radius:10px;font-size:10px;font-weight:500}
+.stat-pre{background:#dbeafe;color:#1e40af}
+.stat-ch{background:#dcfce7;color:#166534}
+.stat-post{background:#fef3c7;color:#92400e}
+.ch-add-btn{width:100%;padding:7px;border:1.5px dashed var(--border-mid);border-radius:7px;background:transparent;font-size:11.5px;color:var(--muted);cursor:pointer;font-family:var(--sans);transition:all 0.15s;margin-top:4px}
+.ch-add-btn:hover{border-color:#888;color:var(--text);background:var(--bg)}
 
-/* ── Layout ── */
-.app {
-  display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
-  flex: 1;
-  overflow: hidden;
-}
-
-/* ── Sidebar ── */
-.sidebar {
-  background: var(--surface);
-  border-right: 0.5px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.sidebar-header {
-  padding: 1.25rem 1.25rem 1rem;
-  border-bottom: 0.5px solid var(--border);
-  flex-shrink: 0;
-}
-.sidebar-header h1 {
-  font-size: 17px;
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.sidebar-header h1 span { font-size: 20px; }
-.sidebar-header p { font-size: 11.5px; color: var(--muted); margin-top: 3px; }
-
-.sidebar-scroll { flex: 1; overflow-y: auto; }
-.sidebar-scroll::-webkit-scrollbar { width: 4px; }
-.sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 2px; }
-
-.section {
-  padding: 1rem 1.25rem;
-  border-bottom: 0.5px solid var(--border);
-}
-.section-title {
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--hint);
-  margin-bottom: 0.75rem;
-}
-
-label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 3px; margin-top: 9px; }
-label:first-of-type { margin-top: 0; }
-
-input[type=text],
-input[type=number],
-select,
-textarea {
-  width: 100%;
-  font-size: 12.5px;
-  font-family: var(--sans);
-  padding: 7px 10px;
-  border: 0.5px solid var(--border-mid);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--text);
-  outline: none;
-  transition: border-color 0.15s;
-}
-input:focus, select:focus, textarea:focus { border-color: #888; }
-textarea {
-  resize: vertical;
-  font-family: 'Crimson Pro', Georgia, serif;
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-/* ── Theme Cards ── */
-.theme-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.theme-card {
-  border: 1.5px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 10px;
-  cursor: pointer;
-  transition: all 0.15s;
-  background: var(--surface);
-}
-.theme-card:hover { border-color: #888; }
-.theme-card.active { border-color: var(--accent-ui); background: #faf8f3; }
-.theme-card .t-name { font-size: 12px; font-weight: 500; }
-.theme-card .t-desc { font-size: 10px; color: var(--hint); margin-top: 1px; }
-.theme-preview { height: 18px; border-radius: 3px; margin-bottom: 6px; display: flex; gap: 3px; }
-.theme-preview span { flex: 1; border-radius: 2px; }
-
-/* ── Color Swatches ── */
-.color-row { display: flex; gap: 6px; flex-wrap: wrap; }
-.swatch {
-  width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
-  border: 2px solid transparent; transition: all 0.15s;
-}
-.swatch.active { border-color: var(--text); transform: scale(1.18); }
-
-/* ── Range ── */
-input[type=range] {
-  -webkit-appearance: none; appearance: none;
-  width: 100%; height: 3px;
-  border-radius: 2px; background: var(--border-mid);
-  outline: none; border: none; padding: 0;
-}
-input[type=range]::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 15px; height: 15px;
-  border-radius: 50%; background: var(--accent-ui); cursor: pointer;
-}
-.range-row { display: flex; align-items: center; gap: 10px; }
-.range-row input[type=range] { flex: 1; }
-.range-val { font-size: 11px; color: var(--muted); min-width: 36px; text-align: right; }
-
-/* ── Toggle ── */
-.toggle-row { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
-.toggle-row span { font-size: 12px; color: var(--muted); }
-.toggle { position: relative; width: 34px; height: 18px; flex-shrink: 0; }
-.toggle input { opacity: 0; width: 0; height: 0; }
-.tog-track {
-  position: absolute; inset: 0;
-  background: var(--border-mid); border-radius: 18px; cursor: pointer; transition: 0.2s;
-}
-.tog-track::before {
-  content: ''; position: absolute;
-  height: 12px; width: 12px; left: 3px; top: 3px;
-  background: #fff; border-radius: 50%; transition: 0.2s;
-}
-.toggle input:checked + .tog-track { background: var(--accent-ui); }
-.toggle input:checked + .tog-track::before { transform: translateX(16px); }
-
-/* ── Ornaments ── */
-.orn-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
-.orn-btn {
-  border: 0.5px solid var(--border-mid); border-radius: 6px;
-  padding: 6px; cursor: pointer; background: transparent;
-  font-size: 15px; text-align: center; transition: all 0.15s;
-  line-height: 1;
-}
-.orn-btn:hover { background: var(--bg); }
-.orn-btn.active { background: var(--accent-ui); color: #fff; border-color: var(--accent-ui); }
-
-/* ── Image Upload ── */
-.file-drop {
-  border: 1.5px dashed var(--border-mid); border-radius: 8px;
-  padding: 12px; text-align: center; cursor: pointer;
-  font-size: 12px; color: var(--muted); transition: all 0.15s; margin-top: 4px;
-}
-.file-drop:hover, .file-drop.dragover { background: var(--bg); border-color: #888; }
-.img-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
-.img-chip {
-  background: var(--bg); border-radius: 6px; font-size: 11px;
-  padding: 3px 7px; display: flex; align-items: center; gap: 4px;
-  border: 0.5px solid var(--border);
-}
-.img-chip img { width: 16px; height: 16px; object-fit: cover; border-radius: 2px; }
-.img-chip .rm { color: #c44; font-weight: 700; font-size: 13px; cursor: pointer; line-height: 1; }
-
-/* ── Export Buttons ── */
-.export-section { padding: 1rem 1.25rem 1.25rem; }
-.export-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
-.exp-btn {
-  padding: 9px 8px; border-radius: 7px; font-size: 12px; font-weight: 500;
-  cursor: pointer; border: 1px solid; transition: all 0.15s;
-  text-align: center; font-family: var(--sans);
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-}
-.exp-btn .fmt { font-size: 15px; }
-.exp-btn .lbl { font-size: 10px; opacity: 0.75; font-weight: 400; }
-.exp-btn.primary { background: var(--accent-ui); color: #fff; border-color: var(--accent-ui); }
-.exp-btn.primary:hover { opacity: 0.85; }
-.exp-btn.secondary { background: transparent; color: var(--accent-ui); border-color: var(--accent-ui); }
-.exp-btn.secondary:hover { background: #faf8f3; }
-.exp-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-
-/* ── Status Bar ── */
-.status-bar {
-  padding: 6px 1.25rem;
-  font-size: 11px; color: var(--hint);
-  background: #faf9f7;
-  border-top: 0.5px solid var(--border);
-  flex-shrink: 0;
-}
-
-/* ── Preview ── */
-.preview-area {
-  overflow-y: auto;
-  background: #e4e0d8;
-  padding: 2rem;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.preview-area::-webkit-scrollbar { width: 6px; }
-.preview-area::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 3px; }
-.preview-wrap { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 1.5rem; }
-
-/* ── Page Shadow ── */
-.book-page {
-  box-shadow: 0 6px 40px rgba(0,0,0,0.22), 0 1px 4px rgba(0,0,0,0.1);
-  position: relative;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-/* ── Tabs ── */
-.tabs { display: flex; gap: 0; border-bottom: 0.5px solid var(--border); flex-shrink: 0; }
-.tab-btn {
-  padding: 8px 14px; font-size: 12px; font-family: var(--sans);
-  border: none; background: transparent; cursor: pointer; color: var(--muted);
-  border-bottom: 2px solid transparent; margin-bottom: -0.5px; transition: all 0.15s;
-}
-.tab-btn.active { color: var(--text); border-bottom-color: var(--accent-ui); }
-
-/* ── Mobile warning ── */
-@media (max-width: 768px) {
-  .app { grid-template-columns: 1fr; }
-  .preview-area { display: none; }
-}
-
-/* ── Tooltip ── */
-[data-tip] { position: relative; }
-[data-tip]:hover::after {
-  content: attr(data-tip);
-  position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
-  background: #333; color: #fff; font-size: 10px; padding: 3px 7px;
-  border-radius: 4px; white-space: nowrap; pointer-events: none; z-index: 10;
-}
-
-/* ── Page num input ── */
-.small-note { font-size: 10.5px; color: var(--hint); margin-top: 5px; line-height: 1.5; }
+/* ── Schema Editor Modal ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:100;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal-box{background:var(--surface);border-radius:12px;padding:1.5rem;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
+.modal-title{font-size:15px;font-weight:500;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center}
+.modal-close{background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1}
+.schema-json{width:100%;font-family:'Courier New',monospace;font-size:11.5px;line-height:1.6;border:0.5px solid var(--border-mid);border-radius:6px;padding:10px;background:#fafaf8;resize:vertical;min-height:220px;outline:none;color:var(--text)}
+.schema-json:focus{border-color:#888}
+.schema-presets{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
+.preset-btn{font-size:11px;padding:4px 10px;border:0.5px solid var(--border-mid);border-radius:5px;cursor:pointer;background:var(--surface);font-family:var(--sans);transition:all 0.15s;color:var(--muted)}
+.preset-btn:hover{border-color:#888;color:var(--text)}
+.modal-actions{display:flex;gap:8px;margin-top:1rem;justify-content:flex-end}
+.btn-sm{padding:7px 14px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;font-family:var(--sans);transition:all 0.15s;border:1px solid}
+.btn-primary{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
+.btn-primary:hover{opacity:0.85}
+.btn-ghost{background:transparent;color:var(--muted);border-color:var(--border-mid)}
+.btn-ghost:hover{color:var(--text);border-color:#888}
+.schema-error{color:#c44;font-size:11px;margin-top:5px;display:none}
 </style>
 </head>
 <body>
-
 <div class="app">
 
-  <!-- ════════════════ SIDEBAR ════════════════ -->
-  <aside class="sidebar">
-    <div class="sidebar-header">
-      <h1><span>📖</span> Folio</h1>
-      <p>Manuscript formatter — PDF · EPUB · MOBI · DOCX</p>
-    </div>
+<!-- ════════════════ SIDEBAR ════════════════ -->
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <h1><span>📖</span> Folio</h1>
+    <p>Manuscript formatter — PDF · EPUB · MOBI · DOCX</p>
+  </div>
 
-    <!-- Tabs -->
-    <div class="tabs">
-      <button class="tab-btn active" onclick="switchTab('content',this)">Content</button>
-      <button class="tab-btn" onclick="switchTab('design',this)">Design</button>
-      <button class="tab-btn" onclick="switchTab('type',this)">Typography</button>
-      <button class="tab-btn" onclick="switchTab('images',this)">Images</button>
-    </div>
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('import',this)">Import</button>
+    <button class="tab-btn" onclick="switchTab('chapters',this)">Chapters</button>
+    <button class="tab-btn" onclick="switchTab('details',this)">Details</button>
+    <button class="tab-btn" onclick="switchTab('design',this)">Design</button>
+    <button class="tab-btn" onclick="switchTab('type',this)">Type</button>
+    <button class="tab-btn" onclick="switchTab('images',this)">Images</button>
+  </div>
 
-    <div class="sidebar-scroll">
+  <div class="sidebar-scroll">
 
-      <!-- ── Content Tab ── -->
-      <div id="tab-content">
-        <div class="section">
-          <div class="section-title">Book Details</div>
-          <label>Title</label>
-          <input type="text" id="bookTitle" value="The Midnight Garden" oninput="renderPreview()">
-          <label>Author</label>
-          <input type="text" id="bookAuthor" value="Eleanor Ashford" oninput="renderPreview()">
-          <label>Subtitle</label>
-          <input type="text" id="bookSubtitle" value="A Novel" oninput="renderPreview()">
-          <label>Publisher (optional)</label>
-          <input type="text" id="publisher" value="" placeholder="Your Press" oninput="renderPreview()">
-          <label>Year</label>
-          <input type="text" id="pubYear" value="2025" oninput="renderPreview()">
-          <label>Dedication</label>
-          <input type="text" id="dedication" placeholder="For someone special…" oninput="renderPreview()">
-          <label>Copyright notice</label>
-          <input type="text" id="copyright" placeholder="© 2025 Eleanor Ashford. All rights reserved." oninput="renderPreview()">
+    <!-- ── IMPORT TAB ── -->
+    <div id="tab-import">
+      <div class="section">
+        <div class="section-title">Import Files</div>
+        <div class="file-drop" id="ms-dropzone" onclick="document.getElementById('msInput').click()">
+          <span class="drop-icon">⇪</span>
+          Click or drag files here<br>
+          <span style="font-size:10px;opacity:0.6">.docx · .txt · .md · .rtf — single file or batch</span>
         </div>
-
-        <div class="section">
-          <div class="section-title">Manuscript</div>
-          <p class="small-note">Use <strong>#</strong> for chapter titles, <strong>##</strong> for scene breaks, blank lines between paragraphs.</p>
-          <textarea id="manuscript" rows="10" oninput="renderPreview()" placeholder="# Chapter One&#10;&#10;It was a dark and stormy night...&#10;&#10;## &#10;&#10;Morning came quietly.&#10;&#10;# Chapter Two&#10;&#10;The news arrived by telegram."></textarea>
-          <div class="toggle-row">
-            <span>Auto page numbers</span>
-            <label class="toggle"><input type="checkbox" id="pageNums" checked onchange="renderPreview()"><span class="tog-track"></span></label>
-          </div>
-          <div class="toggle-row">
-            <span>Running header</span>
-            <label class="toggle"><input type="checkbox" id="runningHeader" checked onchange="renderPreview()"><span class="tog-track"></span></label>
-          </div>
-          <div class="toggle-row">
-            <span>Table of contents</span>
-            <label class="toggle"><input type="checkbox" id="showTOC" onchange="renderPreview()"><span class="tog-track"></span></label>
-          </div>
-          <div class="toggle-row">
-            <span>Drop cap on chapters</span>
-            <label class="toggle"><input type="checkbox" id="dropCap" checked onchange="renderPreview()"><span class="tog-track"></span></label>
-          </div>
-        </div>
+        <input type="file" id="msInput" accept=".docx,.txt,.md,.rtf,.doc" multiple style="display:none" onchange="handleFileImport(this)">
+        <div class="file-chips" id="importedChips"></div>
       </div>
 
-      <!-- ── Design Tab ── -->
-      <div id="tab-design" style="display:none">
-        <div class="section">
-          <div class="section-title">Theme</div>
-          <div class="theme-grid" id="themeGrid"></div>
+      <div class="section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem">
+          <div class="section-title" style="margin-bottom:0">Import Schema</div>
+          <button class="btn-sm btn-ghost" style="padding:4px 10px;font-size:11px" onclick="openSchemaModal()">⚙ Configure</button>
         </div>
+        <p class="small-note">The schema controls how filenames map to pre-book, chapter, and post-book sections, and how chapters are sorted.</p>
 
-        <div class="section">
-          <div class="section-title">Accent Color</div>
-          <div class="color-row" id="colorRow"></div>
-        </div>
-
-        <div class="section">
-          <div class="section-title">Chapter Ornaments</div>
-          <div class="orn-grid" id="ornGrid"></div>
-        </div>
-
-        <div class="section">
-          <div class="section-title">Page Size</div>
-          <select id="pageSize" onchange="renderPreview()">
-            <option value="trade">Trade Paperback (6 × 9")</option>
-            <option value="pocket">Pocket (5 × 8")</option>
-            <option value="digest">Digest (5.5 × 8.5")</option>
-            <option value="a4">A4</option>
-            <option value="letter">US Letter</option>
+        <div style="margin-top:10px">
+          <label>Sort order</label>
+          <select id="importSort" onchange="reClassifyAll()">
+            <option value="natural">Natural (01, 02, 03…)</option>
+            <option value="filename">Filename A–Z</option>
+            <option value="manual">Manual (drag to reorder)</option>
           </select>
-          <div class="toggle-row" style="margin-top:10px">
-            <span>Facing pages (recto/verso)</span>
-            <label class="toggle"><input type="checkbox" id="facingPages" onchange="renderPreview()"><span class="tog-track"></span></label>
-          </div>
         </div>
+
+        <div style="margin-top:8px">
+          <label>Title extracted from</label>
+          <select id="importTitleFrom">
+            <option value="h1">First # heading in file</option>
+            <option value="filename">Filename (cleaned)</option>
+            <option value="both">Heading, fallback to filename</option>
+          </select>
+        </div>
+
+        <div class="toggle-row" style="margin-top:10px">
+          <span>Split single files on # headings</span>
+          <label class="toggle"><input type="checkbox" id="splitOnHeadings" checked><span class="tog-track"></span></label>
+        </div>
+
+        <button class="ch-add-btn" style="margin-top:10px" onclick="applyImportToChapters()" id="applyImportBtn" disabled>
+          ↓ Apply import to chapter list
+        </button>
       </div>
 
-      <!-- ── Typography Tab ── -->
-      <div id="tab-type" style="display:none">
-        <div class="section">
-          <div class="section-title">Body Font</div>
-          <select id="bodyFont" onchange="renderPreview()">
-            <option value="'Crimson Pro', Georgia, serif">Crimson Pro — Classic editorial</option>
-            <option value="'Libre Baskerville', Georgia, serif">Libre Baskerville — Scholarly</option>
-            <option value="'IM Fell English', Georgia, serif">IM Fell — Antiquarian</option>
-            <option value="'Playfair Display', Georgia, serif">Playfair Display — Elegant</option>
-            <option value="Georgia, serif">Georgia — Traditional</option>
-          </select>
-
-          <label>Font Size</label>
-          <div class="range-row">
-            <input type="range" id="fontSize" min="10" max="16" value="13" step="0.5"
-              oninput="document.getElementById('fontSizeOut').textContent=this.value+'pt';renderPreview()">
-            <span class="range-val" id="fontSizeOut">13pt</span>
-          </div>
-
-          <label>Line Spacing</label>
-          <select id="lineSpacing" onchange="renderPreview()">
-            <option value="1.45">Tight (1.45)</option>
-            <option value="1.7" selected>Standard (1.7)</option>
-            <option value="2.0">Generous (2.0)</option>
-            <option value="2.3">Airy (2.3)</option>
-          </select>
-
-          <label>Paragraph Indent</label>
-          <select id="paraIndent" onchange="renderPreview()">
-            <option value="0">No indent (blank line between)</option>
-            <option value="1.2em" selected>Standard indent</option>
-            <option value="2em">Wide indent</option>
-          </select>
-
-          <label>Chapter Number Style</label>
-          <select id="chNumStyle" onchange="renderPreview()">
-            <option value="arabic">1, 2, 3…</option>
-            <option value="roman" selected>I, II, III…</option>
-            <option value="word">One, Two, Three…</option>
-            <option value="none">No number, title only</option>
-          </select>
-
-          <div class="toggle-row" style="margin-top:10px">
-            <span>Justify body text</span>
-            <label class="toggle"><input type="checkbox" id="justifyText" checked onchange="renderPreview()"><span class="tog-track"></span></label>
-          </div>
-        </div>
-      </div>
-
-      <!-- ── Images Tab ── -->
-      <div id="tab-images" style="display:none">
-        <div class="section">
-          <div class="section-title">Cover Image</div>
-          <div class="file-drop" id="dropzone" onclick="document.getElementById('imgInput').click()">
-            Click or drag images here<br><span style="font-size:10px;opacity:0.6">PNG · JPG · SVG · WEBP</span>
-          </div>
-          <input type="file" id="imgInput" accept="image/*" multiple style="display:none" onchange="handleImages(this)">
-          <div class="img-chips" id="imgList"></div>
-
-          <label style="margin-top:12px">Cover layout</label>
-          <select id="coverPos" onchange="renderPreview()">
-            <option value="full">Full bleed cover page</option>
-            <option value="top">Centered above title</option>
-            <option value="none">No cover image</option>
-          </select>
-
-          <div class="toggle-row" style="margin-top:10px">
-            <span>Decorative border on pages</span>
-            <label class="toggle"><input type="checkbox" id="pageBorder" onchange="renderPreview()"><span class="tog-track"></span></label>
-          </div>
-        </div>
-
-        <div class="section">
-          <div class="section-title">Chapter Header Images</div>
-          <p class="small-note">If you upload more than one image, each chapter will cycle through them as decorative headers beneath the chapter title.</p>
-          <div class="toggle-row">
-            <span>Use images as chapter headers</span>
-            <label class="toggle"><input type="checkbox" id="chapterImgs" onchange="renderPreview()"><span class="tog-track"></span></label>
-          </div>
-        </div>
-      </div>
-
-    </div><!-- /sidebar-scroll -->
-
-    <!-- Export -->
-    <div class="export-section">
-      <div id="pageCountLine" style="font-size:11px;color:var(--hint);margin-bottom:8px">— pages estimated</div>
-      <div class="export-grid">
-        <button class="exp-btn primary" id="btnPDF" onclick="exportPDF()">
-          <span class="fmt">PDF</span><span class="lbl">Print-ready</span>
-        </button>
-        <button class="exp-btn secondary" id="btnEPUB" onclick="exportEPUB()">
-          <span class="fmt">EPUB</span><span class="lbl">E-readers</span>
-        </button>
-        <button class="exp-btn secondary" id="btnMOBI" onclick="exportMOBI()" data-tip="EPUB packaged for Kindle / KDP">
-          <span class="fmt">MOBI</span><span class="lbl">Kindle-ready</span>
-        </button>
-        <button class="exp-btn secondary" id="btnDOCX" onclick="exportDOCX()">
-          <span class="fmt">DOCX</span><span class="lbl">Word / edit</span>
-        </button>
+      <div class="section">
+        <div class="section-title">Paste Manuscript</div>
+        <p class="small-note">Or paste directly. Use <strong>#</strong> for chapter titles, <strong>##</strong> for scene breaks.</p>
+        <textarea id="manuscript" rows="8" oninput="onManuscriptPaste()" placeholder="# Chapter One&#10;&#10;It was a dark and stormy night...&#10;&#10;## &#10;&#10;Morning came quietly."></textarea>
+        <button class="ch-add-btn" onclick="parseManuscriptToChapters()" style="margin-top:6px">↓ Parse into chapter list</button>
       </div>
     </div>
 
-    <div class="status-bar" id="statusBar">Ready — paste your manuscript in the Content tab</div>
-  </aside>
+    <!-- ── CHAPTERS TAB ── -->
+    <div id="tab-chapters" style="display:none">
+      <div class="section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <div class="section-title" style="margin-bottom:0">Chapter List</div>
+          <span style="font-size:10px;color:var(--hint)">drag to reorder · click type badge to change</span>
+        </div>
+        <div class="stats-bar" id="chStatsBar"></div>
+        <div class="ch-list" id="chList"></div>
+        <button class="ch-add-btn" onclick="addBlankChapter()">+ Add chapter</button>
+      </div>
+    </div>
 
-  <!-- ════════════════ PREVIEW ════════════════ -->
-  <main class="preview-area" id="previewArea">
-    <div class="preview-wrap" id="bookPreview"></div>
-  </main>
+    <!-- ── DETAILS TAB ── -->
+    <div id="tab-details" style="display:none">
+      <div class="section">
+        <div class="section-title">Book Details</div>
+        <label>Title</label>
+        <input type="text" id="bookTitle" value="The Midnight Garden" oninput="renderPreview()">
+        <label>Author</label>
+        <input type="text" id="bookAuthor" value="Eleanor Ashford" oninput="renderPreview()">
+        <label>Subtitle</label>
+        <input type="text" id="bookSubtitle" value="A Novel" oninput="renderPreview()">
+        <label>Publisher (optional)</label>
+        <input type="text" id="publisher" value="" placeholder="Your Press" oninput="renderPreview()">
+        <label>Year</label>
+        <input type="text" id="pubYear" value="2025" oninput="renderPreview()">
+        <label>Dedication</label>
+        <input type="text" id="dedication" placeholder="For someone special…" oninput="renderPreview()">
+        <label>Copyright notice</label>
+        <input type="text" id="copyright" placeholder="© 2025 Eleanor Ashford. All rights reserved." oninput="renderPreview()">
+        <div class="toggle-row" style="margin-top:12px">
+          <span>Auto page numbers</span>
+          <label class="toggle"><input type="checkbox" id="pageNums" checked onchange="renderPreview()"><span class="tog-track"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span>Running header</span>
+          <label class="toggle"><input type="checkbox" id="runningHeader" checked onchange="renderPreview()"><span class="tog-track"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span>Table of contents</span>
+          <label class="toggle"><input type="checkbox" id="showTOC" onchange="renderPreview()"><span class="tog-track"></span></label>
+        </div>
+        <div class="toggle-row">
+          <span>Drop cap on chapters</span>
+          <label class="toggle"><input type="checkbox" id="dropCap" checked onchange="renderPreview()"><span class="tog-track"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── DESIGN TAB ── -->
+    <div id="tab-design" style="display:none">
+      <div class="section">
+        <div class="section-title">Theme</div>
+        <div class="theme-grid" id="themeGrid"></div>
+      </div>
+      <div class="section">
+        <div class="section-title">Accent Color</div>
+        <div class="color-row" id="colorRow"></div>
+      </div>
+      <div class="section">
+        <div class="section-title">Chapter Ornaments</div>
+        <div class="orn-grid" id="ornGrid"></div>
+      </div>
+      <div class="section">
+        <div class="section-title">Page Size</div>
+        <select id="pageSize" onchange="renderPreview()">
+          <option value="trade">Trade Paperback (6 × 9")</option>
+          <option value="pocket">Pocket (5 × 8")</option>
+          <option value="digest">Digest (5.5 × 8.5")</option>
+          <option value="a4">A4</option>
+          <option value="letter">US Letter</option>
+        </select>
+        <div class="toggle-row" style="margin-top:10px">
+          <span>Facing pages (recto/verso)</span>
+          <label class="toggle"><input type="checkbox" id="facingPages" onchange="renderPreview()"><span class="tog-track"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TYPE TAB ── -->
+    <div id="tab-type" style="display:none">
+      <div class="section">
+        <div class="section-title">Body Font</div>
+        <select id="bodyFont" onchange="renderPreview()">
+          <option value="'Crimson Pro', Georgia, serif">Crimson Pro — Classic editorial</option>
+          <option value="'Libre Baskerville', Georgia, serif">Libre Baskerville — Scholarly</option>
+          <option value="'IM Fell English', Georgia, serif">IM Fell — Antiquarian</option>
+          <option value="'Playfair Display', Georgia, serif">Playfair Display — Elegant</option>
+          <option value="Georgia, serif">Georgia — Traditional</option>
+        </select>
+        <label>Font Size</label>
+        <div class="range-row">
+          <input type="range" id="fontSize" min="10" max="16" value="13" step="0.5" oninput="document.getElementById('fontSizeOut').textContent=this.value+'pt';renderPreview()">
+          <span class="range-val" id="fontSizeOut">13pt</span>
+        </div>
+        <label>Line Spacing</label>
+        <select id="lineSpacing" onchange="renderPreview()">
+          <option value="1.45">Tight (1.45)</option>
+          <option value="1.7" selected>Standard (1.7)</option>
+          <option value="2.0">Generous (2.0)</option>
+          <option value="2.3">Airy (2.3)</option>
+        </select>
+        <label>Paragraph Indent</label>
+        <select id="paraIndent" onchange="renderPreview()">
+          <option value="0">No indent (blank line between)</option>
+          <option value="1.2em" selected>Standard indent</option>
+          <option value="2em">Wide indent</option>
+        </select>
+        <label>Chapter Number Style</label>
+        <select id="chNumStyle" onchange="renderPreview()">
+          <option value="arabic">1, 2, 3…</option>
+          <option value="roman" selected>I, II, III…</option>
+          <option value="word">One, Two, Three…</option>
+          <option value="none">No number, title only</option>
+        </select>
+        <div class="toggle-row" style="margin-top:10px">
+          <span>Justify body text</span>
+          <label class="toggle"><input type="checkbox" id="justifyText" checked onchange="renderPreview()"><span class="tog-track"></span></label>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── IMAGES TAB ── -->
+    <div id="tab-images" style="display:none">
+      <div class="section">
+        <div class="section-title">Cover Image</div>
+        <div class="file-drop" id="dropzone" onclick="document.getElementById('imgInput').click()">
+          Click or drag images here<br><span style="font-size:10px;opacity:0.6">PNG · JPG · SVG · WEBP</span>
+        </div>
+        <input type="file" id="imgInput" accept="image/*" multiple style="display:none" onchange="handleImages(this)">
+        <div class="img-chips" id="imgList"></div>
+        <label style="margin-top:12px">Cover layout</label>
+        <select id="coverPos" onchange="renderPreview()">
+          <option value="full">Full bleed cover page</option>
+          <option value="top">Centered above title</option>
+          <option value="none">No cover image</option>
+        </select>
+        <div class="toggle-row" style="margin-top:10px">
+          <span>Decorative border on pages</span>
+          <label class="toggle"><input type="checkbox" id="pageBorder" onchange="renderPreview()"><span class="tog-track"></span></label>
+        </div>
+      </div>
+      <div class="section">
+        <div class="section-title">Chapter Header Images</div>
+        <p class="small-note">If you upload more than one image, each chapter will cycle through them as decorative headers.</p>
+        <div class="toggle-row">
+          <span>Use images as chapter headers</span>
+          <label class="toggle"><input type="checkbox" id="chapterImgs" onchange="renderPreview()"><span class="tog-track"></span></label>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /sidebar-scroll -->
+
+  <!-- Export -->
+  <div class="export-section">
+    <div id="pageCountLine" style="font-size:11px;color:var(--hint);margin-bottom:8px">— pages estimated</div>
+    <div class="export-grid">
+      <button class="exp-btn primary" id="btnPDF" onclick="exportPDF()">
+        <span class="fmt">PDF</span><span class="lbl">Print-ready</span>
+      </button>
+      <button class="exp-btn secondary" id="btnEPUB" onclick="exportEPUB()">
+        <span class="fmt">EPUB</span><span class="lbl">E-readers</span>
+      </button>
+      <button class="exp-btn secondary" id="btnMOBI" onclick="exportMOBI()" data-tip="KDP-ready package">
+        <span class="fmt">MOBI</span><span class="lbl">Kindle-ready</span>
+      </button>
+      <button class="exp-btn secondary" id="btnDOCX" onclick="exportDOCX()">
+        <span class="fmt">DOCX</span><span class="lbl">Word / edit</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="status-bar" id="statusBar">Ready — import files or paste your manuscript</div>
+</aside>
+
+<!-- ════════════════ PREVIEW ════════════════ -->
+<main class="preview-area" id="previewArea">
+  <div class="preview-wrap" id="bookPreview"></div>
+</main>
 
 </div><!-- /app -->
 
+<!-- ── Schema Modal ── -->
+<div class="modal-overlay" id="schemaModal" style="display:none" onclick="if(event.target===this)closeSchemaModal()">
+  <div class="modal-box">
+    <div class="modal-title">
+      <span>Import Schema Configuration</span>
+      <button class="modal-close" onclick="closeSchemaModal()">×</button>
+    </div>
+    <p class="small-note" style="margin-bottom:10px">Define keyword arrays to classify filenames as pre-book, chapter, or post-book sections. Use regex patterns in <code>strip</code> to clean titles.</p>
+    <div class="schema-presets">
+      <span style="font-size:11px;color:var(--hint);align-self:center">Presets:</span>
+      <button class="preset-btn" onclick="loadPreset('default')">Default</button>
+      <button class="preset-btn" onclick="loadPreset('scrivener')">Scrivener</button>
+      <button class="preset-btn" onclick="loadPreset('ch01')">ch01_ style</button>
+      <button class="preset-btn" onclick="loadPreset('chapter1')">chapter-1 style</button>
+      <button class="preset-btn" onclick="loadPreset('numbered')">01_ numbered</button>
+    </div>
+    <textarea class="schema-json" id="schemaJson" rows="12"></textarea>
+    <div class="schema-error" id="schemaError">Invalid JSON — please check syntax</div>
+    <div class="modal-actions">
+      <button class="btn-sm btn-ghost" onclick="closeSchemaModal()">Cancel</button>
+      <button class="btn-sm btn-primary" onclick="saveSchema()">Apply Schema</button>
+    </div>
+  </div>
+</div>
+
 <script>
-/* ═══════════════════════════════════════════
-   STATE & DATA
-═══════════════════════════════════════════ */
-const THEMES = [
-  { id:'classic', name:'Classic',    desc:'Warm parchment',  bg:'#faf8f4', text:'#1a1504', accent:'#8B4513', divider:'#c9a86c', prev:['#faf8f4','#c9a86c','#8B4513'] },
-  { id:'modern',  name:'Modern',     desc:'Clean & minimal', bg:'#ffffff', text:'#111111', accent:'#1a1a1a', divider:'#dddddd', prev:['#ffffff','#dddddd','#111111'] },
-  { id:'dark',    name:'Dusk',       desc:'Rich dark',       bg:'#1c1815', text:'#e8d9c0', accent:'#c9956a', divider:'#4a3d2e', prev:['#1c1815','#4a3d2e','#c9956a'] },
-  { id:'sage',    name:'Sage',       desc:'Natural & earthy',bg:'#f4f7f2', text:'#1e2a1a', accent:'#4a7c59', divider:'#a8c4a2', prev:['#f4f7f2','#a8c4a2','#4a7c59'] },
-  { id:'slate',   name:'Slate',      desc:'Academic cool',   bg:'#f5f7fa', text:'#1a2030', accent:'#2c4a7c', divider:'#98aacf', prev:['#f5f7fa','#98aacf','#2c4a7c'] },
-  { id:'rose',    name:'Rose',       desc:'Romantic warm',   bg:'#fdf6f5', text:'#2a1515', accent:'#9c3d4a', divider:'#e8b4bc', prev:['#fdf6f5','#e8b4bc','#9c3d4a'] },
-  { id:'ink',     name:'Ink',        desc:'High contrast',   bg:'#f9f9f6', text:'#080808', accent:'#222222', divider:'#999999', prev:['#f9f9f6','#aaaaaa','#111111'] },
-  { id:'gold',    name:'Gilded',     desc:'Luxury gold',     bg:'#1a1505', text:'#f0e6c0', accent:'#d4a843', divider:'#5a4a20', prev:['#1a1505','#5a4a20','#d4a843'] },
+/* ═══════════════════════════════════════════════
+   DATA
+═══════════════════════════════════════════════ */
+const THEMES=[
+  {id:'classic',name:'Classic',desc:'Warm parchment',bg:'#faf8f4',text:'#1a1504',accent:'#8B4513',divider:'#c9a86c',prev:['#faf8f4','#c9a86c','#8B4513']},
+  {id:'modern',name:'Modern',desc:'Clean & minimal',bg:'#ffffff',text:'#111111',accent:'#1a1a1a',divider:'#dddddd',prev:['#ffffff','#dddddd','#111111']},
+  {id:'dark',name:'Dusk',desc:'Rich dark',bg:'#1c1815',text:'#e8d9c0',accent:'#c9956a',divider:'#4a3d2e',prev:['#1c1815','#4a3d2e','#c9956a']},
+  {id:'sage',name:'Sage',desc:'Natural & earthy',bg:'#f4f7f2',text:'#1e2a1a',accent:'#4a7c59',divider:'#a8c4a2',prev:['#f4f7f2','#a8c4a2','#4a7c59']},
+  {id:'slate',name:'Slate',desc:'Academic cool',bg:'#f5f7fa',text:'#1a2030',accent:'#2c4a7c',divider:'#98aacf',prev:['#f5f7fa','#98aacf','#2c4a7c']},
+  {id:'rose',name:'Rose',desc:'Romantic warm',bg:'#fdf6f5',text:'#2a1515',accent:'#9c3d4a',divider:'#e8b4bc',prev:['#fdf6f5','#e8b4bc','#9c3d4a']},
+  {id:'ink',name:'Ink',desc:'High contrast',bg:'#f9f9f6',text:'#080808',accent:'#222222',divider:'#999999',prev:['#f9f9f6','#aaaaaa','#111111']},
+  {id:'gold',name:'Gilded',desc:'Luxury gold',bg:'#1a1505',text:'#f0e6c0',accent:'#d4a843',divider:'#5a4a20',prev:['#1a1505','#5a4a20','#d4a843']},
 ];
+const ACCENT_COLORS=['#8B4513','#2c4a7c','#4a7c59','#9c3d4a','#6b4c8a','#c9956a','#2a6a5a','#1a1a1a','#c09040','#3a6070'];
+const ORNAMENTS=['✦','❧','⁂','✿','❦','◆','✵','✻','⊛','※','✤','☙'];
+const ROMAN=['I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX','XXI','XXII','XXIII','XXIV','XXV'];
+const WORDS=['One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen','Twenty'];
 
-const ACCENT_COLORS = ['#8B4513','#2c4a7c','#4a7c59','#9c3d4a','#6b4c8a','#c9956a','#2a6a5a','#1a1a1a','#c09040','#3a6070'];
-const ORNAMENTS     = ['✦','❧','⁂','✿','❦','◆','✵','❋','⊛','※','✤','☙'];
+let S={theme:THEMES[0],accent:'#8B4513',ornament:'✦',images:[],coverImg:null};
 
-const ROMAN = ['I','II','III','IV','V','VI','VII','VIII','IX','X','XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX',
-               'XXI','XXII','XXIII','XXIV','XXV','XXVI','XXVII','XXVIII','XXIX','XXX'];
-const WORDS = ['One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten',
-               'Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen','Twenty'];
+/* chapters array — source of truth for all exports
+   Each item: { id, type:'pre'|'chapter'|'post', title, content, src, expanded } */
+let chapters=[];
+let importedFiles=[]; // {name, rawText, classified}
 
-let S = {
-  theme:   THEMES[0],
-  accent:  '#8B4513',
-  ornament:'✦',
-  images:  [],
-  coverImg: null
+/* ── Default import schema ── */
+const SCHEMA_PRESETS={
+  default:{
+    pre_book:['00_','front','preface','prologue','foreword','intro','dedication','copyright','title'],
+    chapter:['ch','chap','chapter','part','section'],
+    post_book:['back','epilogue','appendix','afterword','notes','acknowledgements','bibliography','about','outro'],
+    strip:['^\\d+[_\\-\\.\\s]+','ch\\d+[_\\-]?','chapter[_\\-]?\\d+[_\\-]?','[_\\-]+$'],
+    title_case:true
+  },
+  scrivener:{
+    pre_book:['00','front matter','title page','copyright','dedication','epigraph','preface','foreword','introduction'],
+    chapter:['chapter','scene','part'],
+    post_book:['back matter','epilogue','afterword','appendix','notes','acknowledgements','about the author'],
+    strip:['^\\d+[_\\s]+'],
+    title_case:true
+  },
+  ch01:{
+    pre_book:['ch00','front','pre'],
+    chapter:['ch'],
+    post_book:['back','post','end'],
+    strip:['^ch\\d+[_\\-]?'],
+    title_case:true
+  },
+  chapter1:{
+    pre_book:['chapter-0','front','preface'],
+    chapter:['chapter-'],
+    post_book:['epilogue','appendix','afterword'],
+    strip:['^chapter-\\d+-?'],
+    title_case:true
+  },
+  numbered:{
+    pre_book:['00_','01_front','02_preface'],
+    chapter:[''],
+    post_book:['back_','end_','appendix','epilogue'],
+    strip:['^\\d+[_\\-]'],
+    title_case:true
+  }
 };
+let importSchema=JSON.parse(JSON.stringify(SCHEMA_PRESETS.default));
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════
    TABS
-═══════════════════════════════════════════ */
-function switchTab(id, btn) {
-  ['content','design','type','images'].forEach(t => {
-    document.getElementById('tab-'+t).style.display = (t===id) ? '' : 'none';
+═══════════════════════════════════════════════ */
+function switchTab(id,btn){
+  ['import','chapters','details','design','type','images'].forEach(t=>{
+    document.getElementById('tab-'+t).style.display=(t===id)?'':'none';
   });
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
+  if(id==='chapters') renderChapterList();
 }
 
-/* ═══════════════════════════════════════════
-   BUILD SIDEBAR WIDGETS
-═══════════════════════════════════════════ */
-function buildThemeGrid() {
-  document.getElementById('themeGrid').innerHTML = THEMES.map(t => `
+/* ═══════════════════════════════════════════════
+   SCHEMA MODAL
+═══════════════════════════════════════════════ */
+function openSchemaModal(){
+  document.getElementById('schemaJson').value=JSON.stringify(importSchema,null,2);
+  document.getElementById('schemaError').style.display='none';
+  document.getElementById('schemaModal').style.display='flex';
+}
+function closeSchemaModal(){document.getElementById('schemaModal').style.display='none'}
+function loadPreset(name){
+  const p=SCHEMA_PRESETS[name];
+  if(p) document.getElementById('schemaJson').value=JSON.stringify(p,null,2);
+}
+function saveSchema(){
+  try{
+    const v=JSON.parse(document.getElementById('schemaJson').value);
+    importSchema=v;
+    document.getElementById('schemaError').style.display='none';
+    closeSchemaModal();
+    reClassifyAll();
+    setStatus('Schema updated — re-classifying imported files');
+  } catch(e){
+    document.getElementById('schemaError').style.display='block';
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   FILE IMPORT ENGINE
+═══════════════════════════════════════════════ */
+async function handleFileImport(input){
+  const files=Array.from(input.files);
+  if(!files.length) return;
+  setStatus(`Reading ${files.length} file${files.length>1?'s':''}…`);
+  for(const f of files){
+    try{
+      const text=await readFileAsText(f);
+      const existing=importedFiles.findIndex(x=>x.name===f.name);
+      const entry={name:f.name,rawText:text,type:classifyByFilename(f.name)};
+      if(existing>=0) importedFiles[existing]=entry; else importedFiles.push(entry);
+    } catch(e){ setStatus(`Error reading ${f.name}: ${e.message}`); }
+  }
+  input.value='';
+  sortImportedFiles();
+  renderImportChips();
+  document.getElementById('applyImportBtn').disabled=false;
+  setStatus(`${importedFiles.length} file${importedFiles.length>1?'s':''} ready — click "Apply import" to load into chapter list`);
+}
+
+async function readFileAsText(file){
+  const ext=file.name.split('.').pop().toLowerCase();
+  if(ext==='docx'){
+    return new Promise((res,rej)=>{
+      const r=new FileReader();
+      r.onload=async e=>{
+        try{
+          const result=await mammoth.extractRawText({arrayBuffer:e.target.result});
+          res(result.value);
+        } catch(err){ rej(err); }
+      };
+      r.onerror=()=>rej(new Error('File read failed'));
+      r.readAsArrayBuffer(file);
+    });
+  }
+  if(ext==='rtf'){
+    return new Promise((res,rej)=>{
+      const r=new FileReader();
+      r.onload=e=>{
+        // Basic RTF stripper
+        let t=e.target.result;
+        t=t.replace(/\\pard[^\s]*/g,' ').replace(/\\[a-z]+\d*\s?/g,'').replace(/[{}]/g,'').replace(/\\\*/g,'');
+        t=t.replace(/\\par\b/g,'\n').replace(/\\line\b/g,'\n').replace(/\\tab\b/g,'\t');
+        t=t.replace(/\\'([0-9a-fA-F]{2})/g,(m,h)=>String.fromCharCode(parseInt(h,16)));
+        t=t.replace(/[^\x09\x0A\x0D\x20-\x7E\u00A0-\uFFFF]/g,'').trim();
+        res(t);
+      };
+      r.onerror=()=>rej(new Error('File read failed'));
+      r.readAsText(file,'latin1');
+    });
+  }
+  // txt / md
+  return new Promise((res,rej)=>{
+    const r=new FileReader();
+    r.onload=e=>res(e.target.result);
+    r.onerror=()=>rej(new Error('File read failed'));
+    r.readAsText(file,'utf-8');
+  });
+}
+
+function classifyByFilename(name){
+  const base=name.toLowerCase().replace(/\.[^.]+$/,'').replace(/[_\-]/g,' ').trim();
+  const schema=importSchema;
+  for(const kw of (schema.pre_book||[])){
+    if(base.includes(kw.toLowerCase())) return 'pre';
+  }
+  for(const kw of (schema.post_book||[])){
+    if(base.includes(kw.toLowerCase())) return 'post';
+  }
+  for(const kw of (schema.chapter||[])){
+    if(kw && base.includes(kw.toLowerCase())) return 'chapter';
+  }
+  return 'chapter'; // default
+}
+
+function titleFromFilename(name){
+  let base=name.replace(/\.[^.]+$/,'');
+  const strips=importSchema.strip||[];
+  for(const s of strips){ try{ base=base.replace(new RegExp(s,'i'),''); } catch(e){} }
+  base=base.replace(/[_\-]/g,' ').trim();
+  if(importSchema.title_case) base=base.replace(/\b\w/g,c=>c.toUpperCase());
+  return base||name;
+}
+
+function titleFromContent(text,fallback){
+  const m=text.match(/^#\s+(.+)$/m);
+  if(m) return m[1].trim();
+  return fallback;
+}
+
+function sortImportedFiles(){
+  const sort=document.getElementById('importSort').value;
+  if(sort==='manual') return; // user drag-managed
+  importedFiles.sort((a,b)=>{
+    if(sort==='filename') return a.name.localeCompare(b.name);
+    // natural: pre → chapter → post, then natural within each group
+    const order={pre:0,chapter:1,post:2};
+    const ta=order[a.type]||1, tb=order[b.type]||1;
+    if(ta!==tb) return ta-tb;
+    return a.name.localeCompare(b.name,undefined,{numeric:true,sensitivity:'base'});
+  });
+}
+
+function reClassifyAll(){
+  importedFiles.forEach(f=>{ f.type=classifyByFilename(f.name); });
+  sortImportedFiles();
+  renderImportChips();
+}
+
+function renderImportChips(){
+  const el=document.getElementById('importedChips');
+  el.innerHTML=importedFiles.map((f,i)=>`
+    <div class="file-chip">
+      <span class="chip-type chip-${f.type}" onclick="cycleFileType(${i})" title="Click to change">${f.type==='pre'?'Pre':f.type==='post'?'Post':'Ch'}</span>
+      <span style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${f.name}</span>
+      <span class="chip-rm" onclick="removeImportedFile(${i})">×</span>
+    </div>`).join('');
+}
+
+function cycleFileType(i){
+  const order=['pre','chapter','post'];
+  const idx=order.indexOf(importedFiles[i].type);
+  importedFiles[i].type=order[(idx+1)%3];
+  renderImportChips();
+}
+function removeImportedFile(i){
+  importedFiles.splice(i,1);
+  renderImportChips();
+  if(!importedFiles.length) document.getElementById('applyImportBtn').disabled=true;
+}
+
+/* Apply import → chapters list */
+function applyImportToChapters(){
+  const titleFrom=document.getElementById('importTitleFrom').value;
+  const splitH=document.getElementById('splitOnHeadings').checked;
+  const newChapters=[];
+
+  importedFiles.forEach(f=>{
+    const text=f.rawText.trim();
+    // check if single file should split on # headings
+    if(splitH && f.type==='chapter' && /^#{1,3}\s/m.test(text)){
+      const parts=splitOnH1(text);
+      if(parts.length>1){
+        parts.forEach((p,pi)=>{
+          let title='';
+          if(titleFrom==='h1'||titleFrom==='both') title=p.title||'';
+          if(!title&&(titleFrom==='filename'||titleFrom==='both')) title=titleFromFilename(f.name)+(parts.length>1?` (${pi+1})`:'');
+          newChapters.push({id:uid(),type:'chapter',title,content:p.content,src:f.name,expanded:false});
+        });
+        return;
+      }
+    }
+    let title='';
+    if(titleFrom==='h1'||titleFrom==='both') title=titleFromContent(text,titleFrom==='both'?titleFromFilename(f.name):'');
+    if(titleFrom==='filename') title=titleFromFilename(f.name);
+    const content=text.replace(/^#\s+.+\n?/,'').trim();
+    newChapters.push({id:uid(),type:f.type,title,content,src:f.name,expanded:false});
+  });
+
+  chapters=newChapters;
+  renderChapterList();
+  renderPreview();
+  setStatus(`Imported ${chapters.length} section${chapters.length>1?'s':''} — review in Chapters tab`);
+  switchTab('chapters',document.querySelector('.tab-btn:nth-child(2)'));
+}
+
+function splitOnH1(text){
+  const lines=text.split('\n');
+  const parts=[];
+  let cur=null,content=[];
+  lines.forEach(line=>{
+    if(/^#{1,2}\s/.test(line)){
+      if(cur!==null) parts.push({title:cur,content:content.join('\n').trim()});
+      cur=line.replace(/^#+\s+/,'').trim(); content=[];
+    } else { content.push(line); }
+  });
+  if(cur!==null) parts.push({title:cur,content:content.join('\n').trim()});
+  if(!parts.length) parts.push({title:'',content:text});
+  return parts;
+}
+
+/* ═══════════════════════════════════════════════
+   PASTE → CHAPTER LIST
+═══════════════════════════════════════════════ */
+function onManuscriptPaste(){
+  // live preview while typing
+  const raw=document.getElementById('manuscript').value;
+  if(!raw.trim()) return;
+  buildChaptersFromRaw(raw);
+  renderPreview();
+}
+
+function parseManuscriptToChapters(){
+  const raw=document.getElementById('manuscript').value.trim();
+  if(!raw){ setStatus('Nothing to parse'); return; }
+  buildChaptersFromRaw(raw);
+  renderChapterList();
+  renderPreview();
+  setStatus(`Parsed ${chapters.length} chapter${chapters.length!==1?'s':''} — review in Chapters tab`);
+}
+
+function buildChaptersFromRaw(raw){
+  const lines=raw.split('\n');
+  const result=[];
+  let cur=null,content=[],num=0;
+  lines.forEach(line=>{
+    if(line.startsWith('# ')){
+      if(cur!==null) result.push({id:uid(),type:'chapter',title:cur,content:content.join('\n').trim(),src:'pasted',expanded:false});
+      cur=line.slice(2).trim(); content=[]; num++;
+    } else { content.push(line); }
+  });
+  if(cur!==null) result.push({id:uid(),type:'chapter',title:cur,content:content.join('\n').trim(),src:'pasted',expanded:false});
+  if(!result.length && raw.trim()) result.push({id:uid(),type:'chapter',title:'',content:raw,src:'pasted',expanded:false});
+  chapters=result;
+}
+
+/* ═══════════════════════════════════════════════
+   CHAPTER LIST UI
+═══════════════════════════════════════════════ */
+function uid(){ return 'c'+Math.random().toString(36).slice(2,9); }
+
+function renderChapterList(){
+  updateChapterStats();
+  const el=document.getElementById('chList');
+  if(!chapters.length){ el.innerHTML='<div style="font-size:12px;color:var(--hint);text-align:center;padding:20px 0">No chapters yet — import files or paste manuscript</div>'; return; }
+  el.innerHTML=chapters.map((ch,i)=>chItemHTML(ch,i)).join('');
+  // re-attach drag
+  el.querySelectorAll('.ch-item').forEach(item=>attachDrag(item));
+}
+
+function chItemHTML(ch,i){
+  const typeClasses={pre:'chip-pre',chapter:'chip-ch',post:'chip-post'};
+  const typeLabel={pre:'Pre',chapter:'Ch',post:'Post'};
+  const preview=ch.content.replace(/\n/g,' ').slice(0,120)+(ch.content.length>120?'…':'');
+  return `<div class="ch-item" data-id="${ch.id}" data-i="${i}" draggable="true">
+    <div class="ch-item-head">
+      <span class="ch-drag-handle" title="Drag to reorder">⠿</span>
+      <span class="chip-type ${typeClasses[ch.type]}" onclick="cycleChType('${ch.id}')" title="Click to change type">${typeLabel[ch.type]}</span>
+      <input class="ch-title-input" value="${esc(ch.title)}" placeholder="(untitled)" oninput="updateChTitle('${ch.id}',this.value)">
+      <button class="ch-expand-btn" onclick="toggleChExpand('${ch.id}',this)">${ch.expanded?'▲':'▼'}</button>
+    </div>
+    <div class="ch-item-body ${ch.expanded?'open':''}">
+      <div class="ch-preview" style="${ch.expanded?'display:none':''}">${preview||'<em>empty</em>'}</div>
+      <textarea class="ch-content-area" style="${ch.expanded?'':'display:none'}" rows="6" oninput="updateChContent('${ch.id}',this.value)">${esc(ch.content)}</textarea>
+      <div class="ch-meta">
+        ${ch.src?`<span class="ch-src">📄 ${ch.src}</span>`:''}
+        <button class="ch-rm-btn" onclick="removeChapter('${ch.id}')">Remove</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function updateChapterStats(){
+  const pre=chapters.filter(c=>c.type==='pre').length;
+  const ch=chapters.filter(c=>c.type==='chapter').length;
+  const post=chapters.filter(c=>c.type==='post').length;
+  document.getElementById('chStatsBar').innerHTML=`
+    <span class="stat-pill stat-pre">${pre} front</span>
+    <span class="stat-pill stat-ch">${ch} chapter${ch!==1?'s':''}</span>
+    <span class="stat-pill stat-post">${post} back</span>`;
+}
+
+function cycleChType(id){
+  const ch=chapters.find(c=>c.id===id);
+  if(!ch) return;
+  const order=['pre','chapter','post'];
+  ch.type=order[(order.indexOf(ch.type)+1)%3];
+  renderChapterList();
+  renderPreview();
+}
+
+function updateChTitle(id,val){
+  const ch=chapters.find(c=>c.id===id);
+  if(ch){ ch.title=val; renderPreview(); }
+}
+
+function updateChContent(id,val){
+  const ch=chapters.find(c=>c.id===id);
+  if(ch){ ch.content=val; renderPreview(); }
+}
+
+function toggleChExpand(id,btn){
+  const ch=chapters.find(c=>c.id===id);
+  if(!ch) return;
+  ch.expanded=!ch.expanded;
+  const item=btn.closest('.ch-item');
+  const body=item.querySelector('.ch-item-body');
+  const preview=item.querySelector('.ch-preview');
+  const textarea=item.querySelector('.ch-content-area');
+  body.classList.toggle('open',ch.expanded);
+  preview.style.display=ch.expanded?'none':'';
+  textarea.style.display=ch.expanded?'':'none';
+  btn.textContent=ch.expanded?'▲':'▼';
+}
+
+function removeChapter(id){
+  chapters=chapters.filter(c=>c.id!==id);
+  renderChapterList();
+  renderPreview();
+}
+
+function addBlankChapter(){
+  chapters.push({id:uid(),type:'chapter',title:'New Chapter',content:'',src:'',expanded:true});
+  renderChapterList();
+}
+
+/* Drag-to-reorder */
+let dragSrcId=null;
+function attachDrag(item){
+  item.addEventListener('dragstart',e=>{
+    dragSrcId=item.dataset.id;
+    item.classList.add('dragging');
+    e.dataTransfer.effectAllowed='move';
+  });
+  item.addEventListener('dragend',()=>{ item.classList.remove('dragging'); document.querySelectorAll('.ch-item').forEach(i=>i.classList.remove('drag-over')); });
+  item.addEventListener('dragover',e=>{ e.preventDefault(); item.classList.add('drag-over'); });
+  item.addEventListener('dragleave',()=>item.classList.remove('drag-over'));
+  item.addEventListener('drop',e=>{
+    e.preventDefault(); item.classList.remove('drag-over');
+    if(dragSrcId===item.dataset.id) return;
+    const srcIdx=chapters.findIndex(c=>c.id===dragSrcId);
+    const dstIdx=chapters.findIndex(c=>c.id===item.dataset.id);
+    if(srcIdx<0||dstIdx<0) return;
+    const [moved]=chapters.splice(srcIdx,1);
+    chapters.splice(dstIdx,0,moved);
+    renderChapterList();
+    renderPreview();
+  });
+}
+
+/* ═══════════════════════════════════════════════
+   GET CHAPTERS FOR EXPORT
+═══════════════════════════════════════════════ */
+function getFront(){ return chapters.filter(c=>c.type==='pre'); }
+function getChapters(){ return chapters.filter(c=>c.type==='chapter'); }
+function getBack(){ return chapters.filter(c=>c.type==='post'); }
+
+function chapterNumber(n){
+  const style=getV('chNumStyle');
+  if(style==='roman') return ROMAN[n-1]||n;
+  if(style==='word') return WORDS[n-1]||n;
+  if(style==='none') return null;
+  return n;
+}
+
+/* ═══════════════════════════════════════════════
+   SIDEBAR WIDGETS
+═══════════════════════════════════════════════ */
+function buildThemeGrid(){
+  document.getElementById('themeGrid').innerHTML=THEMES.map(t=>`
     <div class="theme-card${t.id===S.theme.id?' active':''}" onclick="selectTheme('${t.id}')">
       <div class="theme-preview">${t.prev.map(c=>`<span style="background:${c}"></span>`).join('')}</div>
       <div class="t-name">${t.name}</div><div class="t-desc">${t.desc}</div>
     </div>`).join('');
 }
-function buildColorRow() {
-  document.getElementById('colorRow').innerHTML = ACCENT_COLORS.map(c =>
-    `<div class="swatch${c===S.accent?' active':''}" style="background:${c}" onclick="selectAccent('${c}')"></div>`).join('');
+function buildColorRow(){
+  document.getElementById('colorRow').innerHTML=ACCENT_COLORS.map(c=>`<div class="swatch${c===S.accent?' active':''}" style="background:${c}" onclick="selectAccent('${c}')"></div>`).join('');
 }
-function buildOrnGrid() {
-  document.getElementById('ornGrid').innerHTML = ORNAMENTS.map(o =>
-    `<button class="orn-btn${o===S.ornament?' active':''}" onclick="selectOrn('${o}')">${o}</button>`).join('');
+function buildOrnGrid(){
+  document.getElementById('ornGrid').innerHTML=ORNAMENTS.map(o=>`<button class="orn-btn${o===S.ornament?' active':''}" onclick="selectOrn('${o}')">${o}</button>`).join('');
 }
+function selectTheme(id){ S.theme=THEMES.find(t=>t.id===id); buildThemeGrid(); renderPreview(); }
+function selectAccent(c){ S.accent=c; buildColorRow(); renderPreview(); }
+function selectOrn(o){ S.ornament=o; buildOrnGrid(); renderPreview(); }
 
-function selectTheme(id)  { S.theme = THEMES.find(t=>t.id===id); buildThemeGrid(); renderPreview(); }
-function selectAccent(c)  { S.accent = c; buildColorRow(); renderPreview(); }
-function selectOrn(o)     { S.ornament = o; buildOrnGrid(); renderPreview(); }
-
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════
    IMAGE HANDLING
-═══════════════════════════════════════════ */
-function handleImages(input) {
-  Array.from(input.files).forEach(f => {
-    const r = new FileReader();
-    r.onload = e => {
-      S.images.push({ name: f.name, data: e.target.result, type: f.type });
-      if (!S.coverImg) S.coverImg = e.target.result;
-      renderImgList(); renderPreview();
-    };
+═══════════════════════════════════════════════ */
+function handleImages(input){
+  Array.from(input.files).forEach(f=>{
+    const r=new FileReader();
+    r.onload=e=>{ S.images.push({name:f.name,data:e.target.result,type:f.type}); if(!S.coverImg) S.coverImg=e.target.result; renderImgList(); renderPreview(); };
     r.readAsDataURL(f);
   });
-  input.value = '';
+  input.value='';
 }
-function renderImgList() {
-  document.getElementById('imgList').innerHTML = S.images.map((img,i) => `
-    <div class="img-chip">
-      <img src="${img.data}" alt="">
-      <span>${img.name.length>14 ? img.name.slice(0,12)+'…' : img.name}</span>
-      <span class="rm" onclick="removeImg(${i})">×</span>
-    </div>`).join('');
+function renderImgList(){
+  document.getElementById('imgList').innerHTML=S.images.map((img,i)=>`
+    <div class="img-chip"><img src="${img.data}" alt=""><span>${img.name.length>14?img.name.slice(0,12)+'…':img.name}</span><span class="chip-rm" onclick="removeImg(${i})">×</span></div>`).join('');
 }
-function removeImg(i) {
-  S.images.splice(i,1);
-  S.coverImg = S.images.length ? S.images[0].data : null;
-  renderImgList(); renderPreview();
-}
+function removeImg(i){ S.images.splice(i,1); S.coverImg=S.images.length?S.images[0].data:null; renderImgList(); renderPreview(); }
 
-const dz = document.getElementById('dropzone');
-dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
-dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
-dz.addEventListener('drop', e => {
-  e.preventDefault(); dz.classList.remove('dragover');
-  const dt = new DataTransfer();
+const dz=document.getElementById('dropzone');
+dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('dragover')});
+dz.addEventListener('dragleave',()=>dz.classList.remove('dragover'));
+dz.addEventListener('drop',e=>{
+  e.preventDefault();dz.classList.remove('dragover');
+  const dt=new DataTransfer();
   Array.from(e.dataTransfer.files).filter(f=>f.type.startsWith('image/')).forEach(f=>dt.items.add(f));
-  const inp = document.getElementById('imgInput');
-  inp.files = dt.files; handleImages(inp);
+  const inp=document.getElementById('imgInput'); inp.files=dt.files; handleImages(inp);
 });
 
-/* ═══════════════════════════════════════════
+const msDz=document.getElementById('ms-dropzone');
+msDz.addEventListener('dragover',e=>{e.preventDefault();msDz.classList.add('dragover')});
+msDz.addEventListener('dragleave',()=>msDz.classList.remove('dragover'));
+msDz.addEventListener('drop',e=>{
+  e.preventDefault();msDz.classList.remove('dragover');
+  const dt=new DataTransfer();
+  Array.from(e.dataTransfer.files).filter(f=>/\.(docx|txt|md|rtf)$/i.test(f.name)).forEach(f=>dt.items.add(f));
+  const inp=document.getElementById('msInput'); inp.files=dt.files; handleFileImport(inp);
+});
+
+/* ═══════════════════════════════════════════════
    HELPERS
-═══════════════════════════════════════════ */
-function getV(id) { return document.getElementById(id).value; }
-function getC(id) { return document.getElementById(id).checked; }
-
-function getPageDims() {
-  const map = { trade:[152.4,228.6], pocket:[127,203.2], digest:[139.7,215.9], a4:[210,297], letter:[215.9,279.4] };
-  return map[getV('pageSize')] || map.trade;
+═══════════════════════════════════════════════ */
+function getV(id){return document.getElementById(id).value}
+function getC(id){return document.getElementById(id).checked}
+function getPageDims(){const map={trade:[152.4,228.6],pocket:[127,203.2],digest:[139.7,215.9],a4:[210,297],letter:[215.9,279.4]};return map[getV('pageSize')]||map.trade}
+function hexToRgb(h){const v=h.replace('#','');return[parseInt(v.slice(0,2),16),parseInt(v.slice(2,4),16),parseInt(v.slice(4,6),16)]}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function safeName(s){return(s||'book').replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase().slice(0,60)}
+function downloadBlob(blob,filename){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000)}
+function setStatus(msg){document.getElementById('statusBar').textContent=msg}
+function setExportState(busy,fmt){
+  ['PDF','EPUB','MOBI','DOCX'].forEach(f=>{const b=document.getElementById('btn'+f);b.disabled=busy;if(f===fmt) b.querySelector('.fmt').textContent=busy?'…':f});
+  if(busy) setStatus(`Generating ${fmt}…`);
 }
 
-function chapterNumber(n) {
-  const style = getV('chNumStyle');
-  if (style==='roman') return ROMAN[n-1] || n;
-  if (style==='word')  return WORDS[n-1] || n;
-  if (style==='none')  return null;
-  return n;
-}
-
-function parseManuscript(raw) {
-  const lines = raw.split('\n');
-  const chapters = [];
-  let cur = null, content = [], num = 0;
-  lines.forEach(line => {
-    if (line.startsWith('# ')) {
-      if (cur !== null) chapters.push({ title: cur, content: content.join('\n'), num: ++num });
-      cur = line.slice(2).trim(); content = [];
-    } else if (line.startsWith('## ')) {
-      content.push('__SCENE_BREAK__');
-    } else {
-      content.push(line);
-    }
-  });
-  if (cur !== null) chapters.push({ title: cur, content: content.join('\n'), num: ++num });
-  if (!chapters.length && raw.trim()) chapters.push({ title:'', content: raw, num:1 });
-  return chapters;
-}
-
-function hexToRgb(h) {
-  const v = h.replace('#','');
-  return [parseInt(v.slice(0,2),16), parseInt(v.slice(2,4),16), parseInt(v.slice(4,6),16)];
-}
-
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════
    PREVIEW RENDERER
-═══════════════════════════════════════════ */
-function renderPreview() {
-  const T  = S.theme;
-  const title    = getV('bookTitle') || 'Untitled';
-  const author   = getV('bookAuthor') || 'Author';
-  const subtitle = getV('bookSubtitle');
-  const dedic    = getV('dedication');
-  const copy     = getV('copyright');
-  const font     = getV('bodyFont');
-  const fsize    = parseFloat(getV('fontSize'));
-  const lspace   = getV('lineSpacing');
-  const indent   = getV('paraIndent');
-  const justify  = getC('justifyText') ? 'justify' : 'left';
-  const showNums = getC('pageNums');
-  const showHdr  = getC('runningHeader');
-  const showTOC  = getC('showTOC');
-  const dropCap  = getC('dropCap');
-  const chImgs   = getC('chapterImgs');
-  const pageBorder = getC('pageBorder');
-  const coverPos = getV('coverPos');
-  const chapters = parseManuscript(getV('manuscript'));
+═══════════════════════════════════════════════ */
+function renderPreview(){
+  const T=S.theme;
+  const title=getV('bookTitle')||'Untitled';
+  const author=getV('bookAuthor')||'Author';
+  const subtitle=getV('bookSubtitle');
+  const dedic=getV('dedication');
+  const copy=getV('copyright');
+  const font=getV('bodyFont');
+  const fsize=parseFloat(getV('fontSize'));
+  const lspace=getV('lineSpacing');
+  const indent=getV('paraIndent');
+  const justify=getC('justifyText')?'justify':'left';
+  const showNums=getC('pageNums');
+  const showHdr=getC('runningHeader');
+  const showTOC=getC('showTOC');
+  const dropCap=getC('dropCap');
+  const chImgs=getC('chapterImgs');
+  const pageBorder=getC('pageBorder');
+  const coverPos=getV('coverPos');
+  const bodyChapters=getChapters();
+  const frontMatter=getFront();
+  const backMatter=getBack();
+  const [pwMM,phMM]=getPageDims();
+  const scale=Math.min(680/pwMM,940/phMM,1);
+  const pw=Math.round(pwMM*scale);
+  const ph=Math.round(phMM*scale);
+  const mg=Math.round(18*scale);
+  const accent=S.accent;
+  const orn=S.ornament;
+  let pageNum=1;
+  let pagesHTML='';
+  const borderStyle=pageBorder?`box-shadow:inset 0 0 0 ${Math.round(6*scale)}px ${T.divider}80,inset 0 0 0 ${Math.round(9*scale)}px ${T.divider}30;`:'';
 
-  const [pwMM, phMM] = getPageDims();
-  const scale = Math.min(680 / pwMM, 940 / phMM, 1);
-  const pw = Math.round(pwMM * scale);
-  const ph = Math.round(phMM * scale);
-  const mg = Math.round(18 * scale);
-  const accent = S.accent;
-  const orn    = S.ornament;
-
-  let pageNum = 1;
-  let pagesHTML = '';
-
-  const borderStyle = pageBorder
-    ? `box-shadow: inset 0 0 0 ${Math.round(6*scale)}px ${T.divider}80, inset 0 0 0 ${Math.round(9*scale)}px ${T.divider}30;`
-    : '';
-
-  const pageWrap = (inner, pn, isFirst=false) => {
-    const hdr = showHdr && !isFirst ? `
-      <div style="position:absolute;top:${Math.round(12*scale)}px;left:${mg}px;right:${mg}px;
-        display:flex;justify-content:space-between;
-        font-family:${font};font-size:${Math.round(7.5*scale)}px;color:${T.text}77;
-        letter-spacing:0.08em;text-transform:uppercase;
-        border-bottom:0.5px solid ${T.divider};padding-bottom:${Math.round(4*scale)}px">
-        <span>${author.toUpperCase()}</span><span>${title.toUpperCase()}</span>
-      </div>` : '';
-    const ftr = showNums && pn > 2 ? `
-      <div style="position:absolute;bottom:${Math.round(10*scale)}px;left:0;right:0;
-        text-align:center;font-family:${font};font-size:${Math.round(8*scale)}px;color:${T.text}66">
-        ${pn}
-      </div>` : '';
-    return `
-      <div class="book-page" style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">
-        ${hdr}${ftr}
-        <div style="position:absolute;inset:${Math.round(30*scale)}px ${mg}px ${Math.round(26*scale)}px;overflow:hidden;display:flex;flex-direction:column">
-          ${inner}
-        </div>
-      </div>`;
+  const pageWrap=(inner,pn,isFirst=false)=>{
+    const hdr=showHdr&&!isFirst?`<div style="position:absolute;top:${Math.round(12*scale)}px;left:${mg}px;right:${mg}px;display:flex;justify-content:space-between;font-family:${font};font-size:${Math.round(7.5*scale)}px;color:${T.text}77;letter-spacing:0.08em;text-transform:uppercase;border-bottom:0.5px solid ${T.divider};padding-bottom:${Math.round(4*scale)}px"><span>${author.toUpperCase()}</span><span>${title.toUpperCase()}</span></div>`:'';
+    const ftr=showNums&&pn>2?`<div style="position:absolute;bottom:${Math.round(10*scale)}px;left:0;right:0;text-align:center;font-family:${font};font-size:${Math.round(8*scale)}px;color:${T.text}66">${pn}</div>`:'';
+    return `<div class="book-page" style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;inset:${Math.round(30*scale)}px ${mg}px ${Math.round(26*scale)}px;overflow:hidden;display:flex;flex-direction:column">${inner}</div></div>`;
   };
 
-  // ── Cover ──
-  if (coverPos === 'full' && S.coverImg) {
-    pagesHTML += `
-      <div class="book-page" style="width:${pw}px;height:${ph}px;position:relative;overflow:hidden;">
-        <img src="${S.coverImg}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">
-        <div style="position:absolute;inset:0;background:linear-gradient(to top,${T.bg}dd 0%,transparent 55%)"></div>
-        <div style="position:absolute;bottom:${mg}px;left:${mg}px;right:${mg}px;text-align:center">
-          <div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(28*scale)}px;font-weight:700;color:${T.text};line-height:1.2;text-shadow:0 2px 12px rgba(0,0,0,0.4)">${title}</div>
-          ${subtitle?`<div style="font-family:${font};font-size:${Math.round(12*scale)}px;color:${T.text}99;margin-top:${Math.round(5*scale)}px;font-style:italic">${subtitle}</div>`:''}
-          <div style="font-family:${font};font-size:${Math.round(10*scale)}px;color:${T.text}88;margin-top:${Math.round(10*scale)}px;letter-spacing:0.12em;text-shadow:0 1px 4px rgba(0,0,0,0.4)">— ${author} —</div>
-        </div>
-      </div>`;
+  // Cover
+  if(coverPos==='full'&&S.coverImg){
+    pagesHTML+=`<div class="book-page" style="width:${pw}px;height:${ph}px;position:relative;overflow:hidden;"><img src="${S.coverImg}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"><div style="position:absolute;inset:0;background:linear-gradient(to top,${T.bg}dd 0%,transparent 55%)"></div><div style="position:absolute;bottom:${mg}px;left:${mg}px;right:${mg}px;text-align:center"><div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(28*scale)}px;font-weight:700;color:${T.text};line-height:1.2;text-shadow:0 2px 12px rgba(0,0,0,0.4)">${title}</div>${subtitle?`<div style="font-family:${font};font-size:${Math.round(12*scale)}px;color:${T.text}99;margin-top:${Math.round(5*scale)}px;font-style:italic">${subtitle}</div>`:''}<div style="font-family:${font};font-size:${Math.round(10*scale)}px;color:${T.text}88;margin-top:${Math.round(10*scale)}px;letter-spacing:0.12em;text-shadow:0 1px 4px rgba(0,0,0,0.4)">— ${author} —</div></div></div>`;
     pageNum++;
   } else {
-    let img = '';
-    if (coverPos === 'top' && S.coverImg) {
-      img = `<div style="text-align:center;margin-bottom:${Math.round(14*scale)}px">
-        <img src="${S.coverImg}" style="max-height:${Math.round(140*scale)}px;max-width:90%;object-fit:contain;border-radius:3px"></div>`;
-    }
-    pagesHTML += pageWrap(`
-      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center">
-        ${img}
-        <div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(26*scale)}px;font-weight:700;color:${T.text};line-height:1.25;letter-spacing:-0.01em">${title}</div>
-        ${subtitle?`<div style="font-family:${font};font-size:${Math.round(12*scale)}px;color:${accent};margin-top:${Math.round(7*scale)}px;font-style:italic">${subtitle}</div>`:''}
-        <div style="width:${Math.round(36*scale)}px;height:0.5px;background:${T.divider};margin:${Math.round(16*scale)}px auto"></div>
-        <div style="font-family:${font};font-size:${Math.round(11*scale)}px;color:${T.text}88;letter-spacing:0.13em;text-transform:uppercase">${author}</div>
-      </div>`, pageNum++, true);
+    let img='';
+    if(coverPos==='top'&&S.coverImg) img=`<div style="text-align:center;margin-bottom:${Math.round(14*scale)}px"><img src="${S.coverImg}" style="max-height:${Math.round(140*scale)}px;max-width:90%;object-fit:contain;border-radius:3px"></div>`;
+    pagesHTML+=pageWrap(`<div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center">${img}<div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(26*scale)}px;font-weight:700;color:${T.text};line-height:1.25;letter-spacing:-0.01em">${title}</div>${subtitle?`<div style="font-family:${font};font-size:${Math.round(12*scale)}px;color:${accent};margin-top:${Math.round(7*scale)}px;font-style:italic">${subtitle}</div>`:''}<div style="width:${Math.round(36*scale)}px;height:0.5px;background:${T.divider};margin:${Math.round(16*scale)}px auto"></div><div style="font-family:${font};font-size:${Math.round(11*scale)}px;color:${T.text}88;letter-spacing:0.13em;text-transform:uppercase">${author}</div></div>`,pageNum++,true);
   }
 
-  // ── Copyright page ──
-  if (copy) {
-    pagesHTML += pageWrap(`
-      <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;padding-bottom:${Math.round(8*scale)}px">
-        <div style="font-family:${font};font-size:${Math.round(8.5*scale)}px;color:${T.text}77;line-height:1.7">${copy}</div>
-      </div>`, pageNum++);
+  if(copy) pagesHTML+=pageWrap(`<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;padding-bottom:${Math.round(8*scale)}px"><div style="font-family:${font};font-size:${Math.round(8.5*scale)}px;color:${T.text}77;line-height:1.7">${copy}</div></div>`,pageNum++);
+  if(dedic) pagesHTML+=pageWrap(`<div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center"><div style="font-family:${font};font-size:${Math.round(12*scale)}px;font-style:italic;color:${T.text}99;max-width:${Math.round(240*scale)}px;line-height:1.8">${dedic}</div></div>`,pageNum++);
+
+  // Front matter sections
+  frontMatter.forEach(fm=>{
+    const paras=fm.content.split('\n').filter(p=>p.trim());
+    const ps=paras.map(p=>`<p style="font-family:${font};font-size:${Math.round(fsize*scale)}px;line-height:${lspace};color:${T.text};margin:0 0 ${Math.round(6*scale)}px;text-align:${justify}">${p}</p>`).join('');
+    pagesHTML+=pageWrap(`<div style="padding-top:${Math.round(20*scale)}px">${fm.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(16*scale)}px;font-weight:700;color:${T.text};text-align:center;margin-bottom:${Math.round(16*scale)}px">${fm.title}</div>`:''}<div style="font-family:${font};font-size:${Math.round(fsize*scale)}px;color:${T.text}">${ps}</div></div>`,pageNum++);
+  });
+
+  // TOC
+  if(showTOC&&bodyChapters.length){
+    pagesHTML+=pageWrap(`<div style="padding-top:${Math.round(20*scale)}px"><div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(16*scale)}px;font-weight:700;color:${T.text};text-align:center;margin-bottom:${Math.round(16*scale)}px">Contents</div>${bodyChapters.map((ch,i)=>{const cn=chapterNumber(i+1);const label=cn?`${cn}${ch.title?'. '+ch.title:''}`:ch.title;return`<div style="display:flex;justify-content:space-between;align-items:baseline;font-family:${font};font-size:${Math.round(10.5*scale)}px;color:${T.text};border-bottom:0.5px dotted ${T.divider};padding:${Math.round(4*scale)}px 0"><span>${label}</span><span style="color:${T.text}66;font-size:${Math.round(9*scale)}px">${pageNum+3+i}</span></div>`;}).join('')}</div>`,pageNum++);
   }
 
-  // ── Dedication ──
-  if (dedic) {
-    pagesHTML += pageWrap(`
-      <div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center">
-        <div style="font-family:${font};font-size:${Math.round(12*scale)}px;font-style:italic;color:${T.text}99;max-width:${Math.round(240*scale)}px;line-height:1.8">${dedic}</div>
-      </div>`, pageNum++);
-  }
-
-  // ── Table of Contents ──
-  if (showTOC && chapters.length) {
-    pagesHTML += pageWrap(`
-      <div style="padding-top:${Math.round(20*scale)}px">
-        <div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(16*scale)}px;font-weight:700;color:${T.text};text-align:center;margin-bottom:${Math.round(16*scale)}px">Contents</div>
-        ${chapters.map((ch,i) => {
-          const chNum = chapterNumber(ch.num);
-          const label = chNum ? `${chNum}${ch.title ? '. '+ch.title : ''}` : ch.title;
-          return `<div style="display:flex;justify-content:space-between;align-items:baseline;
-            font-family:${font};font-size:${Math.round(10.5*scale)}px;color:${T.text};
-            border-bottom:0.5px dotted ${T.divider};padding:${Math.round(4*scale)}px 0">
-            <span>${label}</span>
-            <span style="color:${T.text}66;font-size:${Math.round(9*scale)}px">${pageNum + 3 + i}</span>
-          </div>`;
-        }).join('')}
-      </div>`, pageNum++);
-  }
-
-  // ── Chapters ──
-  chapters.forEach((ch, ci) => {
-    const chNum = chapterNumber(ch.num);
-    const chImg = (chImgs && S.images.length > 1) ? S.images[ci % S.images.length].data
-                : (chImgs && S.images.length === 1) ? S.images[0].data : null;
-
-    const titleBlock = ch.title || chNum ? `
-      <div style="text-align:center;padding-top:${Math.round(18*scale)}px;margin-bottom:${Math.round(18*scale)}px">
-        ${chNum ? `<div style="font-family:${font};font-size:${Math.round(8.5*scale)}px;letter-spacing:0.18em;text-transform:uppercase;color:${accent};margin-bottom:${Math.round(6*scale)}px">Chapter ${chNum}</div>` : ''}
-        ${ch.title ? `<div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(18*scale)}px;font-weight:700;color:${T.text};line-height:1.3">${ch.title}</div>` : ''}
-        ${chImg ? `<div style="margin:${Math.round(8*scale)}px auto;max-height:${Math.round(60*scale)}px;overflow:hidden;text-align:center"><img src="${chImg}" style="max-height:${Math.round(60*scale)}px;max-width:70%;object-fit:contain;opacity:0.8"></div>` : ''}
-        <div style="font-size:${Math.round(14*scale)}px;color:${accent};margin-top:${Math.round(6*scale)}px;opacity:0.65">${orn}</div>
-      </div>` : '';
-
-    const paras = ch.content.split('\n').filter(p => p.trim());
-    const CHARS_PER_PAGE = Math.round(900 * (13/fsize) * (1.7/parseFloat(lspace)));
-    const chunks = Math.max(1, Math.ceil(ch.content.length / CHARS_PER_PAGE));
-    const perPage = Math.max(1, Math.ceil(paras.length / chunks));
-
-    for (let pg = 0; pg < Math.max(1,Math.ceil(paras.length/perPage)); pg++) {
-      const slice = paras.slice(pg*perPage, (pg+1)*perPage);
-      const titlePart = pg === 0 ? titleBlock : '';
-
-      const parasHTML = slice.map((p, pi) => {
-        if (p === '__SCENE_BREAK__') {
-          return `<div style="text-align:center;font-size:${Math.round(13*scale)}px;color:${accent};margin:${Math.round(8*scale)}px 0;opacity:0.6">${orn} ${orn} ${orn}</div>`;
-        }
-        const isFirst = pg===0 && pi===0 && (ch.title || chNum);
-        const dc = dropCap && isFirst && p.length > 1 ?
-          `<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(fsize*3.8*scale)}px;line-height:0.75;margin:${Math.round(4*scale)}px ${Math.round(5*scale)}px 0 0;color:${accent};font-weight:700">${p[0]}</span>${p.slice(1)}`
-          : p;
-        const noInd = (pg===0 && pi===0) || (pi > 0 && slice[pi-1]==='__SCENE_BREAK__');
+  // Body chapters
+  bodyChapters.forEach((ch,ci)=>{
+    const chNum=chapterNumber(ci+1);
+    const chImg=(chImgs&&S.images.length>1)?S.images[ci%S.images.length].data:(chImgs&&S.images.length===1)?S.images[0].data:null;
+    const titleBlock=ch.title||chNum?`<div style="text-align:center;padding-top:${Math.round(18*scale)}px;margin-bottom:${Math.round(18*scale)}px">${chNum?`<div style="font-family:${font};font-size:${Math.round(8.5*scale)}px;letter-spacing:0.18em;text-transform:uppercase;color:${accent};margin-bottom:${Math.round(6*scale)}px">Chapter ${chNum}</div>`:''} ${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(18*scale)}px;font-weight:700;color:${T.text};line-height:1.3">${ch.title}</div>`:''} ${chImg?`<div style="margin:${Math.round(8*scale)}px auto;max-height:${Math.round(60*scale)}px;overflow:hidden;text-align:center"><img src="${chImg}" style="max-height:${Math.round(60*scale)}px;max-width:70%;object-fit:contain;opacity:0.8"></div>`:''}<div style="font-size:${Math.round(14*scale)}px;color:${accent};margin-top:${Math.round(6*scale)}px;opacity:0.65">${orn}</div></div>`:'';
+    const paras=ch.content.split('\n').filter(p=>p.trim());
+    const CHARS_PER_PAGE=Math.round(900*(13/fsize)*(1.7/parseFloat(lspace)));
+    const chunks=Math.max(1,Math.ceil(ch.content.length/CHARS_PER_PAGE));
+    const perPage=Math.max(1,Math.ceil(paras.length/chunks));
+    for(let pg=0;pg<Math.max(1,Math.ceil(paras.length/perPage));pg++){
+      const slice=paras.slice(pg*perPage,(pg+1)*perPage);
+      const parasHTML=slice.map((p,pi)=>{
+        if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${Math.round(13*scale)}px;color:${accent};margin:${Math.round(8*scale)}px 0;opacity:0.6">${orn} ${orn} ${orn}</div>`;
+        const isFirst=pg===0&&pi===0&&(ch.title||chNum);
+        const dc=dropCap&&isFirst&&p.length>1?`<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(fsize*3.8*scale)}px;line-height:0.75;margin:${Math.round(4*scale)}px ${Math.round(5*scale)}px 0 0;color:${accent};font-weight:700">${p[0]}</span>${p.slice(1)}`:p;
+        const noInd=(pg===0&&pi===0)||(pi>0&&slice[pi-1]==='__SCENE_BREAK__');
         return `<p style="font-family:${font};font-size:${Math.round(fsize*scale)}px;line-height:${lspace};color:${T.text};margin:0;text-align:${justify};text-indent:${noInd?'0':indent};margin-bottom:${indent==='0'?Math.round(6*scale)+'px':'0'}">${dc}</p>`;
       }).join('');
-
-      pagesHTML += pageWrap(titlePart + parasHTML, pageNum, false);
+      pagesHTML+=pageWrap((pg===0?titleBlock:'')+parasHTML,pageNum,false);
       pageNum++;
     }
   });
 
-  document.getElementById('bookPreview').innerHTML = pagesHTML;
-  document.getElementById('pageCountLine').textContent = `~${pageNum-1} pages estimated`;
-  document.getElementById('statusBar').textContent = `Preview updated — ${chapters.length} chapter${chapters.length!==1?'s':''}, ~${pageNum-1} pages`;
+  // Back matter
+  backMatter.forEach(bm=>{
+    const paras=bm.content.split('\n').filter(p=>p.trim());
+    const ps=paras.map(p=>`<p style="font-family:${font};font-size:${Math.round(fsize*scale)}px;line-height:${lspace};color:${T.text};margin:0 0 ${Math.round(6*scale)}px">${p}</p>`).join('');
+    pagesHTML+=pageWrap(`<div style="padding-top:${Math.round(20*scale)}px">${bm.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(16*scale)}px;font-weight:700;color:${T.text};text-align:center;margin-bottom:${Math.round(16*scale)}px">${bm.title}</div>`:''}<div>${ps}</div></div>`,pageNum++);
+  });
+
+  document.getElementById('bookPreview').innerHTML=pagesHTML;
+  document.getElementById('pageCountLine').textContent=`~${pageNum-1} pages estimated`;
+  document.getElementById('statusBar').textContent=`Preview updated — ${bodyChapters.length} chapter${bodyChapters.length!==1?'s':''}, ~${pageNum-1} pages`;
 }
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════
    PDF EXPORT
-═══════════════════════════════════════════ */
-function exportPDF() {
-  setExportState(true, 'PDF');
-  setTimeout(() => {
-    try {
-      const { jsPDF } = window.jspdf;
-      const T = S.theme;
-      const title    = getV('bookTitle') || 'Untitled';
-      const author   = getV('bookAuthor') || 'Author';
-      const subtitle = getV('bookSubtitle');
-      const dedic    = getV('dedication');
-      const copy     = getV('copyright');
-      const chapters = parseManuscript(getV('manuscript'));
-      const fsize    = parseFloat(getV('fontSize'));
-      const lspace   = parseFloat(getV('lineSpacing'));
-      const indent   = getV('paraIndent') === '0' ? 0 : getV('paraIndent')==='2em' ? 12 : 7;
-      const justify  = getC('justifyText') ? 'justify' : 'left';
-      const showNums = getC('pageNums');
-      const showTOC  = getC('showTOC');
-      const dropCap  = getC('dropCap');
-      const orn      = S.ornament;
-      const accent   = S.accent;
-      const [pw,ph]  = getPageDims();
-
-      const doc = new jsPDF({ orientation:'portrait', unit:'mm', format:[pw,ph] });
-      const mg  = 18, tw = pw - mg*2;
-      const bgR = hexToRgb(T.bg), txR = hexToRgb(T.text), acR = hexToRgb(accent), dvR = hexToRgb(T.divider);
-
-      let pageNum = 1;
-
-      const addBg = () => { if(T.bg!=='#ffffff'){doc.setFillColor(...bgR);doc.rect(0,0,pw,ph,'F');} };
-      const addPageNum = () => {
-        if (!showNums || pageNum <= 2) return;
-        doc.setFontSize(7.5); doc.setTextColor(...txR); doc.setFont('times','normal');
-        doc.text(String(pageNum), pw/2, ph-8, {align:'center'});
-      };
-      const addHeader = () => {
-        if (!getC('runningHeader') || pageNum <= 1) return;
-        doc.setFontSize(6.5); doc.setTextColor(...txR); doc.setFont('times','normal');
-        doc.text(author.toUpperCase(), mg, 13); doc.text(title.toUpperCase(), pw-mg, 13, {align:'right'});
-        doc.setDrawColor(...dvR); doc.line(mg, 14.5, pw-mg, 14.5);
-      };
-      const newPage = () => { doc.addPage(); addBg(); pageNum++; addHeader(); };
-
-      // Cover
+═══════════════════════════════════════════════ */
+function exportPDF(){
+  setExportState(true,'PDF');
+  setTimeout(()=>{
+    try{
+      const{jsPDF}=window.jspdf;
+      const T=S.theme;
+      const title=getV('bookTitle')||'Untitled';
+      const author=getV('bookAuthor')||'Author';
+      const subtitle=getV('bookSubtitle');
+      const dedic=getV('dedication');
+      const copy=getV('copyright');
+      const bodyChapters=getChapters();
+      const frontMatter=getFront();
+      const backMatter=getBack();
+      const fsize=parseFloat(getV('fontSize'));
+      const lspace=parseFloat(getV('lineSpacing'));
+      const indent=getV('paraIndent')==='0'?0:getV('paraIndent')==='2em'?12:7;
+      const justify=getC('justifyText')?'justify':'left';
+      const showNums=getC('pageNums');
+      const showTOC=getC('showTOC');
+      const dropCap=getC('dropCap');
+      const orn=S.ornament;
+      const accent=S.accent;
+      const[pw,ph]=getPageDims();
+      const doc=new jsPDF({orientation:'portrait',unit:'mm',format:[pw,ph]});
+      const mg=18,tw=pw-mg*2;
+      const bgR=hexToRgb(T.bg),txR=hexToRgb(T.text),acR=hexToRgb(accent),dvR=hexToRgb(T.divider);
+      let pageNum=1;
+      const addBg=()=>{if(T.bg!=='#ffffff'){doc.setFillColor(...bgR);doc.rect(0,0,pw,ph,'F')}};
+      const addPageNum=()=>{if(!showNums||pageNum<=2)return;doc.setFontSize(7.5);doc.setTextColor(...txR);doc.setFont('times','normal');doc.text(String(pageNum),pw/2,ph-8,{align:'center'})};
+      const addHeader=()=>{if(!getC('runningHeader')||pageNum<=1)return;doc.setFontSize(6.5);doc.setTextColor(...txR);doc.setFont('times','normal');doc.text(author.toUpperCase(),mg,13);doc.text(title.toUpperCase(),pw-mg,13,{align:'right'});doc.setDrawColor(...dvR);doc.line(mg,14.5,pw-mg,14.5)};
+      const newPage=()=>{doc.addPage();addBg();pageNum++;addHeader()};
       addBg();
-      doc.setFont('times','bold'); doc.setFontSize(28); doc.setTextColor(...txR);
-      const titleLines = doc.splitTextToSize(title, tw);
-      doc.text(titleLines, pw/2, ph*0.4, {align:'center'});
-      if (subtitle) { doc.setFont('times','italic'); doc.setFontSize(13); doc.setTextColor(...acR); doc.text(subtitle, pw/2, ph*0.4+titleLines.length*12+6, {align:'center'}); }
-      doc.setDrawColor(...dvR); doc.line(pw/2-16, ph*0.52, pw/2+16, ph*0.52);
-      doc.setFont('times','normal'); doc.setFontSize(11); doc.setTextColor(...txR);
-      doc.text(author, pw/2, ph*0.52+8, {align:'center'});
-
-      // Copyright
-      if (copy) {
+      doc.setFont('times','bold');doc.setFontSize(28);doc.setTextColor(...txR);
+      const titleLines=doc.splitTextToSize(title,tw);
+      doc.text(titleLines,pw/2,ph*0.4,{align:'center'});
+      if(subtitle){doc.setFont('times','italic');doc.setFontSize(13);doc.setTextColor(...acR);doc.text(subtitle,pw/2,ph*0.4+titleLines.length*12+6,{align:'center'})}
+      doc.setDrawColor(...dvR);doc.line(pw/2-16,ph*0.52,pw/2+16,ph*0.52);
+      doc.setFont('times','normal');doc.setFontSize(11);doc.setTextColor(...txR);doc.text(author,pw/2,ph*0.52+8,{align:'center'});
+      if(copy){newPage();doc.setFont('times','normal');doc.setFontSize(8);doc.setTextColor(...txR);const cl=doc.splitTextToSize(copy,tw*0.85);doc.text(cl,mg,ph-mg-cl.length*4);addPageNum()}
+      if(dedic){newPage();doc.setFont('times','italic');doc.setFontSize(11.5);doc.setTextColor(...txR);const dl=doc.splitTextToSize(dedic,tw*0.7);doc.text(dl,pw/2,ph/2,{align:'center'});addPageNum()}
+      // Front matter
+      frontMatter.forEach(fm=>{
         newPage();
-        doc.setFont('times','normal'); doc.setFontSize(8); doc.setTextColor(...txR);
-        const cl = doc.splitTextToSize(copy, tw*0.85);
-        doc.text(cl, mg, ph-mg-cl.length*4);
-        addPageNum();
-      }
-
-      // Dedication
-      if (dedic) {
-        newPage();
-        doc.setFont('times','italic'); doc.setFontSize(11.5); doc.setTextColor(...txR);
-        const dl = doc.splitTextToSize(dedic, tw*0.7);
-        doc.text(dl, pw/2, ph/2, {align:'center'});
-        addPageNum();
-      }
-
-      // TOC
-      if (showTOC && chapters.length) {
-        newPage();
-        doc.setFont('times','bold'); doc.setFontSize(16); doc.setTextColor(...txR);
-        doc.text('Contents', pw/2, 35, {align:'center'});
-        let ty = 48;
-        chapters.forEach((ch,i) => {
-          const cn = chapterNumber(ch.num);
-          const label = cn ? `${cn}${ch.title?'. '+ch.title:''}` : ch.title;
-          doc.setFont('times','normal'); doc.setFontSize(10); doc.setTextColor(...txR);
-          doc.text(label, mg, ty);
-          doc.setTextColor(...txR); doc.setFontSize(9);
-          doc.text(String(pageNum+2+i), pw-mg, ty, {align:'right'});
-          doc.setDrawColor(...dvR); doc.setLineDash([0.5,1.5]);
-          doc.line(mg + doc.getTextWidth(label)+2, ty-0.5, pw-mg-doc.getTextWidth(String(pageNum+2+i))-2, ty-0.5);
-          doc.setLineDash([]);
-          ty += 7;
-          if (ty > ph-mg) { newPage(); ty = mg+10; }
-        });
-        addPageNum();
-      }
-
-      // Chapters
-      chapters.forEach(ch => {
-        newPage();
-        const cn = chapterNumber(ch.num);
-        let y = 28;
-        if (cn) { doc.setFont('times','normal'); doc.setFontSize(8.5); doc.setTextColor(...acR); doc.text('CHAPTER '+cn, pw/2, y, {align:'center'}); y+=7; }
-        if (ch.title) {
-          doc.setFont('times','bold'); doc.setFontSize(17); doc.setTextColor(...txR);
-          const tl = doc.splitTextToSize(ch.title, tw);
-          doc.text(tl, pw/2, y, {align:'center'}); y += tl.length*9+4;
-        }
-        doc.setFontSize(13); doc.setTextColor(...acR); doc.text(orn, pw/2, y, {align:'center'}); y+=8;
-
-        const paras = ch.content.split('\n').filter(p=>p.trim());
-        const lh = fsize * lspace * 0.352;
-        paras.forEach((para, pi) => {
-          if (para === '__SCENE_BREAK__') { doc.setFontSize(11); doc.setTextColor(...acR); doc.text(`${orn} ${orn} ${orn}`, pw/2, y, {align:'center'}); y+=lh*1.5; return; }
-          const noInd = pi===0 || (pi>0 && paras[pi-1]==='__SCENE_BREAK__');
-          const lines = doc.splitTextToSize(para, tw - (noInd?0:indent));
-          doc.setFont('times','normal'); doc.setFontSize(fsize); doc.setTextColor(...txR);
-          lines.forEach((line, li) => {
-            if (y > ph-mg-8) { addPageNum(); newPage(); y = mg+6; }
-            doc.text(line, mg + (noInd&&li===0 ? 0 : indent), y);
-            y += lh;
-          });
-          if (indent===0) y += lh*0.3;
+        if(fm.title){doc.setFont('times','bold');doc.setFontSize(16);doc.setTextColor(...txR);doc.text(fm.title,pw/2,28,{align:'center'})}
+        let y=fm.title?40:28;
+        const lh=fsize*lspace*0.352;
+        fm.content.split('\n').filter(p=>p.trim()).forEach(p=>{
+          const lines=doc.splitTextToSize(p,tw);
+          doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);
+          lines.forEach(line=>{if(y>ph-mg-8){addPageNum();newPage();y=mg+6}doc.text(line,mg,y);y+=lh});
+          y+=lh*0.2;
         });
         addPageNum();
       });
-
-      doc.setProperties({ title, author, subject: subtitle, creator:'Folio Book Formatter' });
+      if(showTOC&&bodyChapters.length){
+        newPage();doc.setFont('times','bold');doc.setFontSize(16);doc.setTextColor(...txR);doc.text('Contents',pw/2,35,{align:'center'});
+        let ty=48;
+        bodyChapters.forEach((ch,i)=>{
+          const cn=chapterNumber(i+1);const label=cn?`${cn}${ch.title?'. '+ch.title:''}`:ch.title;
+          doc.setFont('times','normal');doc.setFontSize(10);doc.setTextColor(...txR);doc.text(label,mg,ty);
+          doc.setTextColor(...txR);doc.setFontSize(9);doc.text(String(pageNum+2+i),pw-mg,ty,{align:'right'});
+          doc.setDrawColor(...dvR);doc.setLineDash([0.5,1.5]);doc.line(mg+doc.getTextWidth(label)+2,ty-0.5,pw-mg-doc.getTextWidth(String(pageNum+2+i))-2,ty-0.5);doc.setLineDash([]);
+          ty+=7;if(ty>ph-mg){newPage();ty=mg+10}
+        });
+        addPageNum();
+      }
+      bodyChapters.forEach(ch=>{
+        newPage();const cn=chapterNumber(getChapters().indexOf(ch)+1);
+        let y=28;
+        if(cn){doc.setFont('times','normal');doc.setFontSize(8.5);doc.setTextColor(...acR);doc.text('CHAPTER '+cn,pw/2,y,{align:'center'});y+=7}
+        if(ch.title){doc.setFont('times','bold');doc.setFontSize(17);doc.setTextColor(...txR);const tl=doc.splitTextToSize(ch.title,tw);doc.text(tl,pw/2,y,{align:'center'});y+=tl.length*9+4}
+        doc.setFontSize(13);doc.setTextColor(...acR);doc.text(orn,pw/2,y,{align:'center'});y+=8;
+        const paras=ch.content.split('\n').filter(p=>p.trim());
+        const lh=fsize*lspace*0.352;
+        paras.forEach((para,pi)=>{
+          if(para==='__SCENE_BREAK__'){doc.setFontSize(11);doc.setTextColor(...acR);doc.text(`${orn} ${orn} ${orn}`,pw/2,y,{align:'center'});y+=lh*1.5;return}
+          const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
+          const lines=doc.splitTextToSize(para,tw-(noInd?0:indent));
+          doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);
+          lines.forEach((line,li)=>{if(y>ph-mg-8){addPageNum();newPage();y=mg+6}doc.text(line,mg+(noInd&&li===0?0:indent),y);y+=lh});
+          if(indent===0) y+=lh*0.3;
+        });
+        addPageNum();
+      });
+      // Back matter
+      backMatter.forEach(bm=>{
+        newPage();
+        if(bm.title){doc.setFont('times','bold');doc.setFontSize(16);doc.setTextColor(...txR);doc.text(bm.title,pw/2,28,{align:'center'})}
+        let y=bm.title?40:28;
+        const lh=fsize*lspace*0.352;
+        bm.content.split('\n').filter(p=>p.trim()).forEach(p=>{
+          const lines=doc.splitTextToSize(p,tw);
+          doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);
+          lines.forEach(line=>{if(y>ph-mg-8){addPageNum();newPage();y=mg+6}doc.text(line,mg,y);y+=lh});
+          y+=lh*0.2;
+        });
+        addPageNum();
+      });
+      doc.setProperties({title,author,subject:subtitle,creator:'Folio Book Formatter'});
       doc.save(safeName(title)+'.pdf');
       setStatus('PDF exported successfully!');
-    } catch(e) { setStatus('PDF error: '+e.message); console.error(e); }
-    setExportState(false, 'PDF');
-  }, 80);
+    }catch(e){setStatus('PDF error: '+e.message);console.error(e)}
+    setExportState(false,'PDF');
+  },80);
 }
 
-/* ═══════════════════════════════════════════
-   EPUB EXPORT  (proper .epub package)
-═══════════════════════════════════════════ */
-async function exportEPUB() {
-  setExportState(true, 'EPUB');
-  try {
-    const T = S.theme;
-    const title    = getV('bookTitle') || 'Untitled';
-    const author   = getV('bookAuthor') || 'Author';
-    const subtitle = getV('bookSubtitle');
-    const dedic    = getV('dedication');
-    const chapters = parseManuscript(getV('manuscript'));
-    const font     = getV('bodyFont').split(',')[0].replace(/'/g,'');
-    const lspace   = getV('lineSpacing');
-    const orn      = S.ornament;
-    const id       = 'folio-' + Date.now();
-    const now      = new Date().toISOString();
-
-    const zip = new JSZip();
-
-    // mimetype (must be first, uncompressed)
-    zip.file('mimetype', 'application/epub+zip', { compression:'STORE' });
-
-    // META-INF/container.xml
-    zip.folder('META-INF').file('container.xml', `<?xml version="1.0"?>
-<container version="1.0" xmlns="urn:oasis:schemas:container">
-  <rootfiles>
-    <rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>
-  </rootfiles>
-</container>`);
-
-    const oebps = zip.folder('OEBPS');
-
-    // CSS
-    oebps.file('style.css', `
-body { font-family: Georgia, serif; background: ${T.bg}; color: ${T.text}; margin: 2em; line-height: ${lspace}; }
-h1.book-title { font-size: 2.2em; text-align: center; margin-top: 2em; color: ${T.text}; }
-h2.book-subtitle { font-size: 1.2em; text-align: center; font-style: italic; color: ${S.accent}; margin-top: 0.4em; }
-p.author-name { text-align: center; letter-spacing: 0.12em; color: ${T.text}88; font-size: 0.9em; margin-top: 1.5em; }
-.rule { border: none; border-top: 1px solid ${T.divider}; width: 40%; margin: 1.5em auto; }
-.chapter-num { font-size: 0.75em; letter-spacing: 0.18em; text-transform: uppercase; color: ${S.accent}; text-align: center; margin-bottom: 0.5em; }
-h2.chapter-title { font-size: 1.5em; text-align: center; margin: 0 0 0.4em; }
-.ornament { text-align: center; color: ${S.accent}; font-size: 1.1em; margin: 0.6em 0 1em; opacity: 0.65; }
-.scene-break { text-align: center; color: ${S.accent}; margin: 1em 0; opacity: 0.6; }
-p { margin: 0; text-indent: 1.3em; text-align: justify; }
-p.no-indent { text-indent: 0; }
-.dedication { font-style: italic; text-align: center; margin: 3em auto; max-width: 22em; line-height: 1.8; color: ${T.text}99; }
-.copyright { font-size: 0.78em; line-height: 1.8; color: ${T.text}77; margin-top: 3em; }
-.drop-cap::first-letter { float: left; font-size: 3.5em; line-height: 0.72; margin: 0.06em 0.05em 0 0; color: ${S.accent}; font-weight: bold; font-family: Georgia, serif; }
-`);
-
-    // Cover / title page
-    let titlePageHTML = `<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml"><head><meta charset="UTF-8"/><title>${esc(title)}</title><link rel="stylesheet" href="style.css"/></head><body>
-<h1 class="book-title">${esc(title)}</h1>
-${subtitle ? `<h2 class="book-subtitle">${esc(subtitle)}</h2>` : ''}
-<hr class="rule"/>
-<p class="author-name">${esc(author)}</p>
-${getV('pubYear') ? `<p style="text-align:center;font-size:0.8em;color:${T.text}77;margin-top:3em">${esc(getV('pubYear'))}</p>` : ''}
-${getV('copyright') ? `<p class="copyright">${esc(getV('copyright'))}</p>` : ''}
-${dedic ? `<p class="dedication">${esc(dedic)}</p>` : ''}
-</body></html>`;
-    oebps.file('title.xhtml', titlePageHTML);
-
-    // Chapter files
-    const chapterItems = [];
-    chapters.forEach((ch, i) => {
-      const cn = chapterNumber(ch.num);
-      const label = cn ? `Chapter ${cn}${ch.title?' — '+ch.title:''}` : ch.title || `Chapter ${i+1}`;
-      const paras = ch.content.split('\n').filter(p=>p.trim());
-      const bodyParas = paras.map((p, pi) => {
-        if (p==='__SCENE_BREAK__') return `<p class="scene-break">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`;
-        const noInd = pi===0 || (pi>0 && paras[pi-1]==='__SCENE_BREAK__');
-        const dc = (pi===0 && ch.title) ? ' drop-cap' : '';
-        return `<p class="${noInd?'no-indent':''}${dc}">${esc(p)}</p>`;
-      }).join('\n');
-
-      const chHTML = `<?xml version="1.0" encoding="utf-8"?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml"><head><meta charset="UTF-8"/><title>${esc(label)}</title><link rel="stylesheet" href="style.css"/></head><body>
-${cn ? `<p class="chapter-num">Chapter ${esc(String(cn))}</p>` : ''}
-${ch.title ? `<h2 class="chapter-title">${esc(ch.title)}</h2>` : ''}
-<p class="ornament">${esc(orn)}</p>
-${bodyParas}
-</body></html>`;
-      const fname = `chapter${String(i+1).padStart(3,'0')}.xhtml`;
-      oebps.file(fname, chHTML);
-      chapterItems.push({ id:`ch${i+1}`, href:fname, label });
+/* ═══════════════════════════════════════════════
+   EPUB EXPORT
+═══════════════════════════════════════════════ */
+async function exportEPUB(){
+  setExportState(true,'EPUB');
+  try{
+    const T=S.theme;
+    const title=getV('bookTitle')||'Untitled';
+    const author=getV('bookAuthor')||'Author';
+    const subtitle=getV('bookSubtitle');
+    const dedic=getV('dedication');
+    const bodyChapters=getChapters();
+    const frontMatter=getFront();
+    const backMatter=getBack();
+    const lspace=getV('lineSpacing');
+    const orn=S.ornament;
+    const id='folio-'+Date.now();
+    const now=new Date().toISOString();
+    const zip=new JSZip();
+    zip.file('mimetype','application/epub+zip',{compression:'STORE'});
+    zip.folder('META-INF').file('container.xml',`<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:schemas:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`);
+    const oebps=zip.folder('OEBPS');
+    oebps.file('style.css',`body{font-family:Georgia,serif;background:${T.bg};color:${T.text};margin:2em;line-height:${lspace}}h1.book-title{font-size:2.2em;text-align:center;margin-top:2em}h2.book-subtitle{font-size:1.2em;text-align:center;font-style:italic;color:${S.accent};margin-top:0.4em}p.author-name{text-align:center;letter-spacing:0.12em;color:${T.text}88;font-size:0.9em;margin-top:1.5em}.rule{border:none;border-top:1px solid ${T.divider};width:40%;margin:1.5em auto}.chapter-num{font-size:0.75em;letter-spacing:0.18em;text-transform:uppercase;color:${S.accent};text-align:center;margin-bottom:0.5em}h2.chapter-title{font-size:1.5em;text-align:center;margin:0 0 0.4em}.ornament{text-align:center;color:${S.accent};font-size:1.1em;margin:0.6em 0 1em;opacity:0.65}.scene-break{text-align:center;color:${S.accent};margin:1em 0;opacity:0.6}p{margin:0;text-indent:1.3em;text-align:justify}p.no-indent{text-indent:0}.dedication{font-style:italic;text-align:center;margin:3em auto;max-width:22em;line-height:1.8;color:${T.text}99}.copyright{font-size:0.78em;line-height:1.8;color:${T.text}77;margin-top:3em}.drop-cap::first-letter{float:left;font-size:3.5em;line-height:0.72;margin:0.06em 0.05em 0 0;color:${S.accent};font-weight:bold;font-family:Georgia,serif}.section-title{font-size:1.5em;text-align:center;margin-bottom:1em}`);
+    const xhtmlWrap=(t,body)=>`<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><meta charset="UTF-8"/><title>${esc(t)}</title><link rel="stylesheet" href="style.css"/></head><body>${body}</body></html>`;
+    oebps.file('title.xhtml',xhtmlWrap(title,`<h1 class="book-title">${esc(title)}</h1>${subtitle?`<h2 class="book-subtitle">${esc(subtitle)}</h2>`:''}<hr class="rule"/><p class="author-name">${esc(author)}</p>${getV('pubYear')?`<p style="text-align:center;font-size:0.8em;color:${T.text}77;margin-top:3em">${esc(getV('pubYear'))}</p>`:''}${getV('copyright')?`<p class="copyright">${esc(getV('copyright'))}</p>`:''}${dedic?`<p class="dedication">${esc(dedic)}</p>`:''}`));
+    const spineItems=[{id:'title',href:'title.xhtml',label:'Title Page'}];
+    // Front matter
+    frontMatter.forEach((fm,i)=>{
+      const fname=`front${String(i+1).padStart(3,'0')}.xhtml`;
+      const body=`${fm.title?`<h2 class="section-title">${esc(fm.title)}</h2>`:''}`+fm.content.split('\n').filter(p=>p.trim()).map(p=>`<p>${esc(p)}</p>`).join('');
+      oebps.file(fname,xhtmlWrap(fm.title||'Front Matter',body));
+      spineItems.push({id:`front${i+1}`,href:fname,label:fm.title||`Front Matter ${i+1}`});
     });
-
-    // TOC (NCX)
-    oebps.file('toc.ncx', `<?xml version="1.0" encoding="UTF-8"?>
-<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
-<head><meta name="dtb:uid" content="${id}"/></head>
-<docTitle><text>${esc(title)}</text></docTitle>
-<navMap>
-  <navPoint id="title" playOrder="1"><navLabel><text>Title Page</text></navLabel><content src="title.xhtml"/></navPoint>
-  ${chapterItems.map((c,i)=>`<navPoint id="${c.id}" playOrder="${i+2}"><navLabel><text>${esc(c.label)}</text></navLabel><content src="${c.href}"/></navPoint>`).join('\n  ')}
-</navMap></ncx>`);
-
-    // EPUB3 nav
-    oebps.file('nav.xhtml', `<?xml version="1.0" encoding="utf-8"?>
-<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
-<head><meta charset="UTF-8"/><title>Table of Contents</title></head>
-<body><nav epub:type="toc"><ol>
-<li><a href="title.xhtml">Title Page</a></li>
-${chapterItems.map(c=>`<li><a href="${c.href}">${esc(c.label)}</a></li>`).join('\n')}
-</ol></nav></body></html>`);
-
-    // OPF
-    oebps.file('content.opf', `<?xml version="1.0" encoding="utf-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id">
-<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-  <dc:identifier id="book-id">${id}</dc:identifier>
-  <dc:title>${esc(title)}</dc:title>
-  <dc:creator>${esc(author)}</dc:creator>
-  <dc:language>en</dc:language>
-  <dc:date>${now}</dc:date>
-  ${subtitle ? `<dc:description>${esc(subtitle)}</dc:description>` : ''}
-  <meta property="dcterms:modified">${now}</meta>
-</metadata>
-<manifest>
-  <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
-  <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
-  <item id="css" href="style.css" media-type="text/css"/>
-  <item id="title-page" href="title.xhtml" media-type="application/xhtml+xml"/>
-  ${chapterItems.map(c=>`<item id="${c.id}" href="${c.href}" media-type="application/xhtml+xml"/>`).join('\n  ')}
-</manifest>
-<spine toc="ncx">
-  <itemref idref="title-page"/>
-  ${chapterItems.map(c=>`<itemref idref="${c.id}"/>`).join('\n  ')}
-</spine>
-</package>`);
-
-    const blob = await zip.generateAsync({ type:'blob', mimeType:'application/epub+zip', compression:'DEFLATE', compressionOptions:{level:9} });
-    downloadBlob(blob, safeName(title)+'.epub');
-    setStatus('EPUB exported successfully — open in Calibre, Apple Books, or any e-reader!');
-  } catch(e) { setStatus('EPUB error: '+e.message); console.error(e); }
-  setExportState(false, 'EPUB');
-}
-
-/* ═══════════════════════════════════════════
-   MOBI EXPORT
-   Real KindleGen runs server-side. In-browser,
-   we produce a KDP-ready EPUB + a Kindle-ready
-   HTML package that Amazon KDP auto-converts.
-═══════════════════════════════════════════ */
-async function exportMOBI() {
-  setExportState(true, 'MOBI');
-  try {
-    const T       = S.theme;
-    const title   = getV('bookTitle') || 'Untitled';
-    const author  = getV('bookAuthor') || 'Author';
-    const subtitle= getV('bookSubtitle');
-    const chapters= parseManuscript(getV('manuscript'));
-    const lspace  = getV('lineSpacing');
-    const orn     = S.ornament;
-
-    // We build a zip with an OPF + HTML file set that Amazon KDP/Kindle Previewer accepts
-    const zip = new JSZip();
-
-    const css = `
-body { font-family: Georgia, serif; margin: 0 5%; line-height: ${lspace}; }
-h1.title { font-size: 2em; text-align: center; margin-top: 3em; }
-h2.subtitle { font-size: 1.1em; font-style: italic; text-align: center; color: #666; }
-p.byline { text-align: center; letter-spacing: 0.1em; margin-top: 1.5em; font-size: 0.9em; }
-hr.rule { border: none; border-top: 1px solid #999; width: 35%; margin: 2em auto; }
-.chnum { font-size: 0.72em; letter-spacing: 0.18em; text-transform: uppercase; text-align: center; color: #555; margin-bottom: 0.4em; }
-h2.chtitle { font-size: 1.4em; text-align: center; margin: 0.2em 0 0.8em; }
-.orn { text-align: center; color: #888; margin: 0.6em 0 1em; }
-.scene { text-align: center; color: #888; margin: 0.8em 0; }
-p { margin: 0; text-indent: 1.2em; }
-p.noind { text-indent: 0; }
-mbp:pagebreak { display: block; }`;
-
-    zip.file('style.css', css);
-
-    const titleHTML = `<html><head><meta charset="UTF-8"/><title>${esc(title)}</title><link rel="stylesheet" href="style.css"/></head>
-<body>
-<h1 class="title">${esc(title)}</h1>
-${subtitle?`<h2 class="subtitle">${esc(subtitle)}</h2>`:''}
-<hr class="rule"/>
-<p class="byline">${esc(author)}</p>
-${getV('dedication')?`<blockquote style="font-style:italic;margin:3em auto;max-width:24em;text-align:center">${esc(getV('dedication'))}</blockquote>`:''}
-</body></html>`;
-    zip.file('title.html', titleHTML);
-
-    const spineItems = [{ id:'title', href:'title.html', label:'Title Page' }];
-
-    chapters.forEach((ch, i) => {
-      const cn = chapterNumber(ch.num);
-      const label = cn ? `Chapter ${cn}${ch.title?' — '+ch.title:''}` : ch.title || `Chapter ${i+1}`;
-      const paras = ch.content.split('\n').filter(p=>p.trim());
-      const bodyHTML = paras.map((p, pi) => {
-        if (p==='__SCENE_BREAK__') return `<p class="scene">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`;
-        const noInd = pi===0 || (pi>0&&paras[pi-1]==='__SCENE_BREAK__');
-        return `<p class="${noInd?'noind':''}">${esc(p)}</p>`;
-      }).join('\n');
-      const fname = `ch${String(i+1).padStart(3,'0')}.html`;
-      zip.file(fname, `<html><head><meta charset="UTF-8"/><title>${esc(label)}</title><link rel="stylesheet" href="style.css"/></head>
-<body>
-${cn?`<p class="chnum">Chapter ${esc(String(cn))}</p>`:''}
-${ch.title?`<h2 class="chtitle">${esc(ch.title)}</h2>`:''}
-<p class="orn">${esc(orn)}</p>
-${bodyHTML}
-</body></html>`);
-      spineItems.push({ id:`ch${i+1}`, href:fname, label });
-    });
-
-    // NCX
-    zip.file('toc.ncx', `<?xml version="1.0" encoding="UTF-8"?>
-<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">
-<head><meta name="dtb:uid" content="folio-mobi-${Date.now()}"/></head>
-<docTitle><text>${esc(title)}</text></docTitle>
-<navMap>
-${spineItems.map((it,i)=>`<navPoint id="${it.id}" playOrder="${i+1}"><navLabel><text>${esc(it.label)}</text></navLabel><content src="${it.href}"/></navPoint>`).join('\n')}
-</navMap></ncx>`);
-
-    // OPF (Kindle prefers OPF2 / MOBI-compatible)
-    zip.file('content.opf', `<?xml version="1.0" encoding="utf-8"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="book-id">
-<metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">
-  <dc:identifier id="book-id">folio-mobi-${Date.now()}</dc:identifier>
-  <dc:title>${esc(title)}</dc:title>
-  <dc:creator opf:role="aut">${esc(author)}</dc:creator>
-  <dc:language>en</dc:language>
-  <x-metadata><output encoding="utf-8" content-type="application/x-mobipocket-ebook"/></x-metadata>
-</metadata>
-<manifest>
-  <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>
-  <item id="css" href="style.css" media-type="text/css"/>
-  ${spineItems.map(it=>`<item id="${it.id}" href="${it.href}" media-type="text/html"/>`).join('\n  ')}
-</manifest>
-<spine toc="ncx">
-  ${spineItems.map(it=>`<itemref idref="${it.id}"/>`).join('\n  ')}
-</spine>
-<guide><reference type="toc" title="Table of Contents" href="${spineItems[0].href}"/></guide>
-</package>`);
-
-    const blob = await zip.generateAsync({ type:'blob', compression:'DEFLATE' });
-    downloadBlob(blob, safeName(title)+'_kindle.zip');
-    setStatus('Kindle package exported! Upload the .zip contents to Kindle Previewer or KDP to auto-convert to MOBI/KFX.');
-  } catch(e) { setStatus('MOBI export error: '+e.message); console.error(e); }
-  setExportState(false, 'MOBI');
-}
-
-/* ═══════════════════════════════════════════
-   DOCX EXPORT
-═══════════════════════════════════════════ */
-async function exportDOCX() {
-  setExportState(true, 'DOCX');
-  try {
-    const { Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel, PageBreak,
-            Header, Footer, PageNumber, NumberFormat, UnderlineType } = docx;
-
-    const T       = S.theme;
-    const title   = getV('bookTitle') || 'Untitled';
-    const author  = getV('bookAuthor') || 'Author';
-    const subtitle= getV('bookSubtitle');
-    const dedic   = getV('dedication');
-    const copy    = getV('copyright');
-    const chapters= parseManuscript(getV('manuscript'));
-    const fsize   = parseFloat(getV('fontSize'));
-    const lspace  = parseFloat(getV('lineSpacing'));
-    const orn     = S.ornament;
-    const showNums= getC('pageNums');
-    const justify = getC('justifyText');
-    const [pw,ph] = getPageDims();
-
-    // Convert mm to twips (1 inch = 1440 twips, 1 inch = 25.4 mm)
-    const mmToTwips = mm => Math.round(mm / 25.4 * 1440);
-    const ptToHalfPt= pt => Math.round(pt * 2);
-    const lineRule  = Math.round(lspace * 240);
-
-    const hexColor = h => h.replace('#','');
-    const accentHex = hexColor(S.accent);
-    const textHex   = hexColor(T.text);
-    const divHex    = hexColor(T.divider);
-
-    const bodyFont = 'Crimson Pro';
-    const headFont = 'Playfair Display';
-
-    const paraStyle = (opts={}) => ({
-      spacing: { line: lineRule, lineRule:'auto', before:0, after: justify?0:100 },
-      alignment: justify ? AlignmentType.JUSTIFIED : AlignmentType.LEFT,
-      ...opts
-    });
-
-    const run = (text, opts={}) => new TextRun({ text, font: bodyFont, size: ptToHalfPt(fsize), color: textHex, ...opts });
-
-    const bodyPara = (text, noIndent=false, isDropCap=false) => {
-      const children = [];
-      if (isDropCap && text.length > 0) {
-        children.push(new TextRun({ text: text[0], font: headFont, size: ptToHalfPt(fsize*3.2), color: accentHex, bold:true }));
-        children.push(run(text.slice(1)));
-      } else {
-        children.push(run(text));
-      }
-      return new Paragraph({
-        children,
-        ...paraStyle({ indent: noIndent ? undefined : { firstLine: Math.round(720 * fsize/13) } })
-      });
-    };
-
-    const children = [];
-
-    // Title page
-    children.push(new Paragraph({
-      children: [new TextRun({ text: title, font: headFont, size: ptToHalfPt(28), bold:true, color: textHex })],
-      alignment: AlignmentType.CENTER,
-      spacing: { before: mmToTwips(ph*0.35), after: 160 }
-    }));
-    if (subtitle) children.push(new Paragraph({
-      children: [new TextRun({ text: subtitle, font: bodyFont, size: ptToHalfPt(14), italics:true, color: accentHex })],
-      alignment: AlignmentType.CENTER, spacing: { before:0, after:280 }
-    }));
-    children.push(new Paragraph({
-      children: [new TextRun({ text: author, font: bodyFont, size: ptToHalfPt(12), color: textHex+'88' })],
-      alignment: AlignmentType.CENTER, spacing: { before:280, after:0 }
-    }));
-    children.push(new Paragraph({ children:[new TextRun({text:'',break:1})], pageBreakBefore:true }));
-
-    // Copyright
-    if (copy) {
-      children.push(new Paragraph({ children:[run(copy, {size:ptToHalfPt(8.5),color:textHex+'99'})], spacing:{before:0,after:120} }));
-      children.push(new Paragraph({ children:[new TextRun({text:'',break:1})], pageBreakBefore:true }));
-    }
-
-    // Dedication
-    if (dedic) {
-      children.push(new Paragraph({
-        children:[new TextRun({text:dedic, font:bodyFont, size:ptToHalfPt(12), italics:true, color:textHex+'99'})],
-        alignment:AlignmentType.CENTER, spacing:{before:mmToTwips(ph*0.3),after:0}
-      }));
-      children.push(new Paragraph({ children:[new TextRun({text:'',break:1})], pageBreakBefore:true }));
-    }
-
     // Chapters
-    chapters.forEach((ch, ci) => {
-      const cn = chapterNumber(ch.num);
-      if (cn) children.push(new Paragraph({
-        children:[new TextRun({text:'CHAPTER '+cn, font:bodyFont, size:ptToHalfPt(8.5), color:accentHex, allCaps:true, characterSpacing:180})],
-        alignment:AlignmentType.CENTER, spacing:{before:480,after:120}
-      }));
-      if (ch.title) children.push(new Paragraph({
-        children:[new TextRun({text:ch.title, font:headFont, size:ptToHalfPt(18), bold:true, color:textHex})],
-        alignment:AlignmentType.CENTER, spacing:{before:0,after:160}
-      }));
-      children.push(new Paragraph({
-        children:[new TextRun({text:orn, font:'Symbol', size:ptToHalfPt(13), color:accentHex})],
-        alignment:AlignmentType.CENTER, spacing:{before:80,after:200}
-      }));
+    const chapterItems=[];
+    bodyChapters.forEach((ch,i)=>{
+      const cn=chapterNumber(i+1);
+      const label=cn?`Chapter ${cn}${ch.title?' — '+ch.title:''}`:ch.title||`Chapter ${i+1}`;
+      const paras=ch.content.split('\n').filter(p=>p.trim());
+      const bodyParas=paras.map((p,pi)=>{
+        if(p==='__SCENE_BREAK__') return `<p class="scene-break">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`;
+        const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
+        const dc=(pi===0&&ch.title)?' drop-cap':'';
+        return `<p class="${noInd?'no-indent':''}${dc}">${esc(p)}</p>`;
+      }).join('');
+      const body=`${cn?`<p class="chapter-num">Chapter ${esc(String(cn))}</p>`:''} ${ch.title?`<h2 class="chapter-title">${esc(ch.title)}</h2>`:''}<p class="ornament">${esc(orn)}</p>${bodyParas}`;
+      const fname=`chapter${String(i+1).padStart(3,'0')}.xhtml`;
+      oebps.file(fname,xhtmlWrap(label,body));
+      chapterItems.push({id:`ch${i+1}`,href:fname,label});
+      spineItems.push(chapterItems[chapterItems.length-1]);
+    });
+    // Back matter
+    backMatter.forEach((bm,i)=>{
+      const fname=`back${String(i+1).padStart(3,'0')}.xhtml`;
+      const body=`${bm.title?`<h2 class="section-title">${esc(bm.title)}</h2>`:''}`+bm.content.split('\n').filter(p=>p.trim()).map(p=>`<p>${esc(p)}</p>`).join('');
+      oebps.file(fname,xhtmlWrap(bm.title||'Back Matter',body));
+      spineItems.push({id:`back${i+1}`,href:fname,label:bm.title||`Back Matter ${i+1}`});
+    });
+    oebps.file('toc.ncx',`<?xml version="1.0" encoding="UTF-8"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head><meta name="dtb:uid" content="${id}"/></head><docTitle><text>${esc(title)}</text></docTitle><navMap>${spineItems.map((c,i)=>`<navPoint id="${c.id}" playOrder="${i+1}"><navLabel><text>${esc(c.label)}</text></navLabel><content src="${c.href}"/></navPoint>`).join('')}</navMap></ncx>`);
+    oebps.file('nav.xhtml',xhtmlWrap('Table of Contents',`<nav xmlns:epub="http://www.idpf.org/2007/ops" epub:type="toc"><ol>${spineItems.map(c=>`<li><a href="${c.href}">${esc(c.label)}</a></li>`).join('')}</ol></nav>`));
+    oebps.file('content.opf',`<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">${id}</dc:identifier><dc:title>${esc(title)}</dc:title><dc:creator>${esc(author)}</dc:creator><dc:language>en</dc:language><dc:date>${now}</dc:date>${subtitle?`<dc:description>${esc(subtitle)}</dc:description>`:''}<meta property="dcterms:modified">${now}</meta></metadata><manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="css" href="style.css" media-type="text/css"/>${spineItems.map(c=>`<item id="${c.id}" href="${c.href}" media-type="application/xhtml+xml"/>`).join('')}</manifest><spine toc="ncx"><itemref idref="title"/>${spineItems.filter(c=>c.id!=='title').map(c=>`<itemref idref="${c.id}"/>`).join('')}</spine></package>`);
+    const blob=await zip.generateAsync({type:'blob',mimeType:'application/epub+zip',compression:'DEFLATE',compressionOptions:{level:9}});
+    downloadBlob(blob,safeName(title)+'.epub');
+    setStatus('EPUB exported — open in Calibre, Apple Books, or any e-reader!');
+  }catch(e){setStatus('EPUB error: '+e.message);console.error(e)}
+  setExportState(false,'EPUB');
+}
 
-      const paras = ch.content.split('\n').filter(p=>p.trim());
+/* ═══════════════════════════════════════════════
+   MOBI EXPORT
+═══════════════════════════════════════════════ */
+async function exportMOBI(){
+  setExportState(true,'MOBI');
+  try{
+    const T=S.theme;const title=getV('bookTitle')||'Untitled';const author=getV('bookAuthor')||'Author';
+    const subtitle=getV('bookSubtitle');const bodyChapters=getChapters();const lspace=getV('lineSpacing');const orn=S.ornament;
+    const zip=new JSZip();
+    const css=`body{font-family:Georgia,serif;margin:0 5%;line-height:${lspace}}h1.title{font-size:2em;text-align:center;margin-top:3em}h2.subtitle{font-size:1.1em;font-style:italic;text-align:center;color:#666}p.byline{text-align:center;letter-spacing:0.1em;margin-top:1.5em;font-size:0.9em}hr.rule{border:none;border-top:1px solid #999;width:35%;margin:2em auto}.chnum{font-size:0.72em;letter-spacing:0.18em;text-transform:uppercase;text-align:center;color:#555;margin-bottom:0.4em}h2.chtitle{font-size:1.4em;text-align:center;margin:0.2em 0 0.8em}.orn{text-align:center;color:#888;margin:0.6em 0 1em}.scene{text-align:center;color:#888;margin:0.8em 0}p{margin:0;text-indent:1.2em}p.noind{text-indent:0}mbp\\:pagebreak{display:block}`;
+    zip.file('style.css',css);
+    zip.file('title.html',`<html><head><meta charset="UTF-8"/><title>${esc(title)}</title><link rel="stylesheet" href="style.css"/></head><body><h1 class="title">${esc(title)}</h1>${subtitle?`<h2 class="subtitle">${esc(subtitle)}</h2>`:''}<hr class="rule"/><p class="byline">${esc(author)}</p>${getV('dedication')?`<blockquote style="font-style:italic;margin:3em auto;max-width:24em;text-align:center">${esc(getV('dedication'))}</blockquote>`:''}</body></html>`);
+    const spineItems=[{id:'title',href:'title.html',label:'Title Page'}];
+    bodyChapters.forEach((ch,i)=>{
+      const cn=chapterNumber(i+1);const label=cn?`Chapter ${cn}${ch.title?' — '+ch.title:''}`:ch.title||`Chapter ${i+1}`;
+      const paras=ch.content.split('\n').filter(p=>p.trim());
+      const bodyHTML=paras.map((p,pi)=>{if(p==='__SCENE_BREAK__') return`<p class="scene">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`;const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');return`<p class="${noInd?'noind':''}">${esc(p)}</p>`;}).join('');
+      const fname=`ch${String(i+1).padStart(3,'0')}.html`;
+      zip.file(fname,`<html><head><meta charset="UTF-8"/><title>${esc(label)}</title><link rel="stylesheet" href="style.css"/></head><body>${cn?`<p class="chnum">Chapter ${esc(String(cn))}</p>`:''}${ch.title?`<h2 class="chtitle">${esc(ch.title)}</h2>`:''}<p class="orn">${esc(orn)}</p>${bodyHTML}</body></html>`);
+      spineItems.push({id:`ch${i+1}`,href:fname,label});
+    });
+    zip.file('toc.ncx',`<?xml version="1.0" encoding="UTF-8"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head><meta name="dtb:uid" content="folio-mobi-${Date.now()}"/></head><docTitle><text>${esc(title)}</text></docTitle><navMap>${spineItems.map((it,i)=>`<navPoint id="${it.id}" playOrder="${i+1}"><navLabel><text>${esc(it.label)}</text></navLabel><content src="${it.href}"/></navPoint>`).join('')}</navMap></ncx>`);
+    zip.file('content.opf',`<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="book-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf"><dc:identifier id="book-id">folio-mobi-${Date.now()}</dc:identifier><dc:title>${esc(title)}</dc:title><dc:creator opf:role="aut">${esc(author)}</dc:creator><dc:language>en</dc:language><x-metadata><output encoding="utf-8" content-type="application/x-mobipocket-ebook"/></x-metadata></metadata><manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/><item id="css" href="style.css" media-type="text/css"/>${spineItems.map(it=>`<item id="${it.id}" href="${it.href}" media-type="text/html"/>`).join('')}</manifest><spine toc="ncx">${spineItems.map(it=>`<itemref idref="${it.id}"/>`).join('')}</spine><guide><reference type="toc" title="Table of Contents" href="${spineItems[0].href}"/></guide></package>`);
+    const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});
+    downloadBlob(blob,safeName(title)+'_kindle.zip');
+    setStatus('Kindle package exported! Upload .zip contents to Kindle Previewer or KDP.');
+  }catch(e){setStatus('MOBI error: '+e.message);console.error(e)}
+  setExportState(false,'MOBI');
+}
+
+/* ═══════════════════════════════════════════════
+   DOCX EXPORT
+═══════════════════════════════════════════════ */
+async function exportDOCX(){
+  setExportState(true,'DOCX');
+  try{
+    const{Document,Packer,Paragraph,TextRun,AlignmentType,PageBreak,Footer,PageNumber}=docx;
+    const T=S.theme;const title=getV('bookTitle')||'Untitled';const author=getV('bookAuthor')||'Author';
+    const subtitle=getV('bookSubtitle');const dedic=getV('dedication');const copy=getV('copyright');
+    const bodyChapters=getChapters();const frontMatter=getFront();const backMatter=getBack();
+    const fsize=parseFloat(getV('fontSize'));const lspace=parseFloat(getV('lineSpacing'));
+    const orn=S.ornament;const showNums=getC('pageNums');const justify=getC('justifyText');
+    const[pw,ph]=getPageDims();
+    const mmToTwips=mm=>Math.round(mm/25.4*1440);const ptToHalfPt=pt=>Math.round(pt*2);const lineRule=Math.round(lspace*240);
+    const accentHex=S.accent.replace('#','');const textHex=T.text.replace('#','');
+    const bodyFont='Crimson Pro';const headFont='Playfair Display';
+    const paraStyle=(opts={})=>({spacing:{line:lineRule,lineRule:'auto',before:0,after:justify?0:100},alignment:justify?AlignmentType.JUSTIFIED:AlignmentType.LEFT,...opts});
+    const run=(text,opts={})=>new TextRun({text,font:bodyFont,size:ptToHalfPt(fsize),color:textHex,...opts});
+    const bodyPara=(text,noIndent=false,isDropCap=false)=>{
+      const children=[];
+      if(isDropCap&&text.length>0){children.push(new TextRun({text:text[0],font:headFont,size:ptToHalfPt(fsize*3.2),color:accentHex,bold:true}));children.push(run(text.slice(1)))}
+      else children.push(run(text));
+      return new Paragraph({children,...paraStyle({indent:noIndent?undefined:{firstLine:Math.round(720*fsize/13)}})});
+    };
+    const children=[];
+    children.push(new Paragraph({children:[new TextRun({text:title,font:headFont,size:ptToHalfPt(28),bold:true,color:textHex})],alignment:AlignmentType.CENTER,spacing:{before:mmToTwips(ph*0.35),after:160}}));
+    if(subtitle) children.push(new Paragraph({children:[new TextRun({text:subtitle,font:bodyFont,size:ptToHalfPt(14),italics:true,color:accentHex})],alignment:AlignmentType.CENTER,spacing:{before:0,after:280}}));
+    children.push(new Paragraph({children:[new TextRun({text:author,font:bodyFont,size:ptToHalfPt(12),color:textHex+'88'})],alignment:AlignmentType.CENTER,spacing:{before:280,after:0}}));
+    children.push(new Paragraph({children:[new TextRun({text:'',break:1})],pageBreakBefore:true}));
+    if(copy){children.push(new Paragraph({children:[run(copy,{size:ptToHalfPt(8.5),color:textHex+'99'})],spacing:{before:0,after:120}}));children.push(new Paragraph({children:[new TextRun({text:'',break:1})],pageBreakBefore:true}))}
+    if(dedic){children.push(new Paragraph({children:[new TextRun({text:dedic,font:bodyFont,size:ptToHalfPt(12),italics:true,color:textHex+'99'})],alignment:AlignmentType.CENTER,spacing:{before:mmToTwips(ph*0.3),after:0}}));children.push(new Paragraph({children:[new TextRun({text:'',break:1})],pageBreakBefore:true}))}
+    frontMatter.forEach(fm=>{
+      if(fm.title) children.push(new Paragraph({children:[new TextRun({text:fm.title,font:headFont,size:ptToHalfPt(18),bold:true,color:textHex})],alignment:AlignmentType.CENTER,spacing:{before:480,after:240}}));
+      fm.content.split('\n').filter(p=>p.trim()).forEach(p=>children.push(bodyPara(p,true)));
+      children.push(new Paragraph({children:[new PageBreak()]}));
+    });
+    bodyChapters.forEach((ch,ci)=>{
+      const cn=chapterNumber(ci+1);
+      if(cn) children.push(new Paragraph({children:[new TextRun({text:'CHAPTER '+cn,font:bodyFont,size:ptToHalfPt(8.5),color:accentHex,allCaps:true,characterSpacing:180})],alignment:AlignmentType.CENTER,spacing:{before:480,after:120}}));
+      if(ch.title) children.push(new Paragraph({children:[new TextRun({text:ch.title,font:headFont,size:ptToHalfPt(18),bold:true,color:textHex})],alignment:AlignmentType.CENTER,spacing:{before:0,after:160}}));
+      children.push(new Paragraph({children:[new TextRun({text:orn,font:'Symbol',size:ptToHalfPt(13),color:accentHex})],alignment:AlignmentType.CENTER,spacing:{before:80,after:200}}));
+      const paras=ch.content.split('\n').filter(p=>p.trim());
       paras.forEach((p,pi)=>{
-        if (p==='__SCENE_BREAK__') {
-          children.push(new Paragraph({
-            children:[new TextRun({text:`${orn}  ${orn}  ${orn}`, color:accentHex, size:ptToHalfPt(11)})],
-            alignment:AlignmentType.CENTER, spacing:{before:180,after:180}
-          }));
-          return;
-        }
-        const noInd = pi===0 || (pi>0&&paras[pi-1]==='__SCENE_BREAK__');
-        const isDC  = pi===0 && Boolean(ch.title);
-        children.push(bodyPara(p, noInd, isDC));
+        if(p==='__SCENE_BREAK__'){children.push(new Paragraph({children:[new TextRun({text:`${orn}  ${orn}  ${orn}`,color:accentHex,size:ptToHalfPt(11)})],alignment:AlignmentType.CENTER,spacing:{before:180,after:180}}));return}
+        const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
+        const isDC=pi===0&&Boolean(ch.title);
+        children.push(bodyPara(p,noInd,isDC));
       });
-
-      if (ci < chapters.length-1) {
-        children.push(new Paragraph({ children:[new PageBreak()] }));
-      }
+      if(ci<bodyChapters.length-1||backMatter.length) children.push(new Paragraph({children:[new PageBreak()]}));
     });
-
-    const footer = showNums ? new Footer({
-      children:[new Paragraph({
-        children:[new TextRun({children:[PageNumber.CURRENT], font:bodyFont, size:ptToHalfPt(9), color:textHex+'88'})],
-        alignment:AlignmentType.CENTER
-      })]
-    }) : undefined;
-
-    const doc = new Document({
-      creator: 'Folio Book Formatter',
-      title, description: subtitle,
-      styles: {
-        default: { document: { run:{ font:bodyFont, size:ptToHalfPt(fsize) } } }
-      },
-      sections:[{
-        properties:{
-          page:{
-            size:{ width:mmToTwips(pw), height:mmToTwips(ph) },
-            margin:{ top:mmToTwips(18), right:mmToTwips(18), bottom:mmToTwips(18), left:mmToTwips(18) }
-          }
-        },
-        footers: footer ? { default: footer } : undefined,
-        children
-      }]
+    backMatter.forEach((bm,bi)=>{
+      if(bm.title) children.push(new Paragraph({children:[new TextRun({text:bm.title,font:headFont,size:ptToHalfPt(18),bold:true,color:textHex})],alignment:AlignmentType.CENTER,spacing:{before:480,after:240}}));
+      bm.content.split('\n').filter(p=>p.trim()).forEach(p=>children.push(bodyPara(p,true)));
+      if(bi<backMatter.length-1) children.push(new Paragraph({children:[new PageBreak()]}));
     });
-
-    const buf = await Packer.toBlob(doc);
-    downloadBlob(buf, safeName(title)+'.docx');
+    const footer=showNums?new Footer({children:[new Paragraph({children:[new TextRun({children:[PageNumber.CURRENT],font:bodyFont,size:ptToHalfPt(9),color:textHex+'88'})],alignment:AlignmentType.CENTER})]}):undefined;
+    const doc=new Document({creator:'Folio Book Formatter',title,description:subtitle,styles:{default:{document:{run:{font:bodyFont,size:ptToHalfPt(fsize)}}}},sections:[{properties:{page:{size:{width:mmToTwips(pw),height:mmToTwips(ph)},margin:{top:mmToTwips(18),right:mmToTwips(18),bottom:mmToTwips(18),left:mmToTwips(18)}}},footers:footer?{default:footer}:undefined,children}]});
+    const buf=await Packer.toBlob(doc);
+    downloadBlob(buf,safeName(title)+'.docx');
     setStatus('DOCX exported — open in Microsoft Word, LibreOffice, or Google Docs!');
-  } catch(e) { setStatus('DOCX error: '+e.message); console.error(e); }
-  setExportState(false, 'DOCX');
+  }catch(e){setStatus('DOCX error: '+e.message);console.error(e)}
+  setExportState(false,'DOCX');
 }
 
-/* ═══════════════════════════════════════════
-   UTILITIES
-═══════════════════════════════════════════ */
-function esc(s) {
-  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-function safeName(s) { return (s||'book').replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase().slice(0,60); }
-function downloadBlob(blob, filename) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename; a.click();
-  setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
-}
-function setStatus(msg) { document.getElementById('statusBar').textContent = msg; }
-function setExportState(busy, fmt) {
-  ['PDF','EPUB','MOBI','DOCX'].forEach(f => {
-    const b = document.getElementById('btn'+f);
-    b.disabled = busy;
-    if (f===fmt) b.querySelector('.fmt').textContent = busy ? '…' : f;
-  });
-  if (busy) setStatus(`Generating ${fmt}…`);
-}
-
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════
    INIT
-═══════════════════════════════════════════ */
-buildThemeGrid();
-buildColorRow();
-buildOrnGrid();
+═══════════════════════════════════════════════ */
+buildThemeGrid();buildColorRow();buildOrnGrid();
 
-document.getElementById('manuscript').value = `# The Garden at Midnight
-
-The clock struck twelve as Elara stepped through the iron gate. The garden lay before her, silver and strange under the full moon, each leaf edged with frost that caught the light like scattered diamonds.
-
-She had been coming here for years. As a child, she had pressed her face against these very bars and wondered what secrets the old estate held. Now, at last, she was inside.
-
-## 
-
-A figure stood at the far end of the path, half-hidden by the old rose arch. She stopped, her breath a small cloud in the cold air. The figure did not move.
-
-# The Stranger
-
-Slowly, Elara walked toward the figure. The gravel crunched beneath her boots. An owl called somewhere above her. He was tall and still, his coat dark against the pale roses.
-
-When she came close enough to see his face, she wished she had not. Not because it was ugly — it was not — but because she recognised him. She had seen that face in the portrait above the library fireplace.
-
-The portrait that had hung there for two hundred years.`;
+// Load demo content
+chapters=[
+  {id:uid(),type:'chapter',title:'The Garden at Midnight',content:`The clock struck twelve as Elara stepped through the iron gate. The garden lay before her, silver and strange under the full moon, each leaf edged with frost that caught the light like scattered diamonds.\n\nShe had been coming here for years. As a child, she had pressed her face against these very bars and wondered what secrets the old estate held. Now, at last, she was inside.\n\n__SCENE_BREAK__\n\nA figure stood at the far end of the path, half-hidden by the old rose arch. She stopped, her breath a small cloud in the cold air. The figure did not move.`,src:'demo',expanded:false},
+  {id:uid(),type:'chapter',title:'The Stranger',content:`Slowly, Elara walked toward the figure. The gravel crunched beneath her boots. An owl called somewhere above her. He was tall and still, his coat dark against the pale roses.\n\nWhen she came close enough to see his face, she wished she had not. Not because it was ugly — it was not — but because she recognised him. She had seen that face in the portrait above the library fireplace.\n\nThe portrait that had hung there for two hundred years.`,src:'demo',expanded:false},
+];
 
 renderPreview();
 </script>
