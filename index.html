@@ -2618,7 +2618,19 @@ function renderPreview(){
   const _pageEst = {};
   chapters.forEach(ch => {
     _pageEst[ch.id] = _estP;
-    if (ch.type==='toc') { _estP++; return; }
+    if (ch.type==='toc') {
+      // Estimate how many pages the TOC will span
+      const _rowH = fsize * ptScale + 2 * MM;
+      const _titleH = 16 * ptScale + (4.2 + 5.3) * MM;
+      const _avH = ph - contentT - contentB;
+      const _r1 = Math.max(1, Math.floor((_avH - _titleH) / _rowH));
+      const _rN = Math.max(1, Math.floor(_avH / _rowH));
+      // _tocRows not built yet; use _allSectionCount as a proxy
+      const _approxEntries = chapters.filter(c=>c.type!=='toc'&&(c.title||c.type==='chapter')).length;
+      const _tocPages = 1 + Math.max(0, Math.ceil((_approxEntries - _r1) / _rN));
+      _estP += _tocPages;
+      return;
+    }
     const _paras = ch.content.split('\n').filter(p=>p.trim());
     const _cW = pw - mg*2;
     const _cH = ph - contentT - contentB;
@@ -2640,14 +2652,45 @@ function renderPreview(){
   // Second pass: render in order
   let _chCounter = 0;
   chapters.forEach(ch => {
-    // ── TOC ──
+    // ── TOC — paginated across as many pages as needed ──
     if (ch.type==='toc') {
       const tocTitle = ch.title || 'Contents';
       if (!_tocRows.length) return;
-      const rows = _tocRows.map(s =>
-        `<div style="display:flex;justify-content:space-between;align-items:baseline;font-family:${font};font-size:${pt(10)};color:${T.text};border-bottom:0.5px dotted ${T.divider};padding:${mm(1)} 0"><span>${esc(s.label)}</span><span style="color:${T.text}66;font-size:${pt(9)}">${s.page}</span></div>`
-      ).join('');
-      pagesHTML+=pageWrap(`<div style="padding-top:${mm(5.3)}"><div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(16)};font-weight:700;color:${T.text};text-align:center;margin-bottom:${mm(4.2)}">${esc(tocTitle)}</div>${rows}</div>`,pageNum++);
+
+      // Measure how many rows fit per page
+      // Row height: font size in px + top/bottom padding (mm(1) each side)
+      const rowH = fsize * ptScale + 2 * MM;          // row height in px
+      const titleH = 16 * ptScale + 4.2 * MM + 5.3 * MM; // heading + top padding
+      const availH = ph - contentT - contentB;        // usable content height in px
+
+      const rowsOnFirstPage = Math.max(1, Math.floor((availH - titleH) / rowH));
+      const rowsPerPage     = Math.max(1, Math.floor(availH / rowH));
+
+      const makeRow = s =>
+        `<div style="display:flex;justify-content:space-between;align-items:baseline;font-family:${font};font-size:${pt(10)};color:${T.text};border-bottom:0.5px dotted ${T.divider};padding:${mm(1)} 0;flex-shrink:0"><span style="padding-right:8px">${esc(s.label)}</span><span style="color:${T.text}66;font-size:${pt(9)};white-space:nowrap">${s.page}</span></div>`;
+
+      // First page — has the heading
+      const firstSlice = _tocRows.slice(0, rowsOnFirstPage);
+      pagesHTML += pageWrap(
+        `<div style="padding-top:${mm(5.3)};display:flex;flex-direction:column">` +
+          `<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(16)};font-weight:700;color:${T.text};text-align:center;margin-bottom:${mm(4.2)};flex-shrink:0">${esc(tocTitle)}</div>` +
+          firstSlice.map(makeRow).join('') +
+        `</div>`,
+        pageNum++
+      );
+
+      // Continuation pages
+      let offset = rowsOnFirstPage;
+      while (offset < _tocRows.length) {
+        const slice = _tocRows.slice(offset, offset + rowsPerPage);
+        pagesHTML += pageWrap(
+          `<div style="padding-top:${mm(5.3)};display:flex;flex-direction:column">` +
+            slice.map(makeRow).join('') +
+          `</div>`,
+          pageNum++
+        );
+        offset += rowsPerPage;
+      }
       return;
     }
 
@@ -2803,17 +2846,64 @@ function exportPDF(){
         addPageNum();
       });
 
-      if(showTOC&&bodyChapters.length){
-        newPage();doc.setFont('times','bold');doc.setFontSize(16);doc.setTextColor(...txR);doc.text('Contents',pw/2,35,{align:'center'});
-        let ty=48;
-        bodyChapters.forEach((ch,i)=>{
-          const cn=chapterNumber(i+1);const label=cn?`${cn}${ch.title?'. '+ch.title:''}`:ch.title;
-          doc.setFont('times','normal');doc.setFontSize(10);doc.setTextColor(...txR);doc.text(label,mg,ty);
-          doc.setFontSize(9);doc.text(String(pageNum+2+i),pw-mg,ty,{align:'right'});
+      // Build TOC from ALL sections (pre, chapter, post) that have titles
+      const tocSections=chapters.filter(c=>c.type!=='toc');
+      let _pdfChCtr=0;
+      // Estimate page numbers: title=1, copy=1, dedic=1, then sections in order
+      let _pdfEstP = 1+(copy?1:0)+(dedic?1:0);
+      // Count TOC pages first (rough: 1 row per 7mm, ~(yBottom-48)/7 per page)
+      const _tocEntries=tocSections.filter(c=>c.title||(c.type==='chapter')).length;
+      const _rowsP1=Math.floor((yBottom-48)/7);
+      const _rowsPN=Math.floor((yBottom-yStart)/7);
+      const _tocPageCount=1+Math.max(0,Math.ceil((_tocEntries-_rowsP1)/_rowsPN));
+      _pdfEstP+=_tocPageCount;
+      // Front matter (pre)
+      frontMatter.forEach(fm=>{
+        const _pl=doc.splitTextToSize(fm.content,tw);
+        _pdfEstP+=Math.max(1,Math.ceil(_pl.length*fsize*0.352*lspace/(yBottom-yStart)));
+      });
+      // Pre-calculate chapter start pages
+      const _chStartPages={};
+      chapters.forEach(sec=>{
+        if(sec.type==='toc') return;
+        _chStartPages[sec.id]=_pdfEstP;
+        if(sec.type==='chapter'){
+          _pdfChCtr++;
+          const _l=doc.splitTextToSize(sec.content,tw);
+          _pdfEstP+=Math.max(1,Math.ceil(_l.length*fsize*0.352*lspace/(yBottom-yStart)));
+        } else {
+          const _l=doc.splitTextToSize(sec.content,tw);
+          _pdfEstP+=Math.max(1,Math.ceil(_l.length*fsize*0.352*lspace/(yBottom-yStart)));
+        }
+      });
+
+      if(showTOC&&tocSections.length){
+        const tocEntry=chapters.find(c=>c.type==='toc');
+        const tocTitle=(tocEntry&&tocEntry.title)||'Contents';
+        newPage();
+        doc.setFont('times','bold');doc.setFontSize(16);doc.setTextColor(...txR);
+        doc.text(tocTitle,pw/2,35,{align:'center'});
+        let ty=48; let _pdfCh2=0;
+        tocSections.forEach(sec=>{
+          if(sec.type==='chapter') _pdfCh2++;
+          const cn=sec.type==='chapter'?chapterNumber(_pdfCh2):null;
+          const label=cn&&sec.title?`${cn}. ${sec.title}`:cn?`Chapter ${cn}`:sec.title;
+          if(!label) return;
+          const pgStr=String(_chStartPages[sec.id]||'');
+          doc.setFont('times','normal');doc.setFontSize(10);doc.setTextColor(...txR);
+          // Truncate label if too long
+          let displayLabel=label;
+          const maxW=tw-doc.getTextWidth(pgStr)-6;
+          while(displayLabel.length>1&&doc.getTextWidth(displayLabel)>maxW) displayLabel=displayLabel.slice(0,-1);
+          doc.text(displayLabel,mg,ty);
+          doc.setFontSize(9);doc.text(pgStr,pw-mg,ty,{align:'right'});
           doc.setDrawColor(...dvR);doc.setLineDash([0.5,1.5]);
-          doc.line(mg+doc.getTextWidth(label)+2,ty-0.5,pw-mg-doc.getTextWidth(String(pageNum+2+i))-2,ty-0.5);
+          const lx1=mg+doc.getTextWidth(displayLabel)+2;
+          const lx2=pw-mg-doc.getTextWidth(pgStr)-2;
+          if(lx2>lx1) doc.line(lx1,ty-0.5,lx2,ty-0.5);
           doc.setLineDash([]);
-          ty+=7;if(ty>yBottom){addPageNum();newPage();ty=yStart;}
+          ty+=7;
+          if(ty>yBottom){addPageNum();newPage();ty=yStart;}
         });
         addPageNum();
       }
