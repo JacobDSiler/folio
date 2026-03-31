@@ -15,14 +15,20 @@
 <script type="module">
 import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import{getFirestore,doc,getDoc,setDoc,collection,query,where,getDocs,deleteDoc,addDoc,onSnapshot,serverTimestamp,orderBy,limit}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-import{getAuth,signInAnonymously,signInWithPopup,linkWithPopup,GoogleAuthProvider,onAuthStateChanged,signOut}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import{getAuth,signInAnonymously,signInWithPopup,signInWithRedirect,linkWithPopup,linkWithRedirect,getRedirectResult,GoogleAuthProvider,onAuthStateChanged,signOut}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 const FC={apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",authDomain:"miscellaneous-117e9.firebaseapp.com",projectId:"miscellaneous-117e9",storageBucket:"miscellaneous-117e9.firebasestorage.app",messagingSenderId:"514858431339",appId:"1:514858431339:web:8b3acbe89966b45fe3922e"};
 const app=initializeApp(FC);
 const db=getFirestore(app);const auth=getAuth(app);
 window._db=db;window._auth=auth;
 window._fb={doc,getDoc,setDoc,collection,query,where,getDocs,deleteDoc,addDoc,onSnapshot,serverTimestamp,orderBy,limit};
 window._googleProvider=new GoogleAuthProvider();
-window._fbAuth={signInWithPopup,linkWithPopup,signOut};
+window._fbAuth={signInWithPopup,signInWithRedirect,linkWithPopup,linkWithRedirect,getRedirectResult,signOut};
+// Check for redirect result first (Google redirect flow lands here)
+getRedirectResult(auth).then(result=>{
+  if(result&&result.user) console.log('Redirect sign-in complete:', result.user.email);
+}).catch(e=>{
+  if(e.code!=='auth/no-current-user') console.warn('redirect result:',e);
+});
 signInAnonymously(auth).catch(e=>console.warn('anon auth:',e));
 onAuthStateChanged(auth,user=>{
   if(user){
@@ -465,6 +471,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
             Continue with Google
           </button>
           <p class="small-note" style="text-align:center">Your folios follow you across every device. No password needed.</p>
+          <div id="authError" style="display:none;margin-top:8px;padding:8px 10px;background:#fef2f2;border:.5px solid #fca5a5;border-radius:7px;font-size:11px;color:#b91c1c;line-height:1.5"></div>
         </div>
 
         <!-- Signed-in state -->
@@ -740,42 +747,104 @@ function _refreshAuthUI(user) {
 }
 
 /* ── Sign in / link with Google ── */
+function _showAuthError(msg) {
+  const el = document.getElementById('authError');
+  if (el) { el.style.display=''; el.innerHTML = msg; }
+  setStatus('Sign-in error — see Folio tab for details');
+  console.error('Auth error:', msg);
+}
+function _clearAuthError() {
+  const el = document.getElementById('authError');
+  if (el) el.style.display = 'none';
+}
+
 async function signInGoogle() {
   if (!window._auth || !window._googleProvider) {
-    setStatus('Auth not ready yet — try again in a moment'); return;
+    _showAuthError('Firebase not ready yet — wait a moment and try again.'); return;
   }
+  _clearAuthError();
   const user = window._auth.currentUser;
+
+  // Detect file:// protocol — popups always fail, must use redirect
+  const isFileProtocol = location.protocol === 'file:';
+
   try {
     if (user && user.isAnonymous) {
-      // Link the anonymous account → Google (merges session, keeps folios)
-      await window._fbAuth.linkWithPopup(user, window._googleProvider);
-      setStatus('Google account linked — your folios are now permanent ✓');
+      if (isFileProtocol) {
+        await window._fbAuth.linkWithRedirect(user, window._googleProvider);
+      } else {
+        await window._fbAuth.linkWithPopup(user, window._googleProvider);
+        setStatus('Google account linked — your folios are now permanent ✓');
+        await loadFolioList();
+      }
     } else {
-      // Fresh sign in
-      await window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
-      setStatus('Signed in with Google ✓');
+      if (isFileProtocol) {
+        await window._fbAuth.signInWithRedirect(window._auth, window._googleProvider);
+      } else {
+        await window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
+        setStatus('Signed in with Google ✓');
+        await loadFolioList();
+      }
     }
-    // Reload folio list under new UID
-    await loadFolioList();
   } catch (e) {
+    console.error('signInGoogle raw error:', e.code, e.message);
+
+    if (e.code === 'auth/popup-closed-by-user') {
+      // Show nothing — deliberate close
+      return;
+    }
+
+    if (e.code === 'auth/popup-blocked') {
+      // Automatically fall back to redirect when popup is blocked
+      _clearAuthError();
+      setStatus('Popup blocked — redirecting to Google sign-in…');
+      setTimeout(async ()=>{
+        try {
+          if (user && user.isAnonymous) {
+            await window._fbAuth.linkWithRedirect(user, window._googleProvider);
+          } else {
+            await window._fbAuth.signInWithRedirect(window._auth, window._googleProvider);
+          }
+        } catch(e2){ _showAuthError('Redirect failed: '+e2.message); }
+      }, 800);
+      return;
+    }
+
+    if (e.code === 'auth/unauthorized-domain') {
+      const domain = location.hostname || 'this domain';
+      _showAuthError(
+        `<strong>Domain not authorized.</strong><br>` +
+        `Add <code style="background:#fee2e2;padding:1px 4px;border-radius:3px">${domain}</code> ` +
+        `to your Firebase project:<br><br>` +
+        `Firebase Console → Authentication → Settings → <strong>Authorized domains</strong> → Add domain`
+      );
+      return;
+    }
+
+    if (e.code === 'auth/operation-not-allowed') {
+      _showAuthError(
+        '<strong>Google sign-in not enabled.</strong><br>' +
+        'Firebase Console → Authentication → Sign-in method → Google → Enable it.'
+      );
+      return;
+    }
+
     if (e.code === 'auth/credential-already-in-use') {
-      // Google account already exists — sign in to it directly
-      // (the anonymous session can't be merged, but we switch to the real account)
+      // This Google account already has its own Firebase account — sign in directly
       try {
         await window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
         await loadFolioList();
         setStatus('Signed in to your existing Google account ✓');
       } catch(e2) {
-        setStatus('Sign-in failed: ' + e2.message);
+        _showAuthError('Sign-in failed: ' + e2.message + ' (' + e2.code + ')');
       }
-    } else if (e.code === 'auth/popup-closed-by-user') {
-      // user closed popup — silent
-    } else if (e.code === 'auth/popup-blocked') {
-      setStatus('Popup blocked — please allow popups for this page, then try again');
-    } else {
-      setStatus('Sign-in error: ' + e.message);
-      console.error('signInGoogle:', e);
+      return;
     }
+
+    // Catch-all — show the real error code so it's diagnosable
+    _showAuthError(
+      `<strong>Sign-in failed</strong> (<code style="background:#fee2e2;padding:1px 4px;border-radius:3px">${e.code || 'unknown'}</code>)<br>${e.message}`
+    );
   }
 }
 
