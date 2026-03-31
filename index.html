@@ -125,11 +125,23 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .exp-btn .fmt{font-size:13px;font-weight:600}
 .exp-btn .lbl{font-size:9px;opacity:.7;font-weight:400}
 .status-bar{padding:6px 1.25rem;font-size:11px;color:var(--hint);background:#faf9f7;border-top:0.5px solid var(--border);flex-shrink:0}
-.preview-area{overflow-y:auto;background:#e4e0d8;padding:2rem;display:flex;flex-direction:column;align-items:center}
-.preview-area::-webkit-scrollbar{width:6px}
-.preview-area::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.2);border-radius:3px}
-.preview-wrap{width:100%;display:flex;flex-direction:column;align-items:center;gap:1.5rem}
-.book-page{box-shadow:0 6px 40px rgba(0,0,0,0.22),0 1px 4px rgba(0,0,0,0.1);position:relative;overflow:hidden;flex-shrink:0}
+.preview-area{overflow:auto;background:#c8c4bc;display:flex;flex-direction:column;align-items:center;position:relative}
+.preview-area::-webkit-scrollbar{width:8px;height:8px}
+.preview-area::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.25);border-radius:4px}
+.preview-area::-webkit-scrollbar-track{background:rgba(0,0,0,0.08)}
+/* Zoom toolbar */
+.preview-toolbar{position:sticky;top:0;z-index:10;width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:7px 12px;background:rgba(0,0,0,0.32);backdrop-filter:blur(4px);flex-shrink:0}
+.zoom-btn{width:26px;height:26px;border-radius:6px;border:none;background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:background .15s;line-height:1}
+.zoom-btn:hover{background:rgba(255,255,255,0.28)}
+.zoom-label{font-size:11.5px;color:rgba(255,255,255,0.9);min-width:38px;text-align:center;font-family:var(--sans);font-weight:500;letter-spacing:.02em}
+.zoom-slider{-webkit-appearance:none;appearance:none;width:90px;height:3px;border-radius:2px;background:rgba(255,255,255,0.3);outline:none;border:none;cursor:pointer}
+.zoom-slider::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;border-radius:50%;background:#fff;cursor:pointer}
+.zoom-fit-btn{font-size:10px;color:rgba(255,255,255,0.7);background:none;border:none;cursor:pointer;padding:3px 6px;border-radius:4px;font-family:var(--sans);transition:all .15s}
+.zoom-fit-btn:hover{background:rgba(255,255,255,0.15);color:#fff}
+/* Page stack */
+.preview-scroller{flex:1;overflow:visible;display:flex;flex-direction:column;align-items:center;padding:24px 24px 48px;gap:0}
+.preview-wrap{display:flex;flex-direction:column;align-items:center;gap:0;transform-origin:top center;transition:transform .1s}
+.book-page{box-shadow:0 4px 24px rgba(0,0,0,0.35),0 1px 4px rgba(0,0,0,0.15);position:relative;overflow:hidden;flex-shrink:0;margin-bottom:20px}
 .tabs{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:0.5px solid var(--border);flex-shrink:0}
 .tab-btn{padding:7px 3px;font-size:10.5px;font-family:var(--sans);border:none;background:transparent;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.15s;white-space:nowrap;text-align:center;letter-spacing:-0.01em;width:100%}
 .tab-btn.active{color:var(--text);border-bottom-color:var(--accent-ui);background:#faf9f7}
@@ -573,7 +585,18 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 
 <!-- ════════════════ PREVIEW ════════════════ -->
 <main class="preview-area" id="previewArea">
-  <div class="preview-wrap" id="bookPreview"></div>
+  <!-- Zoom toolbar -->
+  <div class="preview-toolbar">
+    <button class="zoom-btn" onclick="zoomStep(-1)" title="Zoom out">−</button>
+    <input type="range" class="zoom-slider" id="zoomSlider" min="20" max="200" value="75" oninput="setZoom(this.value)">
+    <button class="zoom-btn" onclick="zoomStep(1)" title="Zoom in">+</button>
+    <span class="zoom-label" id="zoomLabel">75%</span>
+    <button class="zoom-fit-btn" onclick="zoomFit()" title="Fit to window">Fit</button>
+    <button class="zoom-fit-btn" onclick="setZoom(100)" title="Actual size">100%</button>
+  </div>
+  <div class="preview-scroller" id="previewScroller">
+    <div class="preview-wrap" id="bookPreview"></div>
+  </div>
 </main>
 
 </div><!-- /app -->
@@ -1775,6 +1798,56 @@ function setExportState(busy,fmt){
 /* ═══════════════════════════════════════════════
    PREVIEW RENDERER
 ═══════════════════════════════════════════════ */
+/* ── Zoom state ── */
+let _zoom = parseFloat(localStorage.getItem('folio_zoom') || '75');
+
+function setZoom(pct) {
+  _zoom = Math.min(200, Math.max(20, parseFloat(pct)));
+  document.getElementById('zoomSlider').value = _zoom;
+  document.getElementById('zoomLabel').textContent = Math.round(_zoom) + '%';
+  const wrap = document.getElementById('bookPreview');
+  if (wrap) wrap.style.transform = `scale(${_zoom/100})`;
+  // Adjust scroller height so scrollbar tracks the scaled content
+  const scroller = document.getElementById('previewScroller');
+  if (scroller && wrap) {
+    const natural = wrap.scrollHeight;
+    scroller.style.minHeight = Math.round(natural * _zoom/100 + 80) + 'px';
+  }
+  try { localStorage.setItem('folio_zoom', _zoom); } catch(e){}
+}
+
+function zoomStep(dir) {
+  const steps = [20,25,33,40,50,60,67,75,80,90,100,110,120,133,150,175,200];
+  const cur = Math.round(_zoom);
+  let idx = steps.findIndex(s => s >= cur);
+  if (idx === -1) idx = steps.length - 1;
+  if (dir > 0 && steps[idx] === cur) idx = Math.min(idx+1, steps.length-1);
+  else if (dir > 0) {} // already snapped up
+  else idx = Math.max(0, (steps[idx] === cur ? idx-1 : idx-1));
+  setZoom(steps[Math.max(0, Math.min(idx, steps.length-1))]);
+}
+
+function zoomFit() {
+  const area = document.getElementById('previewArea');
+  const wrap = document.getElementById('bookPreview');
+  if (!area || !wrap) return;
+  // Find the first page to measure its natural width
+  const firstPage = wrap.querySelector('.book-page');
+  if (!firstPage) return;
+  const pageW = firstPage.offsetWidth;
+  const areaW = area.clientWidth - 64; // padding
+  const fit = Math.floor((areaW / pageW) * 100);
+  setZoom(Math.min(fit, 150));
+}
+
+// Ctrl/Cmd + scroll to zoom
+document.addEventListener('wheel', e => {
+  if (!e.ctrlKey && !e.metaKey) return;
+  if (!document.getElementById('previewArea').contains(e.target)) return;
+  e.preventDefault();
+  zoomStep(e.deltaY < 0 ? 1 : -1);
+}, {passive: false});
+
 function renderPreview(){
   const T=S.theme;
   const title=getV('bookTitle')||'Untitled';
@@ -1798,64 +1871,89 @@ function renderPreview(){
   const frontMatter=getFront();
   const backMatter=getBack();
   const [pwMM,phMM]=getPageDims();
-  const scale=Math.min(680/pwMM,940/phMM,1);
-  const pw=Math.round(pwMM*scale);
-  const ph=Math.round(phMM*scale);
-  const mg=Math.round(18*scale);
+
+  // Render at TRUE physical size: 1mm = 3.7795px (96dpi standard)
+  // This gives pixel-perfect WYSIWYG — zoom is handled by CSS transform only
+  const MM = 3.7795;
+  const pw = Math.round(pwMM * MM);   // e.g. trade 6" = 152.4mm = 576px
+  const ph = Math.round(phMM * MM);   // e.g. trade 9" = 228.6mm = 864px
+  const mg = Math.round(18 * MM);     // 18mm margin = 68px
+  const hdrH = Math.round(14 * MM);   // header area
+  const ftrH = Math.round(12 * MM);   // footer area
+  const contentT = Math.round(28 * MM);
+  const contentB = Math.round(22 * MM);
+
   const accent=S.accent;
   const orn=S.ornament;
   let pageNum=1;
   let pagesHTML='';
-  const borderStyle=pageBorder?`box-shadow:inset 0 0 0 ${Math.round(6*scale)}px ${T.divider}80,inset 0 0 0 ${Math.round(9*scale)}px ${T.divider}30;`:'';
+  const borderStyle=pageBorder?`box-shadow:inset 0 0 0 ${Math.round(6*MM)}px ${T.divider}80,inset 0 0 0 ${Math.round(9*MM)}px ${T.divider}30;`:'';
+
+  // pt to px: 1pt = 1.333px at 96dpi
+  const pt = n => (n * 1.333).toFixed(2) + 'px';
+  const fsPx = (n * 1.333).toFixed(2) + 'px';
 
   const pageWrap=(inner,pn,isFirst=false)=>{
-    const hdr=showHdr&&!isFirst?`<div style="position:absolute;top:${Math.round(12*scale)}px;left:${mg}px;right:${mg}px;display:flex;justify-content:space-between;font-family:${font};font-size:${Math.round(7.5*scale)}px;color:${T.text}77;letter-spacing:0.08em;text-transform:uppercase;border-bottom:0.5px solid ${T.divider};padding-bottom:${Math.round(4*scale)}px"><span>${author.toUpperCase()}</span><span>${title.toUpperCase()}</span></div>`:'';
-    const ftr=showNums&&pn>2?`<div style="position:absolute;bottom:${Math.round(10*scale)}px;left:0;right:0;text-align:center;font-family:${font};font-size:${Math.round(8*scale)}px;color:${T.text}66">${pn}</div>`:'';
-    return `<div class="book-page" style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;inset:${Math.round(30*scale)}px ${mg}px ${Math.round(26*scale)}px;overflow:hidden;display:flex;flex-direction:column">${inner}</div></div>`;
+    const hdr=showHdr&&!isFirst?`<div style="position:absolute;top:${Math.round(10*MM)}px;left:${mg}px;right:${mg}px;display:flex;justify-content:space-between;font-family:${font};font-size:${pt(7)};color:${T.text}77;letter-spacing:0.08em;text-transform:uppercase;border-bottom:0.5px solid ${T.divider};padding-bottom:3px"><span>${esc(author.toUpperCase())}</span><span>${esc(title.toUpperCase())}</span></div>`:'';
+    const ftr=showNums&&pn>2?`<div style="position:absolute;bottom:${Math.round(8*MM)}px;left:0;right:0;text-align:center;font-family:${font};font-size:${pt(8)};color:${T.text}66">${pn}</div>`:'';
+    return `<div class="book-page" style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;top:${contentT}px;left:${mg}px;right:${mg}px;bottom:${contentB}px;overflow:hidden;display:flex;flex-direction:column">${inner}</div></div>`;
   };
 
   // Cover
   if(coverPos==='full'&&S.coverImg){
-    pagesHTML+=`<div class="book-page" style="width:${pw}px;height:${ph}px;position:relative;overflow:hidden;"><img src="${S.coverImg}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"><div style="position:absolute;inset:0;background:linear-gradient(to top,${T.bg}dd 0%,transparent 55%)"></div><div style="position:absolute;bottom:${mg}px;left:${mg}px;right:${mg}px;text-align:center"><div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(28*scale)}px;font-weight:700;color:${T.text};line-height:1.2;text-shadow:0 2px 12px rgba(0,0,0,0.4)">${title}</div>${subtitle?`<div style="font-family:${font};font-size:${Math.round(12*scale)}px;color:${T.text}99;margin-top:${Math.round(5*scale)}px;font-style:italic">${subtitle}</div>`:''}<div style="font-family:${font};font-size:${Math.round(10*scale)}px;color:${T.text}88;margin-top:${Math.round(10*scale)}px;letter-spacing:0.12em;text-shadow:0 1px 4px rgba(0,0,0,0.4)">— ${author} —</div></div></div>`;
+    pagesHTML+=`<div class="book-page" style="width:${pw}px;height:${ph}px;position:relative;overflow:hidden;"><img src="${S.coverImg}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"><div style="position:absolute;inset:0;background:linear-gradient(to top,${T.bg}dd 0%,transparent 55%)"></div><div style="position:absolute;bottom:${mg}px;left:${mg}px;right:${mg}px;text-align:center"><div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(26)};font-weight:700;color:${T.text};line-height:1.2">${esc(title)}</div>${subtitle?`<div style="font-family:${font};font-size:${pt(12)};color:${T.text}99;margin-top:6px;font-style:italic">${esc(subtitle)}</div>`:''}<div style="font-family:${font};font-size:${pt(10)};color:${T.text}88;margin-top:10px;letter-spacing:0.12em">— ${esc(author)} —</div></div></div>`;
     pageNum++;
   } else {
     let img='';
-    if(coverPos==='top'&&S.coverImg) img=`<div style="text-align:center;margin-bottom:${Math.round(14*scale)}px"><img src="${S.coverImg}" style="max-height:${Math.round(140*scale)}px;max-width:90%;object-fit:contain;border-radius:3px"></div>`;
-    pagesHTML+=pageWrap(`<div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center">${img}<div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(26*scale)}px;font-weight:700;color:${T.text};line-height:1.25;letter-spacing:-0.01em">${title}</div>${subtitle?`<div style="font-family:${font};font-size:${Math.round(12*scale)}px;color:${accent};margin-top:${Math.round(7*scale)}px;font-style:italic">${subtitle}</div>`:''}<div style="width:${Math.round(36*scale)}px;height:0.5px;background:${T.divider};margin:${Math.round(16*scale)}px auto"></div><div style="font-family:${font};font-size:${Math.round(11*scale)}px;color:${T.text}88;letter-spacing:0.13em;text-transform:uppercase">${author}</div></div>`,pageNum++,true);
+    if(coverPos==='top'&&S.coverImg) img=`<div style="text-align:center;margin-bottom:${Math.round(14*MM)}px"><img src="${S.coverImg}" style="max-height:${Math.round(130*MM)}px;max-width:90%;object-fit:contain;border-radius:3px"></div>`;
+    pagesHTML+=pageWrap(`<div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center">${img}<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(26)};font-weight:700;color:${T.text};line-height:1.25;letter-spacing:-0.01em">${esc(title)}</div>${subtitle?`<div style="font-family:${font};font-size:${pt(12)};color:${accent};margin-top:8px;font-style:italic">${esc(subtitle)}</div>`:''}<div style="width:36px;height:0.5px;background:${T.divider};margin:18px auto"></div><div style="font-family:${font};font-size:${pt(10)};color:${T.text}88;letter-spacing:0.13em;text-transform:uppercase">${esc(author)}</div></div>`,pageNum++,true);
   }
 
-  if(copy) pagesHTML+=pageWrap(`<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;padding-bottom:${Math.round(8*scale)}px"><div style="font-family:${font};font-size:${Math.round(8.5*scale)}px;color:${T.text}77;line-height:1.7">${copy}</div></div>`,pageNum++);
-  if(dedic) pagesHTML+=pageWrap(`<div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center"><div style="font-family:${font};font-size:${Math.round(12*scale)}px;font-style:italic;color:${T.text}99;max-width:${Math.round(240*scale)}px;line-height:1.8">${dedic}</div></div>`,pageNum++);
+  if(copy) pagesHTML+=pageWrap(`<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;padding-bottom:8px"><div style="font-family:${font};font-size:${pt(8)};color:${T.text}77;line-height:1.7">${esc(copy)}</div></div>`,pageNum++);
+  if(dedic) pagesHTML+=pageWrap(`<div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center"><div style="font-family:${font};font-size:${pt(12)};font-style:italic;color:${T.text}99;max-width:${Math.round(240*MM)}px;line-height:1.8">${esc(dedic)}</div></div>`,pageNum++);
 
-  // Front matter sections
+  // Front matter
   frontMatter.forEach(fm=>{
     const paras=fm.content.split('\n').filter(p=>p.trim());
-    const ps=paras.map(p=>`<p style="font-family:${font};font-size:${Math.round(fsize*scale)}px;line-height:${lspace};color:${T.text};margin:0 0 ${Math.round(6*scale)}px;text-align:${justify}">${p}</p>`).join('');
-    pagesHTML+=pageWrap(`<div style="padding-top:${Math.round(20*scale)}px">${fm.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(16*scale)}px;font-weight:700;color:${T.text};text-align:center;margin-bottom:${Math.round(16*scale)}px">${fm.title}</div>`:''}<div style="font-family:${font};font-size:${Math.round(fsize*scale)}px;color:${T.text}">${ps}</div></div>`,pageNum++);
+    const ps=paras.map((p,pi)=>{
+      if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${pt(12)};color:${accent};margin:8px 0;opacity:0.6">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
+      return `<p style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0 0 6px;text-align:${justify}">${esc(p)}</p>`;
+    }).join('');
+    pagesHTML+=pageWrap(`<div style="padding-top:20px">${fm.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(16)};font-weight:700;color:${T.text};text-align:center;margin-bottom:16px">${esc(fm.title)}</div>`:''}<div>${ps}</div></div>`,pageNum++);
   });
 
   // TOC
   if(showTOC&&bodyChapters.length){
-    pagesHTML+=pageWrap(`<div style="padding-top:${Math.round(20*scale)}px"><div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(16*scale)}px;font-weight:700;color:${T.text};text-align:center;margin-bottom:${Math.round(16*scale)}px">Contents</div>${bodyChapters.map((ch,i)=>{const cn=chapterNumber(i+1);const label=cn?`${cn}${ch.title?'. '+ch.title:''}`:ch.title;return`<div style="display:flex;justify-content:space-between;align-items:baseline;font-family:${font};font-size:${Math.round(10.5*scale)}px;color:${T.text};border-bottom:0.5px dotted ${T.divider};padding:${Math.round(4*scale)}px 0"><span>${label}</span><span style="color:${T.text}66;font-size:${Math.round(9*scale)}px">${pageNum+3+i}</span></div>`;}).join('')}</div>`,pageNum++);
+    pagesHTML+=pageWrap(`<div style="padding-top:20px"><div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(16)};font-weight:700;color:${T.text};text-align:center;margin-bottom:16px">Contents</div>${bodyChapters.map((ch,i)=>{const cn=chapterNumber(i+1);const label=cn?`${cn}${ch.title?'. '+ch.title:''}`:ch.title;return`<div style="display:flex;justify-content:space-between;align-items:baseline;font-family:${font};font-size:${pt(10)};color:${T.text};border-bottom:0.5px dotted ${T.divider};padding:4px 0"><span>${esc(label)}</span><span style="color:${T.text}66;font-size:${pt(9)}">${pageNum+3+i}</span></div>`;}).join('')}</div>`,pageNum++);
   }
 
-  // Body chapters
+  // Body chapters — rendered at exact pt font sizes and mm margins (WYSIWYG)
   bodyChapters.forEach((ch,ci)=>{
     const chNum=chapterNumber(ci+1);
     const chImg=(chImgs&&S.images.length>1)?S.images[ci%S.images.length].data:(chImgs&&S.images.length===1)?S.images[0].data:null;
-    const titleBlock=ch.title||chNum?`<div style="text-align:center;padding-top:${Math.round(18*scale)}px;margin-bottom:${Math.round(18*scale)}px">${chNum?`<div style="font-family:${font};font-size:${Math.round(8.5*scale)}px;letter-spacing:0.18em;text-transform:uppercase;color:${accent};margin-bottom:${Math.round(6*scale)}px">Chapter ${chNum}</div>`:''} ${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(18*scale)}px;font-weight:700;color:${T.text};line-height:1.3">${ch.title}</div>`:''} ${chImg?`<div style="margin:${Math.round(8*scale)}px auto;max-height:${Math.round(60*scale)}px;overflow:hidden;text-align:center"><img src="${chImg}" style="max-height:${Math.round(60*scale)}px;max-width:70%;object-fit:contain;opacity:0.8"></div>`:''}<div style="font-size:${Math.round(14*scale)}px;color:${accent};margin-top:${Math.round(6*scale)}px;opacity:0.65">${orn}</div></div>`:'';
+    const titleBlock=(ch.title||chNum)?`<div style="text-align:center;padding-top:${Math.round(18*MM)}px;margin-bottom:${Math.round(16*MM)}px">${chNum?`<div style="font-family:${font};font-size:${pt(8)};letter-spacing:0.18em;text-transform:uppercase;color:${accent};margin-bottom:6px">Chapter ${esc(String(chNum))}</div>`:''} ${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(18)};font-weight:700;color:${T.text};line-height:1.3">${esc(ch.title)}</div>`:''} ${chImg?`<div style="margin:8px auto;max-height:60px;text-align:center"><img src="${chImg}" style="max-height:60px;max-width:70%;object-fit:contain;opacity:0.8"></div>`:''}<div style="font-size:${pt(13)};color:${accent};margin-top:6px;opacity:0.65">${esc(orn)}</div></div>`:'';
+
     const paras=ch.content.split('\n').filter(p=>p.trim());
-    const CHARS_PER_PAGE=Math.round(900*(13/fsize)*(1.7/parseFloat(lspace)));
-    const chunks=Math.max(1,Math.ceil(ch.content.length/CHARS_PER_PAGE));
+    const contentW=pw-mg*2;
+    const avgCharPx=fsize*1.333*0.52;
+    const lineLen=Math.floor(contentW/avgCharPx);
+    const contentH=ph-contentT-contentB;
+    const lineH=fsize*1.333*parseFloat(lspace);
+    const linesPerPage=Math.floor(contentH/lineH);
+    const charsPerPage=Math.max(400,lineLen*linesPerPage);
+    const chunks=Math.max(1,Math.ceil(ch.content.length/charsPerPage));
     const perPage=Math.max(1,Math.ceil(paras.length/chunks));
+
     for(let pg=0;pg<Math.max(1,Math.ceil(paras.length/perPage));pg++){
       const slice=paras.slice(pg*perPage,(pg+1)*perPage);
       const parasHTML=slice.map((p,pi)=>{
-        if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${Math.round(13*scale)}px;color:${accent};margin:${Math.round(8*scale)}px 0;opacity:0.6">${orn} ${orn} ${orn}</div>`;
+        if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${pt(12)};color:${accent};margin:${Math.round(8*MM)}px 0;opacity:0.65">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
         const isFirst=pg===0&&pi===0&&(ch.title||chNum);
-        const dc=dropCap&&isFirst&&p.length>1?`<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(fsize*3.8*scale)}px;line-height:0.75;margin:${Math.round(4*scale)}px ${Math.round(5*scale)}px 0 0;color:${accent};font-weight:700">${p[0]}</span>${p.slice(1)}`:p;
         const noInd=(pg===0&&pi===0)||(pi>0&&slice[pi-1]==='__SCENE_BREAK__');
-        return `<p style="font-family:${font};font-size:${Math.round(fsize*scale)}px;line-height:${lspace};color:${T.text};margin:0;text-align:${justify};text-indent:${noInd?'0':indent};margin-bottom:${indent==='0'?Math.round(6*scale)+'px':'0'}">${dc}</p>`;
+        const dc=dropCap&&isFirst&&p.length>1
+          ?`<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${pt(fsize*3.6)};line-height:0.76;margin:${pt(fsize*0.08)} 4px 0 0;color:${accent};font-weight:700">${esc(p[0])}</span>${esc(p.slice(1))}`
+          :esc(p);
+        return `<p style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0;text-align:${justify};text-indent:${noInd?'0':indent};margin-bottom:${indent==='0'?Math.round(5*MM)+'px':'0'}">${dc}</p>`;
       }).join('');
       pagesHTML+=pageWrap((pg===0?titleBlock:'')+parasHTML,pageNum,false);
       pageNum++;
@@ -1865,11 +1963,16 @@ function renderPreview(){
   // Back matter
   backMatter.forEach(bm=>{
     const paras=bm.content.split('\n').filter(p=>p.trim());
-    const ps=paras.map(p=>`<p style="font-family:${font};font-size:${Math.round(fsize*scale)}px;line-height:${lspace};color:${T.text};margin:0 0 ${Math.round(6*scale)}px">${p}</p>`).join('');
-    pagesHTML+=pageWrap(`<div style="padding-top:${Math.round(20*scale)}px">${bm.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${Math.round(16*scale)}px;font-weight:700;color:${T.text};text-align:center;margin-bottom:${Math.round(16*scale)}px">${bm.title}</div>`:''}<div>${ps}</div></div>`,pageNum++);
+    const ps=paras.map((p,pi)=>{
+      if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${pt(12)};color:${accent};margin:8px 0;opacity:0.6">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
+      return `<p style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0 0 6px">${esc(p)}</p>`;
+    }).join('');
+    pagesHTML+=pageWrap(`<div style="padding-top:20px">${bm.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(16)};font-weight:700;color:${T.text};text-align:center;margin-bottom:16px">${esc(bm.title)}</div>`:''}<div>${ps}</div></div>`,pageNum++);
   });
 
   document.getElementById('bookPreview').innerHTML=pagesHTML;
+  const wrap=document.getElementById('bookPreview');
+  if(wrap){wrap.style.transformOrigin='top center';wrap.style.transform=`scale(${_zoom/100})`;}
   document.getElementById('pageCountLine').textContent=`~${pageNum-1} pages estimated`;
   document.getElementById('statusBar').textContent=`Preview updated — ${bodyChapters.length} chapter${bodyChapters.length!==1?'s':''}, ~${pageNum-1} pages`;
 }
@@ -2498,6 +2601,10 @@ function exportTXT(){
 buildThemeGrid();buildColorRow();buildOrnGrid();
 // Restore last-used export format
 (function(){ const f=localStorage.getItem('folio_last_fmt'); if(f&&FMT_META[f]) _setPrimaryBtn(f); })();
+// Restore zoom level
+(function(){ const z=localStorage.getItem('folio_zoom'); if(z) { _zoom=parseFloat(z); document.getElementById('zoomSlider').value=_zoom; document.getElementById('zoomLabel').textContent=Math.round(_zoom)+'%'; }})();
+// Auto-fit zoom on first load after preview renders
+setTimeout(zoomFit, 300);
 
 // Load demo content
 chapters=[
