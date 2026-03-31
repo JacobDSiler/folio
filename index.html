@@ -1094,9 +1094,11 @@ function exportPDF(){
       const bgR=hexToRgb(T.bg),txR=hexToRgb(T.text),acR=hexToRgb(accent),dvR=hexToRgb(T.divider);
       let pageNum=1;
       const addBg=()=>{if(T.bg!=='#ffffff'){doc.setFillColor(...bgR);doc.rect(0,0,pw,ph,'F')}};
-      const addPageNum=()=>{if(!showNums||pageNum<=2)return;doc.setFontSize(7.5);doc.setTextColor(...txR);doc.setFont('times','normal');doc.text(String(pageNum),pw/2,ph-8,{align:'center'})};
-      const addHeader=()=>{if(!getC('runningHeader')||pageNum<=1)return;doc.setFontSize(6.5);doc.setTextColor(...txR);doc.setFont('times','normal');doc.text(author.toUpperCase(),mg,13);doc.text(title.toUpperCase(),pw-mg,13,{align:'right'});doc.setDrawColor(...dvR);doc.line(mg,14.5,pw-mg,14.5)};
+      const addPageNum=()=>{if(!showNums||pageNum<=2)return;doc.setFont('times','normal');doc.setFontSize(7.5);doc.setTextColor(...txR);doc.text(String(pageNum),pw/2,ph-8,{align:'center'})};
+      const addHeader=()=>{if(!getC('runningHeader')||pageNum<=1)return;doc.setFont('times','normal');doc.setFontSize(6.5);doc.setTextColor(...txR);doc.text(author.toUpperCase(),mg,13);doc.text(title.toUpperCase(),pw-mg,13,{align:'right'});doc.setDrawColor(...dvR);doc.line(mg,14.5,pw-mg,14.5)};
       const newPage=()=>{doc.addPage();addBg();pageNum++;addHeader()};
+      // yStart: top of text area on a continuation page (below running header)
+      const yStart=getC('runningHeader')?20:mg;
       addBg();
       doc.setFont('times','bold');doc.setFontSize(28);doc.setTextColor(...txR);
       const titleLines=doc.splitTextToSize(title,tw);
@@ -1113,9 +1115,12 @@ function exportPDF(){
         let y=fm.title?40:28;
         const lh=fsize*lspace*0.352;
         fm.content.split('\n').filter(p=>p.trim()).forEach(p=>{
-          const lines=doc.splitTextToSize(p,tw);
           doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);
-          lines.forEach(line=>{if(y>ph-mg-8){addPageNum();newPage();y=mg+6}doc.text(line,mg,y);y+=lh});
+          const lines=doc.splitTextToSize(p,tw);
+          lines.forEach(line=>{
+            if(y>ph-mg-8){addPageNum();newPage();y=yStart;doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);}
+            doc.text(line,mg,y);y+=lh;
+          });
           y+=lh*0.2;
         });
         addPageNum();
@@ -1137,15 +1142,32 @@ function exportPDF(){
         let y=28;
         if(cn){doc.setFont('times','normal');doc.setFontSize(8.5);doc.setTextColor(...acR);doc.text('CHAPTER '+cn,pw/2,y,{align:'center'});y+=7}
         if(ch.title){doc.setFont('times','bold');doc.setFontSize(17);doc.setTextColor(...txR);const tl=doc.splitTextToSize(ch.title,tw);doc.text(tl,pw/2,y,{align:'center'});y+=tl.length*9+4}
-        doc.setFontSize(13);doc.setTextColor(...acR);doc.text(orn,pw/2,y,{align:'center'});y+=8;
+        doc.setFont('times','normal');doc.setFontSize(fsize+1);doc.setTextColor(...acR);
+        doc.text(orn,pw/2,y,{align:'center'});y+=8;
+        // Restore body state before first paragraph
+        doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);
         const paras=ch.content.split('\n').filter(p=>p.trim());
         const lh=fsize*lspace*0.352;
         paras.forEach((para,pi)=>{
-          if(para==='__SCENE_BREAK__'){doc.setFontSize(11);doc.setTextColor(...acR);doc.text(`${orn} ${orn} ${orn}`,pw/2,y,{align:'center'});y+=lh*1.5;return}
+          if(para==='__SCENE_BREAK__'){
+            doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...acR);
+            doc.text(`${orn}   ${orn}   ${orn}`,pw/2,y,{align:'center'});y+=lh*1.5;
+            // Always restore body font after ornament
+            doc.setTextColor(...txR);
+            return;
+          }
           const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
-          const lines=doc.splitTextToSize(para,tw-(noInd?0:indent));
+          // Set font BEFORE splitTextToSize so wrap width is computed correctly
           doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);
-          lines.forEach((line,li)=>{if(y>ph-mg-8){addPageNum();newPage();y=mg+6}doc.text(line,mg+(noInd&&li===0?0:indent),y);y+=lh});
+          const lines=doc.splitTextToSize(para,tw-(noInd?0:indent));
+          lines.forEach((line,li)=>{
+            if(y>ph-mg-8){
+              addPageNum();newPage();y=yStart;
+              // Re-assert font after page break — jsPDF can lose state
+              doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);
+            }
+            doc.text(line,mg+(noInd&&li===0?0:indent),y);y+=lh;
+          });
           if(indent===0) y+=lh*0.3;
         });
         addPageNum();
@@ -1157,9 +1179,12 @@ function exportPDF(){
         let y=bm.title?40:28;
         const lh=fsize*lspace*0.352;
         bm.content.split('\n').filter(p=>p.trim()).forEach(p=>{
-          const lines=doc.splitTextToSize(p,tw);
           doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);
-          lines.forEach(line=>{if(y>ph-mg-8){addPageNum();newPage();y=mg+6}doc.text(line,mg,y);y+=lh});
+          const lines=doc.splitTextToSize(p,tw);
+          lines.forEach(line=>{
+            if(y>ph-mg-8){addPageNum();newPage();y=yStart;doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);}
+            doc.text(line,mg,y);y+=lh;
+          });
           y+=lh*0.2;
         });
         addPageNum();
