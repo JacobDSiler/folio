@@ -364,12 +364,13 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
       </div>
       <div class="section">
         <div class="section-title">Page Size</div>
-        <select id="pageSize" onchange="renderPreview()">
+        <select id="pageSize" onchange="setPreviewSize(this.value)">
           <option value="trade">Trade Paperback (6 × 9")</option>
           <option value="pocket">Pocket (5 × 8")</option>
           <option value="digest">Digest (5.5 × 8.5")</option>
           <option value="a4">A4</option>
           <option value="letter">US Letter</option>
+          <option value="custom">Custom size…</option>
         </select>
         <div class="toggle-row" style="margin-top:10px">
           <span>Facing pages (recto/verso)</span>
@@ -596,13 +597,27 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
   <div class="preview-toolbar">
     <!-- Page size selector (mirrors #pageSize in Design tab) -->
     <select id="toolbarPageSize" onchange="setPreviewSize(this.value)"
-      style="font-size:11px;font-family:var(--sans);background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:3px 6px;cursor:pointer;outline:none;max-width:148px">
-      <option value="trade">Trade (6×9")</option>
-      <option value="pocket">Pocket (5×8")</option>
-      <option value="digest">Digest (5.5×8.5")</option>
-      <option value="a4">A4</option>
-      <option value="letter">US Letter</option>
+      style="font-size:11px;font-family:var(--sans);background:#2a2520;color:#f0ebe0;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:3px 6px;cursor:pointer;outline:none;max-width:152px">
+      <option value="trade"  style="background:#fff;color:#1a1a1a">Trade (6×9")</option>
+      <option value="pocket" style="background:#fff;color:#1a1a1a">Pocket (5×8")</option>
+      <option value="digest" style="background:#fff;color:#1a1a1a">Digest (5.5×8.5")</option>
+      <option value="a4"     style="background:#fff;color:#1a1a1a">A4 (210×297mm)</option>
+      <option value="letter" style="background:#fff;color:#1a1a1a">US Letter (8.5×11")</option>
+      <option value="custom" style="background:#fff;color:#1a1a1a">Custom size…</option>
     </select>
+    <!-- Custom size inputs — shown only when Custom is selected -->
+    <div id="customSizeInputs" style="display:none;align-items:center;gap:4px;flex-wrap:nowrap">
+      <input id="customW" type="number" min="1" max="99" value="5.8" step="0.1"
+        style="width:44px;font-size:11px;padding:3px 5px;border-radius:5px;border:1px solid rgba(255,255,255,0.3);background:#2a2520;color:#f0ebe0;text-align:center;outline:none"
+        oninput="applyCustomSize()">
+      <span style="font-size:10px;color:rgba(255,255,255,0.55)">×</span>
+      <input id="customH" type="number" min="1" max="99" value="8.3" step="0.1"
+        style="width:44px;font-size:11px;padding:3px 5px;border-radius:5px;border:1px solid rgba(255,255,255,0.3);background:#2a2520;color:#f0ebe0;text-align:center;outline:none"
+        oninput="applyCustomSize()">
+      <!-- Unit toggle -->
+      <button id="unitToggle" onclick="toggleCustomUnit()"
+        style="font-size:10px;padding:3px 7px;border-radius:5px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.12);color:#f0ebe0;cursor:pointer;font-family:var(--sans);white-space:nowrap;line-height:1.2">in</button>
+    </div>
     <!-- Divider -->
     <span style="width:1px;height:16px;background:rgba(255,255,255,0.2);flex-shrink:0"></span>
     <!-- Zoom controls -->
@@ -772,91 +787,109 @@ function _clearAuthError() {
 
 async function signInGoogle() {
   if (!window._auth || !window._googleProvider) {
-    _showAuthError('Firebase not ready yet — wait a moment and try again.'); return;
+    _showAuthError('Firebase not ready — wait a moment and try again.'); return;
   }
   _clearAuthError();
   const user = window._auth.currentUser;
+  const isFile = location.protocol === 'file:';
+  const isAnon = user && user.isAnonymous;
 
-  // Detect file:// protocol — popups always fail, must use redirect
-  const isFileProtocol = location.protocol === 'file:';
-
-  try {
-    if (user && user.isAnonymous) {
-      if (isFileProtocol) {
+  // Helper: run redirect flow (navigates away then returns)
+  const doRedirect = async () => {
+    try {
+      setStatus('Redirecting to Google sign-in…');
+      if (isAnon) {
         await window._fbAuth.linkWithRedirect(user, window._googleProvider);
       } else {
-        await window._fbAuth.linkWithPopup(user, window._googleProvider);
-        setStatus('Google account linked — your folios are now permanent ✓');
-        await loadFolioList();
-      }
-    } else {
-      if (isFileProtocol) {
         await window._fbAuth.signInWithRedirect(window._auth, window._googleProvider);
-      } else {
-        await window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
-        setStatus('Signed in with Google ✓');
-        await loadFolioList();
       }
+    } catch(e) {
+      _showAuthError(`Redirect failed (${e.code}): ${e.message}`);
     }
+  };
+
+  // file:// always uses redirect — popups are blocked by browser security
+  if (isFile) { await doRedirect(); return; }
+
+  // Try popup first; fall through to redirect on any blocking error
+  try {
+    let result;
+    if (isAnon) {
+      result = await window._fbAuth.linkWithPopup(user, window._googleProvider);
+      setStatus('Google account linked — your folios are now permanent ✓');
+    } else {
+      result = await window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
+      setStatus('Signed in as ' + (result.user.displayName || result.user.email) + ' ✓');
+    }
+    await loadFolioList();
   } catch (e) {
-    console.error('signInGoogle raw error:', e.code, e.message);
+    console.error('Google sign-in error:', e.code, e.message);
 
-    if (e.code === 'auth/popup-closed-by-user') {
-      // Show nothing — deliberate close
-      return;
-    }
+    // User deliberately closed the popup — silent
+    if (e.code === 'auth/popup-closed-by-user') return;
 
+    // Popup blocked → fall back to redirect automatically
     if (e.code === 'auth/popup-blocked') {
-      // Automatically fall back to redirect when popup is blocked
-      _clearAuthError();
-      setStatus('Popup blocked — redirecting to Google sign-in…');
-      setTimeout(async ()=>{
-        try {
-          if (user && user.isAnonymous) {
-            await window._fbAuth.linkWithRedirect(user, window._googleProvider);
-          } else {
-            await window._fbAuth.signInWithRedirect(window._auth, window._googleProvider);
-          }
-        } catch(e2){ _showAuthError('Redirect failed: '+e2.message); }
-      }, 800);
-      return;
+      await doRedirect(); return;
     }
 
+    // Domain not in Firebase authorized list — most common cause of instant close
     if (e.code === 'auth/unauthorized-domain') {
-      const domain = location.hostname || 'this domain';
+      const domain = location.hostname || location.href;
       _showAuthError(
-        `<strong>Domain not authorized.</strong><br>` +
-        `Add <code style="background:#fee2e2;padding:1px 4px;border-radius:3px">${domain}</code> ` +
-        `to your Firebase project:<br><br>` +
-        `Firebase Console → Authentication → Settings → <strong>Authorized domains</strong> → Add domain`
+        `<strong>This domain isn't authorized in Firebase.</strong><br><br>` +
+        `Go to <strong>Firebase Console → Authentication → Settings → Authorized domains</strong> ` +
+        `and add: <br><code style="display:inline-block;margin-top:4px;background:#fee2e2;padding:2px 6px;border-radius:4px;font-size:11px;word-break:break-all">${domain}</code><br><br>` +
+        `<em style="font-size:10.5px;opacity:.8">If testing locally, add <code>localhost</code>. ` +
+        `For GitHub Pages add <code>yourusername.github.io</code>.</em>`
       );
       return;
     }
 
+    // Google sign-in provider not enabled in Firebase console
     if (e.code === 'auth/operation-not-allowed') {
       _showAuthError(
-        '<strong>Google sign-in not enabled.</strong><br>' +
-        'Firebase Console → Authentication → Sign-in method → Google → Enable it.'
+        '<strong>Google sign-in is not enabled.</strong><br>' +
+        'Firebase Console → Authentication → Sign-in method → Google → Enable'
       );
       return;
     }
 
+    // This Google account already has a Firebase account — sign in directly
     if (e.code === 'auth/credential-already-in-use') {
-      // This Google account already has its own Firebase account — sign in directly
       try {
-        await window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
+        const r2 = await window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
+        setStatus('Signed in as ' + (r2.user.displayName || r2.user.email) + ' ✓');
         await loadFolioList();
-        setStatus('Signed in to your existing Google account ✓');
       } catch(e2) {
-        _showAuthError('Sign-in failed: ' + e2.message + ' (' + e2.code + ')');
+        _showAuthError(`Sign-in failed (${e2.code}): ${e2.message}`);
       }
       return;
     }
 
-    // Catch-all — show the real error code so it's diagnosable
+    // Anything else — show the full error so it's diagnosable
     _showAuthError(
-      `<strong>Sign-in failed</strong> (<code style="background:#fee2e2;padding:1px 4px;border-radius:3px">${e.code || 'unknown'}</code>)<br>${e.message}`
+      `<strong>Sign-in failed</strong> — <code style="background:#fee2e2;padding:1px 5px;border-radius:3px;font-size:11px">${e.code||'unknown'}</code><br>` +
+      `<span style="font-size:10.5px">${e.message}</span><br><br>` +
+      `<span style="font-size:10.5px;opacity:.8">Try the redirect method: ` +
+      `<button onclick="signInGoogle._redirect=true;doRedirect_global()" ` +
+      `style="font-size:10.5px;color:#1d4ed8;background:none;border:none;cursor:pointer;text-decoration:underline;padding:0">sign in via redirect instead</button></span>`
     );
+  }
+}
+
+// Global redirect helper for the fallback button in error messages
+async function doRedirect_global() {
+  _clearAuthError();
+  const user = window._auth?.currentUser;
+  try {
+    if (user && user.isAnonymous) {
+      await window._fbAuth.linkWithRedirect(user, window._googleProvider);
+    } else {
+      await window._fbAuth.signInWithRedirect(window._auth, window._googleProvider);
+    }
+  } catch(e) {
+    _showAuthError(`Redirect failed (${e.code}): ${e.message}`);
   }
 }
 
@@ -1809,7 +1842,48 @@ msDz.addEventListener('drop',e=>{
 ═══════════════════════════════════════════════ */
 function getV(id){return document.getElementById(id).value}
 function getC(id){return document.getElementById(id).checked}
-function getPageDims(){const map={trade:[152.4,228.6],pocket:[127,203.2],digest:[139.7,215.9],a4:[210,297],letter:[215.9,279.4]};return map[getV('pageSize')]||map.trade}
+let _customUnit = 'in'; // 'in' or 'mm'
+
+function toggleCustomUnit() {
+  const wEl = document.getElementById('customW');
+  const hEl = document.getElementById('customH');
+  const btn = document.getElementById('unitToggle');
+  if (!wEl || !hEl) return;
+  const w = parseFloat(wEl.value) || 0;
+  const h = parseFloat(hEl.value) || 0;
+  if (_customUnit === 'in') {
+    // Convert to mm
+    wEl.value = (w * 25.4).toFixed(0);
+    hEl.value = (h * 25.4).toFixed(0);
+    wEl.min='50'; wEl.max='500'; wEl.step='1';
+    hEl.min='50'; hEl.max='700'; hEl.step='1';
+    _customUnit = 'mm';
+    btn.textContent = 'mm';
+  } else {
+    // Convert to inches
+    wEl.value = (w / 25.4).toFixed(2);
+    hEl.value = (h / 25.4).toFixed(2);
+    wEl.min='1'; wEl.max='20'; wEl.step='0.1';
+    hEl.min='1'; hEl.max='30'; hEl.step='0.1';
+    _customUnit = 'in';
+    btn.textContent = 'in';
+  }
+  applyCustomSize();
+}
+
+function getCustomDimsInMM() {
+  const w = parseFloat(document.getElementById('customW')?.value) || 148;
+  const h = parseFloat(document.getElementById('customH')?.value) || 210;
+  if (_customUnit === 'in') return [w * 25.4, h * 25.4];
+  return [w, h];
+}
+
+function getPageDims(){
+  const map={trade:[152.4,228.6],pocket:[127,203.2],digest:[139.7,215.9],a4:[210,297],letter:[215.9,279.4]};
+  const val=getV('pageSize');
+  if(val==='custom') return getCustomDimsInMM();
+  return map[val]||map.trade;
+}
 function hexToRgb(h){const v=h.replace('#','');return[parseInt(v.slice(0,2),16),parseInt(v.slice(2,4),16),parseInt(v.slice(4,6),16)]}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function safeName(s){return(s||'book').replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase().slice(0,60)}
@@ -1928,13 +2002,28 @@ document.addEventListener('wheel', e => {
 
 /* ── Preview size picker — syncs toolbar ↔ Design tab select ── */
 function setPreviewSize(val) {
-  // Keep the Design tab select in sync
+  // Show/hide custom size inputs
+  const ci = document.getElementById('customSizeInputs');
+  if (ci) ci.style.display = val === 'custom' ? 'flex' : 'none';
+  // Keep the Design tab select in sync (custom not in Design tab — that's fine)
   const ds = document.getElementById('pageSize');
-  if (ds) ds.value = val;
-  // Keep toolbar select in sync (called from Design tab too)
+  if (ds && val !== 'custom') ds.value = val;
+  // Keep toolbar select in sync
   const ts = document.getElementById('toolbarPageSize');
   if (ts) ts.value = val;
-  zoomFit(); // re-fit zoom to new page dimensions, then re-renders
+  zoomFit();
+}
+
+function applyCustomSize() {
+  const ts = document.getElementById('toolbarPageSize');
+  if (ts) ts.value = 'custom';
+  // Show the mm equivalent as a tooltip so users know what they'll get
+  const [wMM, hMM] = getCustomDimsInMM();
+  const wEl = document.getElementById('customW');
+  const hEl = document.getElementById('customH');
+  if (wEl) wEl.title = _customUnit==='in' ? `${wMM.toFixed(1)} mm` : `${(wMM/25.4).toFixed(2)}"`;
+  if (hEl) hEl.title = _customUnit==='in' ? `${hMM.toFixed(1)} mm` : `${(hMM/25.4).toFixed(2)}"`;
+  zoomFit();
 }
 
 // Keep toolbar picker in sync when Design tab select changes
