@@ -112,6 +112,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .img-chip img{width:16px;height:16px;object-fit:cover;border-radius:2px}
 .chip-type{font-size:9px;padding:1px 5px;border-radius:3px;font-weight:500;text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;user-select:none}
 .chip-pre{background:#dbeafe;color:#1e40af}
+.chip-toc{background:#ede9fe;color:#5b21b6}
 .chip-ch{background:#dcfce7;color:#166534}
 .chip-post{background:#fef3c7;color:#92400e}
 .chip-rm{color:#c44;font-weight:700;font-size:13px;cursor:pointer;line-height:1;margin-left:2px}
@@ -338,7 +339,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
         </div>
         <div class="stats-bar" id="chStatsBar"></div>
         <div class="ch-list" id="chList"></div>
-        <button class="ch-add-btn" onclick="addBlankChapter()">+ Add chapter</button>
+        <div style="display:flex;gap:6px">
+          <button class="ch-add-btn" style="flex:1" onclick="addBlankChapter()">+ Add chapter</button>
+          <button class="ch-add-btn" style="flex:0 0 auto;padding:7px 12px" onclick="addTOC()" title="Insert a Table of Contents — drag to reorder">+ TOC</button>
+        </div>
       </div>
     </div>
 
@@ -1796,6 +1800,7 @@ function applyImportToChapters() {
 
   if (!newChapters.length) { setStatus('Nothing to import'); return; }
   chapters = newChapters;
+  _insertTOCIfNeeded();
   renderChapterList();
   renderPreview();
 
@@ -1974,6 +1979,7 @@ function confirmSplits() {
   // Exit split editor and apply
   exitSplitEditor();
   chapters = result;
+  _insertTOCIfNeeded();
   renderChapterList();
   renderPreview();
 
@@ -2101,6 +2107,17 @@ function buildChaptersFromRaw(raw){
 ═══════════════════════════════════════════════ */
 function uid(){ return 'c'+Math.random().toString(36).slice(2,9); }
 
+
+function addTOC() {
+  if (chapters.find(c=>c.type==='toc')) {
+    setStatus('A Table of Contents already exists — find it in the chapter list');
+    return;
+  }
+  chapters.unshift({ id:uid(), type:'toc', title:'Contents', content:'', src:'auto', expanded:false });
+  renderChapterList();
+  renderPreview();
+  setStatus('Table of Contents added — drag it to reorder');
+}
 function renderChapterList(){
   updateChapterStats();
   const el=document.getElementById('chList');
@@ -2111,8 +2128,8 @@ function renderChapterList(){
 }
 
 function chItemHTML(ch,i){
-  const typeClasses={pre:'chip-pre',chapter:'chip-ch',post:'chip-post'};
-  const typeLabel={pre:'Pre',chapter:'Ch',post:'Post'};
+  const typeClasses={pre:'chip-pre',chapter:'chip-ch',post:'chip-post',toc:'chip-toc'};
+  const typeLabel={pre:'Pre',chapter:'Ch',post:'Post',toc:'TOC'};
   const preview=ch.content.replace(/\n/g,' ').slice(0,120)+(ch.content.length>120?'…':'');
   return `<div class="ch-item" data-id="${ch.id}" data-i="${i}" draggable="true">
     <div class="ch-item-head">
@@ -2136,8 +2153,10 @@ function updateChapterStats(){
   const pre=chapters.filter(c=>c.type==='pre').length;
   const ch=chapters.filter(c=>c.type==='chapter').length;
   const post=chapters.filter(c=>c.type==='post').length;
-  document.getElementById('chStatsBar').innerHTML=`
-    <span class="stat-pill stat-pre">${pre} front</span>
+  const toc=chapters.filter(c=>c.type==='toc').length;
+  document.getElementById('chStatsBar').innerHTML=
+    (toc?`<span class="stat-pill chip-toc" style="border-radius:8px;padding:2px 8px;font-size:10px">${toc} TOC</span> `:'')
+    +`<span class="stat-pill stat-pre">${pre} front</span>
     <span class="stat-pill stat-ch">${ch} chapter${ch!==1?'s':''}</span>
     <span class="stat-pill stat-post">${post} back</span>`;
 }
@@ -2145,8 +2164,9 @@ function updateChapterStats(){
 function cycleChType(id){
   const ch=chapters.find(c=>c.id===id);
   if(!ch) return;
-  const order=['pre','chapter','post'];
-  ch.type=order[(order.indexOf(ch.type)+1)%3];
+  const order=['pre','toc','chapter','post'];
+  const idx=order.indexOf(ch.type);
+  ch.type=order[(idx===-1?1:idx+1)%order.length];
   renderChapterList();
   renderPreview();
 }
@@ -2213,9 +2233,25 @@ function attachDrag(item){
 /* ═══════════════════════════════════════════════
    GET CHAPTERS FOR EXPORT
 ═══════════════════════════════════════════════ */
+/* ── Auto-insert a TOC chapter entry, positioned before all chapters ── */
+function ensureTOCEntry() {
+  // Only add if showTOC is checked and no TOC entry exists yet
+  if (!getC('showTOC')) return;
+  if (chapters.find(c => c.type==='toc')) return;
+  const tocEntry = { id: uid(), type:'toc', title:'Contents', content:'', src:'auto', expanded:false };
+  // Insert at position 0 so it appears first by default
+  chapters.unshift(tocEntry);
+}
+
+function _insertTOCIfNeeded() {
+  if (getC('showTOC') && !chapters.find(c=>c.type==='toc')) {
+    chapters.unshift({ id:uid(), type:'toc', title:'Contents', content:'', src:'auto', expanded:false });
+  }
+}
 function getFront(){ return chapters.filter(c=>c.type==='pre'); }
 function getChapters(){ return chapters.filter(c=>c.type==='chapter'); }
 function getBack(){ return chapters.filter(c=>c.type==='post'); }
+function getTOC(){ return chapters.find(c=>c.type==='toc')||null; }
 
 function chapterNumber(n){const s=getV('chNumStyle');if(s==='roman')return toRoman(n);if(s==='word')return(ROMAN_WORDS[n-1]||String(n));if(s==='none')return null;return n;}
 
@@ -2575,64 +2611,89 @@ function renderPreview(){
 
   if(copy) pagesHTML+=pageWrap(`<div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;padding-bottom:${mm(2)}"><div style="font-family:${font};font-size:${pt(8)};color:${T.text}77;line-height:1.7">${esc(copy)}</div></div>`,pageNum++);
   if(dedic) pagesHTML+=pageWrap(`<div style="flex:1;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center"><div style="font-family:${font};font-size:${pt(12)};font-style:italic;color:${T.text}99;max-width:${Math.round(240*MM)}px;line-height:1.8">${esc(dedic)}</div></div>`,pageNum++);
-
-  // Front matter
-  frontMatter.forEach(fm=>{
-    const paras=fm.content.split('\n').filter(p=>p.trim());
-    const ps=paras.map((p,pi)=>{
-      if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${pt(12)};color:${accent};margin:${mm(2)} 0;opacity:0.6">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
-      return `<p style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0 0 ${mm(1.6)};text-align:${justify}">${esc(p)}</p>`;
-    }).join('');
-    pagesHTML+=pageWrap(`<div style="padding-top:${mm(5.3)}">${fm.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(16)};font-weight:700;color:${T.text};text-align:center;margin-bottom:${mm(4.2)}">${esc(fm.title)}</div>`:''}<div>${ps}</div></div>`,pageNum++);
+  // ── Render all sections in chapters array order (respects drag-to-reorder) ──
+  // First pass: estimate start page for each chapter entry (for TOC page numbers)
+  const _baseOffset = 1 + (copy?1:0) + (dedic?1:0);
+  let _estP = _baseOffset + 1;
+  const _pageEst = {};
+  chapters.forEach(ch => {
+    _pageEst[ch.id] = _estP;
+    if (ch.type==='toc') { _estP++; return; }
+    const _paras = ch.content.split('\n').filter(p=>p.trim());
+    const _cW = pw - mg*2;
+    const _cH = ph - contentT - contentB;
+    const _lH = fsize * ptScale * parseFloat(lspace);
+    const _lpp = Math.max(1, Math.floor(_cH / _lH));
+    const _cpp = Math.max(400, Math.floor(_cW/(fsize*ptScale*0.52)) * _lpp);
+    _estP += Math.max(1, Math.ceil(ch.content.length / _cpp));
   });
 
-  // TOC
-  if(showTOC&&bodyChapters.length){
-    pagesHTML+=pageWrap(`<div style="padding-top:${mm(5.3)}"><div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(16)};font-weight:700;color:${T.text};text-align:center;margin-bottom:${mm(4.2)}">Contents</div>${bodyChapters.map((ch,i)=>{const cn=chapterNumber(i+1);const label=cn?`${cn}${ch.title?'. '+ch.title:''}`:ch.title;return`<div style="display:flex;justify-content:space-between;align-items:baseline;font-family:${font};font-size:${pt(10)};color:${T.text};border-bottom:0.5px dotted ${T.divider};padding:${mm(1)} 0"><span>${esc(label)}</span><span style="color:${T.text}66;font-size:${pt(9)}">${pageNum+3+i}</span></div>`;}).join('')}</div>`,pageNum++);
-  }
+  // Build TOC entries: all sections with a title or chapter number
+  let _chCtr = 0;
+  const _tocRows = chapters.filter(c=>c.type!=='toc').map(c => {
+    if (c.type==='chapter') _chCtr++;
+    const cn = c.type==='chapter' ? chapterNumber(_chCtr) : null;
+    const label = cn && c.title ? `${cn}. ${c.title}` : cn ? `Chapter ${cn}` : c.title;
+    return label ? {label, page:_pageEst[c.id]} : null;
+  }).filter(Boolean);
 
-  // Body chapters — rendered at exact pt font sizes and mm margins (WYSIWYG)
-  bodyChapters.forEach((ch,ci)=>{
-    const chNum=chapterNumber(ci+1);
-    const chImg=(chImgs&&S.images.length>1)?S.images[ci%S.images.length].data:(chImgs&&S.images.length===1)?S.images[0].data:null;
-    const titleBlock=(ch.title||chNum)?`<div style="text-align:center;padding-top:${Math.round(18*MM)}px;margin-bottom:${Math.round(16*MM)}px">${chNum?`<div style="font-family:${font};font-size:${pt(8)};letter-spacing:0.18em;text-transform:uppercase;color:${accent};margin-bottom:${mm(1.6)}">Chapter ${esc(String(chNum))}</div>`:''} ${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(18)};font-weight:700;color:${T.text};line-height:1.3">${esc(ch.title)}</div>`:''} ${chImg?`<div style="margin:${mm(2)} auto;max-height:${mm(15.9)};text-align:center"><img src="${chImg}" style="max-height:${mm(15.9)};max-width:70%;object-fit:contain;opacity:0.8"></div>`:''}<div style="font-size:${pt(13)};color:${accent};margin-top:${mm(1.6)};opacity:0.65">${esc(orn)}</div></div>`:'';
-
-    const paras=ch.content.split('\n').filter(p=>p.trim());
-    const contentW=pw-mg*2;
-    const avgCharPx=fsize*ptScale*0.52;  // zoomed font size
-    const lineLen=Math.floor(contentW/avgCharPx);
-    const contentH=ph-contentT-contentB;
-    const lineH=fsize*ptScale*parseFloat(lspace);
-    const linesPerPage=Math.floor(contentH/lineH);
-    const charsPerPage=Math.max(400,lineLen*linesPerPage);
-    const chunks=Math.max(1,Math.ceil(ch.content.length/charsPerPage));
-    const perPage=Math.max(1,Math.ceil(paras.length/chunks));
-
-    for(let pg=0;pg<Math.max(1,Math.ceil(paras.length/perPage));pg++){
-      const slice=paras.slice(pg*perPage,(pg+1)*perPage);
-      const parasHTML=slice.map((p,pi)=>{
-        if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${pt(12)};color:${accent};margin:${Math.round(8*MM)}px 0;opacity:0.65">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
-        const isFirst=pg===0&&pi===0&&(ch.title||chNum);
-        const noInd=(pg===0&&pi===0)||(pi>0&&slice[pi-1]==='__SCENE_BREAK__');
-        const dc=dropCap&&isFirst&&p.length>1
-          ?`<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${pt(fsize*3.6)};line-height:0.76;margin:${pt(fsize*0.08)} ${mm(1)} 0 0;color:${accent};font-weight:700">${esc(p[0])}</span>${esc(p.slice(1))}`
-          :esc(p);
-        return `<p style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0;text-align:${justify};text-indent:${noInd?'0':indentPx};margin-bottom:${indent==='0'?mm(1.3):'0'}">${dc}</p>`;
-      }).join('');
-      pagesHTML+=pageWrap((pg===0?titleBlock:'')+parasHTML,pageNum,false);
-      pageNum++;
+  // Second pass: render in order
+  let _chCounter = 0;
+  chapters.forEach(ch => {
+    // ── TOC ──
+    if (ch.type==='toc') {
+      const tocTitle = ch.title || 'Contents';
+      if (!_tocRows.length) return;
+      const rows = _tocRows.map(s =>
+        `<div style="display:flex;justify-content:space-between;align-items:baseline;font-family:${font};font-size:${pt(10)};color:${T.text};border-bottom:0.5px dotted ${T.divider};padding:${mm(1)} 0"><span>${esc(s.label)}</span><span style="color:${T.text}66;font-size:${pt(9)}">${s.page}</span></div>`
+      ).join('');
+      pagesHTML+=pageWrap(`<div style="padding-top:${mm(5.3)}"><div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(16)};font-weight:700;color:${T.text};text-align:center;margin-bottom:${mm(4.2)}">${esc(tocTitle)}</div>${rows}</div>`,pageNum++);
+      return;
     }
-  });
 
-  // Back matter
-  backMatter.forEach(bm=>{
-    const paras=bm.content.split('\n').filter(p=>p.trim());
-    const ps=paras.map((p,pi)=>{
-      if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${pt(12)};color:${accent};margin:${mm(2)} 0;opacity:0.6">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
-      return `<p style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0 0 ${mm(1.6)}">${esc(p)}</p>`;
-    }).join('');
-    pagesHTML+=pageWrap(`<div style="padding-top:${mm(5.3)}">${bm.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(16)};font-weight:700;color:${T.text};text-align:center;margin-bottom:${mm(4.2)}">${esc(bm.title)}</div>`:''}<div>${ps}</div></div>`,pageNum++);
-  });
+    // ── Front / back matter ──
+    if (ch.type==='pre' || ch.type==='post') {
+      const paras=ch.content.split('\n').filter(p=>p.trim());
+      const ps=paras.map(p=>{
+        if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${pt(12)};color:${accent};margin:${mm(2)} 0;opacity:0.6">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
+        return `<p style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0 0 ${mm(1.6)};text-align:${justify}">${esc(p)}</p>`;
+      }).join('');
+      pagesHTML+=pageWrap(`<div style="padding-top:${mm(5.3)}">${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(16)};font-weight:700;color:${T.text};text-align:center;margin-bottom:${mm(4.2)}">${esc(ch.title)}</div>`:''}<div>${ps}</div></div>`,pageNum++);
+      return;
+    }
+
+    // ── Chapter ──
+    if (ch.type==='chapter') {
+      _chCounter++;
+      const chNum=chapterNumber(_chCounter);
+      const chImg=(chImgs&&S.images.length>1)?S.images[_chCounter%S.images.length].data:(chImgs&&S.images.length===1)?S.images[0].data:null;
+      const titleBlock=(ch.title||chNum)?`<div style="text-align:center;padding-top:${Math.round(18*MM)}px;margin-bottom:${Math.round(16*MM)}px">${chNum?`<div style="font-family:${font};font-size:${pt(8)};letter-spacing:0.18em;text-transform:uppercase;color:${accent};margin-bottom:${mm(1.6)}">Chapter ${esc(String(chNum))}</div>`:''} ${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(18)};font-weight:700;color:${T.text};line-height:1.3">${esc(ch.title)}</div>`:''} ${chImg?`<div style="margin:${mm(2)} auto;max-height:${mm(15.9)};text-align:center"><img src="${chImg}" style="max-height:${mm(15.9)};max-width:70%;object-fit:contain;opacity:0.8"></div>`:''}<div style="font-size:${pt(13)};color:${accent};margin-top:${mm(1.6)};opacity:0.65">${esc(orn)}</div></div>`:'';
+      const paras=ch.content.split('\n').filter(p=>p.trim());
+      const contentW=pw-mg*2;
+      const avgCharPx=fsize*ptScale*0.52;
+      const lineLen=Math.floor(contentW/avgCharPx);
+      const contentH=ph-contentT-contentB;
+      const lineH=fsize*ptScale*parseFloat(lspace);
+      const linesPerPage=Math.floor(contentH/lineH);
+      const charsPerPage=Math.max(400,lineLen*linesPerPage);
+      const chunks=Math.max(1,Math.ceil(ch.content.length/charsPerPage));
+      const perPage=Math.max(1,Math.ceil(paras.length/chunks));
+      for(let pg=0;pg<Math.max(1,Math.ceil(paras.length/perPage));pg++){
+        const slice=paras.slice(pg*perPage,(pg+1)*perPage);
+        const parasHTML=slice.map((p,pi)=>{
+          if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${pt(12)};color:${accent};margin:${Math.round(8*MM)}px 0;opacity:0.65">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
+          const isFirst=pg===0&&pi===0&&(ch.title||chNum);
+          const noInd=(pg===0&&pi===0)||(pi>0&&slice[pi-1]==='__SCENE_BREAK__');
+          const dc=dropCap&&isFirst&&p.length>1
+            ?`<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${pt(fsize*3.6)};line-height:0.76;margin:${pt(fsize*0.08)} ${mm(1)} 0 0;color:${accent};font-weight:700">${esc(p[0])}</span>${esc(p.slice(1))}`
+            :esc(p);
+          return `<p style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0;text-align:${justify};text-indent:${noInd?'0':indentPx};margin-bottom:${indent==='0'?mm(1.3):'0'}">${dc}</p>`;
+        }).join('');
+        pagesHTML+=pageWrap((pg===0?titleBlock:'')+parasHTML,pageNum,false);
+        pageNum++;
+      }
+    }
+  }); // end chapters.forEach
 
   document.getElementById('bookPreview').innerHTML=pagesHTML;
   document.getElementById('pageCountLine').textContent=`~${pageNum-1} pages estimated`;
