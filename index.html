@@ -22,6 +22,9 @@ const db=getFirestore(app);const auth=getAuth(app);
 window._db=db;window._auth=auth;
 window._fb={doc,getDoc,setDoc,collection,query,where,getDocs,deleteDoc,addDoc,onSnapshot,serverTimestamp,orderBy,limit};
 window._googleProvider=new GoogleAuthProvider();
+window._googleProvider.setCustomParameters({prompt:'select_account'});
+// Track if popup has failed this session so we can switch to redirect-first
+window._googlePopupFailed = false;
 window._fbAuth={signInWithPopup,signInWithRedirect,linkWithPopup,linkWithRedirect,getRedirectResult,signOut};
 // Check for redirect result first (Google redirect flow lands here)
 getRedirectResult(auth).then(result=>{
@@ -137,6 +140,27 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .preview-area::-webkit-scrollbar{width:8px;height:8px}
 .preview-area::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.25);border-radius:4px}
 .preview-area::-webkit-scrollbar-track{background:rgba(0,0,0,0.08)}
+/* ── Split editor ── */
+.split-editor{display:none;flex-direction:column;height:100%;background:#f5f3ee;font-family:'Crimson Pro',Georgia,serif}
+.split-editor.active{display:flex}
+.split-toolbar{display:flex;align-items:center;gap:8px;padding:9px 16px;background:#2a2520;flex-shrink:0;flex-wrap:wrap}
+.split-toolbar-title{font-size:12px;color:#f0ebe0;font-weight:500;font-family:var(--sans)}
+.split-toolbar-count{font-size:11px;color:rgba(255,255,255,0.6);font-family:var(--sans)}
+.split-confirm{padding:6px 16px;border-radius:7px;border:none;background:#c9956a;color:#fff;font-size:12px;font-weight:600;cursor:pointer;font-family:var(--sans);transition:opacity .15s}
+.split-confirm:hover{opacity:.88}
+.split-cancel{padding:6px 12px;border-radius:7px;border:1px solid rgba(255,255,255,0.3);background:transparent;color:rgba(255,255,255,0.8);font-size:12px;cursor:pointer;font-family:var(--sans)}
+.split-body{overflow-y:auto;flex:1;padding:32px max(32px,calc(50% - 340px))}
+.split-para{position:relative;padding:2px 0 2px 32px;line-height:1.7;font-size:14.5px;color:#1a1504;cursor:default}
+.split-para:hover .split-add-btn{opacity:1}
+.split-add-btn{position:absolute;left:0;top:3px;width:22px;height:22px;border-radius:50%;border:1.5px dashed #c9a86c;background:#faf8f4;color:#8B4513;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;line-height:1;padding:0}
+.split-add-btn:hover{background:#8B4513;color:#fff;border-color:#8B4513;opacity:1}
+.split-break{background:#fff8f0;border-top:2px solid #c9956a;border-bottom:1px solid #e8d4a0;margin:4px -32px 4px -32px;padding:8px 32px;display:flex;align-items:center;gap:8px}
+.split-break-label{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#8B4513;font-family:var(--sans);white-space:nowrap;flex-shrink:0}
+.split-break-title{flex:1;border:none;background:transparent;font-family:'Playfair Display',Georgia,serif;font-size:15px;font-weight:700;color:#1a1504;outline:none;padding:2px 4px;border-radius:4px}
+.split-break-title:focus{background:#fff;box-shadow:0 0 0 2px #c9956a44}
+.split-break-type{font-size:10px;padding:2px 7px;border-radius:10px;border:1px solid #c9a86c;background:transparent;color:#8B4513;cursor:pointer;font-family:var(--sans)}
+.split-break-rm{font-size:16px;color:#c9a86c;cursor:pointer;background:none;border:none;padding:0 2px;line-height:1;flex-shrink:0}
+.split-break-rm:hover{color:#8B4513}
 /* Zoom toolbar */
 .preview-toolbar{position:sticky;top:0;z-index:10;width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:7px 12px;background:rgba(0,0,0,0.32);backdrop-filter:blur(4px);flex-shrink:0}
 .zoom-btn{width:26px;height:26px;border-radius:6px;border:none;background:rgba(255,255,255,0.15);color:#fff;cursor:pointer;font-size:15px;display:flex;align-items:center;justify-content:center;transition:background .15s;line-height:1}
@@ -334,8 +358,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
         <input type="text" id="pubYear" value="2025" oninput="renderPreview()">
         <label>Dedication</label>
         <input type="text" id="dedication" placeholder="For someone special…" oninput="renderPreview()">
-        <label>Copyright notice</label>
-        <input type="text" id="copyright" placeholder="© 2025 Eleanor Ashford. All rights reserved." oninput="renderPreview()">
+        <label style="display:flex;align-items:center;justify-content:space-between">
+          <span>Copyright notice</span>
+          <button onclick="insertCopyright()" style="font-size:10.5px;padding:2px 8px;border-radius:5px;border:.5px solid var(--border-mid);background:var(--surface);cursor:pointer;font-family:var(--sans);color:var(--text)" title="Insert © symbol and auto-fill">© Insert</button>
+        </label>
+        <input type="text" id="copyright" placeholder="© 2025 Your Name. All rights reserved." oninput="renderPreview()">
+        <p class="small-note" style="margin-top:3px">Click "© Insert" to generate from author name and current year.</p>
         <div class="toggle-row" style="margin-top:12px">
           <span>Auto page numbers</span>
           <label class="toggle"><input type="checkbox" id="pageNums" checked onchange="renderPreview()"><span class="tog-track"></span></label>
@@ -474,7 +502,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 
         <!-- Signed-out state -->
         <div id="authSignedOut">
-          <button onclick="signInGoogle()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:9px;padding:9px 12px;border-radius:8px;border:1px solid var(--border-mid);background:var(--surface);cursor:pointer;font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--text);transition:all .15s;margin-bottom:6px" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='var(--surface)'">
+          <button onclick="signInGoogle()" id="btnGoogleSignIn" style="width:100%;display:flex;align-items:center;justify-content:center;gap:9px;padding:9px 12px;border-radius:8px;border:1px solid var(--border-mid);background:var(--surface);cursor:pointer;font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--text);transition:all .15s;margin-bottom:6px" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='var(--surface)'">
             <svg width="17" height="17" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.42 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-3.92-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
             Continue with Google
           </button>
@@ -600,6 +628,22 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 
 <!-- ════════════════ PREVIEW ════════════════ -->
 <main class="preview-area" id="previewArea">
+  <!-- Split editor — shown when user clicks "View full" -->
+  <div class="split-editor" id="splitEditor">
+    <div class="split-toolbar">
+      <span class="split-toolbar-title">📖 Split manuscript into chapters</span>
+      <span class="split-toolbar-count" id="splitCount">0 splits marked</span>
+      <div style="flex:1"></div>
+      <button class="split-cancel" onclick="exitSplitEditor()">✕ Cancel</button>
+      <button class="split-confirm" onclick="confirmSplits()">✓ Confirm splits</button>
+    </div>
+    <div class="split-body" id="splitBody">
+      <p style="font-size:12px;font-family:var(--sans);color:#888;margin-bottom:24px;text-align:center">
+        Click <strong>+</strong> beside any paragraph to mark it as the start of a new chapter.<br>
+        Edit the chapter title in the orange bar that appears. Click ✕ to remove a split.
+      </p>
+    </div>
+  </div>
   <!-- Preview toolbar: size picker + zoom controls -->
   <div class="preview-toolbar">
     <!-- Page size selector (mirrors #pageSize in Design tab) -->
@@ -815,15 +859,14 @@ async function signInGoogle() {
     }
   };
 
-  // file:// always uses redirect — popups are blocked by browser security
-  if (isFile) { await doRedirect(); return; }
+  // Use redirect if: file://, popup previously failed this session, or user prefers it
+  if (isFile || window._googlePopupFailed) { await doRedirect(); return; }
 
-  // Try popup first; fall through to redirect on any blocking error
+  // Try popup; on any repeated/blocking failure switch permanently to redirect for this session
   try {
     let result;
     if (isAnon) {
       result = await window._fbAuth.linkWithPopup(user, window._googleProvider);
-      // Reload to get fresh isAnonymous=false and providerData
       try{ await window._auth.currentUser.reload(); }catch(e){}
       _refreshAuthUI(window._auth.currentUser);
       setStatus('Google account linked — your folios are now permanent ✓');
@@ -831,15 +874,20 @@ async function signInGoogle() {
       result = await window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
       setStatus('Signed in as ' + (result.user.displayName || result.user.email) + ' ✓');
     }
+    window._googlePopupFailed = false; // reset on success
     await loadFolioList();
   } catch (e) {
     console.error('Google sign-in error:', e.code, e.message);
 
-    // User deliberately closed the popup — silent
-    if (e.code === 'auth/popup-closed-by-user') return;
+    // User deliberately closed the popup — silent, but note it so next attempt uses redirect
+    if (e.code === 'auth/popup-closed-by-user') {
+      window._googlePopupFailed = true; // next attempt → redirect
+      return;
+    }
 
-    // Popup blocked → fall back to redirect automatically
+    // Popup blocked → switch to redirect for this session
     if (e.code === 'auth/popup-blocked') {
+      window._googlePopupFailed = true;
       await doRedirect(); return;
     }
 
@@ -1762,22 +1810,195 @@ function applyImportToChapters() {
   switchTab('chapters', document.querySelector('.tab-btn:nth-child(2)'));
 }
 
-/* View full manuscript in preview without splitting */
+
+/* ═══════════════════════════════════════════════
+   MANUSCRIPT SPLIT EDITOR
+═══════════════════════════════════════════════ */
+
+let _splitParas = [];      // [{text, isBreak, title, type}]
+let _splitSrc   = '';      // source filename
+
 function viewFullManuscript() {
-  if (!importedFiles.length) return;
-  const allText = importedFiles.map(f => f.rawText).join('\n\n');
-  // Temporarily put everything in one chapter for preview
-  const prev = chapters.slice(); // save current
-  chapters = [{
-    id: uid(), type: 'chapter', title: getV('bookTitle') || 'Manuscript',
-    content: allText, src: 'full-view', expanded: false
-  }];
-  renderPreview();
-  setStatus('Showing full manuscript — click "Split into chapters" to import properly');
-  // Switch to preview by briefly making it visible — user sees it without leaving Import tab
-  // Restore chapters so the chapter list isn't destroyed
-  chapters = prev;
+  if (!importedFiles.length) { setStatus('Import a file first'); return; }
+
+  // Collect all paragraphs from all imported files
+  const allParas = [];
+  importedFiles.forEach(f => {
+    f.rawText.split('\n').forEach(line => {
+      allParas.push({ text: line, isBreak: false, title: '', type: 'chapter' });
+    });
+    allParas.push({ text: '', isBreak: false, title: '', type: 'chapter' }); // file separator
+  });
+  _splitSrc = importedFiles.map(f => f.name).join(', ');
+
+  // Pre-populate breaks from smart detection so user sees suggested splits
+  const fullText = importedFiles.map(f => f.rawText).join('\n');
+  const detected = smartSplit(fullText);
+  const detectedTitles = new Set(detected.map(s => s.title.toLowerCase().trim()));
+
+  // Mark auto-detected chapter lines as breaks
+  allParas.forEach(p => {
+    const det = detectChapterLine(p.text);
+    if (det.match) {
+      p.isBreak = true;
+      p.title   = det.title;
+      const tl  = det.title.toLowerCase();
+      p.type = /^(prologue|preface|foreword|introduction|dedication|copyright)/.test(tl) ? 'pre'
+              : /^(epilogue|afterword|appendix|author'?s?\s+note)/.test(tl) ? 'post'
+              : 'chapter';
+    }
+  });
+
+  _splitParas = allParas;
+  renderSplitEditor();
 }
+
+function renderSplitEditor() {
+  const body = document.getElementById('splitBody');
+  const editor = document.getElementById('splitEditor');
+  const preview = document.getElementById('previewScroller');
+  const toolbar = document.querySelector('.preview-toolbar');
+
+  // Show split editor, hide normal preview
+  editor.classList.add('active');
+  if (preview) preview.style.display = 'none';
+  if (toolbar) toolbar.style.display = 'none';
+
+  _updateSplitCount();
+
+  // Render paragraphs
+  const lines = _splitParas.map((p, i) => {
+    if (p.isBreak) {
+      const typeOpts = ['pre','chapter','post'].map(t =>
+        `<option value="${t}" ${p.type===t?'selected':''}>${t==='pre'?'Front matter':t==='post'?'Back matter':'Chapter'}</option>`
+      ).join('');
+      return `<div class="split-break" id="sb${i}">
+        <span class="split-break-label">⬡ Split</span>
+        <input class="split-break-title" value="${esc(p.title)}" placeholder="Chapter title…"
+          oninput="_splitParas[${i}].title=this.value" data-idx="${i}">
+        <select class="split-break-type" onchange="_splitParas[${i}].type=this.value">${typeOpts}</select>
+        <button class="split-break-rm" onclick="removeSplit(${i})" title="Remove this split">✕</button>
+      </div>
+      <div class="split-para" id="sp${i}">
+        <button class="split-add-btn" onclick="addSplitBefore(${i})" title="Add chapter break here">+</button>
+        ${p.text ? `<span>${esc(p.text)}</span>` : '<span style="opacity:.25">—</span>'}
+      </div>`;
+    } else {
+      if (!p.text.trim()) {
+        return `<div class="split-para" id="sp${i}" style="min-height:10px">
+          <button class="split-add-btn" onclick="addSplitBefore(${i})" title="Add chapter break here">+</button>
+        </div>`;
+      }
+      return `<div class="split-para" id="sp${i}">
+        <button class="split-add-btn" onclick="addSplitBefore(${i})" title="Add chapter break here">+</button>
+        <span>${esc(p.text)}</span>
+      </div>`;
+    }
+  }).join('');
+
+  body.innerHTML = `<p style="font-size:11.5px;font-family:var(--sans);color:#888;margin-bottom:20px;text-align:center;line-height:1.6">
+    Click <strong style="color:#8B4513">+</strong> beside any paragraph to start a new chapter there.
+    Orange bars are chapter splits — edit the title or remove them. Hit <strong>Confirm splits</strong> when done.
+  </p>` + lines;
+}
+
+function _updateSplitCount() {
+  const n = _splitParas.filter(p => p.isBreak).length;
+  const el = document.getElementById('splitCount');
+  if (el) el.textContent = n === 0 ? 'No splits yet' : `${n} chapter${n!==1?'s':''} marked`;
+}
+
+function addSplitBefore(idx) {
+  // Suggest a title from the paragraph text if it looks like a heading
+  const para = _splitParas[idx];
+  const det  = detectChapterLine(para.text);
+  const suggestedTitle = det.match ? det.title : '';
+
+  // Mark the paragraph at idx as a break
+  _splitParas[idx] = {
+    ...para,
+    isBreak: true,
+    title: suggestedTitle || `Chapter ${_splitParas.filter((p,i) => i<idx && p.isBreak).length + 1}`,
+    type: 'chapter'
+  };
+  renderSplitEditor();
+  // Scroll back to where we were
+  const el = document.getElementById('sb' + idx);
+  if (el) el.scrollIntoView({block:'center', behavior:'smooth'});
+}
+
+function removeSplit(idx) {
+  _splitParas[idx] = { ..._splitParas[idx], isBreak: false, title: '', type: 'chapter' };
+  renderSplitEditor();
+  const el = document.getElementById('sp' + idx);
+  if (el) el.scrollIntoView({block:'center', behavior:'smooth'});
+}
+
+function confirmSplits() {
+  // Build chapters array from marked split points
+  const result = [];
+  let cur = null;
+  let curLines = [];
+  let curType = 'chapter';
+
+  _splitParas.forEach(p => {
+    if (p.isBreak) {
+      // Save previous chunk
+      if (curLines.some(l => l.trim())) {
+        result.push({
+          id: uid(), type: curType, src: _splitSrc, expanded: false,
+          title: cur || '',
+          content: curLines.join('\n').trim()
+        });
+      }
+      cur = p.title;
+      curType = p.type;
+      curLines = [];
+      // The break paragraph's own text (if not just a heading line) goes into content
+      if (p.text && !detectChapterLine(p.text).match) curLines.push(p.text);
+    } else {
+      curLines.push(p.text);
+    }
+  });
+  // Last chunk
+  if (curLines.some(l => l.trim())) {
+    result.push({
+      id: uid(), type: curType, src: _splitSrc, expanded: false,
+      title: cur || '',
+      content: curLines.join('\n').trim()
+    });
+  }
+
+  if (!result.length) { setStatus('No chapters to create — mark at least one split first'); return; }
+
+  // Exit split editor and apply
+  exitSplitEditor();
+  chapters = result;
+  renderChapterList();
+  renderPreview();
+
+  const chs  = result.filter(c => c.type==='chapter').length;
+  const pre  = result.filter(c => c.type==='pre').length;
+  const post = result.filter(c => c.type==='post').length;
+  const parts = [];
+  if (pre)  parts.push(`${pre} front matter`);
+  parts.push(`${chs} chapter${chs!==1?'s':''}`);
+  if (post) parts.push(`${post} back matter`);
+  setStatus(`✓ Split into ${parts.join(', ')} — review in Chapters tab`);
+  switchTab('chapters', document.querySelector('.tab-btn:nth-child(2)'));
+}
+
+function exitSplitEditor() {
+  const editor  = document.getElementById('splitEditor');
+  const preview = document.getElementById('previewScroller');
+  const toolbar = document.querySelector('.preview-toolbar');
+  editor.classList.remove('active');
+  if (preview) preview.style.display = '';
+  if (toolbar) toolbar.style.display = '';
+  renderPreview(); // restore normal preview
+}
+
+
 
 // Run preview whenever files are loaded
 const _origBuildImportList = buildImportList;
@@ -2102,6 +2323,35 @@ function getPageDims(){
   if(val==='custom') return getCustomDimsInMM();
   return map[val]||map.trade;
 }
+function insertCopyright() {
+  const yr = new Date().getFullYear();
+  const author = document.getElementById('bookAuthor').value.trim() || 'Author Name';
+  const el = document.getElementById('copyright');
+  if (el) {
+    el.value = `© ${yr} ${author}. All rights reserved.`;
+    renderPreview();
+    el.focus();
+    el.select();
+  }
+}
+
+// Keep copyright year fresh when author name changes
+(function(){
+  const authorEl = document.getElementById('bookAuthor');
+  const copyEl   = document.getElementById('copyright');
+  if (!authorEl || !copyEl) return;
+  authorEl.addEventListener('input', () => {
+    // Only auto-update if it still looks like an auto-generated value
+    const val = copyEl.value;
+    const yr  = new Date().getFullYear();
+    if (!val || /^©\s*\d{4}/.test(val)) {
+      const author = authorEl.value.trim();
+      copyEl.value = author ? `© ${yr} ${author}. All rights reserved.` : `© ${yr}`;
+      renderPreview();
+    }
+  });
+})();
+
 function hexToRgb(h){const v=h.replace('#','');return[parseInt(v.slice(0,2),16),parseInt(v.slice(2,4),16),parseInt(v.slice(4,6),16)]}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function safeName(s){return(s||'book').replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase().slice(0,60)}
@@ -3011,6 +3261,15 @@ function exportTXT(){
    INIT
 ═══════════════════════════════════════════════ */
 buildThemeGrid();buildColorRow();buildOrnGrid();
+// Auto-populate copyright if empty
+(function(){
+  const el = document.getElementById('copyright');
+  if (el && !el.value) {
+    const yr = new Date().getFullYear();
+    const author = document.getElementById('bookAuthor').value || '';
+    el.value = author ? `© ${yr} ${author}. All rights reserved.` : `© ${yr}`;
+  }
+})();
 // Restore last-used export format
 (function(){ const f=localStorage.getItem('folio_last_fmt'); if(f&&FMT_META[f]) _setPrimaryBtn(f); })();
 // Restore zoom level
