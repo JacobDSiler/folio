@@ -108,10 +108,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .preview-area::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.2);border-radius:3px}
 .preview-wrap{width:100%;display:flex;flex-direction:column;align-items:center;gap:1.5rem}
 .book-page{box-shadow:0 6px 40px rgba(0,0,0,0.22),0 1px 4px rgba(0,0,0,0.1);position:relative;overflow:hidden;flex-shrink:0}
-.tabs{display:flex;gap:0;border-bottom:0.5px solid var(--border);flex-shrink:0;overflow-x:auto}
-.tabs::-webkit-scrollbar{display:none}
-.tab-btn{padding:8px 11px;font-size:11.5px;font-family:var(--sans);border:none;background:transparent;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-0.5px;transition:all 0.15s;white-space:nowrap;flex-shrink:0}
-.tab-btn.active{color:var(--text);border-bottom-color:var(--accent-ui)}
+.tabs{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:0.5px solid var(--border);flex-shrink:0}
+.tab-btn{padding:7px 3px;font-size:10.5px;font-family:var(--sans);border:none;background:transparent;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.15s;white-space:nowrap;text-align:center;letter-spacing:-0.01em;width:100%}
+.tab-btn.active{color:var(--text);border-bottom-color:var(--accent-ui);background:#faf9f7}
+.tab-btn:hover:not(.active){color:var(--text);background:var(--bg)}
 @media(max-width:768px){.app{grid-template-columns:1fr}.preview-area{display:none}}
 [data-tip]{position:relative}
 [data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:#333;color:#fff;font-size:10px;padding:3px 7px;border-radius:4px;white-space:nowrap;pointer-events:none;z-index:10}
@@ -187,7 +187,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 <aside class="sidebar">
   <div class="sidebar-header">
     <h1><span>📖</span> Folio</h1>
-    <p>Manuscript formatter — PDF · EPUB · MOBI · DOCX</p>
+    <p>Format · Export · Collaborate — PDF · EPUB · MD · and more</p>
   </div>
 
   <div class="tabs">
@@ -197,7 +197,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     <button class="tab-btn" onclick="switchTab('design',this)">Design</button>
     <button class="tab-btn" onclick="switchTab('type',this)">Type</button>
     <button class="tab-btn" onclick="switchTab('images',this)">Images</button>
-    <button class="tab-btn" onclick="switchTab('project',this)">Project</button>
+    <button class="tab-btn" onclick="switchTab('project',this)" style="display:flex;flex-direction:column;align-items:center;gap:1px;justify-content:center;padding:5px 3px"><span style="font-size:10px;line-height:1">☁</span><span style="font-size:10px">Folio</span></button>
   </div>
 
   <div class="sidebar-scroll">
@@ -412,12 +412,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     </div>
 
 
-    <!-- ── PROJECT TAB ── -->
+    <!-- ── FOLIO TAB ── -->
     <div id="tab-project" style="display:none">
 
       <div class="section">
         <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Firebase</span>
+          <span>Cloud sync</span>
           <span id="fbStatusBadge" style="font-size:10px;padding:2px 7px;border-radius:10px;background:#f0ede6;color:#aaa">Connecting…</span>
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
@@ -427,10 +427,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
       </div>
 
       <div class="section">
-        <div class="section-title">Current Project</div>
+        <div class="section-title" style="display:flex;align-items:center;gap:6px"><span>Current Folio</span><span style="font-size:9px;background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:8px;font-weight:400;letter-spacing:.02em" id="folioCloudBadge">Not saved</span></div>
         <div style="display:flex;gap:6px;margin-bottom:6px">
-          <input type="text" id="projName" placeholder="Project name…" maxlength="80" style="flex:1">
-          <button class="btn-sm btn-primary" id="btnSaveProj" onclick="saveProject()" disabled style="white-space:nowrap">Save</button>
+          <input type="text" id="projName" placeholder="Folio name…" maxlength="80" style="flex:1" oninput="if(typeof _updateInviteUI==='function')_updateInviteUI()">
+          <button class="btn-sm btn-primary" id="btnSaveProj" onclick="saveFolio()" disabled style="white-space:nowrap">Save</button>
         </div>
         <div id="projSavingRow" style="display:none;align-items:center;gap:7px;font-size:10.5px;color:var(--hint);margin-bottom:6px">
           <div style="width:10px;height:10px;border-radius:50%;border:1.5px solid var(--border-mid);border-top-color:var(--accent-ui);animation:folio-spin .6s linear infinite;flex-shrink:0"></div>
@@ -438,15 +438,15 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
         </div>
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           <button class="btn-sm btn-ghost" onclick="saveVersion()" id="btnSaveVer" disabled style="font-size:11px;padding:5px 10px">📌 Save version</button>
-          <button class="btn-sm btn-ghost" onclick="newProject()" style="font-size:11px;padding:5px 10px">＋ New project</button>
+          <button class="btn-sm btn-ghost" onclick="newFolio()" style="font-size:11px;padding:5px 10px">＋ New folio</button>
         </div>
-        <p class="small-note" style="margin-top:6px">Saves all chapters, design, and settings. Images stay browser-only (too large for cloud).</p>
+        <p class="small-note" style="margin-top:6px">Saves all chapters, design &amp; settings to the cloud. Images stay local (file size).</p>
       </div>
 
       <div class="section">
         <div class="section-title">Invite &amp; Share</div>
         <div id="inviteArea" style="display:none">
-          <p class="small-note" style="margin-bottom:8px">Share this link — anyone who opens it loads your project and can edit together.</p>
+          <p class="small-note" style="margin-bottom:8px">Share this link — anyone who opens it loads your folio instantly. No account needed.</p>
 
           <div id="shareLinkBox" style="background:var(--bg);border:.5px solid var(--border-mid);border-radius:7px;padding:8px 10px;margin-bottom:8px;cursor:pointer;word-break:break-all" onclick="copyInviteLink()" title="Click to copy">
             <div style="font-size:9.5px;color:var(--hint);margin-bottom:3px;letter-spacing:.05em;text-transform:uppercase">Invite link</div>
@@ -461,20 +461,20 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 
           <div class="section-title" style="margin-top:14px;margin-bottom:8px">Collaborators</div>
           <div id="collabList" style="display:flex;flex-direction:column;gap:5px;margin-bottom:8px"></div>
-          <p class="small-note">Everyone with the link is shown here once they open it. No account needed.</p>
+          <p class="small-note">Everyone who has opened this folio appears here automatically.</p>
         </div>
         <div id="inviteEmpty" style="font-size:11.5px;color:var(--hint);padding:.5rem 0">
-          Save a project first to get an invite link.
+          Save a folio first to get an invite link.
         </div>
       </div>
 
       <div class="section">
         <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
-          <span>My Projects</span>
-          <button class="btn-sm btn-ghost" style="padding:2px 8px;font-size:10px" onclick="loadProjectList()">↺</button>
+          <span>My Folios</span>
+          <button class="btn-sm btn-ghost" style="padding:2px 8px;font-size:10px" onclick="loadFolioList()">↺</button>
         </div>
         <div id="projList">
-          <p class="small-note">Connect to see your projects.</p>
+          <p class="small-note">Connect to see your folios.</p>
         </div>
       </div>
 
@@ -591,10 +591,10 @@ window.addEventListener('fb-ready', async () => {
   _setFbStatus(true);
   document.getElementById('btnSaveProj').disabled = false;
   document.getElementById('btnSaveVer').disabled  = false;
-  await loadProjectList();
+  await loadFolioList();
   // Auto-load shared project from URL
-  const pid = new URLSearchParams(window.location.search).get('project');
-  if (pid) await loadProjectById(pid);
+  const pid = new URLSearchParams(window.location.search).get('folio') || new URLSearchParams(window.location.search).get('project');
+  if (pid) await loadFolioById(pid);
 });
 
 function _setFbStatus(online) {
@@ -681,10 +681,10 @@ function _deserialise(state) {
 }
 
 /* ── Save project ── */
-async function saveProject() {
-  if (!_fbReady) { setStatus('Firebase not connected yet'); return; }
+async function saveFolio() {
+  if (!_fbReady) { setStatus('Not connected to cloud yet'); return; }
   const name = document.getElementById('projName').value.trim();
-  if (!name) { document.getElementById('projName').focus(); setStatus('Give your project a name first'); return; }
+  if (!name) { document.getElementById('projName').focus(); setStatus('Give your folio a name first'); return; }
   if (!_projId) _projId = 'proj_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
   _showSaving('Saving…');
   try {
@@ -694,17 +694,17 @@ async function saveProject() {
       updatedAt: serverTimestamp(), createdAt: serverTimestamp(),
     }, {merge: true});
     _updateInviteUI();
-    await loadProjectList();
+    await loadFolioList();
     await _subscribePresence();
     _hideSaving();
-    setStatus(`Project "${name}" saved ✓`);
+    setStatus(`Folio "${name}" saved to cloud ✓`);
   } catch(e) { _hideSaving(); setStatus('Save failed: ' + e.message); console.error(e); }
 }
 
 /* ── Save named version ── */
 async function saveVersion() {
-  if (!_fbReady || !_projId) { setStatus('Save a project first'); return; }
-  const name = prompt('Version label (e.g. "Before chapter 3 rewrite"):');
+  if (!_fbReady || !_projId) { setStatus('Save a folio first'); return; }
+  const name = prompt('Version name (e.g. "Draft 2", "Before big edit"):');
   if (!name) return;
   _showSaving('Saving version…');
   try {
@@ -719,7 +719,7 @@ async function saveVersion() {
 }
 
 /* ── Load project list ── */
-async function loadProjectList() {
+async function loadFolioList() {
   if (!_fbReady) return;
   const {collection, query, where, getDocs, orderBy} = window._fb;
   try {
@@ -728,11 +728,11 @@ async function loadProjectList() {
     const list = [];
     snap.forEach(d => list.push({id:d.id,...d.data()}));
     list.sort((a,b)=>(b.updatedAt?.seconds||0)-(a.updatedAt?.seconds||0));
-    _renderProjectList(list);
-  } catch(e) { console.error('loadProjectList:',e); }
+    _renderFolioList(list);
+  } catch(e) { console.error('loadFolioList:',e); }
 }
 
-function _renderProjectList(list) {
+function _renderFolioList(list) {
   const el = document.getElementById('projList');
   if (!list.length) { el.innerHTML='<p class="small-note">No saved projects yet.</p>'; return; }
   el.innerHTML = list.map(p => {
@@ -742,8 +742,8 @@ function _renderProjectList(list) {
       <div class="proj-card-name">${esc(p.name)}</div>
       <div class="proj-card-meta"><span>${n} chapter${n!==1?'s':''}</span><span>${d}</span></div>
       <div class="proj-card-acts">
-        <button class="btn-sm btn-ghost" style="padding:3px 9px;font-size:10.5px" onclick="loadProjectById('${p.id}')">Open</button>
-        <button class="btn-sm btn-ghost" style="padding:3px 9px;font-size:10.5px" onclick="_quickShare('${p.id}')">Invite</button>
+        <button class="btn-sm btn-ghost" style="padding:3px 9px;font-size:10.5px" onclick="loadFolioById('${p.id}')">Open</button>
+        <button class="btn-sm btn-ghost" style="padding:3px 9px;font-size:10.5px" onclick="_quickInvite('${p.id}')">Invite</button>
         <button class="btn-sm" style="padding:3px 9px;font-size:10.5px;color:#c44;border-color:#c4444450;background:transparent;cursor:pointer;font-family:var(--sans);border-radius:6px" onclick="_deleteProject('${p.id}','${esc(p.name).replace(/'/g,"\\'")}')">Delete</button>
       </div>
     </div>`;
@@ -751,25 +751,25 @@ function _renderProjectList(list) {
 }
 
 /* ── Load a project ── */
-async function loadProjectById(id) {
-  if (!_fbReady) { setStatus('Not connected yet'); return; }
+async function loadFolioById(id) {
+  if (!_fbReady) { setStatus('Cloud not connected yet'); return; }
   _showSaving('Loading…');
   try {
     const {doc, getDoc} = window._fb;
     const snap = await getDoc(window._fb.doc(window._db,'folio_projects',id));
-    if (!snap.exists()) { _hideSaving(); setStatus('Project not found'); return; }
+    if (!snap.exists()) { _hideSaving(); setStatus('Folio not found'); return; }
     const data = snap.data();
     _projId = id;
     document.getElementById('projName').value = data.name || '';
     _deserialise(data.state);
     _updateInviteUI();
-    await loadProjectList();
+    await loadFolioList();
     await _loadVersionList();
     await _subscribePresence();
     // Record our presence
     await _touchPresence();
     _hideSaving();
-    setStatus(`Project "${data.name}" loaded ✓`);
+    setStatus(`Folio "${data.name}" loaded ✓`);
     // Switch to details tab so user sees the book
     const btn = document.querySelectorAll('.tab-btn')[2];
     if (btn) switchTab('details', btn);
@@ -810,17 +810,17 @@ async function _restoreVersion(vid) {
 
 /* ── Delete project ── */
 async function _deleteProject(id, name) {
-  if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+  if (!confirm(`Delete folio "${name}"? This cannot be undone.`)) return;
   const {doc, deleteDoc} = window._fb;
   await deleteDoc(window._fb.doc(window._db,'folio_projects',id));
-  if (_projId === id) newProject();
-  await loadProjectList();
-  setStatus('Project deleted');
+  if (_projId === id) newFolio();
+  await loadFolioList();
+  setStatus('Folio deleted');
 }
 
 /* ── New project ── */
-function newProject() {
-  if (chapters.length && !confirm('Start fresh? Unsaved changes will be lost.')) return;
+function newFolio() {
+  if (chapters.length && !confirm('Start a new folio? Unsaved changes will be lost.')) return;
   _projId = null;
   if (_presenceUnsub) { _presenceUnsub(); _presenceUnsub = null; }
   document.getElementById('projName').value = '';
@@ -832,7 +832,7 @@ function newProject() {
     const el=document.getElementById(id); if(el) el.value='';
   });
   renderPreview();
-  setStatus('New project started');
+  setStatus('New folio started');
 }
 
 /* ════════════════════════════════════════════════
@@ -914,10 +914,22 @@ function _relativeTime(ts) {
 
 function _inviteURL() {
   const base = window.location.origin + window.location.pathname;
-  return `${base}?project=${_projId}`;
+  return `${base}?folio=${_projId}`;
 }
 
 function _updateInviteUI() {
+  // Update the "saved/unsaved" badge on the tab section title
+  const badge = document.getElementById('folioCloudBadge');
+  if (badge) {
+    if (_projId) {
+      const name = document.getElementById('projName').value || 'Unnamed';
+      badge.textContent = '✓ Saved';
+      badge.style.background = '#d1fae5'; badge.style.color = '#065f46';
+    } else {
+      badge.textContent = 'Not saved';
+      badge.style.background = '#f0ede6'; badge.style.color = '#888';
+    }
+  }
   if (!_projId) {
     document.getElementById('inviteArea').style.display = 'none';
     document.getElementById('inviteEmpty').style.display = '';
@@ -945,7 +957,7 @@ function copyShareEmail() {
 }
 
 /* Quick invite from project list card */
-function _quickShare(id) {
+function _quickInvite(id) {
   _projId = id;
   _updateInviteUI();
   // Switch to project tab
@@ -959,7 +971,7 @@ function _quickShare(id) {
 ════════════════════════════════════════════════ */
 
 function openQR() {
-  if (!_projId) { setStatus('Save a project first'); return; }
+  if (!_projId) { setStatus('Save a folio first'); return; }
   const url = _inviteURL();
   document.getElementById('qrLinkBelow').textContent = url;
   document.getElementById('qrModal').style.display = 'flex';
