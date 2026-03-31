@@ -396,7 +396,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
         </div>
         <div class="toggle-row">
           <span>Table of contents</span>
-          <label class="toggle"><input type="checkbox" id="showTOC" onchange="renderPreview()"><span class="tog-track"></span></label>
+          <label class="toggle"><input type="checkbox" id="showTOC" onchange="toggleTOC(this.checked)"><span class="tog-track"></span></label>
         </div>
         <div class="toggle-row">
           <span>Drop cap on chapters</span>
@@ -1160,6 +1160,7 @@ function _deserialise(state) {
     renderChapterList();
   }
   if (state.schema) importSchema=state.schema;
+  _syncTOCToggle();
   renderPreview();
 }
 
@@ -2217,6 +2218,7 @@ function addTOC() {
   setStatus('Table of Contents added — drag it to reorder');
 }
 function renderChapterList(){
+  _syncTOCToggle();
   updateChapterStats();
   const el=document.getElementById('chList');
   if(!chapters.length){ el.innerHTML='<div style="font-size:12px;color:var(--hint);text-align:center;padding:20px 0">No chapters yet — import files or paste manuscript</div>'; return; }
@@ -2331,6 +2333,26 @@ function attachDrag(item){
 /* ═══════════════════════════════════════════════
    GET CHAPTERS FOR EXPORT
 ═══════════════════════════════════════════════ */
+
+function toggleTOC(on) {
+  const existing = chapters.find(c => c.type === 'toc');
+  if (on && !existing) {
+    // Add TOC at position 0 (before everything)
+    chapters.unshift({ id: uid(), type: 'toc', title: 'Contents', content: '', src: 'auto', expanded: false });
+  } else if (!on && existing) {
+    // Remove it
+    chapters = chapters.filter(c => c.type !== 'toc');
+  }
+  _syncTOCToggle();
+  renderChapterList();
+  renderPreview();
+}
+
+// Keep the checkbox in sync with the actual chapters array
+function _syncTOCToggle() {
+  const el = document.getElementById('showTOC');
+  if (el) el.checked = !!chapters.find(c => c.type === 'toc');
+}
 /* ── Auto-insert a TOC chapter entry, positioned before all chapters ── */
 function ensureTOCEntry() {
   // Only add if showTOC is checked and no TOC entry exists yet
@@ -2990,7 +3012,8 @@ async function exportPDF(){
         }
       });
 
-      if(showTOC&&tocSections.length){
+      const _hasTOCEntry = chapters.some(c=>c.type==='toc');
+      if(_hasTOCEntry&&tocSections.length){
         const tocEntry=chapters.find(c=>c.type==='toc');
         const tocTitle=(tocEntry&&tocEntry.title)||'Contents';
         newPage();
