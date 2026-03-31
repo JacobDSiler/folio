@@ -15,14 +15,26 @@
 <script type="module">
 import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import{getFirestore,doc,getDoc,setDoc,collection,query,where,getDocs,deleteDoc,addDoc,onSnapshot,serverTimestamp,orderBy,limit}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-import{getAuth,signInAnonymously,onAuthStateChanged}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import{getAuth,signInAnonymously,signInWithPopup,linkWithPopup,GoogleAuthProvider,onAuthStateChanged,signOut}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 const FC={apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",authDomain:"miscellaneous-117e9.firebaseapp.com",projectId:"miscellaneous-117e9",storageBucket:"miscellaneous-117e9.firebasestorage.app",messagingSenderId:"514858431339",appId:"1:514858431339:web:8b3acbe89966b45fe3922e"};
 const app=initializeApp(FC);
 const db=getFirestore(app);const auth=getAuth(app);
 window._db=db;window._auth=auth;
 window._fb={doc,getDoc,setDoc,collection,query,where,getDocs,deleteDoc,addDoc,onSnapshot,serverTimestamp,orderBy,limit};
+window._googleProvider=new GoogleAuthProvider();
+window._fbAuth={signInWithPopup,linkWithPopup,signOut};
 signInAnonymously(auth).catch(e=>console.warn('anon auth:',e));
-onAuthStateChanged(auth,user=>{if(user){window._uid=user.uid;window.dispatchEvent(new Event('fb-ready'));}});
+onAuthStateChanged(auth,user=>{
+  if(user){
+    window._uid=user.uid;
+    window._user=user;
+    window.dispatchEvent(new CustomEvent('fb-ready',{detail:{user}}));
+    window.dispatchEvent(new CustomEvent('auth-changed',{detail:{user}}));
+  } else {
+    window._uid=null;window._user=null;
+    window.dispatchEvent(new CustomEvent('auth-changed',{detail:{user:null}}));
+  }
+});
 </script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -92,16 +104,26 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .chip-ch{background:#dcfce7;color:#166534}
 .chip-post{background:#fef3c7;color:#92400e}
 .chip-rm{color:#c44;font-weight:700;font-size:13px;cursor:pointer;line-height:1;margin-left:2px}
-.export-section{padding:0.9rem 1.25rem 1.1rem}
-.export-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.exp-btn{padding:9px 8px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;border:1px solid;transition:all 0.15s;text-align:center;font-family:var(--sans);display:flex;flex-direction:column;align-items:center;gap:2px}
-.exp-btn .fmt{font-size:15px}
-.exp-btn .lbl{font-size:10px;opacity:0.75;font-weight:400}
-.exp-btn.primary{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
-.exp-btn.primary:hover{opacity:0.85}
-.exp-btn.secondary{background:transparent;color:var(--accent-ui);border-color:var(--accent-ui)}
-.exp-btn.secondary:hover{background:#faf8f3}
-.exp-btn:disabled{opacity:0.4;cursor:not-allowed}
+.export-section{padding:0.75rem 1.25rem 0.85rem;flex-shrink:0}
+/* Primary export button — big, centred, shows last-used format */
+.exp-primary-wrap{display:flex;gap:6px;margin-bottom:7px}
+.exp-primary{flex:1;padding:10px 8px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:var(--accent-ui);color:#fff;font-family:var(--sans);display:flex;align-items:center;justify-content:center;gap:8px;transition:opacity .15s;letter-spacing:-.01em}
+.exp-primary:hover{opacity:.88}
+.exp-primary:disabled{opacity:.4;cursor:not-allowed}
+.exp-primary .ep-fmt{font-size:15px;font-weight:700}
+.exp-primary .ep-lbl{font-size:10px;opacity:.75;font-weight:400;margin-left:2px}
+.exp-toggle{width:36px;border-radius:8px;border:1px solid var(--accent-ui);background:transparent;color:var(--accent-ui);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
+.exp-toggle:hover{background:#faf8f3}
+.exp-toggle.open{background:var(--accent-ui);color:#fff}
+/* Slide-up drawer */
+.exp-drawer{overflow:hidden;max-height:0;transition:max-height .28s cubic-bezier(.4,0,.2,1),opacity .2s;opacity:0;pointer-events:none}
+.exp-drawer.open{max-height:200px;opacity:1;pointer-events:all}
+.exp-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding-bottom:2px}
+.exp-btn{padding:7px 4px;border-radius:7px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid var(--border-mid);background:transparent;color:var(--accent-ui);font-family:var(--sans);display:flex;flex-direction:column;align-items:center;gap:1px;transition:all .15s}
+.exp-btn:hover{background:#faf8f3;border-color:var(--accent-ui)}
+.exp-btn:disabled{opacity:.4;cursor:not-allowed}
+.exp-btn .fmt{font-size:13px;font-weight:600}
+.exp-btn .lbl{font-size:9px;opacity:.7;font-weight:400}
 .status-bar{padding:6px 1.25rem;font-size:11px;color:var(--hint);background:#faf9f7;border-top:0.5px solid var(--border);flex-shrink:0}
 .preview-area{overflow-y:auto;background:#e4e0d8;padding:2rem;display:flex;flex-direction:column;align-items:center}
 .preview-area::-webkit-scrollbar{width:6px}
@@ -416,13 +438,44 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     <div id="tab-project" style="display:none">
 
       <div class="section">
-        <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
-          <span>Cloud sync</span>
-          <span id="fbStatusBadge" style="font-size:10px;padding:2px 7px;border-radius:10px;background:#f0ede6;color:#aaa">Connecting…</span>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+          <div style="display:flex;align-items:center;gap:7px">
+            <div id="fbDot" style="width:8px;height:8px;border-radius:50%;background:#ccc;flex-shrink:0;transition:background .3s"></div>
+            <span id="fbStatusText" style="font-size:11px;color:var(--hint)">Connecting…</span>
+          </div>
+          <span id="fbStatusBadge" style="font-size:10px;padding:2px 7px;border-radius:10px;background:#f0ede6;color:#aaa">—</span>
         </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-          <div id="fbDot" style="width:8px;height:8px;border-radius:50%;background:#ccc;flex-shrink:0;transition:background .3s"></div>
-          <span id="fbStatusText" style="font-size:11px;color:var(--hint)">Waiting for connection…</span>
+
+        <!-- Signed-out state -->
+        <div id="authSignedOut">
+          <button onclick="signInGoogle()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:9px;padding:9px 12px;border-radius:8px;border:1px solid var(--border-mid);background:var(--surface);cursor:pointer;font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--text);transition:all .15s;margin-bottom:6px" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='var(--surface)'">
+            <svg width="17" height="17" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.42 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-3.92-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+            Continue with Google
+          </button>
+          <p class="small-note" style="text-align:center">Your folios follow you across every device. No password needed.</p>
+        </div>
+
+        <!-- Signed-in state -->
+        <div id="authSignedIn" style="display:none">
+          <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;background:var(--bg);border-radius:8px;margin-bottom:8px">
+            <img id="authAvatar" src="" alt="" width="28" height="28" style="border-radius:50%;display:none">
+            <div id="authAvatarFallback" style="width:28px;height:28px;border-radius:50%;background:var(--accent-ui);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;flex-shrink:0"></div>
+            <div style="flex:1;min-width:0">
+              <div id="authName" style="font-size:12.5px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+              <div id="authEmail" style="font-size:10.5px;color:var(--hint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
+            </div>
+            <button onclick="signOutUser()" style="font-size:10.5px;color:var(--hint);background:none;border:none;cursor:pointer;padding:3px 6px;border-radius:4px;font-family:var(--sans)" onmouseover="this.style.background='var(--surface)'" onmouseout="this.style.background='none'">Sign out</button>
+          </div>
+
+          <!-- Link Google prompt — shown to anonymous users only -->
+          <div id="authLinkPrompt" style="display:none;background:#fef9f0;border:.5px solid #f0d080;border-radius:8px;padding:9px 11px;margin-bottom:8px">
+            <div style="font-size:11.5px;font-weight:500;color:#92400e;margin-bottom:4px">You're browsing as a guest</div>
+            <div style="font-size:10.5px;color:#a16207;margin-bottom:8px;line-height:1.5">Sign in with Google to keep your folios permanently and access them from any device.</div>
+            <button onclick="signInGoogle()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:7px 10px;border-radius:7px;border:1px solid #d97706;background:#fff;cursor:pointer;font-family:var(--sans);font-size:12px;font-weight:500;color:#92400e;transition:all .15s" onmouseover="this.style.background='#fef3c7'" onmouseout="this.style.background='#fff'">
+              <svg width="15" height="15" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.42 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-3.92-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+              Connect Google account
+            </button>
+          </div>
         </div>
       </div>
 
@@ -490,32 +543,28 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 
   <!-- Export -->
   <div class="export-section">
-    <div id="pageCountLine" style="font-size:11px;color:var(--hint);margin-bottom:8px">— pages estimated</div>
-    <div class="export-grid">
-      <button class="exp-btn primary" id="btnPDF" onclick="exportPDF()">
-        <span class="fmt">PDF</span><span class="lbl">Print-ready</span>
+    <div id="pageCountLine" style="font-size:11px;color:var(--hint);margin-bottom:7px">— pages estimated</div>
+    <!-- Primary export button + toggle -->
+    <div class="exp-primary-wrap">
+      <button class="exp-primary" id="btnPrimary" onclick="runPrimaryExport()">
+        <span class="ep-fmt" id="primFmt">PDF</span>
+        <span style="opacity:.5;margin:0 2px">·</span>
+        <span class="ep-lbl" id="primLbl">Print-ready</span>
       </button>
-      <button class="exp-btn secondary" id="btnEPUB" onclick="exportEPUB()">
-        <span class="fmt">EPUB</span><span class="lbl">E-readers</span>
-      </button>
-      <button class="exp-btn secondary" id="btnMOBI" onclick="exportMOBI()" data-tip="KDP-ready package">
-        <span class="fmt">MOBI</span><span class="lbl">Kindle-ready</span>
-      </button>
-      <button class="exp-btn secondary" id="btnDOCX" onclick="exportDOCX()">
-        <span class="fmt">DOCX</span><span class="lbl">Word / edit</span>
-      </button>
-      <button class="exp-btn secondary" id="btnRTF" onclick="exportRTF()">
-        <span class="fmt">RTF</span><span class="lbl">Universal doc</span>
-      </button>
-      <button class="exp-btn secondary" id="btnMD" onclick="exportMarkdown()">
-        <span class="fmt">MD</span><span class="lbl">Markdown</span>
-      </button>
-      <button class="exp-btn secondary" id="btnHTML" onclick="exportHTML()">
-        <span class="fmt">HTML</span><span class="lbl">Web / ebook</span>
-      </button>
-      <button class="exp-btn secondary" id="btnTXT" onclick="exportTXT()">
-        <span class="fmt">TXT</span><span class="lbl">Plain text</span>
-      </button>
+      <button class="exp-toggle" id="expToggle" onclick="toggleExportDrawer()" title="All formats">▾</button>
+    </div>
+    <!-- Slide-up drawer with all 8 formats -->
+    <div class="exp-drawer" id="expDrawer">
+      <div class="exp-grid">
+        <button class="exp-btn" id="btnPDF"  onclick="pickExport('PDF','Print-ready',exportPDF)"><span class="fmt">PDF</span><span class="lbl">Print</span></button>
+        <button class="exp-btn" id="btnEPUB" onclick="pickExport('EPUB','E-readers',exportEPUB)"><span class="fmt">EPUB</span><span class="lbl">E-reader</span></button>
+        <button class="exp-btn" id="btnMOBI" onclick="pickExport('MOBI','Kindle-ready',exportMOBI)"><span class="fmt">MOBI</span><span class="lbl">Kindle</span></button>
+        <button class="exp-btn" id="btnDOCX" onclick="pickExport('DOCX','Word / edit',exportDOCX)"><span class="fmt">DOCX</span><span class="lbl">Word</span></button>
+        <button class="exp-btn" id="btnRTF"  onclick="pickExport('RTF','Universal doc',exportRTF)"><span class="fmt">RTF</span><span class="lbl">RTF</span></button>
+        <button class="exp-btn" id="btnMD"   onclick="pickExport('MD','Markdown',exportMarkdown)"><span class="fmt">MD</span><span class="lbl">Markdown</span></button>
+        <button class="exp-btn" id="btnHTML" onclick="pickExport('HTML','Web / ebook',exportHTML)"><span class="fmt">HTML</span><span class="lbl">HTML</span></button>
+        <button class="exp-btn" id="btnTXT"  onclick="pickExport('TXT','Plain text',exportTXT)"><span class="fmt">TXT</span><span class="lbl">Text</span></button>
+      </div>
     </div>
   </div>
 
@@ -606,6 +655,149 @@ function _setFbStatus(online) {
   document.getElementById('fbStatusBadge').style.background = online ? '#d1fae5' : '#f0ede6';
   document.getElementById('fbStatusBadge').style.color = online ? '#065f46' : '#aaa';
 }
+
+
+/* ═══════════════════════════════════════════════════════════
+   GOOGLE AUTH + ACCOUNT LINKING
+═══════════════════════════════════════════════════════════ */
+
+/* ── Update auth UI whenever auth state changes ── */
+window.addEventListener('auth-changed', ({detail:{user}}) => {
+  _refreshAuthUI(user);
+});
+
+function _refreshAuthUI(user) {
+  if (!user) {
+    // No user at all — shouldn't happen with anon fallback, but handle it
+    document.getElementById('authSignedOut').style.display = '';
+    document.getElementById('authSignedIn').style.display  = 'none';
+    return;
+  }
+
+  const isAnon = user.isAnonymous;
+  const hasGoogle = user.providerData.some(p => p.providerId === 'google.com');
+
+  if (isAnon) {
+    // Guest: show the signed-in card (with animal name) + link prompt
+    document.getElementById('authSignedOut').style.display   = 'none';
+    document.getElementById('authSignedIn').style.display    = '';
+    document.getElementById('authLinkPrompt').style.display  = '';
+    document.getElementById('authAvatar').style.display      = 'none';
+    document.getElementById('authAvatarFallback').style.display = 'flex';
+    // Use their stored animal name
+    const name  = _myName();
+    const color = _myColor();
+    document.getElementById('authName').textContent  = name + ' (guest)';
+    document.getElementById('authEmail').textContent = 'Anonymous — tap below to save permanently';
+    document.getElementById('authAvatarFallback').textContent  = name.slice(0,2).toUpperCase();
+    document.getElementById('authAvatarFallback').style.background = color;
+  } else {
+    // Signed in with Google (or other real provider)
+    document.getElementById('authSignedOut').style.display   = 'none';
+    document.getElementById('authSignedIn').style.display    = '';
+    document.getElementById('authLinkPrompt').style.display  = 'none';
+    const gp = user.providerData.find(p => p.providerId === 'google.com') || {};
+    const displayName = gp.displayName || user.displayName || 'Signed in';
+    const email       = gp.email      || user.email       || '';
+    const photo       = gp.photoURL   || user.photoURL    || '';
+    document.getElementById('authName').textContent  = displayName;
+    document.getElementById('authEmail').textContent = email;
+    if (photo) {
+      document.getElementById('authAvatar').src            = photo;
+      document.getElementById('authAvatar').style.display  = '';
+      document.getElementById('authAvatarFallback').style.display = 'none';
+    } else {
+      document.getElementById('authAvatar').style.display      = 'none';
+      document.getElementById('authAvatarFallback').style.display = 'flex';
+      document.getElementById('authAvatarFallback').textContent = displayName.slice(0,2).toUpperCase();
+    }
+    // Update status dot label to show name
+    _setFbStatus(true, displayName);
+  }
+}
+
+/* ── Sign in / link with Google ── */
+async function signInGoogle() {
+  if (!window._auth || !window._googleProvider) {
+    setStatus('Auth not ready yet — try again in a moment'); return;
+  }
+  const user = window._auth.currentUser;
+  try {
+    if (user && user.isAnonymous) {
+      // Link the anonymous account → Google (merges session, keeps folios)
+      await window._fbAuth.linkWithPopup(user, window._googleProvider);
+      setStatus('Google account linked — your folios are now permanent ✓');
+    } else {
+      // Fresh sign in
+      await window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
+      setStatus('Signed in with Google ✓');
+    }
+    // Reload folio list under new UID
+    await loadFolioList();
+  } catch (e) {
+    if (e.code === 'auth/credential-already-in-use') {
+      // Google account already exists — sign in to it directly
+      // (the anonymous session can't be merged, but we switch to the real account)
+      try {
+        await window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
+        await loadFolioList();
+        setStatus('Signed in to your existing Google account ✓');
+      } catch(e2) {
+        setStatus('Sign-in failed: ' + e2.message);
+      }
+    } else if (e.code === 'auth/popup-closed-by-user') {
+      // user closed popup — silent
+    } else if (e.code === 'auth/popup-blocked') {
+      setStatus('Popup blocked — please allow popups for this page, then try again');
+    } else {
+      setStatus('Sign-in error: ' + e.message);
+      console.error('signInGoogle:', e);
+    }
+  }
+}
+
+/* ── Sign out ── */
+async function signOutUser() {
+  if (!confirm('Sign out? You can sign back in with Google at any time.')) return;
+  try {
+    await window._fbAuth.signOut(window._auth);
+    // Re-sign in anonymously so the app still works
+    await window._auth.signInAnonymously
+      ? signInAnonymously_compat()
+      : null;
+    // Use the imported signInAnonymously via module
+    window.dispatchEvent(new Event('_reauth'));
+    setStatus('Signed out — continuing as guest');
+    _projId = null;
+    _updateInviteUI();
+    await loadFolioList();
+  } catch(e) {
+    setStatus('Sign-out error: ' + e.message);
+  }
+}
+
+// Re-auth as anon after sign-out (module scope function re-invoked)
+window.addEventListener('_reauth', () => {
+  if (window._auth) {
+    import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js')
+      .then(m => m.signInAnonymously(window._auth))
+      .catch(e => console.warn('reauth anon:', e));
+  }
+});
+
+/* ── Override _setFbStatus to optionally show user name ── */
+const _setFbStatus_orig = _setFbStatus;
+function _setFbStatus(online, userName) {
+  document.getElementById('fbDot').style.background = online ? '#4caf50' : '#ccc';
+  const text = online
+    ? (userName ? `Signed in as ${userName}` : 'Connected to cloud')
+    : 'Not connected';
+  document.getElementById('fbStatusText').textContent = text;
+  document.getElementById('fbStatusBadge').textContent = online ? (userName ? 'Google' : 'Online') : 'Offline';
+  document.getElementById('fbStatusBadge').style.background = online ? (userName ? '#e8f0fe' : '#d1fae5') : '#f0ede6';
+  document.getElementById('fbStatusBadge').style.color = online ? (userName ? '#1a56db' : '#065f46') : '#aaa';
+}
+
 
 /* ── Serialise / deserialise full app state ── */
 function _serialise() {
@@ -1519,8 +1711,64 @@ function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').
 function safeName(s){return(s||'book').replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase().slice(0,60)}
 function downloadBlob(blob,filename){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000)}
 function setStatus(msg){document.getElementById('statusBar').textContent=msg}
+/* Export format metadata */
+const FMT_META={
+  PDF: {lbl:'Print-ready',  fn:'exportPDF'},
+  EPUB:{lbl:'E-readers',    fn:'exportEPUB'},
+  MOBI:{lbl:'Kindle-ready', fn:'exportMOBI'},
+  DOCX:{lbl:'Word / edit',  fn:'exportDOCX'},
+  RTF: {lbl:'Universal doc',fn:'exportRTF'},
+  MD:  {lbl:'Markdown',     fn:'exportMarkdown'},
+  HTML:{lbl:'Web / ebook',  fn:'exportHTML'},
+  TXT: {lbl:'Plain text',   fn:'exportTXT'},
+};
+let _lastFmt = localStorage.getItem('folio_last_fmt') || 'PDF';
+
+function _setPrimaryBtn(fmt) {
+  _lastFmt = fmt;
+  try { localStorage.setItem('folio_last_fmt', fmt); } catch(e){}
+  const meta = FMT_META[fmt] || FMT_META.PDF;
+  document.getElementById('primFmt').textContent = fmt;
+  document.getElementById('primLbl').textContent = meta.lbl;
+}
+
+function runPrimaryExport() {
+  const meta = FMT_META[_lastFmt];
+  if (meta) window[meta.fn]();
+}
+
+function pickExport(fmt, lbl, fn) {
+  _setPrimaryBtn(fmt);
+  closeExportDrawer();
+  fn();
+}
+
+function toggleExportDrawer() {
+  const d = document.getElementById('expDrawer');
+  const t = document.getElementById('expToggle');
+  const open = d.classList.toggle('open');
+  t.classList.toggle('open', open);
+  t.textContent = open ? '▴' : '▾';
+}
+
+function closeExportDrawer() {
+  const d = document.getElementById('expDrawer');
+  const t = document.getElementById('expToggle');
+  d.classList.remove('open');
+  t.classList.remove('open');
+  t.textContent = '▾';
+}
+
 function setExportState(busy,fmt){
-  ['PDF','EPUB','MOBI','DOCX','RTF','MD','HTML','TXT'].forEach(f=>{const b=document.getElementById('btn'+f);if(b){b.disabled=busy;if(f===fmt) b.querySelector('.fmt').textContent=busy?'…':f;}});
+  const pb = document.getElementById('btnPrimary');
+  if (pb) pb.disabled = busy;
+  ['PDF','EPUB','MOBI','DOCX','RTF','MD','HTML','TXT'].forEach(f=>{
+    const b=document.getElementById('btn'+f);
+    if(b){
+      b.disabled=busy;
+      if(f===fmt) b.querySelector('.fmt').textContent=busy?'…':f;
+    }
+  });
   if(busy) setStatus(`Generating ${fmt}…`);
 }
 
@@ -2248,6 +2496,8 @@ function exportTXT(){
    INIT
 ═══════════════════════════════════════════════ */
 buildThemeGrid();buildColorRow();buildOrnGrid();
+// Restore last-used export format
+(function(){ const f=localStorage.getItem('folio_last_fmt'); if(f&&FMT_META[f]) _setPrimaryBtn(f); })();
 
 // Load demo content
 chapters=[
@@ -2256,6 +2506,11 @@ chapters=[
 ];
 
 renderPreview();
+// Close export drawer on outside click
+document.addEventListener('click', e => {
+  const sec = document.querySelector('.export-section');
+  if (sec && !sec.contains(e.target)) closeExportDrawer();
+});
 </script>
 </body>
 </html>
