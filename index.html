@@ -2844,10 +2844,9 @@ function renderPreview(){
 /* ═══════════════════════════════════════════════
    PDF EXPORT
 ═══════════════════════════════════════════════ */
-function exportPDF(){
+async function exportPDF(){
   setExportState(true,'PDF');
-  setTimeout(()=>{
-    try{
+  try{
       const{jsPDF}=window.jspdf;
       const T=S.theme;
       const title=getV('bookTitle')||'Untitled';
@@ -2873,14 +2872,29 @@ function exportPDF(){
       const bgR=hexToRgb(T.bg),txR=hexToRgb(T.text),acR=hexToRgb(accent),dvR=hexToRgb(T.divider);
       let pageNum=1;
       const addBg=()=>{if(T.bg!=='#ffffff'){doc.setFillColor(...bgR);doc.rect(0,0,pw,ph,'F')}};
-      // Ornament: jsPDF's built-in 'times' only covers Latin-1.
-      // Map decorative glyphs to safe ASCII stand-ins for PDF output.
-      const safeOrn=(()=>{
-        const MAP={'✦':'*','❧':'~','⁂':'***','✿':'*','❦':'~','◆':'-','✵':'*','❋':'*','⊛':'*','※':'*','✤':'*','☙':'~'};
-        return MAP[S.ornament]||'*';
-      })();
-      // Three ornaments spaced — used as scene/chapter divider
-      const ornLine=`${safeOrn}   ${safeOrn}   ${safeOrn}`;
+      // Load NotoSans for Unicode ornament glyphs — fetched once per session, cached
+      const pdfOrn = S.ornament;
+      const ornLine = `${pdfOrn}   ${pdfOrn}   ${pdfOrn}`;
+      const OFONT = 'times'; // will be replaced with NotoSans once loaded
+      if (!window._notoB64) {
+        try {
+          setStatus('Loading Unicode font for ornaments…');
+          const r = await fetch('https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf');
+          if (r.ok) {
+            const buf = await r.arrayBuffer();
+            const bytes = new Uint8Array(buf);
+            let s = '';
+            for (let i = 0; i < bytes.length; i += 0x8000)
+              s += String.fromCharCode(...bytes.subarray(i, Math.min(i + 0x8000, bytes.length)));
+            window._notoB64 = btoa(s);
+          }
+        } catch(fe) { console.warn('NotoSans fetch failed, ornaments may use fallback:', fe); }
+      }
+      if (window._notoB64) {
+        doc.addFileToVFS('NotoSans.ttf', window._notoB64);
+        doc.addFont('NotoSans.ttf', 'NotoSans', 'normal');
+      }
+      const ornFont = window._notoB64 ? 'NotoSans' : 'times';
 
       // yStart: first usable y on a fresh page (clear of running header)
       const hdrOn=getC('runningHeader');
@@ -2902,6 +2916,7 @@ function exportPDF(){
           if(para==='__SCENE_BREAK__'){
             if(y+lh*2>yBottom){addPageNum();newPage();y=yStart;}
             setBody();doc.setTextColor(...acR);
+            doc.setFont(ornFont,'normal');doc.setFontSize(fsize);doc.setTextColor(...acR);
             doc.text(ornLine,pw/2,y,{align:'center'});
             y+=lh*1.6;
             setBody();
@@ -3013,11 +3028,36 @@ function exportPDF(){
         if(cn){doc.setFont('times','normal');doc.setFontSize(8.5);doc.setTextColor(...acR);doc.text('CHAPTER '+cn,pw/2,y,{align:'center'});y+=7;}
         if(ch.title){doc.setFont('times','bold');doc.setFontSize(17);doc.setTextColor(...txR);const tl=doc.splitTextToSize(ch.title,tw);doc.text(tl,pw/2,y,{align:'center'});y+=tl.length*9+5;}
         // Chapter ornament in accent colour, body-size font, safe ASCII
-        setBody();doc.setTextColor(...acR);
-        doc.text(safeOrn,pw/2,y,{align:'center'});y+=9;
-        setBody(); // back to body colour before paragraphs
+        doc.setFont(ornFont,'normal');doc.setFontSize(fsize);doc.setTextColor(...acR);
+        doc.text(pdfOrn,pw/2,y,{align:'center'});y+=9;
+        setBody();
         const paras=ch.content.split('\n').filter(p=>p.trim());
-        flowParas(paras,y,tw,mg);
+        // Drop cap on first paragraph of chapters that have a title
+        if(dropCap&&paras.length&&paras[0]!=='__SCENE_BREAK__'&&(ch.title||cn)){
+          const firstPara=paras[0];
+          const dropLetter=firstPara[0];
+          const rest=firstPara.slice(1);
+          const dcSize=fsize*3.4;          // drop cap font size in pt
+          const dcMM=dcSize*0.352;         // height in mm
+          const capLines=Math.round(dcMM/lh); // lines the drop cap spans
+          // Draw the drop cap letter
+          doc.setFont(ornFont!=='times'?ornFont:'times','bold');
+          doc.setFontSize(dcSize);doc.setTextColor(...acR);
+          doc.text(dropLetter,mg,y+dcMM*0.82);
+          // Measure the drop cap width
+          const dcW=doc.getTextWidth(dropLetter)+1.5;
+          // Render rest of first line beside the drop cap, then normal flow
+          setBody();
+          const restLines=doc.splitTextToSize(rest,tw-dcW);
+          restLines.forEach((line,li)=>{
+            if(li<capLines){doc.text(line,mg+dcW,y+(li+1)*lh);}
+            else{doc.text(line,mg,y+(li+1)*lh);}
+          });
+          const dcY=y+Math.max(dcMM, restLines.length*lh)+lh*0.2;
+          flowParas(paras.slice(1),dcY,tw,mg);
+        } else {
+          flowParas(paras,y,tw,mg);
+        }
         addPageNum();
       });
 
@@ -3032,10 +3072,9 @@ function exportPDF(){
       });
       doc.setProperties({title,author,subject:subtitle,creator:'Folio Book Formatter'});
       doc.save(safeName(title)+'.pdf');
-      setStatus('PDF exported successfully!');
-    }catch(e){setStatus('PDF error: '+e.message);console.error(e)}
-    setExportState(false,'PDF');
-  },80);
+    setStatus('PDF exported successfully!');
+  }catch(e){setStatus('PDF error: '+e.message);console.error(e)}
+  setExportState(false,'PDF');
 }
 
 /* ═══════════════════════════════════════════════
