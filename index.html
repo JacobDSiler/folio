@@ -26,24 +26,42 @@ window._googleProvider.setCustomParameters({prompt:'select_account'});
 // Track if popup has failed this session so we can switch to redirect-first
 window._googlePopupFailed = false;
 window._fbAuth={signInWithPopup,signInWithRedirect,linkWithPopup,linkWithRedirect,getRedirectResult,signOut};
-// Check for redirect result first (Google redirect flow lands here)
+// Check for redirect result (Google redirect sign-in returns here)
 getRedirectResult(auth).then(result=>{
-  if(result&&result.user) console.log('Redirect sign-in complete:', result.user.email);
+  if(result&&result.user){
+    console.log('Redirect sign-in complete:', result.user.email);
+    // auth-changed will fire via onAuthStateChanged automatically
+  }
 }).catch(e=>{
-  if(e.code!=='auth/no-current-user') console.warn('redirect result:',e);
+  if(e.code!=='auth/no-current-user'&&e.code!=='auth/null-user')
+    console.warn('redirect result:',e);
 });
-signInAnonymously(auth).catch(e=>console.warn('anon auth:',e));
-onAuthStateChanged(auth,async user=>{
-  if(user){
-    // Force reload so isAnonymous and providerData are fresh after linking
-    try{ await user.reload(); user=auth.currentUser; }catch(e){}
-    window._uid=user.uid;
-    window._user=user;
-    window.dispatchEvent(new CustomEvent('fb-ready',{detail:{user}}));
-    window.dispatchEvent(new CustomEvent('auth-changed',{detail:{user}}));
+
+// fb-ready should only fire ONCE per page load, not on every token refresh
+let _fbReadyFired = false;
+
+onAuthStateChanged(auth, async user => {
+  if (user) {
+    window._uid  = user.uid;
+    window._user = user;
+    // Dispatch auth-changed every time (for UI refresh after linking etc)
+    window.dispatchEvent(new CustomEvent('auth-changed', {detail:{user}}));
+    // Only fire fb-ready once — it triggers the folio auto-restore logic
+    if (!_fbReadyFired) {
+      _fbReadyFired = true;
+      window.dispatchEvent(new CustomEvent('fb-ready', {detail:{user}}));
+    }
   } else {
-    window._uid=null;window._user=null;
-    window.dispatchEvent(new CustomEvent('auth-changed',{detail:{user:null}}));
+    // No user at all — sign in anonymously to get a session
+    window._uid  = null;
+    window._user = null;
+    window.dispatchEvent(new CustomEvent('auth-changed', {detail:{user:null}}));
+    // Only create anonymous session if we definitely have no user
+    try {
+      await signInAnonymously(auth);
+    } catch(e) {
+      console.warn('anon auth:', e);
+    }
   }
 });
 </script>
@@ -753,10 +771,79 @@ window.addEventListener('fb-ready', async () => {
   document.getElementById('btnSaveProj').disabled = false;
   document.getElementById('btnSaveVer').disabled  = false;
   await loadFolioList();
-  // Auto-load shared project from URL
-  const pid = new URLSearchParams(window.location.search).get('folio') || new URLSearchParams(window.location.search).get('project');
-  if (pid) await loadFolioById(pid);
+
+  // Priority 1: URL param (shared link or direct open)
+  const pid = new URLSearchParams(window.location.search).get('folio')
+           || new URLSearchParams(window.location.search).get('project');
+  if (pid) { await loadFolioById(pid); return; }
+
+  // Priority 2: Last open folio saved in localStorage
+  const lastId = localStorage.getItem('folio_last_open');
+  if (lastId) {
+    try {
+      await loadFolioById(lastId);
+      return;
+    } catch(e) {
+      // Firebase failed — try local backup before giving up
+      const backup = localStorage.getItem('folio_local_backup');
+      if (backup) {
+        try {
+          const b = JSON.parse(backup);
+          if (b.id === lastId && b.state) {
+            _projId = b.id;
+            document.getElementById('projName').value = b.name || '';
+            _deserialise(b.state);
+            _updateInviteUI();
+            setStatus('Loaded from local backup — cloud sync will resume when connected');
+            return;
+          }
+        } catch(be) {}
+      }
+      localStorage.removeItem('folio_last_open');
+    }
+  }
+
+  // Priority 3: Most recently updated folio in the user's list
+  try {
+    const {collection, query, where, getDocs} = window._fb;
+    const q = query(collection(window._db,'folio_projects'), where('uid','==',window._uid));
+    const snap = await getDocs(q);
+    if (!snap.empty) {
+      // Sort by updatedAt descending, load the newest
+      let newest = null;
+      snap.forEach(d => {
+        const data = d.data();
+        if (!newest || (data.updatedAt?.seconds || 0) > (newest.updatedAt?.seconds || 0)) {
+          newest = {id: d.id, ...data};
+        }
+      });
+      if (newest) {
+        await loadFolioById(newest.id);
+        return;
+      }
+    }
+  } catch(e) { console.warn('Auto-restore failed:', e); }
+
+  // Priority 4: No folios exist — show the demo so the canvas isn't blank
+  _loadDemo();
 });
+
+function _loadDemo() {
+  if (chapters.length) return; // don't clobber anything the user has
+  chapters = [
+    {id:uid(),type:'chapter',title:'The Garden at Midnight',
+     content:`The clock struck twelve as Elara stepped through the iron gate. The garden lay before her, silver and strange under the full moon, each leaf edged with frost that caught the light like scattered diamonds.\n\nShe had been coming here for years. As a child, she had pressed her face against these very bars and wondered what secrets the old estate held. Now, at last, she was inside.\n\n__SCENE_BREAK__\n\nA figure stood at the far end of the path, half-hidden by the old rose arch. She stopped, her breath a small cloud in the cold air. The figure did not move.`,
+     src:'demo',expanded:false},
+    {id:uid(),type:'chapter',title:'The Stranger',
+     content:`Slowly, Elara walked toward the figure. The gravel crunched beneath her boots. An owl called somewhere above her. He was tall and still, his coat dark against the pale roses.\n\nWhen she came close enough to see his face, she wished she had not. Not because it was ugly — it was not — but because she recognised him. She had seen that face in the portrait above the library fireplace.\n\nThe portrait that had hung there for two hundred years.`,
+     src:'demo',expanded:false},
+  ];
+  document.getElementById('bookTitle').value  = 'The Midnight Garden';
+  document.getElementById('bookAuthor').value = 'Eleanor Ashford';
+  document.getElementById('bookSubtitle').value = 'A Novel';
+  renderChapterList();
+  renderPreview();
+}
 
 function _setFbStatus(online) {
   document.getElementById('fbDot').style.background = online ? '#4caf50' : '#ccc';
@@ -776,6 +863,11 @@ function _setFbStatus(online) {
 /* ── Update auth UI whenever auth state changes ── */
 window.addEventListener('auth-changed', ({detail:{user}}) => {
   _refreshAuthUI(user);
+  // If signed in with Google, update the status dot immediately
+  if (user && !user.isAnonymous) {
+    const gp = (user.providerData||[]).find(p=>p.providerId==='google.com')||{};
+    _setFbStatus(true, gp.displayName || user.displayName || user.email || 'Google');
+  }
 });
 
 function _refreshAuthUI(user) {
@@ -1080,14 +1172,18 @@ async function saveFolio() {
   _showSaving('Saving…');
   try {
     const {doc, setDoc, serverTimestamp} = window._fb;
+    const _state = _serialise();
+    // Save a local backup immediately in case of network issues
+    try { localStorage.setItem('folio_local_backup', JSON.stringify({id:_projId, name, state:_state, savedAt:Date.now()})); } catch(e){}
     await setDoc(window._fb.doc(window._db, 'folio_projects', _projId), {
-      uid: window._uid, name, state: _serialise(),
+      uid: window._uid, name, state: _state,
       updatedAt: serverTimestamp(), createdAt: serverTimestamp(),
     }, {merge: true});
     _updateInviteUI();
     await loadFolioList();
     await _subscribePresence();
     _hideSaving();
+    localStorage.setItem('folio_last_open', _projId);
     setStatus(`Folio "${name}" saved to cloud ✓`);
   } catch(e) { _hideSaving(); setStatus('Save failed: ' + e.message); console.error(e); }
 }
@@ -1151,6 +1247,7 @@ async function loadFolioById(id) {
     if (!snap.exists()) { _hideSaving(); setStatus('Folio not found'); return; }
     const data = snap.data();
     _projId = id;
+    localStorage.setItem('folio_last_open', id);
     document.getElementById('projName').value = data.name || '';
     _deserialise(data.state);
     _updateInviteUI();
@@ -1213,6 +1310,7 @@ async function _deleteProject(id, name) {
 function newFolio() {
   if (chapters.length && !confirm('Start a new folio? Unsaved changes will be lost.')) return;
   _projId = null;
+  localStorage.removeItem('folio_last_open');
   if (_presenceUnsub) { _presenceUnsub(); _presenceUnsub = null; }
   document.getElementById('projName').value = '';
   document.getElementById('inviteArea').style.display = 'none';
@@ -3430,12 +3528,9 @@ buildThemeGrid();buildColorRow();buildOrnGrid();
 // Auto-fit zoom on first load after preview renders
 setTimeout(zoomFit, 300);
 
-// Load demo content
-chapters=[
-  {id:uid(),type:'chapter',title:'The Garden at Midnight',content:`The clock struck twelve as Elara stepped through the iron gate. The garden lay before her, silver and strange under the full moon, each leaf edged with frost that caught the light like scattered diamonds.\n\nShe had been coming here for years. As a child, she had pressed her face against these very bars and wondered what secrets the old estate held. Now, at last, she was inside.\n\n__SCENE_BREAK__\n\nA figure stood at the far end of the path, half-hidden by the old rose arch. She stopped, her breath a small cloud in the cold air. The figure did not move.`,src:'demo',expanded:false},
-  {id:uid(),type:'chapter',title:'The Stranger',content:`Slowly, Elara walked toward the figure. The gravel crunched beneath her boots. An owl called somewhere above her. He was tall and still, his coat dark against the pale roses.\n\nWhen she came close enough to see his face, she wished she had not. Not because it was ugly — it was not — but because she recognised him. She had seen that face in the portrait above the library fireplace.\n\nThe portrait that had hung there for two hundred years.`,src:'demo',expanded:false},
-];
-
+// Start blank — Firebase will restore the real folio once connected.
+// Demo only loads if Firebase confirms the user has no saved folios.
+chapters = [];
 renderPreview();
 // Close export drawer on outside click
 document.addEventListener('click', e => {
