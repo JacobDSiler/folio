@@ -1094,11 +1094,57 @@ function exportPDF(){
       const bgR=hexToRgb(T.bg),txR=hexToRgb(T.text),acR=hexToRgb(accent),dvR=hexToRgb(T.divider);
       let pageNum=1;
       const addBg=()=>{if(T.bg!=='#ffffff'){doc.setFillColor(...bgR);doc.rect(0,0,pw,ph,'F')}};
+      // Ornament: jsPDF's built-in 'times' only covers Latin-1.
+      // Map decorative glyphs to safe ASCII stand-ins for PDF output.
+      const safeOrn=(()=>{
+        const MAP={'✦':'*','❧':'~','⁂':'***','✿':'*','❦':'~','◆':'-','✵':'*','❋':'*','⊛':'*','※':'*','✤':'*','☙':'~'};
+        return MAP[S.ornament]||'*';
+      })();
+      // Three ornaments spaced — used as scene/chapter divider
+      const ornLine=`${safeOrn}   ${safeOrn}   ${safeOrn}`;
+
+      // yStart: first usable y on a fresh page (clear of running header)
+      const hdrOn=getC('runningHeader');
+      const yStart=hdrOn?21:mg;
+      // Bottom threshold — leave room for page number
+      const yBottom=ph-mg-9;
+
+      const setBody=()=>{doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);};
       const addPageNum=()=>{if(!showNums||pageNum<=2)return;doc.setFont('times','normal');doc.setFontSize(7.5);doc.setTextColor(...txR);doc.text(String(pageNum),pw/2,ph-8,{align:'center'})};
-      const addHeader=()=>{if(!getC('runningHeader')||pageNum<=1)return;doc.setFont('times','normal');doc.setFontSize(6.5);doc.setTextColor(...txR);doc.text(author.toUpperCase(),mg,13);doc.text(title.toUpperCase(),pw-mg,13,{align:'right'});doc.setDrawColor(...dvR);doc.line(mg,14.5,pw-mg,14.5)};
-      const newPage=()=>{doc.addPage();addBg();pageNum++;addHeader()};
-      // yStart: top of text area on a continuation page (below running header)
-      const yStart=getC('runningHeader')?20:mg;
+      const addHeader=()=>{if(!hdrOn||pageNum<=1)return;doc.setFont('times','normal');doc.setFontSize(6.5);doc.setTextColor(...txR);doc.text(author.toUpperCase(),mg,13);doc.text(title.toUpperCase(),pw-mg,13,{align:'right'});doc.setDrawColor(...dvR);doc.line(mg,14.5,pw-mg,14.5)};
+      const newPage=()=>{doc.addPage();addBg();pageNum++;addHeader();};
+
+      // Core text renderer — flows paragraphs across pages cleanly.
+      // Font must be set (via setBody) before calling this.
+      const flowParas=(paras,startY,wrapWidth,xLeft)=>{
+        let y=startY;
+        const lh=fsize*lspace*0.352;
+        paras.forEach((para,pi)=>{
+          if(para==='__SCENE_BREAK__'){
+            if(y+lh*2>yBottom){addPageNum();newPage();y=yStart;}
+            setBody();doc.setTextColor(...acR);
+            doc.text(ornLine,pw/2,y,{align:'center'});
+            y+=lh*1.6;
+            setBody();
+            return;
+          }
+          const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
+          const indentMm=noInd?0:indent;
+          setBody();
+          // Always split at full wrap width — indent applied via x position only
+          const lines=doc.splitTextToSize(para,wrapWidth);
+          lines.forEach((line,li)=>{
+            if(y>yBottom){addPageNum();newPage();y=yStart;setBody();}
+            // First line of paragraph gets indent; continuation lines start at xLeft
+            const lineX=xLeft+(li===0?indentMm:0);
+            doc.text(line,lineX,y);
+            y+=lh;
+          });
+          if(indent===0) y+=lh*0.3;
+        });
+        return y;
+      };
+
       addBg();
       doc.setFont('times','bold');doc.setFontSize(28);doc.setTextColor(...txR);
       const titleLines=doc.splitTextToSize(title,tw);
@@ -1108,85 +1154,54 @@ function exportPDF(){
       doc.setFont('times','normal');doc.setFontSize(11);doc.setTextColor(...txR);doc.text(author,pw/2,ph*0.52+8,{align:'center'});
       if(copy){newPage();doc.setFont('times','normal');doc.setFontSize(8);doc.setTextColor(...txR);const cl=doc.splitTextToSize(copy,tw*0.85);doc.text(cl,mg,ph-mg-cl.length*4);addPageNum()}
       if(dedic){newPage();doc.setFont('times','italic');doc.setFontSize(11.5);doc.setTextColor(...txR);const dl=doc.splitTextToSize(dedic,tw*0.7);doc.text(dl,pw/2,ph/2,{align:'center'});addPageNum()}
+
       // Front matter
       frontMatter.forEach(fm=>{
         newPage();
         if(fm.title){doc.setFont('times','bold');doc.setFontSize(16);doc.setTextColor(...txR);doc.text(fm.title,pw/2,28,{align:'center'})}
-        let y=fm.title?40:28;
-        const lh=fsize*lspace*0.352;
-        fm.content.split('\n').filter(p=>p.trim()).forEach(p=>{
-          doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);
-          const lines=doc.splitTextToSize(p,tw);
-          lines.forEach(line=>{
-            if(y>ph-mg-8){addPageNum();newPage();y=yStart;doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);}
-            doc.text(line,mg,y);y+=lh;
-          });
-          y+=lh*0.2;
-        });
+        const startY=fm.title?42:yStart;
+        const paras=fm.content.split('\n').filter(p=>p.trim());
+        flowParas(paras,startY,tw,mg);
         addPageNum();
       });
+
       if(showTOC&&bodyChapters.length){
         newPage();doc.setFont('times','bold');doc.setFontSize(16);doc.setTextColor(...txR);doc.text('Contents',pw/2,35,{align:'center'});
         let ty=48;
         bodyChapters.forEach((ch,i)=>{
           const cn=chapterNumber(i+1);const label=cn?`${cn}${ch.title?'. '+ch.title:''}`:ch.title;
           doc.setFont('times','normal');doc.setFontSize(10);doc.setTextColor(...txR);doc.text(label,mg,ty);
-          doc.setTextColor(...txR);doc.setFontSize(9);doc.text(String(pageNum+2+i),pw-mg,ty,{align:'right'});
-          doc.setDrawColor(...dvR);doc.setLineDash([0.5,1.5]);doc.line(mg+doc.getTextWidth(label)+2,ty-0.5,pw-mg-doc.getTextWidth(String(pageNum+2+i))-2,ty-0.5);doc.setLineDash([]);
-          ty+=7;if(ty>ph-mg){newPage();ty=mg+10}
+          doc.setFontSize(9);doc.text(String(pageNum+2+i),pw-mg,ty,{align:'right'});
+          doc.setDrawColor(...dvR);doc.setLineDash([0.5,1.5]);
+          doc.line(mg+doc.getTextWidth(label)+2,ty-0.5,pw-mg-doc.getTextWidth(String(pageNum+2+i))-2,ty-0.5);
+          doc.setLineDash([]);
+          ty+=7;if(ty>yBottom){addPageNum();newPage();ty=yStart;}
         });
         addPageNum();
       }
+
       bodyChapters.forEach(ch=>{
-        newPage();const cn=chapterNumber(getChapters().indexOf(ch)+1);
+        newPage();
+        const cn=chapterNumber(getChapters().indexOf(ch)+1);
         let y=28;
-        if(cn){doc.setFont('times','normal');doc.setFontSize(8.5);doc.setTextColor(...acR);doc.text('CHAPTER '+cn,pw/2,y,{align:'center'});y+=7}
-        if(ch.title){doc.setFont('times','bold');doc.setFontSize(17);doc.setTextColor(...txR);const tl=doc.splitTextToSize(ch.title,tw);doc.text(tl,pw/2,y,{align:'center'});y+=tl.length*9+4}
-        doc.setFont('times','normal');doc.setFontSize(fsize+1);doc.setTextColor(...acR);
-        doc.text(orn,pw/2,y,{align:'center'});y+=8;
-        // Restore body state before first paragraph
-        doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);
+        if(cn){doc.setFont('times','normal');doc.setFontSize(8.5);doc.setTextColor(...acR);doc.text('CHAPTER '+cn,pw/2,y,{align:'center'});y+=7;}
+        if(ch.title){doc.setFont('times','bold');doc.setFontSize(17);doc.setTextColor(...txR);const tl=doc.splitTextToSize(ch.title,tw);doc.text(tl,pw/2,y,{align:'center'});y+=tl.length*9+5;}
+        // Chapter ornament in accent colour, body-size font, safe ASCII
+        setBody();doc.setTextColor(...acR);
+        doc.text(safeOrn,pw/2,y,{align:'center'});y+=9;
+        setBody(); // back to body colour before paragraphs
         const paras=ch.content.split('\n').filter(p=>p.trim());
-        const lh=fsize*lspace*0.352;
-        paras.forEach((para,pi)=>{
-          if(para==='__SCENE_BREAK__'){
-            doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...acR);
-            doc.text(`${orn}   ${orn}   ${orn}`,pw/2,y,{align:'center'});y+=lh*1.5;
-            // Always restore body font after ornament
-            doc.setTextColor(...txR);
-            return;
-          }
-          const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
-          // Set font BEFORE splitTextToSize so wrap width is computed correctly
-          doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);
-          const lines=doc.splitTextToSize(para,tw-(noInd?0:indent));
-          lines.forEach((line,li)=>{
-            if(y>ph-mg-8){
-              addPageNum();newPage();y=yStart;
-              // Re-assert font after page break — jsPDF can lose state
-              doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);
-            }
-            doc.text(line,mg+(noInd&&li===0?0:indent),y);y+=lh;
-          });
-          if(indent===0) y+=lh*0.3;
-        });
+        flowParas(paras,y,tw,mg);
         addPageNum();
       });
+
       // Back matter
       backMatter.forEach(bm=>{
         newPage();
         if(bm.title){doc.setFont('times','bold');doc.setFontSize(16);doc.setTextColor(...txR);doc.text(bm.title,pw/2,28,{align:'center'})}
-        let y=bm.title?40:28;
-        const lh=fsize*lspace*0.352;
-        bm.content.split('\n').filter(p=>p.trim()).forEach(p=>{
-          doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);
-          const lines=doc.splitTextToSize(p,tw);
-          lines.forEach(line=>{
-            if(y>ph-mg-8){addPageNum();newPage();y=yStart;doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);}
-            doc.text(line,mg,y);y+=lh;
-          });
-          y+=lh*0.2;
-        });
+        const startY=bm.title?42:yStart;
+        const paras=bm.content.split('\n').filter(p=>p.trim());
+        flowParas(paras,startY,tw,mg);
         addPageNum();
       });
       doc.setProperties({title,author,subject:subtitle,creator:'Folio Book Formatter'});
