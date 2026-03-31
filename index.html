@@ -592,14 +592,26 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 
 <!-- ════════════════ PREVIEW ════════════════ -->
 <main class="preview-area" id="previewArea">
-  <!-- Zoom toolbar -->
+  <!-- Preview toolbar: size picker + zoom controls -->
   <div class="preview-toolbar">
+    <!-- Page size selector (mirrors #pageSize in Design tab) -->
+    <select id="toolbarPageSize" onchange="setPreviewSize(this.value)"
+      style="font-size:11px;font-family:var(--sans);background:rgba(255,255,255,0.12);color:#fff;border:1px solid rgba(255,255,255,0.25);border-radius:6px;padding:3px 6px;cursor:pointer;outline:none;max-width:148px">
+      <option value="trade">Trade (6×9")</option>
+      <option value="pocket">Pocket (5×8")</option>
+      <option value="digest">Digest (5.5×8.5")</option>
+      <option value="a4">A4</option>
+      <option value="letter">US Letter</option>
+    </select>
+    <!-- Divider -->
+    <span style="width:1px;height:16px;background:rgba(255,255,255,0.2);flex-shrink:0"></span>
+    <!-- Zoom controls -->
     <button class="zoom-btn" onclick="zoomStep(-1)" title="Zoom out">−</button>
     <input type="range" class="zoom-slider" id="zoomSlider" min="20" max="200" value="75" oninput="setZoom(this.value)">
     <button class="zoom-btn" onclick="zoomStep(1)" title="Zoom in">+</button>
     <span class="zoom-label" id="zoomLabel">75%</span>
-    <button class="zoom-fit-btn" onclick="zoomFit()" title="Fit to window">Fit</button>
-    <button class="zoom-fit-btn" onclick="setZoom(100)" title="Actual size">100%</button>
+    <button class="zoom-fit-btn" onclick="zoomFit()">Fit</button>
+    <button class="zoom-fit-btn" onclick="setZoom(100)">100%</button>
   </div>
   <div class="preview-scroller" id="previewScroller">
     <div class="preview-wrap" id="bookPreview"></div>
@@ -1914,6 +1926,30 @@ document.addEventListener('wheel', e => {
   zoomStep(e.deltaY < 0 ? 1 : -1);
 }, {passive: false});
 
+/* ── Preview size picker — syncs toolbar ↔ Design tab select ── */
+function setPreviewSize(val) {
+  // Keep the Design tab select in sync
+  const ds = document.getElementById('pageSize');
+  if (ds) ds.value = val;
+  // Keep toolbar select in sync (called from Design tab too)
+  const ts = document.getElementById('toolbarPageSize');
+  if (ts) ts.value = val;
+  zoomFit(); // re-fit zoom to new page dimensions, then re-renders
+}
+
+// Keep toolbar picker in sync when Design tab select changes
+(function() {
+  const ds = document.getElementById('pageSize');
+  if (ds) {
+    const orig = ds.onchange;
+    ds.onchange = function() {
+      const ts = document.getElementById('toolbarPageSize');
+      if (ts) ts.value = ds.value;
+      if (orig) orig.call(this);
+    };
+  }
+})();
+
 function renderPreview(){
   const T=S.theme;
   const title=getV('bookTitle')||'Untitled';
@@ -2672,6 +2708,8 @@ buildThemeGrid();buildColorRow();buildOrnGrid();
 (function(){ const f=localStorage.getItem('folio_last_fmt'); if(f&&FMT_META[f]) _setPrimaryBtn(f); })();
 // Restore zoom level
 (function(){ const z=localStorage.getItem('folio_zoom'); if(z) { _zoom=parseFloat(z); document.getElementById('zoomSlider').value=_zoom; document.getElementById('zoomLabel').textContent=Math.round(_zoom)+'%'; }})();
+// Sync toolbar size picker with Design tab initial value
+(function(){ const ds=document.getElementById('pageSize'); const ts=document.getElementById('toolbarPageSize'); if(ds&&ts) ts.value=ds.value; })();
 // Auto-fit zoom on first load after preview renders
 setTimeout(zoomFit, 300);
 
