@@ -504,6 +504,18 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
       <button class="exp-btn secondary" id="btnDOCX" onclick="exportDOCX()">
         <span class="fmt">DOCX</span><span class="lbl">Word / edit</span>
       </button>
+      <button class="exp-btn secondary" id="btnRTF" onclick="exportRTF()">
+        <span class="fmt">RTF</span><span class="lbl">Universal doc</span>
+      </button>
+      <button class="exp-btn secondary" id="btnMD" onclick="exportMarkdown()">
+        <span class="fmt">MD</span><span class="lbl">Markdown</span>
+      </button>
+      <button class="exp-btn secondary" id="btnHTML" onclick="exportHTML()">
+        <span class="fmt">HTML</span><span class="lbl">Web / ebook</span>
+      </button>
+      <button class="exp-btn secondary" id="btnTXT" onclick="exportTXT()">
+        <span class="fmt">TXT</span><span class="lbl">Plain text</span>
+      </button>
     </div>
   </div>
 
@@ -1496,7 +1508,7 @@ function safeName(s){return(s||'book').replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCas
 function downloadBlob(blob,filename){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000)}
 function setStatus(msg){document.getElementById('statusBar').textContent=msg}
 function setExportState(busy,fmt){
-  ['PDF','EPUB','MOBI','DOCX'].forEach(f=>{const b=document.getElementById('btn'+f);b.disabled=busy;if(f===fmt) b.querySelector('.fmt').textContent=busy?'…':f});
+  ['PDF','EPUB','MOBI','DOCX','RTF','MD','HTML','TXT'].forEach(f=>{const b=document.getElementById('btn'+f);if(b){b.disabled=busy;if(f===fmt) b.querySelector('.fmt').textContent=busy?'…':f;}});
   if(busy) setStatus(`Generating ${fmt}…`);
 }
 
@@ -1916,6 +1928,309 @@ async function exportDOCX(){
   }catch(e){setStatus('DOCX error: '+e.message);console.error(e)}
   setExportState(false,'DOCX');
 }
+
+/* ═══════════════════════════════════════════════
+   RTF EXPORT
+═══════════════════════════════════════════════ */
+function exportRTF(){
+  setExportState(true,'RTF');
+  try{
+    const title=getV('bookTitle')||'Untitled';
+    const author=getV('bookAuthor')||'Author';
+    const subtitle=getV('bookSubtitle');
+    const dedic=getV('dedication');
+    const copy=getV('copyright');
+    const chs=getChapters();
+    const front=getFront();
+    const back=getBack();
+    const orn=S.ornament;
+    const justify=getC('justifyText');
+    const fsize=Math.round(parseFloat(getV('fontSize'))*2);
+    const lspace=parseFloat(getV('lineSpacing'));
+    const rtfLine=Math.round(lspace*240);
+    const ac=hexToRgb(S.accent);
+    const tx=hexToRgb(S.theme.text);
+    // Encode non-ASCII as \uN? so every RTF parser survives them
+    const rs=s=>String(s||'').replace(/\\/g,'\\\\').replace(/\{/g,'\\{').replace(/\}/g,'\\}')
+      .replace(/[^\x00-\x7F]/g,c=>'\\u'+c.charCodeAt(0)+'?');
+    const para=(text,opts={})=>{
+      const{bold=false,italic=false,center=false,size=fsize,color=1,noInd=false,sb=0,sa=0}=opts;
+      const al=center?'\\qc':justify?'\\qj':'\\ql';
+      const ind=noInd?'':'\\fi720';
+      return'{\\pard'+al+'\\sl'+rtfLine+'\\slmult1'+ind+'\\sb'+sb+'\\sa'+sa+(bold?'\\b':'')+(italic?'\\i':'')+'\\fs'+size+'\\cf'+color+' '+rs(text)+'\\par}\n';
+    };
+    let r='{\\rtf1\\ansi\\deff0\n{\\fonttbl{\\f0\\froman\\fcharset0 Times New Roman;}}\n'
+      +'{\\colortbl;\\red'+tx[0]+'\\green'+tx[1]+'\\blue'+tx[2]+';\\red'+ac[0]+'\\green'+ac[1]+'\\blue'+ac[2]+';}\n'
+      +'\\widowctrl\\hyphauto\n';
+    r+=para(title,{bold:true,center:true,size:56,noInd:true,sb:1440,sa:120});
+    if(subtitle) r+=para(subtitle,{italic:true,center:true,size:28,color:2,noInd:true,sa:80});
+    r+=para(author,{center:true,size:22,noInd:true,sb:240});
+    r+='{\\pard\\page\\par}\n';
+    front.forEach(sec=>{
+      r+=para(sec.title,{bold:true,center:true,size:32,noInd:true,sb:480,sa:240});
+      sec.content.split('\n').filter(p=>p.trim()).forEach((p,pi)=>{
+        if(p==='__SCENE_BREAK__'){r+=para(rs(orn)+'   '+rs(orn)+'   '+rs(orn),{center:true,size:20,color:2,noInd:true,sb:160,sa:160});return;}
+        r+=para(p,{noInd:pi===0});
+      });
+      r+='{\\pard\\page\\par}\n';
+    });
+    if(copy){r+=para(copy,{size:16,noInd:true,sa:120});r+='{\\pard\\page\\par}\n';}
+    if(dedic){r+=para(dedic,{italic:true,center:true,size:22,noInd:true,sb:1440});r+='{\\pard\\page\\par}\n';}
+    chs.forEach((ch,i)=>{
+      const cn=chapterNumber(i+1);
+      if(cn) r+=para('CHAPTER '+cn,{center:true,size:16,color:2,noInd:true,sb:480,sa:120});
+      if(ch.title) r+=para(ch.title,{bold:true,center:true,size:36,noInd:true,sa:160});
+      r+=para(rs(orn),{center:true,size:22,color:2,noInd:true,sa:200});
+      const paras=ch.content.split('\n').filter(p=>p.trim());
+      paras.forEach((p,pi)=>{
+        if(p==='__SCENE_BREAK__'){r+=para(rs(orn)+'   '+rs(orn)+'   '+rs(orn),{center:true,size:20,color:2,noInd:true,sb:160,sa:160});return;}
+        const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
+        r+=para(p,{noInd});
+      });
+      r+='{\\pard\\page\\par}\n';
+    });
+    back.forEach(sec=>{
+      r+=para(sec.title,{bold:true,center:true,size:32,noInd:true,sb:480,sa:240});
+      sec.content.split('\n').filter(p=>p.trim()).forEach((p,pi)=>{
+        if(p==='__SCENE_BREAK__'){r+=para(rs(orn)+'   '+rs(orn)+'   '+rs(orn),{center:true,size:20,color:2,noInd:true,sb:160,sa:160});return;}
+        r+=para(p,{noInd:pi===0});
+      });
+    });
+    r+='}';
+    downloadBlob(new Blob([r],{type:'application/rtf'}),safeName(title)+'.rtf');
+    setStatus('RTF exported — opens in Word, LibreOffice, Pages, TextEdit and more!');
+  }catch(e){setStatus('RTF error: '+e.message);console.error(e);}
+  setExportState(false,'RTF');
+}
+
+/* ═══════════════════════════════════════════════
+   MARKDOWN EXPORT
+═══════════════════════════════════════════════ */
+function exportMarkdown(){
+  setExportState(true,'MD');
+  try{
+    const title=getV('bookTitle')||'Untitled';
+    const author=getV('bookAuthor')||'Author';
+    const subtitle=getV('bookSubtitle');
+    const dedic=getV('dedication');
+    const copy=getV('copyright');
+    const chs=getChapters();
+    const front=getFront();
+    const back=getBack();
+    const orn=S.ornament;
+    // YAML front matter — compatible with Pandoc, Jekyll, Hugo, Obsidian, iA Writer, Ulysses
+    let md='---\n';
+    md+='title: "'+title.replace(/"/g,'\\"')+'"\n';
+    md+='author: "'+author.replace(/"/g,'\\"')+'"\n';
+    if(subtitle) md+='subtitle: "'+subtitle.replace(/"/g,'\\"')+'"\n';
+    md+='---\n\n';
+    // Title block
+    md+='# '+title+'\n\n';
+    if(subtitle) md+='*'+subtitle+'*\n\n';
+    md+=author+'\n\n---\n\n';
+    // Front matter sections
+    front.forEach(sec=>{
+      md+='## '+sec.title+'\n\n';
+      sec.content.split('\n').filter(p=>p.trim()).forEach(p=>{
+        if(p==='__SCENE_BREAK__'){md+='\n'+orn+' '+orn+' '+orn+'\n\n';return;}
+        md+=p+'\n\n';
+      });
+      md+='---\n\n';
+    });
+    if(copy) md+='> '+copy+'\n\n';
+    if(dedic) md+='*'+dedic+'*\n\n---\n\n';
+    // Chapters — # headings with chapter number and title
+    chs.forEach((ch,i)=>{
+      const cn=chapterNumber(i+1);
+      if(cn&&ch.title)      md+='# Chapter '+cn+': '+ch.title+'\n\n';
+      else if(cn)           md+='# Chapter '+cn+'\n\n';
+      else if(ch.title)     md+='# '+ch.title+'\n\n';
+      md+=orn+'\n\n';
+      ch.content.split('\n').filter(p=>p.trim()).forEach(p=>{
+        if(p==='__SCENE_BREAK__'){md+='\n'+orn+' '+orn+' '+orn+'\n\n';return;}
+        md+=p+'\n\n';
+      });
+    });
+    // Back matter
+    back.forEach(sec=>{
+      md+='---\n\n## '+sec.title+'\n\n';
+      sec.content.split('\n').filter(p=>p.trim()).forEach(p=>{
+        if(p==='__SCENE_BREAK__'){md+='\n'+orn+' '+orn+' '+orn+'\n\n';return;}
+        md+=p+'\n\n';
+      });
+    });
+    downloadBlob(new Blob([md],{type:'text/markdown'}),safeName(title)+'.md');
+    setStatus('Markdown exported — compatible with Pandoc, Obsidian, iA Writer, Ulysses and more!');
+  }catch(e){setStatus('Markdown error: '+e.message);}
+  setExportState(false,'MD');
+}
+
+/* ═══════════════════════════════════════════════
+   HTML EXPORT
+═══════════════════════════════════════════════ */
+function exportHTML(){
+  setExportState(true,'HTML');
+  try{
+    const T=S.theme;
+    const title=getV('bookTitle')||'Untitled';
+    const author=getV('bookAuthor')||'Author';
+    const subtitle=getV('bookSubtitle');
+    const dedic=getV('dedication');
+    const copy=getV('copyright');
+    const chs=getChapters();
+    const front=getFront();
+    const back=getBack();
+    const font=getV('bodyFont');
+    const fsize=getV('fontSize');
+    const lspace=getV('lineSpacing');
+    const indent=getV('paraIndent');
+    const justify=getC('justifyText');
+    const orn=S.ornament;
+    const ac=S.accent;
+    // Self-contained CSS using exact theme values + Google Fonts
+    const css=[
+      "@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&display=swap');",
+      '*{box-sizing:border-box;margin:0;padding:0}',
+      'body{font-family:'+font+';font-size:'+fsize+'pt;line-height:'+lspace+';background:'+T.bg+';color:'+T.text+';max-width:680px;margin:0 auto;padding:3em 2em}',
+      "h1.bt{font-family:'Playfair Display',serif;font-size:2.4em;text-align:center;margin-top:2em;line-height:1.2}",
+      '.bs{font-size:1.1em;font-style:italic;text-align:center;color:'+ac+';margin-top:.4em}',
+      '.ba{text-align:center;letter-spacing:.12em;color:'+T.text+';opacity:.55;margin-top:1.2em;font-size:.9em}',
+      'hr{border:none;border-top:1px solid '+T.divider+';width:40%;margin:2em auto}',
+      ".st{font-family:'Playfair Display',serif;font-size:1.4em;text-align:center;margin:3em 0 1em}",
+      '.cn{font-size:.72em;letter-spacing:.18em;text-transform:uppercase;color:'+ac+';text-align:center;margin-top:3em;margin-bottom:.4em}',
+      "h2.ct{font-family:'Playfair Display',serif;font-size:1.6em;text-align:center;margin:.2em 0}",
+      '.orn{text-align:center;color:'+ac+';font-size:1.1em;margin:.8em 0 1.2em;opacity:.8}',
+      '.sb{text-align:center;color:'+ac+';margin:1.2em 0;opacity:.7}',
+      'p{margin:0;text-indent:'+(indent==='0'?'0':indent)+';text-align:'+(justify?'justify':'left')+';margin-bottom:'+(indent==='0'?'.8em':'0')+'}',
+      'p.ni{text-indent:0}',
+      ".dc::first-letter{float:left;font-family:'Playfair Display',serif;font-size:3.6em;line-height:.72;margin:.05em .06em 0 0;color:"+ac+';font-weight:700}',
+      '.ded{font-style:italic;text-align:center;max-width:24em;margin:3em auto;line-height:1.8;opacity:.7}',
+      '.cpr{font-size:.78em;line-height:1.8;opacity:.6;margin:1em 0}',
+      '.pb{page-break-after:always;margin-bottom:3em}',
+      '@media print{body{max-width:none;padding:0}}'
+    ].join('\n');
+    let h='<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n<title>'+esc(title)+'</title>\n<style>\n'+css+'\n</style>\n</head>\n<body>\n';
+    // Title page
+    h+='<div class="pb">\n<h1 class="bt">'+esc(title)+'</h1>\n';
+    if(subtitle) h+='<p class="bs">'+esc(subtitle)+'</p>\n';
+    h+='<p class="ba">'+esc(author)+'</p>\n</div>\n\n';
+    // Front matter
+    front.forEach(sec=>{
+      h+='<div class="pb">\n<h2 class="st">'+esc(sec.title)+'</h2>\n';
+      sec.content.split('\n').filter(p=>p.trim()).forEach((p,pi)=>{
+        if(p==='__SCENE_BREAK__'){h+='<p class="sb">'+esc(orn)+' '+esc(orn)+' '+esc(orn)+'</p>\n';return;}
+        h+='<p class="'+(pi===0?'ni':'')+'">'+esc(p)+'</p>\n';
+      });
+      h+='</div>\n\n';
+    });
+    if(copy) h+='<div class="pb"><p class="cpr">'+esc(copy)+'</p></div>\n\n';
+    if(dedic) h+='<div class="pb"><p class="ded">'+esc(dedic)+'</p></div>\n\n';
+    // Chapters — uses exact theme/font/accent settings
+    chs.forEach((ch,i)=>{
+      const cn=chapterNumber(i+1);
+      h+='<div class="pb">\n';
+      if(cn) h+='<p class="cn">Chapter '+esc(String(cn))+'</p>\n';
+      if(ch.title) h+='<h2 class="ct">'+esc(ch.title)+'</h2>\n';
+      h+='<p class="orn">'+esc(orn)+'</p>\n';
+      const paras=ch.content.split('\n').filter(p=>p.trim());
+      paras.forEach((p,pi)=>{
+        if(p==='__SCENE_BREAK__'){h+='<p class="sb">'+esc(orn)+' '+esc(orn)+' '+esc(orn)+'</p>\n';return;}
+        const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
+        const dc=pi===0&&Boolean(ch.title)?' dc':'';
+        h+='<p class="'+(noInd?'ni':'')+dc+'">'+esc(p)+'</p>\n';
+      });
+      h+='</div>\n\n';
+    });
+    // Back matter
+    back.forEach(sec=>{
+      h+='<div class="pb">\n<h2 class="st">'+esc(sec.title)+'</h2>\n';
+      sec.content.split('\n').filter(p=>p.trim()).forEach((p,pi)=>{
+        if(p==='__SCENE_BREAK__'){h+='<p class="sb">'+esc(orn)+' '+esc(orn)+' '+esc(orn)+'</p>\n';return;}
+        h+='<p class="'+(pi===0?'ni':'')+'">'+esc(p)+'</p>\n';
+      });
+      h+='</div>\n\n';
+    });
+    h+='</body>\n</html>';
+    downloadBlob(new Blob([h],{type:'text/html'}),safeName(title)+'.html');
+    setStatus('HTML exported — self-contained styled file, printable from any browser!');
+  }catch(e){setStatus('HTML error: '+e.message);}
+  setExportState(false,'HTML');
+}
+
+/* ═══════════════════════════════════════════════
+   PLAIN TEXT EXPORT
+═══════════════════════════════════════════════ */
+function exportTXT(){
+  setExportState(true,'TXT');
+  try{
+    const title=getV('bookTitle')||'Untitled';
+    const author=getV('bookAuthor')||'Author';
+    const subtitle=getV('bookSubtitle');
+    const dedic=getV('dedication');
+    const copy=getV('copyright');
+    const chs=getChapters();
+    const front=getFront();
+    const back=getBack();
+    const W=72; // publishing-standard manuscript wrap width
+    const hr='-'.repeat(W);
+    // Space-pad to centre within W columns
+    const centre=s=>{const p=Math.max(0,Math.floor((W-s.length)/2));return ' '.repeat(p)+s;};
+    // Word-wrap at W chars, optional first-line indent string
+    const wrap=(text,ind='')=>{
+      const words=text.split(/\s+/).filter(Boolean);
+      const lines=[];let cur='';
+      words.forEach(w=>{
+        if(!cur){cur=ind+w;}
+        else if((cur+' '+w).length<=W){cur+=' '+w;}
+        else{lines.push(cur);cur=ind+w;}
+      });
+      if(cur) lines.push(cur);
+      return lines.join('\n');
+    };
+    let t='\n\n';
+    t+=centre(title.toUpperCase())+'\n';
+    if(subtitle) t+=centre(subtitle)+'\n';
+    t+='\n'+centre(author)+'\n\n\n'+hr+'\n\n';
+    // Front matter
+    front.forEach(sec=>{
+      t+=centre(sec.title.toUpperCase())+'\n\n';
+      sec.content.split('\n').filter(p=>p.trim()).forEach((p,pi)=>{
+        if(p==='__SCENE_BREAK__'){t+='\n    * * *\n\n';return;}
+        t+=wrap(p)+'\n\n';
+      });
+      t+=hr+'\n\n';
+    });
+    if(copy) t+=wrap(copy)+'\n\n'+hr+'\n\n';
+    if(dedic) t+='\n'+centre('"'+dedic+'"')+'\n\n'+hr+'\n\n';
+    // Chapters — 4-space first-line indent (manuscript standard)
+    chs.forEach((ch,i)=>{
+      const cn=chapterNumber(i+1);
+      if(cn) t+=centre('CHAPTER '+cn)+'\n';
+      if(ch.title) t+=centre(ch.title)+'\n';
+      t+='\n\n';
+      const paras=ch.content.split('\n').filter(p=>p.trim());
+      paras.forEach((p,pi)=>{
+        if(p==='__SCENE_BREAK__'){t+='\n    * * *\n\n';return;}
+        const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
+        t+=wrap(p,noInd?'':'    ')+'\n\n';
+      });
+      t+=hr+'\n\n';
+    });
+    // Back matter
+    back.forEach(sec=>{
+      t+=centre(sec.title.toUpperCase())+'\n\n';
+      sec.content.split('\n').filter(p=>p.trim()).forEach((p,pi)=>{
+        if(p==='__SCENE_BREAK__'){t+='\n    * * *\n\n';return;}
+        t+=wrap(p)+'\n\n';
+      });
+    });
+    downloadBlob(new Blob([t.trimEnd()+'\n'],{type:'text/plain'}),safeName(title)+'.txt');
+    setStatus('Plain text exported — 72-char wrap, 4-space indent, manuscript ready!');
+  }catch(e){setStatus('TXT error: '+e.message);}
+  setExportState(false,'TXT');
+}
+
+
 
 /* ═══════════════════════════════════════════════
    INIT
