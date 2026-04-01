@@ -2480,22 +2480,26 @@ function addTOC() {
 function scrollToChapter(chapId) {
   if (!chapId) return;
   const el = document.getElementById('chap-' + chapId);
-  if (!el) return;
-  // Scroll inside the preview area container
-  const scroller = document.getElementById('previewScroller') || document.getElementById('previewArea');
-  if (scroller) {
-    const scrollerRect = scroller.getBoundingClientRect();
-    const elRect = el.getBoundingClientRect();
-    const scrollTop = scroller.scrollTop + (elRect.top - scrollerRect.top) - 24;
-    scroller.scrollTo({top: scrollTop, behavior: 'smooth'});
-  } else {
-    el.scrollIntoView({behavior: 'smooth', block: 'start'});
+  if (!el) {
+    // Element may not exist yet if preview hasn't rendered — try after a tick
+    setTimeout(() => scrollToChapter(chapId), 150);
+    return;
   }
-  // Flash highlight
-  const orig = el.style.boxShadow;
+  // previewArea is the scrollable container (overflow:auto)
+  const scroller = document.getElementById('previewArea');
+  if (scroller) {
+    // Walk up from el to find its offset relative to previewArea
+    let top = 0, node = el;
+    while (node && node !== scroller) {
+      top += node.offsetTop;
+      node = node.offsetParent;
+    }
+    scroller.scrollTo({ top: top - 20, behavior: 'smooth' });
+  }
+  // Flash highlight on the page
   el.style.transition = 'box-shadow .2s';
   el.style.boxShadow = '0 0 0 3px #c9956a, 0 4px 24px rgba(0,0,0,0.35)';
-  setTimeout(() => { el.style.boxShadow = orig; el.style.transition = ''; }, 1000);
+  setTimeout(() => { el.style.boxShadow = ''; el.style.transition = ''; }, 1000);
 }
 
 function renderChapterList(){
