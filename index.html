@@ -1581,12 +1581,12 @@ const THEMES=[
   {id:'gold',name:'Gilded',desc:'Luxury gold',bg:'#1a1505',text:'#f0e6c0',accent:'#d4a843',divider:'#5a4a20',prev:['#1a1505','#5a4a20','#d4a843']},
 ];
 const ACCENT_COLORS=['#8B4513','#2c4a7c','#4a7c59','#9c3d4a','#6b4c8a','#c9956a','#2a6a5a','#1a1a1a','#c09040','#3a6070'];
-const ORNAMENTS=['✦','❧','⁂','✿','❦','◆','✵','✻','⊛','※','✤','☙'];
+const ORNAMENTS=['❖','✿','❀','❄','❇','❉','❊','❋','❧'];
 function toRoman(n){if(n<1||n>3999)return String(n);const v=[1000,900,500,400,100,90,50,40,10,9,5,4,1],s=['M','CM','D','CD','C','XC','L','XL','X','IX','V','IV','I'];let r='';v.forEach((val,i)=>{while(n>=val){r+=s[i];n-=val;}});return r;}
 const ROMAN_WORDS=['One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen','Twenty','Twenty-One','Twenty-Two','Twenty-Three','Twenty-Four','Twenty-Five','Twenty-Six','Twenty-Seven','Twenty-Eight','Twenty-Nine','Thirty'];
 const WORDS=['One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen','Twenty'];
 
-let S={theme:THEMES[0],accent:'#8B4513',ornament:'✦',images:[],coverImg:null};
+let S={theme:THEMES[0],accent:'#8B4513',ornament:'❖',images:[],coverImg:null};
 
 /* chapters array — source of truth for all exports
    Each item: { id, type:'pre'|'chapter'|'post', title, content, src, expanded } */
@@ -3005,20 +3005,17 @@ async function exportPDF(){
       // Map each ornament to its ZapfDingbats equivalent — always available in jsPDF,
       // no CDN fetch needed, works offline, renders the actual decorative glyph.
       const ZD_MAP = {
-        '✦': 'v',    // four-pointed black star
-        '❧': '', // floral heart
-        '⁂': 'K',    // asterism
-        '✿': 'l',    // black florette
-        '❦': '', // floral heart
-        '◆': 'w',    // black diamond
-        '✵': 'Y',    // asterisk
-        '✻': 'X',    // heavy open centre asterisk
-        '⊛': 'J',    // circled open centre asterisk
-        '※': 'J',    // reference mark
-        '✤': 'V',    // heavy four balloon-spoked asterisk
-        '☙': '', // reversed rotated floral heart
+        '❖': 'l',    // U+2756 → ZD 0x6C  black diamond minus white x
+        '✿': '=',    // U+273F → ZD 0x3D  black florette
+        '❀': '>',    // U+2740 → ZD 0x3E  white florette
+        '❄': 'B',    // U+2744 → ZD 0x42  snowflake
+        '❇': 'E',    // U+2747 → ZD 0x45  sparkle
+        '❉': 'G',    // U+2749 → ZD 0x47  balloon-spoked asterisk
+        '❊': 'H',    // U+274A → ZD 0x48  eight teardrop asterisk
+        '❋': 'I',    // U+274B → ZD 0x49  heavy propeller asterisk
+        '❧': '\x87', // U+2767 → ZD 0x87  rotated floral heart
       };
-      const zdChar = ZD_MAP[S.ornament] || 'v'; // fallback to four-pointed star
+      const zdChar = ZD_MAP[S.ornament] || 'l'; // fallback to ❖ black diamond
       const pdfOrn = zdChar;
       const ornLine = `${zdChar}   ${zdChar}   ${zdChar}`;
       const ornFont = 'zapfdingbats';
@@ -3165,27 +3162,41 @@ async function exportPDF(){
           const firstPara=paras[0];
           const dropLetter=firstPara[0];
           const rest=firstPara.slice(1);
-          const lh=fsize*lspace*0.352;     // line height in mm (same as flowParas)
-          const dcSize=fsize*3.4;          // drop cap font size in pt
-          const dcMM=dcSize*0.352;         // height in mm
-          const capLines=Math.round(dcMM/lh); // lines the drop cap spans
-          // Draw the drop cap letter
-          doc.setFont(ornFont!=='times'?ornFont:'times','bold');
-          doc.setFontSize(dcSize);doc.setTextColor(...acR);
-          doc.text(dropLetter,mg,y+dcMM*0.82);
-          // Measure the drop cap width
-          const dcW=doc.getTextWidth(dropLetter)+1.5;
-          // Render rest of first line beside the drop cap, then normal flow
+          const lh=fsize*lspace*0.352;        // line height in mm
+          const dcSize=fsize*3.4;             // drop cap point size
+          const dcMM=dcSize*0.352;            // drop cap height in mm
+          const capLines=Math.ceil(dcMM/lh);  // how many body lines the cap spans
+
+          // 1. Draw the drop cap letter — baseline at y + dcMM*0.85 looks right
+          doc.setFont('times','bold');
+          doc.setFontSize(dcSize);
+          doc.setTextColor(...acR);
+          doc.text(dropLetter, mg, y + dcMM * 0.85);
+          const dcW = doc.getTextWidth(dropLetter) + 1.5; // cap width + gap
+
+          // 2. Split the rest of the first paragraph to fit beside the cap
           setBody();
-          const restLines=doc.splitTextToSize(rest,tw-dcW);
-          restLines.forEach((line,li)=>{
-            if(li<capLines){doc.text(line,mg+dcW,y+(li+1)*lh);}
-            else{doc.text(line,mg,y+(li+1)*lh);}
+          const narrowLines = doc.splitTextToSize(rest, tw - dcW);
+
+          // 3. Render lines: first capLines go beside the cap, rest go full width
+          let lineY = y + lh; // first body line baseline
+          narrowLines.forEach((line, li) => {
+            if (y + dcMM + lh < lineY) {
+              // We've cleared the drop cap — switch to full width x
+              doc.text(line, mg, lineY);
+            } else {
+              // Still alongside the drop cap
+              doc.text(line, mg + dcW, lineY);
+            }
+            lineY += lh;
           });
-          const dcY=y+Math.max(dcMM, restLines.length*lh)+lh*0.2;
-          flowParas(paras.slice(1),dcY,tw,mg);
+
+          // 4. Continue remaining paragraphs below the first paragraph
+          //    dcY is the lower of: end of drop cap, or end of wrapped lines
+          const dcY = Math.max(y + dcMM + lh * 0.3, lineY + lh * 0.1);
+          flowParas(paras.slice(1), dcY, tw, mg);
         } else {
-          flowParas(paras,y,tw,mg);
+          flowParas(paras, y, tw, mg);
         }
         addPageNum();
       });
