@@ -3127,45 +3127,62 @@ function renderPreview(){
       const titleBlock=(ch.title||chNum)?`<div style="text-align:center;padding-top:${Math.round(18*MM)}px;margin-bottom:${Math.round(16*MM)}px">${chNum?`<div style="font-family:${font};font-size:${pt(H_CHNUM)};letter-spacing:0.18em;text-transform:uppercase;color:${accent};margin-bottom:${mm(1.6)}">Chapter ${esc(String(chNum))}</div>`:''} ${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(H_CHAPTER)};font-weight:700;color:${T.text};line-height:1.3">${esc(ch.title)}</div>`:''} ${chImg?`<div style="margin:${mm(2)} auto;max-height:${mm(15.9)};text-align:center"><img src="${chImg}" style="max-height:${mm(15.9)};max-width:70%;object-fit:contain;opacity:0.8"></div>`:''}<div style="font-size:${pt(H_ORN)};color:${accent};margin-top:${mm(1.6)};opacity:0.65">${esc(orn)}</div></div>`:'';
       const paras=ch.content.split('\n').filter(p=>p.trim());
       const contentW=pw-mg*2;
-      const avgCharPx=fsize*ptScale*0.52;   // avg char width in px at current zoom/size
-      const charsPerLine=Math.max(1,Math.floor(contentW/avgCharPx));
       const contentH=ph-contentT-contentB;
       const lineH=fsize*ptScale*parseFloat(lspace);
-      // Use a 0.95 safety factor for character-width variance only.
-      // Do NOT add per-paragraph margins — in standard indent mode there is
-      // no margin-bottom between paragraphs, and in no-indent mode it's ~0.17 lines,
-      // which is negligible. Adding +0.4 per para was blowing up page counts 2x.
-      const linesPerPage = Math.max(1, Math.floor(contentH / lineH * 0.95));
+      const linesPerPage=Math.max(1,Math.floor(contentH/lineH));
 
-      // Estimate rendered lines per paragraph from character count.
-      // Scene breaks count as 2 lines (ornament + padding).
+      // Word-wrap line estimator — much more accurate than char/lineLen because
+      // it respects word boundaries exactly as the browser does.
+      // avgCharPx calibrated for proportional serif fonts at this size.
+      const avgCharPx=fsize*ptScale*0.48; // 0.48 ≈ avg width of mixed serif text
+      const lineWidthPx=contentW;
+
+      function estimateLines(text) {
+        if(!text) return 1;
+        const words=text.split(/\s+/);
+        let lines=1, lineW=0;
+        for(const word of words){
+          const ww=(word.length+1)*avgCharPx; // +1 for space
+          if(lineW+ww>lineWidthPx && lineW>0){lines++;lineW=ww;}
+          else{lineW+=ww;}
+        }
+        return lines;
+      }
+
       // Normalise markdown horizontal rules to scene breaks
-      const normParas = paras.map(p => /^[-*_]{3,}$/.test(p.trim()) ? '__SCENE_BREAK__' : p);
-      const paraLines = normParas.map(p => {
-        if (p === '__SCENE_BREAK__') return 2;
-        return Math.max(1, Math.ceil(p.length / charsPerLine));
+      const normParas=paras.map(p=>/^[-*_]{3,}$/.test(p.trim())?'__SCENE_BREAK__':p);
+      const paraLines=normParas.map(p=>{
+        if(p==='__SCENE_BREAK__') return 2;
+        return estimateLines(p);
       });
 
-      // First page loses lines to chapter heading + ornament + spacing.
-      // Heading block takes roughly 22% of a page at standard settings.
-      const titleLineEstimate = (ch.title||chNum) ? Math.ceil(linesPerPage * 0.22) : 0;
-      const pages = [];
-      let currentPage = [];
-      let usedLines = titleLineEstimate; // first page starts partially full
+      // First page: subtract heading block height.
+      // Title block = top padding (18mm) + chNum + title + ornament + bottom margin (16mm)
+      // Measured: roughly 6-7 lines worth at standard sizes.
+      const titleH = (ch.title||chNum)
+        ? Math.round(18*MM) + Math.round(16*MM) // top + bottom padding
+          + (chNum ? lineH*H_CHNUM/fsize*1.4 : 0)
+          + (ch.title ? lineH*H_CHAPTER/fsize*1.5 : 0)
+          + lineH // ornament line
+        : 0;
+      const titleLineEstimate = Math.ceil(titleH / lineH);
+      const pages=[];
+      let currentPage=[];
+      let usedLines=titleLineEstimate;
 
-      normParas.forEach((p, i) => {
-        const needed = paraLines[i];
-        if (usedLines + needed > linesPerPage && currentPage.length > 0) {
+      normParas.forEach((p,i)=>{
+        const needed=paraLines[i];
+        if(usedLines+needed>linesPerPage && currentPage.length>0){
           pages.push(currentPage);
-          currentPage = [p];
-          usedLines = needed;
+          currentPage=[p];
+          usedLines=needed;
         } else {
           currentPage.push(p);
-          usedLines += needed;
+          usedLines+=needed;
         }
       });
-      if (currentPage.length > 0) pages.push(currentPage);
-      if (pages.length === 0) pages.push([]);
+      if(currentPage.length>0) pages.push(currentPage);
+      if(pages.length===0) pages.push([]);
 
       for(let pg=0;pg<pages.length;pg++){
         const slice=pages[pg];
