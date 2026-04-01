@@ -3121,8 +3121,10 @@ function renderPreview(){
       const rowsOnFirstPage = Math.max(1, Math.floor((availH - titleH) / rowH));
       const rowsPerPage     = Math.max(1, Math.floor(availH / rowH));
 
-      const makeRow = s =>
-        `<div onclick="scrollToChapter('${s.id||''}')" style="display:flex;justify-content:space-between;align-items:baseline;font-family:${font};font-size:${pt(H_TOC_ENTRY)};color:${T.text};border-bottom:0.5px dotted ${T.divider};padding:${mm(1)} 0;flex-shrink:0;cursor:pointer" onmouseover="this.style.color='${accent}'" onmouseout="this.style.color='${T.text}'"><span style="padding-right:8px">${esc(s.label)}</span><span style="color:${T.text}66;font-size:${pt(H_TOC_PAGE)};white-space:nowrap">${s.page}</span></div>`;
+      const makeRow = s => {
+        const cid = s.id || '';
+        return `<div class="toc-nav-row" data-chapid="${cid}" style="display:flex;justify-content:space-between;align-items:baseline;font-family:${font};font-size:${pt(H_TOC_ENTRY)};color:${T.text};border-bottom:0.5px dotted ${T.divider};padding:${mm(1)} 0;flex-shrink:0;cursor:${cid?'pointer':'default'};transition:color .12s"><span style="padding-right:8px">${esc(s.label)}</span><span style="color:${T.text}66;font-size:${pt(H_TOC_PAGE)};white-space:nowrap">${s.page}</span></div>`;
+      };
 
       // First page — has the heading
       const firstSlice = _tocRows.slice(0, rowsOnFirstPage);
@@ -4137,6 +4139,24 @@ renderPreview();
 document.addEventListener('click', e => {
   const sec = document.querySelector('.export-section');
   if (sec && !sec.contains(e.target)) closeExportDrawer();
+});
+
+// Delegated click handler for TOC navigation rows
+document.getElementById('bookPreview').addEventListener('click', e => {
+  const row = e.target.closest('.toc-nav-row');
+  if (!row) return;
+  const chapId = row.dataset.chapid;
+  if (chapId) scrollToChapter(chapId);
+});
+
+// Hover effect for TOC rows (delegated)
+document.getElementById('bookPreview').addEventListener('mouseover', e => {
+  const row = e.target.closest('.toc-nav-row[data-chapid]');
+  if (row && row.dataset.chapid) row.style.opacity = '0.65';
+});
+document.getElementById('bookPreview').addEventListener('mouseout', e => {
+  const row = e.target.closest('.toc-nav-row[data-chapid]');
+  if (row) row.style.opacity = '';
 });
 </script>
 </body>
