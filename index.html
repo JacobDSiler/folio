@@ -192,6 +192,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 /* Page stack */
 .preview-scroller{overflow:visible;display:flex;flex-direction:column;align-items:center;padding:24px 24px 64px;flex-shrink:0;width:100%}
 .preview-wrap{display:flex;flex-direction:column;align-items:center;gap:0}
+.edit-mode-active #editModeBtn{background:rgba(201,149,106,0.5)!important;color:#fff}
+.preview-editable{cursor:text;border-radius:2px;transition:background .12s;position:relative}
+.preview-editable:hover{background:rgba(201,149,106,0.12)!important;outline:1px dashed rgba(201,149,106,0.5)}
+.preview-editable:focus{outline:2px solid rgba(201,149,106,0.7)!important;background:rgba(201,149,106,0.06)!important}
+.preview-edit-mode-hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:rgba(30,20,10,0.85);color:#f0ebe0;font-size:11px;font-family:var(--sans);padding:6px 14px;border-radius:20px;pointer-events:none;z-index:9999;opacity:0;transition:opacity .3s}
+.preview-edit-mode-hint.visible{opacity:1}
 .book-page{box-shadow:0 4px 24px rgba(0,0,0,0.35),0 1px 4px rgba(0,0,0,0.15);position:relative;overflow:hidden;flex-shrink:0;margin-bottom:20px}
 .tabs{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:0.5px solid var(--border);flex-shrink:0}
 .tab-btn{padding:7px 3px;font-size:10.5px;font-family:var(--sans);border:none;background:transparent;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.15s;white-space:nowrap;text-align:center;letter-spacing:-0.01em;width:100%}
@@ -750,10 +756,13 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     <span class="zoom-label" id="zoomLabel">75%</span>
     <button class="zoom-fit-btn" onclick="zoomFit()">Fit</button>
     <button class="zoom-fit-btn" onclick="setZoom(100)">100%</button>
+    <span style="width:1px;height:16px;background:rgba(255,255,255,0.2);flex-shrink:0"></span>
+    <button id="editModeBtn" class="zoom-fit-btn" onclick="toggleEditMode()" title="Click paragraphs in the preview to edit them directly" style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">✏ Edit</button>
   </div>
   <div class="preview-scroller" id="previewScroller">
     <div class="preview-wrap" id="bookPreview"></div>
   </div>
+  <div class="preview-edit-mode-hint" id="editModeHint">✏ Click any paragraph to edit · Enter to finish</div>
 </main>
 
 </div><!-- /app -->
@@ -3050,7 +3059,7 @@ function renderPreview(){
     const _cH = ph - contentT - contentB;
     const _lH = fsize * ptScale * parseFloat(lspace);
     const _lpp = Math.max(1, Math.floor(_cH / _lH));
-    const _cpp = Math.max(400, Math.floor(_cW/(fsize*ptScale*0.52)) * _lpp);
+    const _cpp = Math.max(400, Math.floor(_cW/(fsize*ptScale*0.441)) * _lpp);
     _estP += Math.max(1, Math.ceil(ch.content.length / _cpp));
   });
 
@@ -3113,7 +3122,11 @@ function renderPreview(){
       const paras=ch.content.split('\n').filter(p=>p.trim());
       const ps=paras.map(p=>{
         if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${pt(H_SCENE_BREAK)};color:${accent};margin:${mm(2)} 0;opacity:0.6">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
-        return `<p style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0 0 ${mm(1.6)};text-align:${justify}">${esc(p)}</p>`;
+        return `<p class="preview-editable" data-chid="${ch.id}" data-paraidx="${paras.indexOf(p)}"
+          contenteditable="${_editMode}" spellcheck="true"
+          onblur="if(_editMode)_onParaBlur(this)"
+          onkeydown="if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
+          style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0 0 ${mm(1.6)};text-align:${justify}">${esc(p)}</p>`;
       }).join('');
       pagesHTML+=pageWrap(`<div style="padding-top:${mm(5.3)}">${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(H_SECTION)};font-weight:700;color:${T.text};text-align:center;margin-bottom:${mm(4.2)}">${esc(ch.title)}</div>`:''}<div>${ps}</div></div>`,pageNum++);
       return;
@@ -3134,7 +3147,7 @@ function renderPreview(){
       // Word-wrap line estimator — much more accurate than char/lineLen because
       // it respects word boundaries exactly as the browser does.
       // avgCharPx calibrated for proportional serif fonts at this size.
-      const avgCharPx=fsize*ptScale*0.48; // 0.48 ≈ avg width of mixed serif text
+      const avgCharPx=fsize*ptScale*0.441; // calibrated from real PDF measurement: 57.6 chars/line at 13pt
       const lineWidthPx=contentW;
 
       function estimateLines(text) {
@@ -3193,7 +3206,12 @@ function renderPreview(){
           const dc=dropCap&&isFirst&&p.length>1
             ?`<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${pt(fsize*3.6)};line-height:0.76;margin:${pt(fsize*0.08)} ${mm(1)} 0 0;color:${accent};font-weight:700">${esc(p[0])}</span>${esc(p.slice(1))}`
             :esc(p);
-          return `<p style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0;text-align:${justify};text-indent:${noInd?'0':indentPx};margin-bottom:${indent==='0'?mm(1.3):'0'}">${dc}</p>`;
+          const paraStyle=`font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0;text-align:${justify};text-indent:${noInd?'0':indentPx};margin-bottom:${indent==='0'?mm(1.3):'0'}`;
+          return `<p class="preview-editable" data-chid="${ch.id}" data-paraidx="${paras.indexOf(p)}"
+            contenteditable="${_editMode}" spellcheck="true"
+            onblur="if(_editMode)_onParaBlur(this)"
+            onkeydown="if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
+            style="${paraStyle}">${dc}</p>`;
         }).join('');
         pagesHTML+=pageWrap((pg===0?titleBlock:'')+parasHTML,pageNum,false);
         pageNum++;
@@ -3921,6 +3939,139 @@ function exportTXT(){
   setExportState(false,'TXT');
 }
 
+
+
+
+/* ═══════════════════════════════════════════════
+   PREVIEW INLINE EDITING
+═══════════════════════════════════════════════ */
+
+let _editMode = false;
+
+function toggleEditMode() {
+  _editMode = !_editMode;
+  const btn = document.getElementById('editModeBtn');
+  const hint = document.getElementById('editModeHint');
+  const area = document.getElementById('previewArea');
+
+  if (_editMode) {
+    btn.textContent = '✏ Editing';
+    btn.style.background = 'rgba(201,149,106,0.55)';
+    btn.style.color = '#fff';
+    area.classList.add('edit-mode-active');
+    hint.classList.add('visible');
+    setTimeout(() => hint.classList.remove('visible'), 3000);
+    _attachEditHandlers();
+  } else {
+    btn.textContent = '✏ Edit';
+    btn.style.background = 'rgba(255,255,255,0.12)';
+    btn.style.color = '';
+    area.classList.remove('edit-mode-active');
+    hint.classList.remove('visible');
+    _detachEditHandlers();
+  }
+}
+
+
+function _onParaBlur(el) {
+  const chId = el.dataset.chid;
+  const paraIdx = parseInt(el.dataset.paraidx);
+  const ch = chapters.find(c => c.id === chId);
+  if (!ch) return;
+
+  // Get new text — strip HTML, collapse whitespace
+  const newText = el.innerText.replace(/\n+/g, ' ').trim();
+  const paras = ch.content.split('\n');
+  
+  // paraIdx is the index in the filtered non-empty paras array
+  // Map back to original content array
+  let idx = 0, found = -1;
+  for (let i = 0; i < paras.length; i++) {
+    if (paras[i].trim()) {
+      if (idx === paraIdx) { found = i; break; }
+      idx++;
+    }
+  }
+  if (found === -1) return;
+  if (paras[found] === newText) return; // no change
+
+  paras[found] = newText;
+  ch.content = paras.join('\n');
+
+  // Update sidebar textarea if expanded
+  const item = document.querySelector(`.ch-item[data-id="${chId}"]`);
+  if (item) {
+    const ta = item.querySelector('.ch-content-area');
+    if (ta) ta.value = ch.content;
+  }
+  _scheduleAutoSave();
+  // Debounce re-render so rapid edits don't reset cursor
+  clearTimeout(_editRenderTimer);
+  _editRenderTimer = setTimeout(() => {
+    if (_editMode) {
+      renderPreview();
+    }
+  }, 1200);
+}
+let _editRenderTimer = null;
+function _attachEditHandlers() {
+  // Make every rendered paragraph contenteditable
+  document.querySelectorAll('.preview-editable').forEach(el => {
+    el.contentEditable = 'true';
+    el.spellcheck = true;
+  });
+  // Re-attach after next render
+  _editObserver.observe(document.getElementById('bookPreview'), {childList:true, subtree:false});
+}
+
+function _detachEditHandlers() {
+  document.querySelectorAll('.preview-editable').forEach(el => {
+    el.contentEditable = 'false';
+  });
+  _editObserver.disconnect();
+}
+
+// MutationObserver — re-attaches handlers after renderPreview() rebuilds the DOM
+const _editObserver = new MutationObserver(() => {
+  if (_editMode) _attachEditHandlers();
+});
+
+// Called when the user finishes editing a paragraph
+function _onEditBlur(el) {
+  const chId = el.dataset.chid;
+  const paraIdx = parseInt(el.dataset.paraidx);
+  const ch = chapters.find(c => c.id === chId);
+  if (!ch) return;
+
+  const newText = el.innerText.replace(/\n/g, ' ').trim();
+  if (!newText && el.dataset.original === '__SCENE_BREAK__') return;
+
+  // Rebuild the chapter content with the edited paragraph
+  const paras = ch.content.split('\n');
+  // Find the actual paragraph index in the original content
+  const contentParas = paras.filter(p => p.trim());
+  if (paraIdx < contentParas.length) {
+    contentParas[paraIdx] = newText;
+    ch.content = contentParas.join('\n');
+    updateChTitle(chId, ch.title); // triggers renderPreview via updateChContent
+    _scheduleAutoSave();
+    // Don't re-render immediately — let user keep editing nearby paragraphs
+  }
+}
+
+// Inject edit handlers into renderPreview output
+// We patch the paragraph HTML generation to add data attributes and event handlers
+const _origMakeParaHTML = null; // placeholder
+function _makeEditableParaHTML(text, chId, paraIdx, style) {
+  if (!chId) return `<p style="${style}">${text}</p>`;
+  const isSceneBreak = text === '__SCENE_BREAK__';
+  if (isSceneBreak) return null; // scene breaks handled separately
+  return `<p class="preview-editable" contenteditable="${_editMode}" spellcheck="true"
+    data-chid="${chId}" data-paraidx="${paraIdx}" data-original="${esc(text)}"
+    onblur="if(_editMode)_onEditBlur(this)"
+    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
+    style="${style}">${esc(text)}</p>`;
+}
 
 
 /* ═══════════════════════════════════════════════
