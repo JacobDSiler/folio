@@ -559,7 +559,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
       <div class="section">
         <div class="section-title" style="display:flex;align-items:center;gap:6px"><span>Current Folio</span><span style="font-size:9px;background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:8px;font-weight:400;letter-spacing:.02em" id="folioCloudBadge">Not saved</span></div>
         <div style="display:flex;gap:6px;margin-bottom:6px">
-          <input type="text" id="projName" placeholder="Folio name…" maxlength="80" style="flex:1" oninput="if(typeof _updateInviteUI==='function')_updateInviteUI()">
+          <input type="text" id="projName" placeholder="Folio name…" maxlength="80" style="flex:1" oninput="if(typeof _updateInviteUI==='function')_updateInviteUI();_scheduleAutoSave()">
           <button class="btn-sm btn-primary" id="btnSaveProj" onclick="saveFolio()" disabled style="white-space:nowrap">Save</button>
         </div>
         <div id="projSavingRow" style="display:none;align-items:center;gap:7px;font-size:10.5px;color:var(--hint);margin-bottom:6px">
@@ -763,6 +763,8 @@ let _projId  = null;   // current Firestore doc id
 let _fbReady = false;
 let _presenceUnsub = null;  // unsubscribe fn for presence listener
 let _AVATAR_COLORS = ['#8B4513','#2c4a7c','#4a7c59','#9c3d4a','#6b4c8a','#c9956a','#2a6a5a','#3a6070'];
+let _autoSaveTimer = null;  // debounce timer for auto-save
+let _autoSaveDirty = false; // true when unsaved changes exist
 
 /* ── Firebase ready ── */
 window.addEventListener('fb-ready', async () => {
@@ -1090,6 +1092,66 @@ function _setFbStatus(online, userName) {
 }
 
 
+/* ── Auto-save ── */
+function _scheduleAutoSave() {
+  _autoSaveDirty = true;
+  _updateFolioCloudBadge('unsaved');
+  if (!_fbReady) return; // will save when connected
+  clearTimeout(_autoSaveTimer);
+  _autoSaveTimer = setTimeout(_doAutoSave, 4000); // 4 second debounce
+}
+
+async function _doAutoSave() {
+  if (!_fbReady || !_autoSaveDirty) return;
+  if (!chapters.length && !getV('bookTitle')) return; // nothing to save
+  // Create a folio ID if none exists
+  if (!_projId) _projId = 'proj_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+  // Use the book title as the folio name, fall back to placeholder
+  const autoName = document.getElementById('projName').value.trim()
+    || getV('bookTitle')
+    || 'Untitled folio';
+  // Set the name field so the user can see it
+  const nameEl = document.getElementById('projName');
+  if (nameEl && !nameEl.value.trim()) nameEl.value = autoName;
+  try {
+    const _state = _serialise();
+    localStorage.setItem('folio_local_backup', JSON.stringify({
+      id: _projId, name: autoName, state: _state, savedAt: Date.now()
+    }));
+    localStorage.setItem('folio_last_open', _projId);
+    await window._fb.setDoc(window._fb.doc(window._db, 'folio_projects', _projId), {
+      uid: window._uid, name: autoName, state: _state,
+      updatedAt: window._fb.serverTimestamp(),
+      createdAt: window._fb.serverTimestamp(),
+      autoSaved: true,
+    }, {merge: true});
+    _autoSaveDirty = false;
+    _updateFolioCloudBadge('saved');
+    await loadFolioList();
+  } catch(e) {
+    console.warn('Auto-save failed:', e);
+    // Local backup already saved above — data is safe
+  }
+}
+
+function _updateFolioCloudBadge(state) {
+  const badge = document.getElementById('folioCloudBadge');
+  if (!badge) return;
+  if (state === 'saved') {
+    badge.textContent = '✓ Saved';
+    badge.style.background = '#d1fae5'; badge.style.color = '#065f46';
+  } else if (state === 'unsaved') {
+    badge.textContent = '● Unsaved';
+    badge.style.background = '#fef3c7'; badge.style.color = '#92400e';
+  } else {
+    badge.textContent = 'Not saved';
+    badge.style.background = '#f0ede6'; badge.style.color = '#888';
+  }
+}
+
+// Trigger auto-save when chapters change (hook into renderPreview which fires on all changes)
+const _origRenderPreview = null; // placeholder — we patch below
+
 /* ── Serialise / deserialise full app state ── */
 function _serialise() {
   return {
@@ -1411,10 +1473,12 @@ function _updateInviteUI() {
   // Update the "saved/unsaved" badge on the tab section title
   const badge = document.getElementById('folioCloudBadge');
   if (badge) {
-    if (_projId) {
-      const name = document.getElementById('projName').value || 'Unnamed';
+    if (_projId && !_autoSaveDirty) {
       badge.textContent = '✓ Saved';
       badge.style.background = '#d1fae5'; badge.style.color = '#065f46';
+    } else if (_projId && _autoSaveDirty) {
+      badge.textContent = '● Unsaved';
+      badge.style.background = '#fef3c7'; badge.style.color = '#92400e';
     } else {
       badge.textContent = 'Not saved';
       badge.style.background = '#f0ede6'; badge.style.color = '#888';
@@ -2861,6 +2925,8 @@ function renderPreview(){
   document.getElementById('bookPreview').innerHTML=pagesHTML;
   document.getElementById('pageCountLine').textContent=`~${pageNum-1} pages estimated`;
   document.getElementById('statusBar').textContent=`Preview updated — ${bodyChapters.length} chapter${bodyChapters.length!==1?'s':''}, ~${pageNum-1} pages`;
+  // Schedule auto-save whenever the preview updates (content changed)
+  if (_fbReady || chapters.length) _scheduleAutoSave();
 }
 
 /* ═══════════════════════════════════════════════
@@ -2895,28 +2961,26 @@ async function exportPDF(){
       let pageNum=1;
       const addBg=()=>{if(T.bg!=='#ffffff'){doc.setFillColor(...bgR);doc.rect(0,0,pw,ph,'F')}};
       // Load NotoSans for Unicode ornament glyphs — fetched once per session, cached
-      const pdfOrn = S.ornament;
-      const ornLine = `${pdfOrn}   ${pdfOrn}   ${pdfOrn}`;
-      const OFONT = 'times'; // will be replaced with NotoSans once loaded
-      if (!window._notoB64) {
-        try {
-          setStatus('Loading Unicode font for ornaments…');
-          const r = await fetch('https://cdn.jsdelivr.net/gh/googlefonts/noto-fonts@main/hinted/ttf/NotoSans/NotoSans-Regular.ttf');
-          if (r.ok) {
-            const buf = await r.arrayBuffer();
-            const bytes = new Uint8Array(buf);
-            let s = '';
-            for (let i = 0; i < bytes.length; i += 0x8000)
-              s += String.fromCharCode(...bytes.subarray(i, Math.min(i + 0x8000, bytes.length)));
-            window._notoB64 = btoa(s);
-          }
-        } catch(fe) { console.warn('NotoSans fetch failed, ornaments may use fallback:', fe); }
-      }
-      if (window._notoB64) {
-        doc.addFileToVFS('NotoSans.ttf', window._notoB64);
-        doc.addFont('NotoSans.ttf', 'NotoSans', 'normal');
-      }
-      const ornFont = window._notoB64 ? 'NotoSans' : 'times';
+      // Map each ornament to its ZapfDingbats equivalent — always available in jsPDF,
+      // no CDN fetch needed, works offline, renders the actual decorative glyph.
+      const ZD_MAP = {
+        '✦': 'v',    // four-pointed black star
+        '❧': '', // floral heart
+        '⁂': 'K',    // asterism
+        '✿': 'l',    // black florette
+        '❦': '', // floral heart
+        '◆': 'w',    // black diamond
+        '✵': 'Y',    // asterisk
+        '✻': 'X',    // heavy open centre asterisk
+        '⊛': 'J',    // circled open centre asterisk
+        '※': 'J',    // reference mark
+        '✤': 'V',    // heavy four balloon-spoked asterisk
+        '☙': '', // reversed rotated floral heart
+      };
+      const zdChar = ZD_MAP[S.ornament] || 'v'; // fallback to four-pointed star
+      const pdfOrn = zdChar;
+      const ornLine = `${zdChar}   ${zdChar}   ${zdChar}`;
+      const ornFont = 'zapfdingbats';
 
       // yStart: first usable y on a fresh page (clear of running header)
       const hdrOn=getC('runningHeader');
