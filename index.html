@@ -1407,8 +1407,6 @@ function _deserialise(state) {
     if(fo) fo.textContent=document.getElementById('fontSize').value+'pt';
   const mo=document.getElementById('marginOut');
   if(mo){const mv=document.getElementById('pageMargin');if(mv)mo.textContent=mv.value+'mm';}
-  const mo=document.getElementById('marginOut');
-  if(mo){const mv=document.getElementById('pageMargin');if(mv)mo.textContent=mv.value+'mm';}
   }
   if (Array.isArray(state.chapters)) {
     chapters=state.chapters.map(c=>({...c,expanded:false}));
