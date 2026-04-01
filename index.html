@@ -1995,6 +1995,8 @@ const CHAPTER_PATTERNS = [
 function detectChapterLine(line) {
   const t = line.trim();
   if (!t || t.length > 80) return {match:false};
+  // Treat horizontal rules as scene breaks, not chapter markers
+  if (/^[-*_]{3,}$/.test(t)) return {match:false, sceneBreak:true};
   for (const pat of CHAPTER_PATTERNS) {
     const m = t.match(pat);
     if (m) {
@@ -2033,6 +2035,8 @@ function smartSplit(text) {
       if (/^(prologue|preface|foreword|introduction|dedication|copyright)/.test(tl)) curType = 'pre';
       else if (/^(epilogue|afterword|appendix|author'?s?\s+note)/.test(tl)) curType = 'post';
       else curType = 'chapter';
+    } else if (/^[-*_]{3,}$/.test(line.trim())) {
+      curContent.push('__SCENE_BREAK__');
     } else {
       curContent.push(line);
     }
@@ -3127,27 +3131,29 @@ function renderPreview(){
       const charsPerLine=Math.max(1,Math.floor(contentW/avgCharPx));
       const contentH=ph-contentT-contentB;
       const lineH=fsize*ptScale*parseFloat(lspace);
-      // Apply a conservative safety factor: use 82% of theoretical capacity.
-      // This buffers for: paragraph margin-bottom, line-height rounding,
-      // variable character widths, and scene break ornament spacing.
-      const linesPerPage=Math.max(1,Math.floor(contentH/lineH * 0.82));
+      // Use a 0.95 safety factor for character-width variance only.
+      // Do NOT add per-paragraph margins — in standard indent mode there is
+      // no margin-bottom between paragraphs, and in no-indent mode it's ~0.17 lines,
+      // which is negligible. Adding +0.4 per para was blowing up page counts 2x.
+      const linesPerPage = Math.max(1, Math.floor(contentH / lineH * 0.95));
 
-      // Estimate rendered lines per paragraph based on character count.
-      // Add 0.5 to each paragraph to account for margin-bottom spacing.
-      const paraLines = paras.map(p => {
-        if (p === '__SCENE_BREAK__') return 2.5; // ornament + top/bottom spacing
-        const textLines = Math.max(1, Math.ceil(p.length / charsPerLine));
-        return textLines + 0.4; // +0.4 for paragraph margin-bottom
+      // Estimate rendered lines per paragraph from character count.
+      // Scene breaks count as 2 lines (ornament + padding).
+      // Normalise markdown horizontal rules to scene breaks
+      const normParas = paras.map(p => /^[-*_]{3,}$/.test(p.trim()) ? '__SCENE_BREAK__' : p);
+      const paraLines = normParas.map(p => {
+        if (p === '__SCENE_BREAK__') return 2;
+        return Math.max(1, Math.ceil(p.length / charsPerLine));
       });
 
-      // Walk paragraphs and split into pages when they would overflow.
-      // First page loses lines to the chapter title block (heading + ornament + spacing).
-      const titleLineEstimate = (ch.title||chNum) ? Math.ceil(linesPerPage * 0.32) : 0;
+      // First page loses lines to chapter heading + ornament + spacing.
+      // Heading block takes roughly 22% of a page at standard settings.
+      const titleLineEstimate = (ch.title||chNum) ? Math.ceil(linesPerPage * 0.22) : 0;
       const pages = [];
       let currentPage = [];
       let usedLines = titleLineEstimate; // first page starts partially full
 
-      paras.forEach((p, i) => {
+      normParas.forEach((p, i) => {
         const needed = paraLines[i];
         if (usedLines + needed > linesPerPage && currentPage.length > 0) {
           pages.push(currentPage);
