@@ -442,6 +442,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
           <option value="letter">US Letter</option>
           <option value="custom">Custom size…</option>
         </select>
+        <label style="margin-top:10px;display:flex;justify-content:space-between;align-items:center"><span>Page margins</span><span class="range-val" id="marginOut">18mm</span></label>
+        <input type="range" id="pageMargin" min="10" max="32" value="18" step="1" oninput="document.getElementById('marginOut').textContent=this.value+'mm';renderPreview()">
+        <p class="small-note" style="margin-top:3px">Narrower = more text per page. Standard is 18–20mm.</p>
         <div class="toggle-row" style="margin-top:10px">
           <span>Facing pages (recto/verso)</span>
           <label class="toggle"><input type="checkbox" id="facingPages" onchange="renderPreview()"><span class="tog-track"></span></label>
@@ -1363,6 +1366,7 @@ function _serialise() {
       accent:   S.accent,
       ornament: S.ornament,
       pageSize: getV('pageSize'),
+      pageMargin: getV('pageMargin'),
       coverPos: getV('coverPos'),
     },
     type: {
@@ -1396,11 +1400,15 @@ function _deserialise(state) {
     buildThemeGrid(); buildColorRow(); buildOrnGrid();
   }
   if (state.type) {
-    ['bodyFont','fontSize','lineSpacing','paraIndent','chNumStyle'].forEach(k=>{
+    ['bodyFont','fontSize','lineSpacing','paraIndent','chNumStyle','pageMargin'].forEach(k=>{
       const el=document.getElementById(k); if(el&&state.type[k]!=null) el.value=state.type[k];
     });
     const fo=document.getElementById('fontSizeOut');
     if(fo) fo.textContent=document.getElementById('fontSize').value+'pt';
+  const mo=document.getElementById('marginOut');
+  if(mo){const mv=document.getElementById('pageMargin');if(mv)mo.textContent=mv.value+'mm';}
+  const mo=document.getElementById('marginOut');
+  if(mo){const mv=document.getElementById('pageMargin');if(mv)mo.textContent=mv.value+'mm';}
   }
   if (Array.isArray(state.chapters)) {
     chapters=state.chapters.map(c=>({...c,expanded:false}));
@@ -2470,6 +2478,17 @@ function addTOC() {
   renderPreview();
   setStatus('Table of Contents added — drag it to reorder');
 }
+
+function scrollToChapter(chapId) {
+  if (!chapId) return;
+  const el = document.getElementById('chap-' + chapId);
+  if (!el) return;
+  el.scrollIntoView({behavior: 'smooth', block: 'start'});
+  el.style.transition = 'box-shadow .15s';
+  el.style.boxShadow = '0 0 0 3px #c9956a, 0 4px 24px rgba(0,0,0,0.35)';
+  setTimeout(() => { el.style.boxShadow = ''; }, 900);
+}
+
 function renderChapterList(){
   _syncTOCToggle();
   updateChapterStats();
@@ -2489,6 +2508,7 @@ function chItemHTML(ch,i){
       <span class="ch-drag-handle" title="Drag to reorder">⠿</span>
       <span class="chip-type ${typeClasses[ch.type]}" onclick="cycleChType('${ch.id}')" title="Click to change type">${typeLabel[ch.type]}</span>
       <input class="ch-title-input" value="${esc(ch.title)}" placeholder="(untitled)" oninput="updateChTitle('${ch.id}',this.value)">
+      <button class="ch-expand-btn" onclick="scrollToChapter('${ch.id}')" title="Jump to chapter in preview" style="opacity:0.65;font-size:11px">▶</button>
       <button class="ch-expand-btn" onclick="toggleChExpand('${ch.id}',this)">${ch.expanded?'▲':'▼'}</button>
     </div>
     <div class="ch-item-body ${ch.expanded?'open':''}">
@@ -2979,7 +2999,8 @@ function renderPreview(){
   const MM = 3.7795 * (_zoom / 100);
   const pw = Math.round(pwMM * MM);   // e.g. trade 6" = 152.4mm = 576px
   const ph = Math.round(phMM * MM);   // e.g. trade 9" = 228.6mm = 864px
-  const mg = Math.round(18 * MM);     // 18mm margin = 68px
+  const mgMM = parseFloat(document.getElementById('pageMargin')?.value||18);
+  const mg = Math.round(mgMM * MM);
   const hdrH = Math.round(14 * MM);   // header area
   const ftrH = Math.round(12 * MM);   // footer area
   const contentT = Math.round(28 * MM);
@@ -3016,10 +3037,12 @@ function renderPreview(){
   const H_ORN         = fsize * 1.0;   // ornament at body size
   const H_SCENE_BREAK = fsize * 0.92;  // scene break ornaments
 
-  const pageWrap=(inner,pn,isFirst=false)=>{
+  const pageWrap=(inner,pn,isFirst=false,chapId=null)=>{
+    const chapAttr=chapId?` id="chap-${chapId}" data-chapid="${chapId}"`:"";
+
     const hdr=showHdr&&!isFirst?`<div style="position:absolute;top:${Math.round(10*MM)}px;left:${mg}px;right:${mg}px;display:flex;justify-content:space-between;font-family:${font};font-size:${pt(H_HEADER)};color:${T.text}77;letter-spacing:0.08em;text-transform:uppercase;border-bottom:0.5px solid ${T.divider};padding-bottom:${mm(0.8)}"><span>${esc(author.toUpperCase())}</span><span>${esc(title.toUpperCase())}</span></div>`:'';
     const ftr=showNums&&pn>2?`<div style="position:absolute;bottom:${Math.round(8*MM)}px;left:0;right:0;text-align:center;font-family:${font};font-size:${pt(H_FOOTER)};color:${T.text}66">${pn}</div>`:'';
-    return `<div class="book-page" style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;top:${contentT}px;left:${mg}px;right:${mg}px;bottom:${contentB}px;overflow:visible;display:flex;flex-direction:column">${inner}</div></div>`;
+    return `<div class="book-page"${chapAttr} style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;top:${contentT}px;left:${mg}px;right:${mg}px;bottom:${contentB}px;overflow:visible;display:flex;flex-direction:column">${inner}</div></div>`;
   };
 
   // Cover
@@ -3069,7 +3092,7 @@ function renderPreview(){
     if (c.type==='chapter') _chCtr++;
     const cn = c.type==='chapter' ? chapterNumber(_chCtr) : null;
     const label = cn && c.title ? `${cn}. ${c.title}` : cn ? `Chapter ${cn}` : c.title;
-    return label ? {label, page:_pageEst[c.id]} : null;
+    return label ? {label, page:_pageEst[c.id], id:c.id} : null;
   }).filter(Boolean);
 
   // Second pass: render in order
@@ -3128,7 +3151,7 @@ function renderPreview(){
           onkeydown="if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
           style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0 0 ${mm(1.6)};text-align:${justify}">${esc(p)}</p>`;
       }).join('');
-      pagesHTML+=pageWrap(`<div style="padding-top:${mm(5.3)}">${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(H_SECTION)};font-weight:700;color:${T.text};text-align:center;margin-bottom:${mm(4.2)}">${esc(ch.title)}</div>`:''}<div>${ps}</div></div>`,pageNum++);
+      pagesHTML+=pageWrap(`<div style="padding-top:${mm(5.3)}">${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(H_SECTION)};font-weight:700;color:${T.text};text-align:center;margin-bottom:${mm(4.2)}">${esc(ch.title)}</div>`:''}<div>${ps}</div></div>`,pageNum++,false,ch.id);
       return;
     }
 
@@ -3213,7 +3236,7 @@ function renderPreview(){
             onkeydown="if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
             style="${paraStyle}">${dc}</p>`;
         }).join('');
-        pagesHTML+=pageWrap((pg===0?titleBlock:'')+parasHTML,pageNum,false);
+        pagesHTML+=pageWrap((pg===0?titleBlock:'')+parasHTML,pageNum,false,pg===0?ch.id:null);
         pageNum++;
       }
     }
@@ -3253,7 +3276,8 @@ async function exportPDF(){
       const accent=S.accent;
       const[pw,ph]=getPageDims();
       const doc=new jsPDF({orientation:'portrait',unit:'mm',format:[pw,ph]});
-      const mg=18,tw=pw-mg*2;
+      const mgMM=parseFloat(document.getElementById('pageMargin')?.value||18);
+      const mg=mgMM,tw=pw-mg*2;
       const bgR=hexToRgb(T.bg),txR=hexToRgb(T.text),acR=hexToRgb(accent),dvR=hexToRgb(T.divider);
       let pageNum=1;
       const addBg=()=>{if(T.bg!=='#ffffff'){doc.setFillColor(...bgR);doc.rect(0,0,pw,ph,'F')}};
