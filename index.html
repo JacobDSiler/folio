@@ -3060,6 +3060,7 @@ async function exportPDF(){
           const firstPara=paras[0];
           const dropLetter=firstPara[0];
           const rest=firstPara.slice(1);
+          const lh=fsize*lspace*0.352;     // line height in mm (same as flowParas)
           const dcSize=fsize*3.4;          // drop cap font size in pt
           const dcMM=dcSize*0.352;         // height in mm
           const capLines=Math.round(dcMM/lh); // lines the drop cap spans
