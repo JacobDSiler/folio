@@ -3137,7 +3137,7 @@ function renderPreview(){
           `<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(H_SECTION)};font-weight:700;color:${T.text};text-align:center;margin-bottom:${mm(4.2)};flex-shrink:0">${esc(tocTitle)}</div>` +
           firstSlice.map(makeRow).join('') +
         `</div>`,
-        pageNum++
+        pageNum++, false, ch.id
       );
 
       // Continuation pages
