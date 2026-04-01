@@ -3006,7 +3006,7 @@ function renderPreview(){
   const pageWrap=(inner,pn,isFirst=false)=>{
     const hdr=showHdr&&!isFirst?`<div style="position:absolute;top:${Math.round(10*MM)}px;left:${mg}px;right:${mg}px;display:flex;justify-content:space-between;font-family:${font};font-size:${pt(H_HEADER)};color:${T.text}77;letter-spacing:0.08em;text-transform:uppercase;border-bottom:0.5px solid ${T.divider};padding-bottom:${mm(0.8)}"><span>${esc(author.toUpperCase())}</span><span>${esc(title.toUpperCase())}</span></div>`:'';
     const ftr=showNums&&pn>2?`<div style="position:absolute;bottom:${Math.round(8*MM)}px;left:0;right:0;text-align:center;font-family:${font};font-size:${pt(H_FOOTER)};color:${T.text}66">${pn}</div>`:'';
-    return `<div class="book-page" style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;top:${contentT}px;left:${mg}px;right:${mg}px;bottom:${contentB}px;overflow:hidden;display:flex;flex-direction:column">${inner}</div></div>`;
+    return `<div class="book-page" style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;top:${contentT}px;left:${mg}px;right:${mg}px;bottom:${contentB}px;overflow:visible;display:flex;flex-direction:column">${inner}</div></div>`;
   };
 
   // Cover
@@ -3123,16 +3123,46 @@ function renderPreview(){
       const titleBlock=(ch.title||chNum)?`<div style="text-align:center;padding-top:${Math.round(18*MM)}px;margin-bottom:${Math.round(16*MM)}px">${chNum?`<div style="font-family:${font};font-size:${pt(H_CHNUM)};letter-spacing:0.18em;text-transform:uppercase;color:${accent};margin-bottom:${mm(1.6)}">Chapter ${esc(String(chNum))}</div>`:''} ${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(H_CHAPTER)};font-weight:700;color:${T.text};line-height:1.3">${esc(ch.title)}</div>`:''} ${chImg?`<div style="margin:${mm(2)} auto;max-height:${mm(15.9)};text-align:center"><img src="${chImg}" style="max-height:${mm(15.9)};max-width:70%;object-fit:contain;opacity:0.8"></div>`:''}<div style="font-size:${pt(H_ORN)};color:${accent};margin-top:${mm(1.6)};opacity:0.65">${esc(orn)}</div></div>`:'';
       const paras=ch.content.split('\n').filter(p=>p.trim());
       const contentW=pw-mg*2;
-      const avgCharPx=fsize*ptScale*0.52;
-      const lineLen=Math.floor(contentW/avgCharPx);
+      const avgCharPx=fsize*ptScale*0.52;   // avg char width in px at current zoom/size
+      const charsPerLine=Math.max(1,Math.floor(contentW/avgCharPx));
       const contentH=ph-contentT-contentB;
       const lineH=fsize*ptScale*parseFloat(lspace);
-      const linesPerPage=Math.floor(contentH/lineH);
-      const charsPerPage=Math.max(400,lineLen*linesPerPage);
-      const chunks=Math.max(1,Math.ceil(ch.content.length/charsPerPage));
-      const perPage=Math.max(1,Math.ceil(paras.length/chunks));
-      for(let pg=0;pg<Math.max(1,Math.ceil(paras.length/perPage));pg++){
-        const slice=paras.slice(pg*perPage,(pg+1)*perPage);
+      // Apply a conservative safety factor: use 82% of theoretical capacity.
+      // This buffers for: paragraph margin-bottom, line-height rounding,
+      // variable character widths, and scene break ornament spacing.
+      const linesPerPage=Math.max(1,Math.floor(contentH/lineH * 0.82));
+
+      // Estimate rendered lines per paragraph based on character count.
+      // Add 0.5 to each paragraph to account for margin-bottom spacing.
+      const paraLines = paras.map(p => {
+        if (p === '__SCENE_BREAK__') return 2.5; // ornament + top/bottom spacing
+        const textLines = Math.max(1, Math.ceil(p.length / charsPerLine));
+        return textLines + 0.4; // +0.4 for paragraph margin-bottom
+      });
+
+      // Walk paragraphs and split into pages when they would overflow.
+      // First page loses lines to the chapter title block (heading + ornament + spacing).
+      const titleLineEstimate = (ch.title||chNum) ? Math.ceil(linesPerPage * 0.32) : 0;
+      const pages = [];
+      let currentPage = [];
+      let usedLines = titleLineEstimate; // first page starts partially full
+
+      paras.forEach((p, i) => {
+        const needed = paraLines[i];
+        if (usedLines + needed > linesPerPage && currentPage.length > 0) {
+          pages.push(currentPage);
+          currentPage = [p];
+          usedLines = needed;
+        } else {
+          currentPage.push(p);
+          usedLines += needed;
+        }
+      });
+      if (currentPage.length > 0) pages.push(currentPage);
+      if (pages.length === 0) pages.push([]);
+
+      for(let pg=0;pg<pages.length;pg++){
+        const slice=pages[pg];
         const parasHTML=slice.map((p,pi)=>{
           if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${pt(H_SCENE_BREAK)};color:${accent};margin:${Math.round(8*MM)}px 0;opacity:0.65">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
           const isFirst=pg===0&&pi===0&&(ch.title||chNum);
