@@ -160,7 +160,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .preview-area::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.25);border-radius:4px}
 .preview-area::-webkit-scrollbar-track{background:rgba(0,0,0,0.08)}
 /* ── Writing mode (full chapter prose editor in preview pane) ── */
-.writing-mode{display:none;flex-direction:column;height:100%;background:var(--bg)}
+.writing-mode{display:none;flex-direction:column;height:100%;background:var(--bg);position:relative}
 .writing-mode.active{display:flex}
 .writing-toolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;background:rgba(0,0,0,0.32);backdrop-filter:blur(4px);flex-shrink:0;min-height:44px;overflow:hidden}
 .writing-nav{display:flex;gap:5px;flex-shrink:0}
@@ -789,10 +789,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     <div class="writing-body" id="writingBody">
       <div style="text-align:center;font-size:10.5px;color:var(--hint);font-family:var(--sans);margin-bottom:20px;letter-spacing:.05em" id="writingChapterLabel"></div>
       <textarea class="writing-area" id="writingArea" placeholder="Start writing…" oninput="updateWritingContent();_autoResizeWritingArea(this)"></textarea>
-      <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:12px;padding-bottom:8px">
-        <button class="w-scroll-btn" id="wTopBtn" onclick="document.getElementById('writingBody').scrollTo({top:0,behavior:'smooth'})" title="Top (Home)">↑</button>
-        <button class="w-scroll-btn" id="wBotBtn" onclick="document.getElementById('writingBody').scrollTo({top:999999,behavior:'smooth'})" title="Bottom (End)">↓</button>
-      </div>
+    </div>
+    <!-- Sticky nav buttons — outside scroll content, fixed to writing-mode bottom-right -->
+    <div style="position:absolute;bottom:60px;right:16px;display:flex;flex-direction:column;gap:6px;z-index:10;pointer-events:none">
+      <button class="w-scroll-btn" id="wTopBtn" onclick="document.getElementById('writingBody').scrollTo({top:0,behavior:'smooth'})" title="Top (Home)" style="pointer-events:all">↑</button>
+      <button class="w-scroll-btn" id="wBotBtn" onclick="document.getElementById('writingBody').scrollTo({top:999999,behavior:'smooth'})" title="Bottom (End)" style="pointer-events:all">↓</button>
     </div>
     <div class="writing-dingbar" id="writingDingbar">
       <span class="db-label" style="color:rgba(255,255,255,0.5)">Insert:</span>
@@ -4421,7 +4422,21 @@ function openWritingMode(chId) {
   // Populate dingbat bar
   _populateWritingDingbar();
   // Show/hide writing mode nav buttons
-  // writing-body scroll handled by layout
+  const _wbEl = document.getElementById('writingBody');
+  const _wTopBtn = document.getElementById('wTopBtn');
+  const _wBotBtn = document.getElementById('wBotBtn');
+  if (_wbEl && _wTopBtn && _wBotBtn) {
+    function _updateWBtns() {
+      const atTop = _wbEl.scrollTop < 100;
+      const atBot = _wbEl.scrollTop + _wbEl.clientHeight >= _wbEl.scrollHeight - 100;
+      _wTopBtn.style.opacity = atTop ? '0.25' : '0.8';
+      _wBotBtn.style.opacity = atBot ? '0.25' : '0.8';
+      _wTopBtn.style.pointerEvents = atTop ? 'none' : 'all';
+      _wBotBtn.style.pointerEvents = atBot ? 'none' : 'all';
+    }
+    _wbEl.addEventListener('scroll', _updateWBtns, { passive: true });
+    setTimeout(_updateWBtns, 100);
+  }
   // Focus textarea at end
   const ta = document.getElementById('writingArea');
   _autoResizeWritingArea(ta);
