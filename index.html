@@ -193,6 +193,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .preview-scroller{overflow:visible;display:flex;flex-direction:column;align-items:center;padding:24px 24px 64px;flex-shrink:0;width:100%}
 .preview-wrap{display:flex;flex-direction:column;align-items:center;gap:0}
 .edit-mode-active #editModeBtn{background:rgba(201,149,106,0.5)!important;color:#fff}
+#scrollTopBtn{position:absolute;bottom:28px;right:18px;width:36px;height:36px;border-radius:50%;border:none;background:rgba(40,30,20,0.72);backdrop-filter:blur(4px);color:#f0ebe0;font-size:16px;cursor:pointer;display:none;align-items:center;justify-content:center;z-index:20;box-shadow:0 2px 8px rgba(0,0,0,0.35);transition:opacity .2s,transform .2s}
+#scrollTopBtn:hover{background:rgba(201,149,106,0.85);transform:translateY(-2px)}
+#scrollTopBtn.visible{display:flex}
 .preview-editable{cursor:text;border-radius:2px;transition:background .12s;position:relative}
 .preview-editable:hover{background:rgba(201,149,106,0.12)!important;outline:1px dashed rgba(201,149,106,0.5)}
 .preview-editable:focus{outline:2px solid rgba(201,149,106,0.7)!important;background:rgba(201,149,106,0.06)!important}
@@ -766,6 +769,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     <div class="preview-wrap" id="bookPreview"></div>
   </div>
   <div class="preview-edit-mode-hint" id="editModeHint">✏ Click any paragraph to edit · Enter to finish</div>
+  <button id="scrollTopBtn" onclick="scrollPreviewToTop()" title="Back to top">↑</button>
 </main>
 
 </div><!-- /app -->
@@ -2476,6 +2480,21 @@ function addTOC() {
   renderPreview();
   setStatus('Table of Contents added — drag it to reorder');
 }
+
+function scrollPreviewToTop() {
+  const scroller = document.getElementById('previewArea');
+  if (scroller) scroller.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Show/hide scroll-to-top button based on preview scroll position
+(function() {
+  const area = document.getElementById('previewArea');
+  const btn  = document.getElementById('scrollTopBtn');
+  if (!area || !btn) return;
+  area.addEventListener('scroll', () => {
+    btn.classList.toggle('visible', area.scrollTop > 400);
+  }, { passive: true });
+})();
 
 function scrollToChapter(chapId) {
   if (!chapId) return;
