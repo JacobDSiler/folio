@@ -159,6 +159,21 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .preview-area::-webkit-scrollbar{width:8px;height:8px}
 .preview-area::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.25);border-radius:4px}
 .preview-area::-webkit-scrollbar-track{background:rgba(0,0,0,0.08)}
+/* ── Writing mode (full chapter prose editor in preview pane) ── */
+.writing-mode{display:none;flex-direction:column;height:100%;background:var(--bg)}
+.writing-mode.active{display:flex}
+.writing-toolbar{display:flex;align-items:center;gap:8px;padding:8px 16px;background:rgba(0,0,0,0.32);backdrop-filter:blur(4px);flex-shrink:0;flex-wrap:wrap}
+.writing-title-input{flex:1;background:transparent;border:none;color:#f0ebe0;font-size:13px;font-family:'Playfair Display',Georgia,serif;font-weight:700;outline:none;min-width:0}
+.writing-title-input::placeholder{color:rgba(255,255,255,0.35)}
+.writing-close{padding:4px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.25);background:transparent;color:rgba(255,255,255,0.8);font-size:11px;cursor:pointer;font-family:var(--sans);white-space:nowrap}
+.writing-close:hover{background:rgba(255,255,255,0.12)}
+.writing-wc{font-size:10.5px;color:rgba(255,255,255,0.45);font-family:var(--sans);white-space:nowrap}
+.writing-body{flex:1;overflow-y:auto;padding:48px max(48px,calc(50% - 320px));font-family:'Crimson Pro',Georgia,serif;font-size:16px;line-height:1.75;color:var(--text)}
+.writing-area{width:100%;min-height:calc(100vh - 200px);border:none;outline:none;background:transparent;font-family:inherit;font-size:inherit;line-height:inherit;color:inherit;resize:none;caret-color:var(--accent-ui)}
+.writing-nav{display:flex;gap:6px}
+.writing-nav-btn{padding:3px 10px;border-radius:5px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:rgba(255,255,255,0.65);font-size:10.5px;cursor:pointer;font-family:var(--sans)}
+.writing-nav-btn:hover{background:rgba(255,255,255,0.12);color:#fff}
+
 /* ── Split editor ── */
 .split-editor{display:none;flex-direction:column;height:100%;background:#f5f3ee;font-family:'Crimson Pro',Georgia,serif}
 .split-editor.active{display:flex}
@@ -202,6 +217,20 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .preview-edit-mode-hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:rgba(30,20,10,0.85);color:#f0ebe0;font-size:11px;font-family:var(--sans);padding:6px 14px;border-radius:20px;pointer-events:none;z-index:9999;opacity:0;transition:opacity .3s}
 .preview-edit-mode-hint.visible{opacity:1}
 .book-page{box-shadow:0 4px 24px rgba(0,0,0,0.35),0 1px 4px rgba(0,0,0,0.15);position:relative;overflow:hidden;flex-shrink:0;margin-bottom:20px}
+#findReplaceBar{position:fixed;top:0;left:var(--sidebar-w);right:0;z-index:100;background:rgba(30,22,14,0.95);backdrop-filter:blur(8px);padding:8px 16px;display:none;align-items:center;gap:8px;box-shadow:0 2px 12px rgba(0,0,0,0.4)}
+#findReplaceBar.open{display:flex}
+.fr-input{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#f0ebe0;font-size:12px;padding:5px 10px;outline:none;font-family:var(--sans);width:180px}
+.fr-input:focus{border-color:rgba(201,149,106,0.7)}
+.fr-input::placeholder{color:rgba(255,255,255,0.3)}
+.fr-label{font-size:10.5px;color:rgba(255,255,255,0.5);font-family:var(--sans);white-space:nowrap}
+.fr-btn{padding:4px 11px;border-radius:5px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:rgba(255,255,255,0.75);font-size:11px;cursor:pointer;font-family:var(--sans);white-space:nowrap}
+.fr-btn:hover{background:rgba(255,255,255,0.12);color:#fff}
+.fr-btn.primary{background:rgba(201,149,106,0.5);border-color:rgba(201,149,106,0.7);color:#fff}
+.fr-btn.primary:hover{background:rgba(201,149,106,0.75)}
+.fr-count{font-size:10.5px;color:rgba(255,255,255,0.45);font-family:var(--sans);white-space:nowrap;min-width:60px}
+.fr-sep{width:1px;height:20px;background:rgba(255,255,255,0.15);flex-shrink:0}
+.fr-close{background:none;border:none;color:rgba(255,255,255,0.5);font-size:18px;cursor:pointer;padding:0 4px;line-height:1}
+.fr-close:hover{color:#fff}
 .tabs{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:0.5px solid var(--border);flex-shrink:0}
 .tab-btn{padding:7px 3px;font-size:10.5px;font-family:var(--sans);border:none;background:transparent;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.15s;white-space:nowrap;text-align:center;letter-spacing:-0.01em;width:100%}
 .tab-btn.active{color:var(--text);border-bottom-color:var(--accent-ui);background:#faf9f7}
@@ -284,6 +313,31 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 <body>
 <div class="app">
 
+<!-- Find & Replace bar -->
+<div id="findReplaceBar">
+  <span class="fr-label">Find</span>
+  <input class="fr-input" id="frFind" placeholder="Search…" oninput="frSearch()" onkeydown="frKeydown(event)">
+  <span class="fr-label">Replace</span>
+  <input class="fr-input" id="frReplace" placeholder="Replace with…" onkeydown="frKeydown(event)">
+  <span class="fr-count" id="frCount"></span>
+  <div class="fr-sep"></div>
+  <button class="fr-btn" onclick="frPrev()" title="Previous match (Shift+Enter)">↑ Prev</button>
+  <button class="fr-btn" onclick="frNext()" title="Next match (Enter)">↓ Next</button>
+  <div class="fr-sep"></div>
+  <button class="fr-btn primary" onclick="frReplaceCurrent()">Replace</button>
+  <button class="fr-btn primary" onclick="frReplaceAll()">All</button>
+  <div class="fr-sep"></div>
+  <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+    <input type="checkbox" id="frCase" onchange="frSearch()" style="cursor:pointer">
+    <span class="fr-label">Aa</span>
+  </label>
+  <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+    <input type="checkbox" id="frRegex" onchange="frSearch()" style="cursor:pointer">
+    <span class="fr-label">.*</span>
+  </label>
+  <button class="fr-close" onclick="closeFindReplace()" title="Close (Esc)">×</button>
+</div>
+
 <!-- ════════════════ SIDEBAR ════════════════ -->
 <aside class="sidebar">
   <div class="sidebar-header">
@@ -349,8 +403,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
           <button class="ch-add-btn" style="flex:1" onclick="applyImportToChapters()" id="applyImportBtn" disabled>
             ↓ Split into chapters
           </button>
-          <button class="btn-sm btn-ghost" style="flex:1;padding:8px 4px;font-size:11.5px" onclick="viewFullManuscript()" id="btnViewManuscript" disabled title="Preview the full manuscript without splitting">
-            👁 View full
+          <button class="btn-sm btn-ghost" style="flex:1;padding:8px 4px;font-size:11.5px" onclick="viewFullManuscript()" id="btnViewManuscript" disabled title="View and mark chapter breaks in the full manuscript">
+            👁 Split view
           </button>
         </div>
         <p class="small-note" style="margin-top:5px">Use "View full" to preview the whole manuscript without splitting it into chapters.</p>
@@ -377,6 +431,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
           <button class="ch-add-btn" style="flex:1" onclick="addBlankChapter()">+ Add chapter</button>
           <button class="ch-add-btn" style="flex:0 0 auto;padding:7px 12px" onclick="addTOC()" title="Insert a Table of Contents — drag to reorder">+ TOC</button>
         </div>
+        <button class="ch-add-btn" style="margin-top:6px;color:var(--accent-ui);border-color:var(--accent-ui)" onclick="openManuscriptView()" title="View the full compiled manuscript">📖 View full manuscript</button>
       </div>
     </div>
 
@@ -712,6 +767,19 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 
 <!-- ════════════════ PREVIEW ════════════════ -->
 <main class="preview-area" id="previewArea">
+  <!-- Writing mode — full prose editor for a single chapter -->
+  <div class="writing-mode" id="writingMode">
+    <div class="writing-toolbar">
+      <div class="writing-nav" id="writingNav"></div>
+      <input class="writing-title-input" id="writingTitleInput" placeholder="Chapter title…" oninput="updateWritingTitle()">
+      <span class="writing-wc" id="writingWC"></span>
+      <button class="writing-close" onclick="closeWritingMode()">✕ Done</button>
+    </div>
+    <div class="writing-body">
+      <textarea class="writing-area" id="writingArea" placeholder="Start writing…" oninput="updateWritingContent()"></textarea>
+    </div>
+  </div>
+
   <!-- Split editor — shown when user clicks "View full" -->
   <div class="split-editor" id="splitEditor">
     <div class="split-toolbar">
@@ -764,6 +832,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     <button class="zoom-fit-btn" onclick="setZoom(100)">100%</button>
     <span style="width:1px;height:16px;background:rgba(255,255,255,0.2);flex-shrink:0"></span>
     <button id="editModeBtn" class="zoom-fit-btn" onclick="toggleEditMode()" title="Click paragraphs in the preview to edit them directly" style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">✏ Edit</button>
+    <button class="zoom-fit-btn" onclick="openFindReplace()" title="Find &amp; Replace (Ctrl+H)" style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">⌕ Find</button>
   </div>
   <div class="preview-scroller" id="previewScroller">
     <div class="preview-wrap" id="bookPreview"></div>
@@ -2540,7 +2609,8 @@ function chItemHTML(ch,i){
       <span class="ch-drag-handle" title="Drag to reorder">⠿</span>
       <span class="chip-type ${typeClasses[ch.type]}" onclick="cycleChType('${ch.id}')" title="Click to change type">${typeLabel[ch.type]}</span>
       <input class="ch-title-input" value="${esc(ch.title)}" placeholder="(untitled)" oninput="updateChTitle('${ch.id}',this.value)">
-      <button class="ch-expand-btn" onclick="scrollToChapter('${ch.id}')" title="Jump to chapter in preview" style="opacity:0.65;font-size:11px">▶</button>
+      <button class="ch-expand-btn" onclick="scrollToChapter('${ch.id}')" title="Jump to this chapter in preview" style="opacity:0.65;font-size:11px">▶</button>
+      <button class="ch-expand-btn" onclick="openWritingMode('${ch.id}')" title="Open chapter in writing mode" style="opacity:0.65;font-size:11px">✍</button>
       <button class="ch-expand-btn" onclick="toggleChExpand('${ch.id}',this)">${ch.expanded?'▲':'▼'}</button>
     </div>
     <div class="ch-item-body ${ch.expanded?'open':''}">
@@ -2559,16 +2629,52 @@ function chItemHTML(ch,i){
   </div>`;
 }
 
+
+function estimatePageCount(wordCount) {
+  if (!wordCount) return 0;
+  // Calibrated base: 187 words/page at 13pt, 1.7 lspace, Trade 6×9", 18mm margins
+  const BASE_WPP = 187;
+  const fsize   = parseFloat(getV('fontSize')) || 13;
+  const lspace  = parseFloat(getV('lineSpacing')) || 1.7;
+  const mgMM    = parseFloat(document.getElementById('pageMargin')?.value || 18);
+  const [pwMM, phMM] = getPageDims();
+  // Content area in mm²
+  const cw = pwMM - mgMM * 2;
+  const ch = phMM - 28 - 22; // fixed top/bottom margins
+  const contentArea = cw * ch;
+  // Base content area (Trade 6×9", 18mm margins)
+  const baseArea = (152.4 - 36) * (228.6 - 50);
+  // Scale words-per-page by font size squared, line spacing, and content area
+  const wpp = BASE_WPP * Math.pow(13 / fsize, 2) * (1.7 / lspace) * (contentArea / baseArea);
+  // Add ~10% overhead for chapter headings, TOC, front/back matter, page breaks
+  const overhead = 1 + chapters.filter(c=>c.type!=='toc').length * 0.02;
+  return Math.max(1, Math.round(wordCount / wpp * overhead));
+}
+
+function getWordCount() {
+  const text = chapters
+    .filter(c => c.type !== 'toc')
+    .map(c => c.content)
+    .join(' ');
+  return text.trim() ? text.trim().split(/\s+/).length : 0;
+}
+
+function formatWC(n) {
+  if (n >= 1000) return (n/1000).toFixed(1).replace(/\.0$/,'') + 'k';
+  return String(n);
+}
 function updateChapterStats(){
   const pre=chapters.filter(c=>c.type==='pre').length;
   const ch=chapters.filter(c=>c.type==='chapter').length;
   const post=chapters.filter(c=>c.type==='post').length;
   const toc=chapters.filter(c=>c.type==='toc').length;
+  const _wcBar=getWordCount();
   document.getElementById('chStatsBar').innerHTML=
     (toc?`<span class="stat-pill chip-toc" style="border-radius:8px;padding:2px 8px;font-size:10px">${toc} TOC</span> `:'')
     +`<span class="stat-pill stat-pre">${pre} front</span>
-    <span class="stat-pill stat-ch">${ch} chapter${ch!==1?'s':''}</span>
-    <span class="stat-pill stat-post">${post} back</span>`;
+    <span class="stat-pill stat-ch">${ch} ch</span>
+    <span class="stat-pill stat-post">${post} back</span>
+    <span class="stat-pill" style="background:var(--bg);color:var(--hint);border-radius:8px;padding:2px 8px;font-size:10px;margin-left:2px">${formatWC(_wcBar)} words</span>`;
 }
 
 function cycleChType(id){
@@ -3277,8 +3383,12 @@ function renderPreview(){
   }); // end chapters.forEach
 
   document.getElementById('bookPreview').innerHTML=pagesHTML;
-  document.getElementById('pageCountLine').textContent=`~${pageNum-1} pages estimated`;
-  document.getElementById('statusBar').textContent=`Preview updated — ${bodyChapters.length} chapter${bodyChapters.length!==1?'s':''}, ~${pageNum-1} pages`;
+  const _wc=getWordCount();
+  // Word-density page count — calibrated from real PDF measurement
+  // 187 words/page at 13pt, 1.7 lspace, Trade 6x9, 18mm margins
+  const _pgEstimate=estimatePageCount(_wc);
+  document.getElementById('pageCountLine').textContent=`~${_pgEstimate} pages · ${formatWC(_wc)} words`;
+  document.getElementById('statusBar').textContent=`Preview updated — ${bodyChapters.length} chapter${bodyChapters.length!==1?'s':''}, ~${_pgEstimate} pages`;
   // Schedule auto-save whenever the preview updates (content changed)
   if (_fbReady || chapters.length) _scheduleAutoSave();
 }
@@ -4130,6 +4240,325 @@ function _makeEditableParaHTML(text, chId, paraIdx, style) {
     onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
     style="${style}">${esc(text)}</p>`;
 }
+
+
+/* ═══════════════════════════════════════════════
+   WRITING MODE — full prose editor in preview pane
+═══════════════════════════════════════════════ */
+
+let _writingChId = null;
+
+function openWritingMode(chId) {
+  const ch = chapters.find(c => c.id === chId);
+  if (!ch) return;
+  _writingChId = chId;
+
+  // Show writing mode, hide normal preview + toolbar
+  document.getElementById('writingMode').classList.add('active');
+  document.getElementById('previewScroller').style.display = 'none';
+  document.querySelector('.preview-toolbar').style.display = 'none';
+  document.getElementById('scrollTopBtn').style.display = 'none';
+
+  // Populate
+  document.getElementById('writingTitleInput').value = ch.title || '';
+  document.getElementById('writingArea').value = ch.content || '';
+  _updateWritingWC();
+
+  // Build prev/next nav
+  const idx = chapters.indexOf(ch);
+  const prev = chapters.slice(0, idx).reverse().find(c => c.type !== 'toc');
+  const next = chapters.slice(idx + 1).find(c => c.type !== 'toc');
+  const nav = document.getElementById('writingNav');
+  nav.innerHTML =
+    (prev ? `<button class="writing-nav-btn" onclick="openWritingMode('${prev.id}')">← ${prev.title||'Prev'}</button>` : '') +
+    (next ? `<button class="writing-nav-btn" onclick="openWritingMode('${next.id}')">→ ${next.title||'Next'}</button>` : '');
+
+  // Focus textarea at end
+  const ta = document.getElementById('writingArea');
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
+function closeWritingMode() {
+  _writingChId = null;
+  document.getElementById('writingMode').classList.remove('active');
+  document.getElementById('previewScroller').style.display = '';
+  document.querySelector('.preview-toolbar').style.display = '';
+  renderPreview();
+}
+
+function updateWritingTitle() {
+  if (!_writingChId) return;
+  const ch = chapters.find(c => c.id === _writingChId);
+  if (!ch) return;
+  ch.title = document.getElementById('writingTitleInput').value;
+  // Update sidebar chapter title input too
+  const input = document.querySelector(`.ch-item[data-id="${_writingChId}"] .ch-title-input`);
+  if (input) input.value = ch.title;
+  _scheduleAutoSave();
+}
+
+function updateWritingContent() {
+  if (!_writingChId) return;
+  const ch = chapters.find(c => c.id === _writingChId);
+  if (!ch) return;
+  ch.content = document.getElementById('writingArea').value;
+  // Sync sidebar textarea
+  const ta = document.querySelector(`.ch-item[data-id="${_writingChId}"] .ch-content-area`);
+  if (ta) ta.value = ch.content;
+  _updateWritingWC();
+  _scheduleAutoSave();
+}
+
+function _updateWritingWC() {
+  if (!_writingChId) return;
+  const ch = chapters.find(c => c.id === _writingChId);
+  if (!ch) return;
+  const wc = ch.content.trim() ? ch.content.trim().split(/\s+/).length : 0;
+  const totalWC = getWordCount();
+  document.getElementById('writingWC').textContent =
+    `${formatWC(wc)} words in chapter · ${formatWC(totalWC)} total`;
+}
+
+// ═══════════════════════════════════════════════
+// VIEW FULL MANUSCRIPT — live, always synced
+// ═══════════════════════════════════════════════
+
+function getFullManuscript() {
+  // Always computed fresh from chapters — never stale
+  return chapters
+    .filter(c => c.type !== 'toc')
+    .map(c => {
+      const parts = [];
+      if (c.title) parts.push(c.title + '\n');
+      parts.push(c.content || '');
+      return parts.join('\n');
+    })
+    .join('\n\n---\n\n');
+}
+
+function openManuscriptView() {
+  if (!chapters.length) { setStatus('No chapters to view yet'); return; }
+  // Open writing mode with a virtual "full manuscript" chapter
+  document.getElementById('writingMode').classList.add('active');
+  document.getElementById('previewScroller').style.display = 'none';
+  document.querySelector('.preview-toolbar').style.display = 'none';
+  document.getElementById('scrollTopBtn').style.display = 'none';
+
+  _writingChId = null; // null = manuscript view mode
+  document.getElementById('writingTitleInput').value = 'Full Manuscript (read-only)';
+  document.getElementById('writingTitleInput').readOnly = true;
+
+  const ta = document.getElementById('writingArea');
+  ta.value = getFullManuscript();
+  ta.readOnly = true;
+  ta.style.color = 'var(--text)';
+
+  const wc = getWordCount();
+  document.getElementById('writingWC').textContent =
+    `${formatWC(wc)} words · ${chapters.filter(c=>c.type!=='toc').length} sections`;
+
+  document.getElementById('writingNav').innerHTML =
+    `<span style="font-size:10.5px;color:rgba(255,255,255,0.45);font-family:var(--sans)">Read-only compiled view</span>`;
+}
+
+// Override closeWritingMode to reset readOnly state
+const _origCloseWriting = null;
+const _realCloseWriting = closeWritingMode;
+function closeWritingMode() {
+  document.getElementById('writingTitleInput').readOnly = false;
+  document.getElementById('writingArea').readOnly = false;
+  document.getElementById('writingArea').style.color = '';
+  _writingChId = null;
+  document.getElementById('writingMode').classList.remove('active');
+  document.getElementById('previewScroller').style.display = '';
+  document.querySelector('.preview-toolbar').style.display = '';
+  renderPreview();
+}
+
+
+/* ═══════════════════════════════════════════════
+   FIND & REPLACE
+   Searches across all chapter content + titles
+═══════════════════════════════════════════════ */
+
+let _frMatches = [];  // [{chId, field:'content'|'title', start, end}]
+let _frCurrent = -1;
+
+function openFindReplace() {
+  const bar = document.getElementById('findReplaceBar');
+  bar.classList.add('open');
+  document.getElementById('frFind').focus();
+  document.getElementById('frFind').select();
+  frSearch();
+}
+
+function closeFindReplace() {
+  document.getElementById('findReplaceBar').classList.remove('open');
+  _frMatches = [];
+  _frCurrent = -1;
+  document.getElementById('frCount').textContent = '';
+}
+
+function _frGetRegex() {
+  const term = document.getElementById('frFind').value;
+  if (!term) return null;
+  const caseSensitive = document.getElementById('frCase').checked;
+  const useRegex = document.getElementById('frRegex').checked;
+  try {
+    const pattern = useRegex ? term : term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(pattern, caseSensitive ? 'g' : 'gi');
+  } catch(e) {
+    document.getElementById('frCount').textContent = 'bad regex';
+    return null;
+  }
+}
+
+function frSearch() {
+  _frMatches = [];
+  const rx = _frGetRegex();
+  if (!rx) {
+    document.getElementById('frCount').textContent = '';
+    return;
+  }
+
+  chapters.forEach(ch => {
+    // Search in title
+    rx.lastIndex = 0;
+    let m;
+    while ((m = rx.exec(ch.title || '')) !== null) {
+      _frMatches.push({chId: ch.id, field: 'title', start: m.index, end: m.index + m[0].length});
+    }
+    // Search in content
+    rx.lastIndex = 0;
+    while ((m = rx.exec(ch.content || '')) !== null) {
+      _frMatches.push({chId: ch.id, field: 'content', start: m.index, end: m.index + m[0].length});
+    }
+  });
+
+  const n = _frMatches.length;
+  if (_frCurrent >= n) _frCurrent = n - 1;
+  if (_frCurrent < 0 && n > 0) _frCurrent = 0;
+  _frUpdateCount();
+}
+
+function _frUpdateCount() {
+  const n = _frMatches.length;
+  const el = document.getElementById('frCount');
+  if (!document.getElementById('frFind').value) { el.textContent = ''; return; }
+  if (!n) { el.textContent = 'No matches'; el.style.color = 'rgba(220,80,80,0.8)'; return; }
+  el.style.color = 'rgba(255,255,255,0.45)';
+  el.textContent = `${_frCurrent + 1} / ${n}`;
+}
+
+function _frJumpToCurrent() {
+  if (!_frMatches.length || _frCurrent < 0) return;
+  const match = _frMatches[_frCurrent];
+  const ch = chapters.find(c => c.id === match.chId);
+  if (!ch) return;
+  _frUpdateCount();
+
+  // If writing mode is open for this chapter — highlight in textarea
+  if (_writingChId === match.chId && match.field === 'content') {
+    const ta = document.getElementById('writingArea');
+    if (ta) { ta.focus(); ta.setSelectionRange(match.start, match.end); ta.blur(); ta.focus(); return; }
+  }
+
+  // Open writing mode for this chapter and highlight
+  openWritingMode(match.chId);
+  // Wait for writing mode to open, then select
+  setTimeout(() => {
+    if (match.field === 'content') {
+      const ta = document.getElementById('writingArea');
+      if (ta) { ta.focus(); ta.setSelectionRange(match.start, match.end); }
+    } else {
+      const ti = document.getElementById('writingTitleInput');
+      if (ti) { ti.focus(); ti.setSelectionRange(match.start, match.end); }
+    }
+  }, 80);
+}
+
+function frNext() {
+  if (!_frMatches.length) { frSearch(); return; }
+  _frCurrent = (_frCurrent + 1) % _frMatches.length;
+  _frJumpToCurrent();
+}
+
+function frPrev() {
+  if (!_frMatches.length) return;
+  _frCurrent = (_frCurrent - 1 + _frMatches.length) % _frMatches.length;
+  _frJumpToCurrent();
+}
+
+function frReplaceCurrent() {
+  if (!_frMatches.length || _frCurrent < 0) return;
+  const replacement = document.getElementById('frReplace').value;
+  const match = _frMatches[_frCurrent];
+  const ch = chapters.find(c => c.id === match.chId);
+  if (!ch) return;
+
+  if (match.field === 'content') {
+    ch.content = ch.content.slice(0, match.start) + replacement + ch.content.slice(match.end);
+  } else {
+    ch.title = ch.title.slice(0, match.start) + replacement + ch.title.slice(match.end);
+  }
+
+  _scheduleAutoSave();
+  frSearch(); // re-index after change
+  // Stay on same position (now points to next match)
+  if (_frCurrent >= _frMatches.length) _frCurrent = _frMatches.length - 1;
+  _frJumpToCurrent();
+  renderChapterList();
+}
+
+function frReplaceAll() {
+  if (!_frMatches.length) return;
+  const rx = _frGetRegex();
+  if (!rx) return;
+  const replacement = document.getElementById('frReplace').value;
+  let count = 0;
+
+  chapters.forEach(ch => {
+    const titleBefore = ch.title || '';
+    const contentBefore = ch.content || '';
+    rx.lastIndex = 0;
+    ch.title = titleBefore.replace(rx, () => { count++; return replacement; });
+    rx.lastIndex = 0;
+    ch.content = contentBefore.replace(rx, () => { count++; return replacement; });
+  });
+
+  _scheduleAutoSave();
+  renderChapterList();
+  renderPreview();
+  setStatus(`Replaced ${count} occurrence${count !== 1 ? 's' : ''}`);
+  frSearch();
+}
+
+function frKeydown(e) {
+  if (e.key === 'Escape') { closeFindReplace(); return; }
+  if (e.key === 'Enter') {
+    if (e.shiftKey) frPrev();
+    else frNext();
+    e.preventDefault();
+  }
+}
+
+// Keyboard shortcut: Ctrl/Cmd+H
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'h') {
+    e.preventDefault();
+    const bar = document.getElementById('findReplaceBar');
+    if (bar.classList.contains('open')) closeFindReplace();
+    else openFindReplace();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+    e.preventDefault();
+    openFindReplace();
+  }
+  if (e.key === 'Escape' && document.getElementById('findReplaceBar').classList.contains('open')) {
+    closeFindReplace();
+  }
+});
 
 
 /* ═══════════════════════════════════════════════
