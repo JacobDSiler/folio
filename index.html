@@ -228,6 +228,19 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .preview-edit-mode-hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:rgba(30,20,10,0.85);color:#f0ebe0;font-size:11px;font-family:var(--sans);padding:6px 14px;border-radius:20px;pointer-events:none;z-index:9999;opacity:0;transition:opacity .3s}
 .preview-edit-mode-hint.visible{opacity:1}
 .book-page{box-shadow:0 4px 24px rgba(0,0,0,0.35),0 1px 4px rgba(0,0,0,0.15);position:relative;overflow:hidden;flex-shrink:0;margin-bottom:20px}
+/* Toast notifications */
+#toastContainer{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none}
+.toast{font-family:var(--sans);font-size:12px;padding:9px 16px;border-radius:20px;backdrop-filter:blur(8px);box-shadow:0 4px 16px rgba(0,0,0,0.3);pointer-events:all;display:flex;align-items:center;gap:8px;max-width:360px;animation:toastIn .22s ease;white-space:nowrap}
+.toast.info{background:rgba(30,22,14,0.92);color:#f0ebe0;border:1px solid rgba(255,255,255,0.12)}
+.toast.success{background:rgba(6,95,70,0.92);color:#d1fae5;border:1px solid rgba(16,185,129,0.3)}
+.toast.warning{background:rgba(120,53,15,0.92);color:#fef3c7;border:1px solid rgba(245,158,11,0.3)}
+.toast.error{background:rgba(127,29,29,0.92);color:#fee2e2;border:1px solid rgba(239,68,68,0.3)}
+.toast-action{font-size:11px;font-weight:600;cursor:pointer;opacity:0.85;text-decoration:underline;text-underline-offset:2px;background:none;border:none;color:inherit;padding:0;font-family:inherit}
+.toast-action:hover{opacity:1}
+.toast-close{background:none;border:none;color:inherit;cursor:pointer;opacity:0.5;font-size:14px;padding:0;line-height:1;flex-shrink:0}
+.toast-close:hover{opacity:1}
+@keyframes toastIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes toastOut{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(8px)}}
 #findReplaceBar{position:fixed;top:0;left:var(--sidebar-w);right:0;z-index:100;background:rgba(30,22,14,0.95);backdrop-filter:blur(8px);padding:8px 16px;display:none;align-items:center;gap:8px;box-shadow:0 2px 12px rgba(0,0,0,0.4)}
 #findReplaceBar.open{display:flex}
 .fr-input{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#f0ebe0;font-size:12px;padding:5px 10px;outline:none;font-family:var(--sans);width:180px}
@@ -1252,6 +1265,7 @@ async function signInGoogle() {
       try{ await window._auth.currentUser.reload(); }catch(e){}
       _refreshAuthUI(window._auth.currentUser);
       setStatus('Google account linked — your folios are now permanent ✓');
+      toastSuccess('Google account connected — your work is now permanent', { icon: '🔒', duration: 3500 });
     } else {
       result = await window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
       setStatus('Signed in as ' + (result.user.displayName || result.user.email) + ' ✓');
@@ -1411,6 +1425,7 @@ async function _doAutoSave() {
     }, {merge: true});
     _autoSaveDirty = false;
     _updateFolioCloudBadge('saved');
+    toastSuccess('Auto-saved ✓', { duration: 1800, id: 'autosave' });
     await loadFolioList();
   } catch(e) {
     console.warn('Auto-save failed:', e);
@@ -1515,7 +1530,7 @@ function _deserialise(state) {
 
 /* ── Save project ── */
 async function saveFolio() {
-  if (!_fbReady) { setStatus('Not connected to cloud yet'); return; }
+  if (!_fbReady) { setStatus('Not connected to cloud yet'); toastWarning('Not connected to cloud yet — try again in a moment', { icon: '☁', duration: 3000 }); return; }
   const name = document.getElementById('projName').value.trim();
   if (!name) { document.getElementById('projName').focus(); setStatus('Give your folio a name first'); return; }
   if (!_projId) _projId = 'proj_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
@@ -1535,6 +1550,7 @@ async function saveFolio() {
     _hideSaving();
     localStorage.setItem('folio_last_open', _projId);
     setStatus(`Folio "${name}" saved to cloud ✓`);
+    toastSuccess(`"${name}" saved ✓`, { icon: '☁', duration: 2500, id: 'manualsave' });
   } catch(e) { _hideSaving(); setStatus('Save failed: ' + e.message); console.error(e); }
 }
 
@@ -1608,6 +1624,7 @@ async function loadFolioById(id) {
     await _touchPresence();
     _hideSaving();
     setStatus(`Folio "${data.name}" loaded ✓`);
+    toastInfo(`Opened: ${data.name}`, { icon: '📖', duration: 2500, id: 'loaded' });
     // Switch to details tab so user sees the book
     const btn = document.querySelectorAll('.tab-btn')[2];
     if (btn) switchTab('details', btn);
@@ -2571,6 +2588,7 @@ function addTOC() {
   renderChapterList();
   renderPreview();
   setStatus('Table of Contents added — drag it to reorder');
+  toastSuccess('Table of Contents added', { icon: '📋', duration: 2500 });
 }
 
 function scrollPreviewToTop() {
@@ -2632,9 +2650,18 @@ document.addEventListener('keydown', e => {
 
 function scrollToChapter(chapId) {
   if (!chapId) return;
+  // If writing mode is active, the preview isn't visible — inform user
+  if (document.getElementById('writingMode')?.classList.contains('active')) {
+    toastWarning('Close writing mode first to navigate the preview', {
+      icon: '✍',
+      duration: 3000,
+      id: 'nav-blocked',
+      action: { label: 'Close', fn: closeWritingMode }
+    });
+    return;
+  }
   const el = document.getElementById('chap-' + chapId);
   if (!el) {
-    // Element may not exist yet if preview hasn't rendered — try after a tick
     setTimeout(() => scrollToChapter(chapId), 150);
     return;
   }
@@ -2833,9 +2860,30 @@ function toggleChExpand(id,btn){
 }
 
 function removeChapter(id){
-  chapters=chapters.filter(c=>c.id!==id);
+  const removed = chapters.find(c => c.id === id);
+  const idx = chapters.indexOf(removed);
+  chapters = chapters.filter(c => c.id !== id);
   renderChapterList();
   renderPreview();
+  if (removed) {
+    toastInfo(
+      `"${removed.title || 'Untitled'}" removed`,
+      {
+        icon: '🗑',
+        duration: 5000,
+        id: 'removed-' + id,
+        action: {
+          label: 'Undo',
+          fn: function() {
+            chapters.splice(idx, 0, removed);
+            renderChapterList();
+            renderPreview();
+            toastSuccess('Chapter restored', { icon: '↩', duration: 2000 });
+          }
+        }
+      }
+    );
+  }
 }
 
 function addBlankChapter(){
@@ -4395,7 +4443,9 @@ function openWritingMode(chId) {
   document.getElementById('writingMode').classList.add('active');
   document.getElementById('previewScroller').style.display = 'none';
   document.querySelector('.preview-toolbar').style.display = 'none';
-  document.getElementById('scrollTopBtn').style.display = 'none';
+  document.getElementById('scrollTopBtn').classList.remove('visible');
+  document.getElementById('scrollBottomBtn')?.classList.remove('visible');
+  toastInfo('Writing mode — changes save automatically', { icon: '✍', duration: 2200, id: 'wm-open' });
 
   // Populate
   document.getElementById('writingTitleInput').value = ch.title || '';
@@ -4449,7 +4499,14 @@ function closeWritingMode() {
   document.getElementById('writingMode').classList.remove('active');
   document.getElementById('previewScroller').style.display = '';
   document.querySelector('.preview-toolbar').style.display = '';
+  // Clear any inline display overrides so CSS class can take over
+  const _st = document.getElementById('scrollTopBtn');
+  const _sb = document.getElementById('scrollBottomBtn');
+  if (_st) _st.style.display = '';
+  if (_sb) _sb.style.display = '';
   renderPreview();
+  // Re-evaluate scroll button visibility after preview restores
+  setTimeout(() => window.dispatchEvent(new Event('previewRendered')), 100);
 }
 
 function updateWritingTitle() {
@@ -4510,7 +4567,8 @@ function openManuscriptView() {
   document.getElementById('writingMode').classList.add('active');
   document.getElementById('previewScroller').style.display = 'none';
   document.querySelector('.preview-toolbar').style.display = 'none';
-  document.getElementById('scrollTopBtn').style.display = 'none';
+  document.getElementById('scrollTopBtn').classList.remove('visible');
+  document.getElementById('scrollBottomBtn')?.classList.remove('visible');
 
   _writingChId = null; // null = manuscript view mode
   document.getElementById('writingTitleInput').value = 'Full Manuscript (read-only)';
@@ -4540,7 +4598,13 @@ function closeWritingMode() {
   document.getElementById('writingMode').classList.remove('active');
   document.getElementById('previewScroller').style.display = '';
   document.querySelector('.preview-toolbar').style.display = '';
+  // Clear any inline display overrides so .visible class works correctly
+  const _st = document.getElementById('scrollTopBtn');
+  const _sb = document.getElementById('scrollBottomBtn');
+  if (_st) _st.style.display = '';
+  if (_sb) _sb.style.display = '';
   renderPreview();
+  setTimeout(() => window.dispatchEvent(new Event('previewRendered')), 100);
 }
 
 
@@ -4708,7 +4772,10 @@ function frReplaceAll() {
   _scheduleAutoSave();
   renderChapterList();
   renderPreview();
-  setStatus(`Replaced ${count} occurrence${count !== 1 ? 's' : ''}`);
+  const _repMsg = `Replaced ${count} occurrence${count !== 1 ? 's' : ''}`;
+  setStatus(_repMsg);
+  if (count > 0) toastSuccess(_repMsg, { icon: '✓', duration: 3000 });
+  else toastWarning('No matches found', { duration: 2500 });
   frSearch();
 }
 
@@ -4737,6 +4804,71 @@ document.addEventListener('keydown', e => {
     closeFindReplace();
   }
 });
+
+
+/* ═══════════════════════════════════════════════
+   TOAST NOTIFICATION SYSTEM
+═══════════════════════════════════════════════ */
+
+const _toastTimers = new Map();
+
+/**
+ * Show a toast notification.
+ * @param {string} msg        — message text
+ * @param {object} opts
+ *   type:     'info'|'success'|'warning'|'error'  (default: 'info')
+ *   duration: ms before auto-dismiss              (default: 3500, 0 = sticky)
+ *   icon:     emoji prefix                        (optional)
+ *   action:   { label, fn }                       (optional clickable action)
+ *   id:       dedupe key — replaces existing      (optional)
+ */
+function toast(msg, opts = {}) {
+  const {
+    type     = 'info',
+    duration = 3500,
+    icon     = '',
+    action   = null,
+    id       = null,
+  } = opts;
+
+  const container = document.getElementById('toastContainer');
+  if (!container) return;
+
+  // Dedupe: if same id already showing, remove it first
+  if (id && _toastTimers.has(id)) {
+    const existing = document.getElementById('toast-' + id);
+    if (existing) existing.remove();
+    clearTimeout(_toastTimers.get(id));
+    _toastTimers.delete(id);
+  }
+
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  if (id) el.id = 'toast-' + id;
+
+  el.innerHTML =
+    (icon ? `<span>${icon}</span>` : '') +
+    `<span style="flex:1">${msg}</span>` +
+    (action ? `<button class="toast-action" onclick="(${action.fn.toString()})();this.closest('.toast').remove()">${action.label}</button>` : '') +
+    `<button class="toast-close" onclick="this.closest('.toast').remove()" title="Dismiss">×</button>`;
+
+  container.appendChild(el);
+
+  if (duration > 0) {
+    const timer = setTimeout(() => {
+      el.style.animation = 'toastOut .22s ease forwards';
+      setTimeout(() => el.remove(), 220);
+      _toastTimers.delete(id);
+    }, duration);
+    if (id) _toastTimers.set(id, timer);
+  }
+}
+
+// Convenience wrappers
+const toastInfo    = (msg, opts) => toast(msg, { type: 'info',    ...opts });
+const toastSuccess = (msg, opts) => toast(msg, { type: 'success', ...opts });
+const toastWarning = (msg, opts) => toast(msg, { type: 'warning', ...opts });
+const toastError   = (msg, opts) => toast(msg, { type: 'error',   ...opts });
 
 
 /* ═══════════════════════════════════════════════
@@ -4789,5 +4921,6 @@ document.getElementById('bookPreview').addEventListener('mouseout', e => {
   if (row) row.style.opacity = '';
 });
 </script>
+<div id="toastContainer"></div>
 </body>
 </html>
