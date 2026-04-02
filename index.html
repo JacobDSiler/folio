@@ -160,7 +160,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .preview-area::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.25);border-radius:4px}
 .preview-area::-webkit-scrollbar-track{background:rgba(0,0,0,0.08)}
 /* ── Writing mode (full chapter prose editor in preview pane) ── */
-.writing-mode{display:none;flex-direction:column;height:100%;background:var(--bg)}
+.writing-mode{display:none;flex-direction:column;height:100%;background:var(--bg);position:relative}
 .writing-mode.active{display:flex}
 .writing-toolbar{display:flex;align-items:center;gap:8px;padding:8px 16px;background:rgba(0,0,0,0.32);backdrop-filter:blur(4px);flex-shrink:0;flex-wrap:wrap}
 .writing-title-input{flex:1;background:transparent;border:none;color:#f0ebe0;font-size:13px;font-family:'Playfair Display',Georgia,serif;font-weight:700;outline:none;min-width:0}
@@ -781,8 +781,13 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
       <span class="writing-wc" id="writingWC"></span>
       <button class="writing-close" onclick="closeWritingMode()">✕ Done</button>
     </div>
-    <div class="writing-body">
+    <div class="writing-body" id="writingBody">
+      <div style="text-align:center;font-size:10.5px;color:var(--hint);font-family:var(--sans);margin-bottom:16px;letter-spacing:.05em" id="writingChapterLabel"></div>
       <textarea class="writing-area" id="writingArea" placeholder="Start writing…" oninput="updateWritingContent()"></textarea>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:6px;padding:4px 12px 0;position:absolute;right:0;bottom:52px;z-index:10">
+      <button onclick="document.getElementById('writingBody').scrollTo({top:0,behavior:'smooth'})" title="Top of chapter (Home)" style="width:28px;height:28px;border-radius:50%;border:none;background:rgba(0,0,0,0.3);color:#f0ebe0;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center" id="wTopBtn">↑</button>
+      <button onclick="document.getElementById('writingBody').scrollTo({top:999999,behavior:'smooth'})" title="End of chapter (End)" style="width:28px;height:28px;border-radius:50%;border:none;background:rgba(0,0,0,0.3);color:#f0ebe0;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center" id="wBotBtn">↓</button>
     </div>
     <div class="writing-dingbar" id="writingDingbar">
       <span class="db-label" style="color:rgba(255,255,255,0.5)">Insert:</span>
@@ -2578,15 +2583,20 @@ function scrollPreviewToBottom() {
   const btnTop  = document.getElementById('scrollTopBtn');
   const btnBot  = document.getElementById('scrollBottomBtn');
   if (!area) return;
+  let _btnDebounce = null;
   function updateBtns() {
-    const atTop    = area.scrollTop < 300;
-    const atBottom = area.scrollTop + area.clientHeight >= area.scrollHeight - 100;
-    if (btnTop)  btnTop.classList.toggle('visible',  !atTop);
-    if (btnBot)  btnBot.classList.toggle('visible',  !atBottom);
+    clearTimeout(_btnDebounce);
+    _btnDebounce = setTimeout(() => {
+      const atTop    = area.scrollTop < 200;
+      const atBottom = area.scrollTop + area.clientHeight >= area.scrollHeight - 150;
+      if (btnTop)  btnTop.classList.toggle('visible',  !atTop);
+      if (btnBot)  btnBot.classList.toggle('visible',  !atBottom && area.scrollHeight > area.clientHeight + 200);
+    }, 80); // debounce so programmatic scrolls don't flash
   }
   area.addEventListener('scroll', updateBtns, { passive: true });
-  // Also update when preview re-renders
-  setTimeout(updateBtns, 500);
+  // Re-check after renders and navigation
+  window.addEventListener('previewRendered', updateBtns);
+  setTimeout(updateBtns, 600);
 })();
 
 // Keyboard: Home/End scroll preview or writing area
@@ -2632,6 +2642,8 @@ function scrollToChapter(chapId) {
       node = node.offsetParent;
     }
     scroller.scrollTo({ top: top - 20, behavior: 'smooth' });
+  // Re-check scroll buttons after animation (~600ms)
+  setTimeout(() => window.dispatchEvent(new Event('previewRendered')), 650);
   }
   // Flash highlight on the page
   el.style.transition = 'box-shadow .2s';
@@ -3459,6 +3471,7 @@ function renderPreview(){
   document.getElementById('statusBar').textContent=`Preview updated — ${bodyChapters.length} chapter${bodyChapters.length!==1?'s':''}, ~${_pgEstimate} pages`;
   // Schedule auto-save whenever the preview updates (content changed)
   if (_fbReady || chapters.length) _scheduleAutoSave();
+  window.dispatchEvent(new Event('previewRendered'));
 }
 
 /* ═══════════════════════════════════════════════
@@ -3702,6 +3715,30 @@ async function exportPDF(){
         flowParas(paras,startY,tw,mg);
         addPageNum();
       });
+      // ── PDF Outline (bookmarks) — adds clickable TOC in PDF readers ──
+      try {
+        let _pdfOutlineChCtr = 0;
+        let _pdfOutlinePageNum = 2; // start after title page
+        if (copy) _pdfOutlinePageNum++;
+        if (dedic) _pdfOutlinePageNum++;
+        // Count TOC pages
+        const _tEntry = chapters.find(c=>c.type==='toc');
+        if (_tEntry) { _pdfOutlinePageNum += _tocPageCount||1; }
+        // Add bookmarks for each section
+        chapters.filter(c=>c.type!=='toc').forEach(sec => {
+          if (sec.type==='chapter') _pdfOutlineChCtr++;
+          const cn = sec.type==='chapter' ? chapterNumber(_pdfOutlineChCtr) : null;
+          const label = cn&&sec.title ? cn+'. '+sec.title : cn ? 'Chapter '+cn : sec.title;
+          if (label) {
+            doc.outline.add(null, label, {pageNumber: _pdfOutlinePageNum});
+          }
+          // Estimate pages this section uses
+          const _wc = (sec.content||'').split(/\s+/).filter(Boolean).length;
+          const _wpp = Math.max(50, Math.round(187 * Math.pow(13/fsize,2) * (1.7/lspace)));
+          _pdfOutlinePageNum += Math.max(1, Math.round(_wc/_wpp));
+        });
+      } catch(outlineErr) { console.warn('PDF outline failed:', outlineErr); }
+
       doc.setProperties({title,author,subject:subtitle,creator:'Folio Book Formatter'});
       doc.save(safeName(title)+'.pdf');
     setStatus('PDF exported successfully!');
@@ -4022,82 +4059,103 @@ function exportHTML(){
     const subtitle=getV('bookSubtitle');
     const dedic=getV('dedication');
     const copy=getV('copyright');
-    const chs=getChapters();
-    const front=getFront();
-    const back=getBack();
     const font=getV('bodyFont');
     const fsize=getV('fontSize');
     const lspace=getV('lineSpacing');
     const indent=getV('paraIndent');
     const justify=getC('justifyText');
+    const dropCapOn=getC('dropCap');
     const orn=S.ornament;
     const ac=S.accent;
-    // Self-contained CSS using exact theme values + Google Fonts
+
+    // Build ordered section list from chapters array (respects drag order)
+    let chCounter=0;
+    const sections=chapters.filter(c=>c.type!=='toc').map(c=>{
+      if(c.type==='chapter') chCounter++;
+      return {...c, chNum: c.type==='chapter'?chCounter:null,
+        slug:'sec-'+c.id};
+    });
+    const hasTOC=chapters.some(c=>c.type==='toc');
+    const tocSections=sections.filter(s=>s.title||(s.chNum));
+
     const css=[
-      "@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&display=swap');",
+      "@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap');",
       '*{box-sizing:border-box;margin:0;padding:0}',
-      'body{font-family:'+font+';font-size:'+fsize+'pt;line-height:'+lspace+';background:'+T.bg+';color:'+T.text+';max-width:680px;margin:0 auto;padding:3em 2em}',
-      "h1.bt{font-family:'Playfair Display',serif;font-size:2.4em;text-align:center;margin-top:2em;line-height:1.2}",
-      '.bs{font-size:1.1em;font-style:italic;text-align:center;color:'+ac+';margin-top:.4em}',
-      '.ba{text-align:center;letter-spacing:.12em;color:'+T.text+';opacity:.55;margin-top:1.2em;font-size:.9em}',
-      'hr{border:none;border-top:1px solid '+T.divider+';width:40%;margin:2em auto}',
-      ".st{font-family:'Playfair Display',serif;font-size:1.4em;text-align:center;margin:3em 0 1em}",
-      '.cn{font-size:.72em;letter-spacing:.18em;text-transform:uppercase;color:'+ac+';text-align:center;margin-top:3em;margin-bottom:.4em}',
-      "h2.ct{font-family:'Playfair Display',serif;font-size:1.6em;text-align:center;margin:.2em 0}",
-      '.orn{text-align:center;color:'+ac+';font-size:1.1em;margin:.8em 0 1.2em;opacity:.8}',
+      'body{font-family:'+font+';font-size:'+fsize+'pt;line-height:'+lspace+';background:'+T.bg+';color:'+T.text+';max-width:700px;margin:0 auto;padding:3em 2em}',
+      "h1.bt{font-family:'Playfair Display',serif;font-size:2.2em;text-align:center;margin-top:2em;line-height:1.2;color:"+T.text+'}',
+      '.bs{font-size:1.05em;font-style:italic;text-align:center;color:'+ac+';margin-top:.5em}',
+      '.ba{text-align:center;letter-spacing:.12em;color:'+T.text+';opacity:.55;margin-top:1.2em;font-size:.88em;text-transform:uppercase}',
+      'hr.rule{border:none;border-top:1px solid '+T.divider+';width:40%;margin:2em auto}',
+      // TOC styles
+      '.toc-wrap{margin:3em 0}',
+      ".toc-title{font-family:'Playfair Display',serif;font-size:1.5em;text-align:center;margin-bottom:1.2em;color:"+T.text+'}',
+      '.toc-row{display:flex;justify-content:space-between;align-items:baseline;border-bottom:.5px dotted '+T.divider+';padding:.35em 0;font-size:.88em}',
+      '.toc-row a{text-decoration:none;color:'+T.text+';transition:color .15s}',
+      '.toc-row a:hover{color:'+ac+'}',
+      '.toc-pg{color:'+T.text+';opacity:.5;font-size:.85em;flex-shrink:0;padding-left:.5em}',
+      // Section styles
+      ".st{font-family:'Playfair Display',serif;font-size:1.35em;text-align:center;margin:3em 0 .8em;color:"+T.text+'}',
+      '.cn{font-size:.68em;letter-spacing:.18em;text-transform:uppercase;color:'+ac+';text-align:center;margin-top:3em;margin-bottom:.35em}',
+      "h2.ct{font-family:'Playfair Display',serif;font-size:1.55em;text-align:center;margin:.2em 0 0;color:"+T.text+'}',
+      '.orn{text-align:center;color:'+ac+';font-size:1.1em;margin:.9em 0 1.3em;opacity:.8}',
       '.sb{text-align:center;color:'+ac+';margin:1.2em 0;opacity:.7}',
-      'p{margin:0;text-indent:'+(indent==='0'?'0':indent)+';text-align:'+(justify?'justify':'left')+';margin-bottom:'+(indent==='0'?'.8em':'0')+'}',
+      'p{margin:0;text-indent:'+(indent==='0'?'0':indent)+';text-align:'+(justify?'justify':'left')+';margin-bottom:'+(indent==='0'?'.85em':'0')+'}',
       'p.ni{text-indent:0}',
-      ".dc::first-letter{float:left;font-family:'Playfair Display',serif;font-size:3.6em;line-height:.72;margin:.05em .06em 0 0;color:"+ac+';font-weight:700}',
+      ".dc::first-letter{float:left;font-family:'Playfair Display',serif;font-size:3.5em;line-height:.74;margin:.06em .07em 0 0;color:"+ac+';font-weight:700}',
       '.ded{font-style:italic;text-align:center;max-width:24em;margin:3em auto;line-height:1.8;opacity:.7}',
-      '.cpr{font-size:.78em;line-height:1.8;opacity:.6;margin:1em 0}',
-      '.pb{page-break-after:always;margin-bottom:3em}',
-      '@media print{body{max-width:none;padding:0}}'
+      '.cpr{font-size:.75em;line-height:1.8;opacity:.55;margin:1em 0}',
+      '.sec{margin-bottom:4em;padding-top:1em}',
+      '@media print{body{max-width:none;padding:1.5cm}.sec{page-break-before:always}.sec:first-child{page-break-before:avoid}}'
     ].join('\n');
+
     let h='<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n<title>'+esc(title)+'</title>\n<style>\n'+css+'\n</style>\n</head>\n<body>\n';
+
     // Title page
-    h+='<div class="pb">\n<h1 class="bt">'+esc(title)+'</h1>\n';
+    h+='<div class="sec" id="title-page">\n<h1 class="bt">'+esc(title)+'</h1>\n';
     if(subtitle) h+='<p class="bs">'+esc(subtitle)+'</p>\n';
-    h+='<p class="ba">'+esc(author)+'</p>\n</div>\n\n';
-    // Front matter
-    front.forEach(sec=>{
-      h+='<div class="pb">\n<h2 class="st">'+esc(sec.title)+'</h2>\n';
-      sec.content.split('\n').filter(p=>p.trim()).forEach((p,pi)=>{
-        if(p==='__SCENE_BREAK__'){h+='<p class="sb">'+esc(orn)+' '+esc(orn)+' '+esc(orn)+'</p>\n';return;}
-        h+='<p class="'+(pi===0?'ni':'')+'">'+esc(p)+'</p>\n';
+    h+='<p class="ba">'+esc(author)+'</p>\n';
+    if(copy) h+='<hr class="rule">\n<p class="cpr">'+esc(copy)+'</p>\n';
+    if(dedic) h+='<p class="ded">'+esc(dedic)+'</p>\n';
+    h+='</div>\n\n';
+
+    // TOC — clickable links
+    if(hasTOC && tocSections.length){
+      const tocEntry=chapters.find(c=>c.type==='toc');
+      const tocTitle=tocEntry?.title||'Contents';
+      h+='<div class="sec toc-wrap" id="toc">\n';
+      h+='<div class="toc-title">'+esc(tocTitle)+'</div>\n';
+      tocSections.forEach(s=>{
+        const cn=s.chNum?chapterNumber(s.chNum):null;
+        const label=cn&&s.title?cn+'. '+s.title:cn?'Chapter '+cn:s.title;
+        h+='<div class="toc-row"><a href="#'+s.slug+'">'+esc(label)+'</a><span class="toc-pg"></span></div>\n';
       });
       h+='</div>\n\n';
-    });
-    if(copy) h+='<div class="pb"><p class="cpr">'+esc(copy)+'</p></div>\n\n';
-    if(dedic) h+='<div class="pb"><p class="ded">'+esc(dedic)+'</p></div>\n\n';
-    // Chapters — uses exact theme/font/accent settings
-    chs.forEach((ch,i)=>{
-      const cn=chapterNumber(i+1);
-      h+='<div class="pb">\n';
-      if(cn) h+='<p class="cn">Chapter '+esc(String(cn))+'</p>\n';
-      if(ch.title) h+='<h2 class="ct">'+esc(ch.title)+'</h2>\n';
-      h+='<p class="orn">'+esc(orn)+'</p>\n';
-      const paras=ch.content.split('\n').filter(p=>p.trim());
+    }
+
+    // All sections in chapters array order
+    sections.forEach(sec=>{
+      const cn=sec.chNum?chapterNumber(sec.chNum):null;
+      h+='<div class="sec" id="'+sec.slug+'">\n';
+      if(sec.type==='chapter'){
+        if(cn) h+='<p class="cn">Chapter '+esc(String(cn))+'</p>\n';
+        if(sec.title) h+='<h2 class="ct">'+esc(sec.title)+'</h2>\n';
+        h+='<p class="orn">'+esc(orn)+'</p>\n';
+      } else {
+        if(sec.title) h+='<h2 class="st">'+esc(sec.title)+'</h2>\n';
+      }
+      const paras=sec.content.split('\n').filter(p=>p.trim());
       paras.forEach((p,pi)=>{
         if(p==='__SCENE_BREAK__'){h+='<p class="sb">'+esc(orn)+' '+esc(orn)+' '+esc(orn)+'</p>\n';return;}
         const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
-        const dc=pi===0&&Boolean(ch.title)?' dc':'';
+        const dc=dropCapOn&&pi===0&&sec.type==='chapter'&&Boolean(sec.title)?' dc':'';
         h+='<p class="'+(noInd?'ni':'')+dc+'">'+esc(p)+'</p>\n';
       });
       h+='</div>\n\n';
     });
-    // Back matter
-    back.forEach(sec=>{
-      h+='<div class="pb">\n<h2 class="st">'+esc(sec.title)+'</h2>\n';
-      sec.content.split('\n').filter(p=>p.trim()).forEach((p,pi)=>{
-        if(p==='__SCENE_BREAK__'){h+='<p class="sb">'+esc(orn)+' '+esc(orn)+' '+esc(orn)+'</p>\n';return;}
-        h+='<p class="'+(pi===0?'ni':'')+'">'+esc(p)+'</p>\n';
-      });
-      h+='</div>\n\n';
-    });
+
     h+='</body>\n</html>';
     downloadBlob(new Blob([h],{type:'text/html'}),safeName(title)+'.html');
-    setStatus('HTML exported — self-contained styled file, printable from any browser!');
+    setStatus('HTML exported — WYSIWYG with clickable TOC!');
   }catch(e){setStatus('HTML error: '+e.message);}
   setExportState(false,'HTML');
 }
@@ -4341,8 +4399,26 @@ function openWritingMode(chId) {
     (prev ? `<button class="writing-nav-btn" onclick="openWritingMode('${prev.id}')">← ${prev.title||'Prev'}</button>` : '') +
     (next ? `<button class="writing-nav-btn" onclick="openWritingMode('${next.id}')">→ ${next.title||'Next'}</button>` : '');
 
+  // Set chapter label
+  const _lbl = document.getElementById('writingChapterLabel');
+  if (_lbl) {
+    const _idx = chapters.findIndex(c => c.id === chId);
+    const _chNum = chapters.slice(0, _idx).filter(c => c.type==='chapter').length + (ch.type==='chapter' ? 1 : 0);
+    const _typeLabel = {chapter:`Chapter ${_chNum}`, pre:'Front Matter', post:'Back Matter', toc:'Table of Contents'}[ch.type] || 'Section';
+    _lbl.textContent = `✍ Editing: ${_typeLabel}${ch.title ? ' — ' + ch.title : ''}`;
+  }
   // Populate dingbat bar
   _populateWritingDingbar();
+  // Show/hide writing mode nav buttons
+  const _wb = document.getElementById('writingBody');
+  if (_wb) {
+    _wb.onscroll = () => {
+      const wt = document.getElementById('wTopBtn');
+      const wb2 = document.getElementById('wBotBtn');
+      if (wt) wt.style.opacity = _wb.scrollTop > 200 ? '1' : '0.3';
+      if (wb2) wb2.style.opacity = (_wb.scrollTop + _wb.clientHeight < _wb.scrollHeight - 200) ? '1' : '0.3';
+    };
+  }
   // Focus textarea at end
   const ta = document.getElementById('writingArea');
   ta.focus();
