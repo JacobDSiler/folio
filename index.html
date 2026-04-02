@@ -2612,8 +2612,8 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Home') {
     e.preventDefault();
     if (_writingChId !== undefined && document.getElementById('writingMode')?.classList.contains('active')) {
-      const ta = document.getElementById('writingArea');
-      if (ta) { ta.setSelectionRange(0,0); ta.scrollTop = 0; ta.focus(); }
+      const taHome = document.getElementById('writingArea');
+      if (taHome) { taHome.setSelectionRange(0,0); taHome.scrollTop = 0; taHome.focus(); }
     } else {
       scrollPreviewToTop();
     }
@@ -2621,8 +2621,8 @@ document.addEventListener('keydown', e => {
   if (e.key === 'End') {
     e.preventDefault();
     if (_writingChId !== undefined && document.getElementById('writingMode')?.classList.contains('active')) {
-      const ta = document.getElementById('writingArea');
-      if (ta) { ta.setSelectionRange(ta.value.length, ta.value.length); ta.scrollTop = ta.scrollHeight; ta.focus(); }
+      const taEnd = document.getElementById('writingArea');
+      if (taEnd) { taEnd.setSelectionRange(taEnd.value.length, taEnd.value.length); taEnd.scrollTop = taEnd.scrollHeight; taEnd.focus(); }
     } else {
       scrollPreviewToBottom();
     }
@@ -4456,8 +4456,8 @@ function updateWritingContent() {
   ch.content = ta.value;
   _autoResizeWritingArea(ta);
   // Sync sidebar textarea
-  const ta = document.querySelector(`.ch-item[data-id="${_writingChId}"] .ch-content-area`);
-  if (ta) ta.value = ch.content;
+  const sideTA = document.querySelector(`.ch-item[data-id="${_writingChId}"] .ch-content-area`);
+  if (sideTA) sideTA.value = ch.content;
   _updateWritingWC();
   _scheduleAutoSave();
 }
@@ -4612,8 +4612,8 @@ function _frJumpToCurrent() {
 
   // If writing mode is open for this chapter — highlight in textarea
   if (_writingChId === match.chId && match.field === 'content') {
-    const ta = document.getElementById('writingArea');
-    if (ta) { ta.focus(); ta.setSelectionRange(match.start, match.end); ta.blur(); ta.focus(); return; }
+    const taWM = document.getElementById('writingArea');
+    if (taWM) { taWM.focus(); taWM.setSelectionRange(match.start, match.end); taWM.blur(); taWM.focus(); return; }
   }
 
   // Open writing mode for this chapter and highlight
