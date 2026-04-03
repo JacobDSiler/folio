@@ -4717,40 +4717,316 @@ function getFullManuscript() {
     .join('\n\n---\n\n');
 }
 
+// ── Manuscript mode state ──
+let _msMode = 'write'; // 'write' | 'split'
+let _msSplits = [];    // [{pos, title}] character positions of split markers
+
 function openManuscriptView() {
   if (!chapters.length) { setStatus('No chapters to view yet'); return; }
-  // Open writing mode with a virtual "full manuscript" chapter
+
+  _writingChId = null;
+  _msMode = 'write';
+  _msSplits = [];
+
+  // Open writing pane
   document.getElementById('writingMode').classList.add('active');
   document.getElementById('previewScroller').style.display = 'none';
   document.querySelector('.preview-toolbar').style.display = 'none';
   document.getElementById('scrollTopBtn').classList.remove('visible');
   document.getElementById('scrollBottomBtn')?.classList.remove('visible');
 
-  _writingChId = null; // null = manuscript view mode
-  document.getElementById('writingTitleInput').value = 'Full Manuscript (read-only)';
+  // Populate
+  document.getElementById('writingTitleInput').value = 'Full Manuscript';
   document.getElementById('writingTitleInput').readOnly = true;
 
   const ta = document.getElementById('writingArea');
   ta.value = getFullManuscript();
-  ta.readOnly = true;
+  ta.readOnly = false;
   ta.style.color = 'var(--text)';
+  _autoResizeWritingArea(ta);
 
   const wc = getWordCount();
   document.getElementById('writingWC').textContent =
-    `${formatWC(wc)} words · ${chapters.filter(c=>c.type!=='toc').length} sections`;
+    `${formatWC(wc)} words · ${chapters.filter(c=>c.type!=='toc').length} chapters`;
 
-  document.getElementById('writingNav').innerHTML =
-    `<span style="font-size:10.5px;color:rgba(255,255,255,0.45);font-family:var(--sans)">Read-only compiled view</span>`;
+  _renderMsToolbar();
+  _populateWritingDingbar();
+  document.getElementById('writingDingbar').style.display = 'none'; // hide dingbar in ms view
+
+  const lbl = document.getElementById('writingChapterLabel');
+  if (lbl) lbl.textContent = '📖 Full manuscript — edit freely or switch to Split mode to divide into chapters';
+
+  ta.focus();
+}
+
+function _renderMsToolbar() {
+  document.getElementById('writingNav').innerHTML = `
+    <button onclick="_setMsMode('write')" id="msBtnWrite"
+      style="padding:3px 10px;border-radius:5px;border:1px solid rgba(255,255,255,0.25);
+             font-family:var(--sans);font-size:11px;cursor:pointer;
+             background:${_msMode==='write'?'rgba(201,149,106,0.5)':'transparent'};
+             color:${_msMode==='write'?'#fff':'rgba(255,255,255,0.65)'}">
+      ✏ Write
+    </button>
+    <button onclick="_setMsMode('split')" id="msBtnSplit"
+      style="padding:3px 10px;border-radius:5px;border:1px solid rgba(255,255,255,0.25);
+             font-family:var(--sans);font-size:11px;cursor:pointer;
+             background:${_msMode==='split'?'rgba(201,149,106,0.5)':'transparent'};
+             color:${_msMode==='split'?'#fff':'rgba(255,255,255,0.65)'}">
+      ✂ Split
+    </button>
+    ${_msMode==='split' && _msSplits.length > 0 ? `
+    <button onclick="_msConfirmSplits()"
+      style="padding:3px 10px;border-radius:5px;border:1px solid rgba(16,185,129,0.5);
+             font-family:var(--sans);font-size:11px;cursor:pointer;
+             background:rgba(6,95,70,0.6);color:#d1fae5">
+      ✓ Apply ${_msSplits.length} split${_msSplits.length!==1?'s':''}
+    </button>` : ''}`;
+}
+
+function _setMsMode(mode) {
+  // Save any edits before switching
+  if (_msMode === 'write') _msSyncToChapters(false);
+  _msMode = mode;
+
+  const ta = document.getElementById('writingArea');
+  const body = document.getElementById('writingBody');
+
+  if (mode === 'write') {
+    // Switch back to editable textarea
+    ta.style.display = '';
+    const splitOverlay = document.getElementById('msSplitOverlay');
+    if (splitOverlay) splitOverlay.remove();
+    ta.readOnly = false;
+    ta.value = getFullManuscript();
+    _autoResizeWritingArea(ta);
+    document.getElementById('writingDingbar').style.display = 'none';
+    const lbl = document.getElementById('writingChapterLabel');
+    if (lbl) lbl.textContent = '📖 Full manuscript — edit freely or switch to Split mode to divide into chapters';
+  } else {
+    // Split mode — show rendered paragraphs with clickable divider markers
+    ta.style.display = 'none';
+    document.getElementById('writingDingbar').style.display = 'none';
+    _msBuildSplitOverlay(body);
+  }
+  _renderMsToolbar();
+}
+
+function _msBuildSplitOverlay(body) {
+  const existing = document.getElementById('msSplitOverlay');
+  if (existing) existing.remove();
+
+  const text = document.getElementById('writingArea').value || getFullManuscript();
+  const paragraphs = text.split(/\n{2,}/).filter(p => p.trim());
+
+  const overlay = document.createElement('div');
+  overlay.id = 'msSplitOverlay';
+  overlay.style.cssText = 'padding:0;font-family:"Crimson Pro",Georgia,serif;font-size:16px;line-height:1.75;color:var(--text)';
+
+  const hint = document.createElement('p');
+  hint.style.cssText = 'font-family:var(--sans);font-size:11px;color:var(--hint);text-align:center;margin-bottom:24px;padding:0 20px';
+  hint.innerHTML = 'Click <strong>+</strong> between paragraphs to place a chapter split. Edit the chapter title in the bar that appears. <strong>Apply splits</strong> when done.';
+  overlay.appendChild(hint);
+
+  // Build existing splits from current chapter structure
+  _msSplits = [];
+  const chSections = chapters.filter(c => c.type !== 'toc');
+  if (chSections.length > 1) {
+    // Pre-populate splits from existing chapters
+    let charPos = 0;
+    chSections.forEach((ch, i) => {
+      if (i === 0) { charPos += (ch.title ? ch.title.length + 1 : 0) + (ch.content || '').length; return; }
+      _msSplits.push({ paraIdx: i, title: ch.title || '' });
+      charPos += (ch.title ? ch.title.length + 1 : 0) + (ch.content || '').length;
+    });
+  }
+
+  paragraphs.forEach((para, i) => {
+    // Split marker button between paragraphs
+    if (i > 0) {
+      const splitRow = document.createElement('div');
+      splitRow.dataset.paraIdx = i;
+      const existingSplit = _msSplits.find(s => s.paraIdx === i);
+      splitRow.innerHTML = existingSplit
+        ? _msSplitBarHTML(i, existingSplit.title)
+        : _msSplitBtnHTML(i);
+      splitRow.style.cssText = 'margin:4px 0';
+      overlay.appendChild(splitRow);
+    }
+
+    const p = document.createElement('p');
+    // Style section titles (from ---\n\nTitle pattern)
+    if (para.match(/^[-—]{3}$/) || para === '---') {
+      p.style.display = 'none';
+    } else {
+      p.style.cssText = 'margin:0 0 1em 0';
+      p.textContent = para;
+    }
+    overlay.appendChild(p);
+  });
+
+  body.appendChild(overlay);
+}
+
+function _msSplitBtnHTML(paraIdx) {
+  return `<div style="display:flex;align-items:center;gap:8px;margin:2px 0;opacity:0.3;transition:opacity .15s" 
+    onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=0.3">
+    <div style="flex:1;height:1px;background:var(--hint)"></div>
+    <button onclick="_msAddSplit(${paraIdx},this)" 
+      style="padding:1px 10px;border-radius:10px;border:1px dashed var(--hint);background:none;
+             color:var(--hint);font-size:11px;cursor:pointer;font-family:var(--sans);white-space:nowrap">
+      + chapter split
+    </button>
+    <div style="flex:1;height:1px;background:var(--hint)"></div>
+  </div>`;
+}
+
+function _msSplitBarHTML(paraIdx, title) {
+  return `<div style="display:flex;align-items:center;gap:8px;margin:10px 0;background:rgba(201,149,106,0.12);
+    border-left:3px solid #c9956a;padding:6px 10px;border-radius:0 6px 6px 0">
+    <span style="font-size:11px;color:#c9956a;font-family:var(--sans);flex-shrink:0">✂ Chapter</span>
+    <input value="${title.replace(/"/g,'&quot;')}" placeholder="Chapter title…"
+      oninput="_msUpdateSplitTitle(${paraIdx},this.value)"
+      style="flex:1;border:none;background:transparent;font-family:'Playfair Display',Georgia,serif;
+             font-size:13px;font-weight:700;color:var(--text);outline:none;min-width:0">
+    <button onclick="_msRemoveSplit(${paraIdx},this)"
+      style="background:none;border:none;cursor:pointer;color:var(--hint);font-size:14px;flex-shrink:0">✕</button>
+  </div>`;
+}
+
+function _msAddSplit(paraIdx, btn) {
+  _msSplits.push({ paraIdx, title: '' });
+  _msSplits.sort((a,b) => a.paraIdx - b.paraIdx);
+  // Replace the button row
+  const row = btn.closest('[data-para-idx]') || btn.closest('div[data-para-idx]');
+  if (row) row.innerHTML = _msSplitBarHTML(paraIdx, '');
+  else {
+    // Find by data attribute
+    const rows = document.querySelectorAll('#msSplitOverlay [data-para-idx]');
+    rows.forEach(r => { if (parseInt(r.dataset.paraIdx) === paraIdx) r.innerHTML = _msSplitBarHTML(paraIdx, ''); });
+  }
+  _renderMsToolbar();
+  // Auto-focus the title input
+  setTimeout(() => {
+    const rows = document.querySelectorAll('#msSplitOverlay [data-para-idx]');
+    rows.forEach(r => { if (parseInt(r.dataset.paraIdx) === paraIdx) { const inp = r.querySelector('input'); if(inp) inp.focus(); } });
+  }, 50);
+}
+
+function _msRemoveSplit(paraIdx, btn) {
+  _msSplits = _msSplits.filter(s => s.paraIdx !== paraIdx);
+  const row = btn.closest('[data-para-idx]');
+  if (row) row.innerHTML = _msSplitBtnHTML(paraIdx);
+  _renderMsToolbar();
+}
+
+function _msUpdateSplitTitle(paraIdx, title) {
+  const s = _msSplits.find(s => s.paraIdx === paraIdx);
+  if (s) s.title = title;
+}
+
+function _msSyncToChapters(close = true) {
+  // Save edited manuscript text back to chapters
+  const ta = document.getElementById('writingArea');
+  if (!ta || ta.style.display === 'none') return;
+  const text = ta.value;
+  if (!text.trim()) return;
+
+  // Rebuild chapters from text, preserving structure
+  // Split on existing --- dividers
+  const parts = text.split(/\n\n---\n\n/);
+  if (parts.length !== chapters.filter(c=>c.type!=='toc').length) {
+    // Structure changed — just update content of each chapter proportionally
+    // For now, update the first chapter with all content if structure doesn't match
+    const bodyChapters = chapters.filter(c => c.type !== 'toc');
+    if (bodyChapters.length === 1) {
+      bodyChapters[0].content = text;
+    } else {
+      // Re-parse: use existing --- dividers as split points
+      parts.forEach((part, i) => {
+        if (!bodyChapters[i]) return;
+        const lines = part.split('\n');
+        const firstLine = lines[0].trim();
+        // If first line matches chapter title, skip it
+        if (firstLine === bodyChapters[i].title) {
+          bodyChapters[i].content = lines.slice(2).join('\n').trim();
+        } else {
+          bodyChapters[i].content = part.trim();
+        }
+      });
+    }
+    if (close) { renderChapterList(); renderPreview(); _scheduleAutoSave(); }
+  }
+}
+
+function _msConfirmSplits() {
+  if (!_msSplits.length) { toastInfo('No splits placed yet', { duration: 2000 }); return; }
+
+  // Get the paragraphs from the overlay
+  const overlay = document.getElementById('msSplitOverlay');
+  if (!overlay) return;
+
+  // Rebuild chapters from paragraphs + split positions
+  const text = document.getElementById('writingArea').value || getFullManuscript();
+  const paragraphs = text.split(/\n{2,}/).filter(p => p.trim() && p !== '---');
+
+  // Group paragraphs by split boundaries
+  const sortedSplits = [..._msSplits].sort((a,b) => a.paraIdx - b.paraIdx);
+  const splitIndices = new Set(sortedSplits.map(s => s.paraIdx));
+
+  const groups = [];
+  let current = { title: '', paras: [] };
+  paragraphs.forEach((para, i) => {
+    if (splitIndices.has(i)) {
+      if (current.paras.length || current.title) groups.push(current);
+      const split = sortedSplits.find(s => s.paraIdx === i);
+      current = { title: split?.title || '', paras: [] };
+    }
+    current.paras.push(para);
+  });
+  if (current.paras.length || current.title) groups.push(current);
+
+  if (!groups.length) return;
+
+  // Preserve TOC and non-chapter items, rebuild body chapters
+  const nonBody = chapters.filter(c => c.type === 'toc');
+  const newChapters = groups.map((g, i) => ({
+    id: (chapters.filter(c=>c.type==='chapter')[i]?.id) || ('ch_' + Date.now() + '_' + i),
+    type: 'chapter',
+    title: g.title,
+    content: g.paras.join('\n\n'),
+    expanded: false,
+  }));
+
+  // Re-insert TOC at its original position (or start)
+  const tocEntry = chapters.find(c => c.type === 'toc');
+  chapters = tocEntry ? [tocEntry, ...newChapters] : newChapters;
+
+  renderChapterList();
+  renderPreview();
+  _scheduleAutoSave();
+  _msSplits = [];
+
+  toastSuccess(`Split into ${newChapters.length} chapters ✓`, { icon: '✂', duration: 3000 });
+  closeWritingMode();
 }
 
 // Override closeWritingMode to reset readOnly state
 const _origCloseWriting = null;
 const _realCloseWriting = closeWritingMode;
 function closeWritingMode() {
+  // Save manuscript edits if we were in ms mode
+  if (_writingChId === null) _msSyncToChapters(false);
+  // Clean up ms split overlay
+  const _msOv = document.getElementById('msSplitOverlay');
+  if (_msOv) _msOv.remove();
+  const _waTa = document.getElementById('writingArea');
+  if (_waTa) { _waTa.style.display = ''; _waTa.readOnly = false; }
   document.getElementById('writingTitleInput').readOnly = false;
-  document.getElementById('writingArea').readOnly = false;
   document.getElementById('writingArea').style.color = '';
+  document.getElementById('writingDingbar').style.display = '';
   _writingChId = null;
+  _msMode = 'write';
   document.getElementById('writingMode').classList.remove('active');
   document.getElementById('previewScroller').style.display = '';
   document.querySelector('.preview-toolbar').style.display = '';
