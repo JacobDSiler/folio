@@ -76,6 +76,12 @@ onAuthStateChanged(auth, async user => {
   --radius:8px;--radius-lg:12px;
   --sans:'Inter',system-ui,sans-serif;
 }
+[data-dark]{
+  --bg:#1c1a17;--surface:#252320;
+  --border:rgba(255,255,255,0.08);--border-mid:rgba(255,255,255,0.15);
+  --text:#e8dece;--muted:#8a8070;--hint:#5a5448;
+  --accent-ui:#e8dece;
+}
 html,body{height:100%}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex;flex-direction:column;height:100vh;overflow:hidden}
 .app{display:grid;grid-template-columns:var(--sidebar-w) 1fr;flex:1;overflow:hidden;height:100%;min-height:0}
@@ -260,6 +266,18 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .tab-btn.active{color:var(--text);border-bottom-color:var(--accent-ui);background:#faf9f7}
 .tab-btn:hover:not(.active){color:var(--text);background:var(--bg)}
 @media(max-width:768px){.app{grid-template-columns:1fr}.preview-area{display:none}}
+@media print{
+  .sidebar,.preview-toolbar,#findReplaceBar,#scrollTopBtn,#scrollBottomBtn,
+  #toastContainer,.writing-toolbar,.writing-dingbar,
+  .status-bar,.export-section{display:none!important}
+  .app{display:block}
+  .preview-area{display:block!important;height:auto!important;overflow:visible!important;background:#fff!important}
+  .preview-scroller{overflow:visible!important;padding:0!important}
+  .preview-wrap{gap:0!important}
+  .book-page{box-shadow:none!important;margin:0!important;page-break-after:always;break-after:page}
+  .book-page:last-child{page-break-after:avoid;break-after:avoid}
+  body{height:auto!important;overflow:auto!important}
+}
 [data-tip]{position:relative}
 [data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:#333;color:#fff;font-size:10px;padding:3px 7px;border-radius:4px;white-space:nowrap;pointer-events:none;z-index:10}
 .small-note{font-size:10.5px;color:var(--hint);margin-top:5px;line-height:1.5}
@@ -367,7 +385,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
   <div class="sidebar-header">
     <h1><span>📖</span> Folio</h1>
     <p>Format · Export · Collaborate — PDF · EPUB · MD · and more</p>
-  </div>
+  <button id="darkModeBtn" onclick="toggleDarkMode()" title="Toggle dark mode" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 5px;color:var(--hint);border-radius:4px;transition:color .15s" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--hint)'">☽</button></div>
 
   <div class="tabs">
     <button class="tab-btn active" onclick="switchTab('import',this)">Import</button>
@@ -487,7 +505,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
         </div>
         <div class="toggle-row">
           <span>Running header</span>
-          <label class="toggle"><input type="checkbox" id="runningHeader" checked onchange="renderPreview()"><span class="tog-track"></span></label>
+          <select id="runningHeader" onchange="renderPreview()" style="width:auto;font-size:11px;padding:3px 7px">
+            <option value="both" selected>Author · Title</option>
+            <option value="author">Author only</option>
+            <option value="title">Title only</option>
+            <option value="off">Off</option>
+          </select>
         </div>
         <div class="toggle-row">
           <span>Table of contents</span>
@@ -567,7 +590,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
       <div class="section">
         <div class="section-title">Typography</div>
         <label>Body Font</label>
-        <select id="bodyFont" onchange="renderPreview()">
+        <select id="bodyFont" onchange="renderPreview();_updateFontPreview()">
           <optgroup label="Literary">
             <option value="'Crimson Pro', Georgia, serif">Crimson Pro — Classic editorial</option>
             <option value="'Libre Baskerville', Georgia, serif">Libre Baskerville — Scholarly</option>
@@ -583,6 +606,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
             <option value="'Courier New', Courier, monospace">Courier New — Fixed-width, clear spacing</option>
           </optgroup>
         </select>
+        <div id="fontPreview" style="font-size:15px;line-height:1.5;padding:8px 10px;background:var(--bg);border-radius:6px;border:.5px solid var(--border-mid);margin-top:5px;color:var(--text);min-height:42px">
+          The quick brown fox jumped over the lazy dog.
+        </div>
         <label>Font Size</label>
         <div class="range-row">
           <input type="range" id="fontSize" min="10" max="28" value="13" step="0.5"
@@ -797,6 +823,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
       <div class="writing-nav" id="writingNav"></div>
       <input class="writing-title-input" id="writingTitleInput" placeholder="Chapter title…" oninput="updateWritingTitle()">
       <span class="writing-wc" id="writingWC"></span>
+      <button class="writing-close" onclick="showChapterExportMenu(_writingChId, this)" title="Export this chapter" style="background:transparent;border-color:rgba(255,255,255,0.2)" id="writingExportBtn">⇩ Export</button>
       <button class="writing-close" onclick="closeWritingMode()">✕ Done</button>
     </div>
     <div class="writing-body" id="writingBody">
@@ -1465,7 +1492,7 @@ function _serialise() {
     },
     toggles: {
       pageNums:      getC('pageNums'),
-      runningHeader: getC('runningHeader'),
+      runningHeader: getV('runningHeader')||'both',
       showTOC:       getC('showTOC'),
       dropCap:       getC('dropCap'),
       justifyText:   getC('justifyText'),
@@ -1500,7 +1527,12 @@ function _deserialise(state) {
   const META_MAP = {title:'bookTitle',author:'bookAuthor',subtitle:'bookSubtitle',
     publisher:'publisher',year:'pubYear',dedication:'dedication',copyright:'copyright'};
   if (state.meta)    Object.entries(state.meta).forEach(([k,v])=>{ const el=document.getElementById(META_MAP[k]); if(el) el.value=v||''; });
-  if (state.toggles) Object.entries(state.toggles).forEach(([k,v])=>{ const el=document.getElementById(k); if(el&&el.type==='checkbox') el.checked=!!v; });
+  if (state.toggles) Object.entries(state.toggles).forEach(([k,v])=>{
+    const el=document.getElementById(k);
+    if (!el) return;
+    if (el.type==='checkbox') el.checked=!!v;
+    else if (el.tagName==='SELECT') el.value=v||'';
+  });
   if (state.design) {
     const t=THEMES.find(x=>x.id===state.design.themeId);
     if(t) S.theme=t;
@@ -1511,11 +1543,12 @@ function _deserialise(state) {
     buildThemeGrid(); buildColorRow(); buildOrnGrid();
   }
   if (state.type) {
-    ['bodyFont','fontSize','lineSpacing','paraIndent','chNumStyle','pageMargin'].forEach(k=>{
+    ['bodyFont','fontSize','lineSpacing','paraIndent','chNumStyle','pageMargin','runningHeader'].forEach(k=>{
       const el=document.getElementById(k); if(el&&state.type[k]!=null) el.value=state.type[k];
     });
     const fo=document.getElementById('fontSizeOut');
     if(fo) fo.textContent=document.getElementById('fontSize').value+'pt';
+    _updateFontPreview();
   const mo=document.getElementById('marginOut');
   if(mo){const mv=document.getElementById('pageMargin');if(mv)mo.textContent=mv.value+'mm';}
   }
@@ -2708,6 +2741,7 @@ function chItemHTML(ch,i){
       <span style="font-size:9.5px;color:var(--hint);flex-shrink:0;padding:0 3px;white-space:nowrap">${wcStr}</span>
       <button class="ch-expand-btn" onclick="scrollToChapter('${ch.id}')" title="Jump to chapter in preview">▶</button>
       <button class="ch-expand-btn" onclick="openWritingMode('${ch.id}')" title="Open in writing mode">✍</button>
+      <button class="ch-expand-btn" onclick="showChapterExportMenu('${ch.id}',this)" title="Export this chapter" style="opacity:0.65;font-size:11px">⇩</button>
       <button class="ch-rm-btn" style="margin-left:2px;padding:1px 6px;font-size:10px" onclick="removeChapter('${ch.id}')">✕</button>
     </div>
   </div>`;
@@ -3261,7 +3295,7 @@ function renderPreview(){
   const indent=getV('paraIndent');
   const justify=getC('justifyText')?'justify':'left';
   const showNums=getC('pageNums');
-  const showHdr=getC('runningHeader');
+  const hdrMode=getV('runningHeader')||'both'; const showHdr=hdrMode!=='off';
   const showTOC=getC('showTOC');
   const dropCap=getC('dropCap');
   const chImgs=getC('chapterImgs');
@@ -3318,7 +3352,9 @@ function renderPreview(){
   const pageWrap=(inner,pn,isFirst=false,chapId=null)=>{
     const chapAttr=chapId?` id="chap-${chapId}" data-chapid="${chapId}"`:"";
 
-    const hdr=showHdr&&!isFirst?`<div style="position:absolute;top:${Math.round(10*MM)}px;left:${mg}px;right:${mg}px;display:flex;justify-content:space-between;font-family:${font};font-size:${pt(H_HEADER)};color:${T.text}77;letter-spacing:0.08em;text-transform:uppercase;border-bottom:0.5px solid ${T.divider};padding-bottom:${mm(0.8)}"><span>${esc(author.toUpperCase())}</span><span>${esc(title.toUpperCase())}</span></div>`:'';
+    const hdrL = hdrMode==='title'?'':esc(author.toUpperCase());
+    const hdrR = hdrMode==='author'?'':esc(title.toUpperCase());
+    const hdr=showHdr&&!isFirst?`<div style="position:absolute;top:${Math.round(10*MM)}px;left:${mg}px;right:${mg}px;display:flex;justify-content:space-between;font-family:${font};font-size:${pt(H_HEADER)};color:${T.text}77;letter-spacing:0.08em;text-transform:uppercase;border-bottom:0.5px solid ${T.divider};padding-bottom:${mm(0.8)}"><span>${hdrL}</span><span>${hdrR}</span></div>`:'';
     const ftr=showNums&&pn>2?`<div style="position:absolute;bottom:${Math.round(8*MM)}px;left:0;right:0;text-align:center;font-family:${font};font-size:${pt(H_FOOTER)};color:${T.text}66">${pn}</div>`:'';
     return `<div class="book-page"${chapAttr} style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;top:${contentT}px;left:${mg}px;right:${mg}px;bottom:${contentB}px;overflow:visible;display:flex;flex-direction:column">${inner}</div></div>`;
   };
@@ -3527,7 +3563,18 @@ function renderPreview(){
   // Word-density page count — calibrated from real PDF measurement
   // 187 words/page at 13pt, 1.7 lspace, Trade 6x9, 18mm margins
   const _pgEstimate=estimatePageCount(_wc);
-  document.getElementById('pageCountLine').textContent=`~${_pgEstimate} pages · ${formatWC(_wc)} words`;
+  // Widows & orphans check — warn if any chapter is very short relative to a page
+  const _shortChapters = getChapters().filter(ch => {
+    const wc = ch.content.trim().split(/\s+/).length;
+    return wc > 0 && wc < 80; // fewer than ~80 words = likely orphan page
+  });
+  const _orphanHint = _shortChapters.length
+    ? ` · ⚠ ${_shortChapters.length} short chapter${_shortChapters.length>1?'s':''}`
+    : '';
+  document.getElementById('pageCountLine').textContent=`~${_pgEstimate} pages · ${formatWC(_wc)} words${_orphanHint}`;
+  document.getElementById('pageCountLine').title = _shortChapters.length
+    ? 'Short chapters: ' + _shortChapters.map(c=>c.title||'Untitled').join(', ')
+    : '';
   document.getElementById('statusBar').textContent=`Preview updated — ${bodyChapters.length} chapter${bodyChapters.length!==1?'s':''}, ~${_pgEstimate} pages`;
   // Schedule auto-save whenever the preview updates (content changed)
   if (_fbReady || chapters.length) _scheduleAutoSave();
@@ -3537,6 +3584,95 @@ function renderPreview(){
 /* ═══════════════════════════════════════════════
    PDF EXPORT
 ═══════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════
+   CHAPTER EXPORT FILTER
+   Set _chapterExportFilter to a chapter id to export
+   only that chapter. Null = export all (default).
+═══════════════════════════════════════════════ */
+let _chapterExportFilter = null; // chapter id or null
+
+// Temporarily scope exports to one chapter, run fn, then reset
+async function exportSingleChapter(chId, exportFn) {
+  const ch = chapters.find(c => c.id === chId);
+  if (!ch) return;
+  _chapterExportFilter = chId;
+  try {
+    await exportFn();
+  } finally {
+    _chapterExportFilter = null;
+  }
+}
+
+// Override getChapters / getFront / getBack to respect the filter
+const _origGetChapters = getChapters;
+const _origGetFront    = getFront;
+const _origGetBack     = getBack;
+
+function getChapters() {
+  const all = _origGetChapters();
+  if (!_chapterExportFilter) return all;
+  return all.filter(c => c.id === _chapterExportFilter);
+}
+function getFront() {
+  if (!_chapterExportFilter) return _origGetFront();
+  const ch = chapters.find(c => c.id === _chapterExportFilter);
+  return (ch && ch.type === 'pre') ? [ch] : [];
+}
+function getBack() {
+  if (!_chapterExportFilter) return _origGetBack();
+  const ch = chapters.find(c => c.id === _chapterExportFilter);
+  return (ch && ch.type === 'post') ? [ch] : [];
+}
+
+// Show the chapter export menu (TXT, MD, DOCX, PDF)
+function showChapterExportMenu(chId, anchorEl) {
+  // Remove any existing menu
+  const existing = document.getElementById('chExportMenu');
+  if (existing) { existing.remove(); return; }
+
+  const ch = chapters.find(c => c.id === chId);
+  if (!ch) return;
+
+  const menu = document.createElement('div');
+  menu.id = 'chExportMenu';
+  menu.style.cssText = 'position:fixed;background:var(--surface);border:1px solid var(--border-mid);border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,0.2);z-index:200;min-width:140px;padding:4px 0;font-family:var(--sans);font-size:11.5px';
+
+  const formats = [
+    { fmt:'TXT',  label:'Plain text',  fn: exportTXT },
+    { fmt:'MD',   label:'Markdown',    fn: exportMarkdown },
+    { fmt:'DOCX', label:'Word (.docx)',fn: exportDOCX },
+    { fmt:'PDF',  label:'PDF',         fn: exportPDF },
+    { fmt:'HTML', label:'HTML',        fn: exportHTML },
+  ];
+
+  formats.forEach(({fmt, label, fn}) => {
+    const btn = document.createElement('button');
+    btn.style.cssText = 'display:block;width:100%;padding:7px 14px;background:none;border:none;text-align:left;cursor:pointer;color:var(--text)';
+    btn.innerHTML = `<strong style="opacity:.6;font-size:10px;letter-spacing:.05em">${fmt}</strong> <span style="opacity:.8">${label}</span>`;
+    btn.onmouseover = () => btn.style.background = 'var(--bg)';
+    btn.onmouseout  = () => btn.style.background = 'none';
+    btn.onclick = () => {
+      menu.remove();
+      exportSingleChapter(chId, fn);
+    };
+    menu.appendChild(btn);
+  });
+
+  // Position near the anchor
+  document.body.appendChild(menu);
+  const r = anchorEl.getBoundingClientRect();
+  const top = Math.min(r.bottom + 4, window.innerHeight - menu.offsetHeight - 8);
+  menu.style.top  = top + 'px';
+  menu.style.left = Math.max(8, r.left - menu.offsetWidth + r.width) + 'px';
+
+  // Close on outside click
+  setTimeout(() => {
+    document.addEventListener('click', function _close(e) {
+      if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener('click', _close); }
+    });
+  }, 10);
+}
+
 async function exportPDF(){
   setExportState(true,'PDF');
   try{
@@ -3586,14 +3722,14 @@ async function exportPDF(){
       const ornFont = 'zapfdingbats';
 
       // yStart: first usable y on a fresh page (clear of running header)
-      const hdrOn=getC('runningHeader');
+      const hdrMode=getV('runningHeader')||'both'; const hdrOn=hdrMode!=='off';
       const yStart=hdrOn?21:mg;
       // Bottom threshold — leave room for page number
       const yBottom=ph-mg-9;
 
       const setBody=()=>{doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);};
       const addPageNum=()=>{if(!showNums||pageNum<=2)return;doc.setFont('times','normal');doc.setFontSize(7.5);doc.setTextColor(...txR);doc.text(String(pageNum),pw/2,ph-8,{align:'center'})};
-      const addHeader=()=>{if(!hdrOn||pageNum<=1)return;doc.setFont('times','normal');doc.setFontSize(6.5);doc.setTextColor(...txR);doc.text(author.toUpperCase(),mg,13);doc.text(title.toUpperCase(),pw-mg,13,{align:'right'});doc.setDrawColor(...dvR);doc.line(mg,14.5,pw-mg,14.5)};
+      const addHeader=()=>{if(!hdrOn||pageNum<=1)return;doc.setFont('times','normal');doc.setFontSize(6.5);doc.setTextColor(...txR);const _hl=hdrMode==='title'?'':author.toUpperCase();const _hr=hdrMode==='author'?'':title.toUpperCase();if(_hl)doc.text(_hl,mg,13);if(_hr)doc.text(_hr,pw-mg,13,{align:'right'});doc.setDrawColor(...dvR);doc.line(mg,14.5,pw-mg,14.5)};
       const newPage=()=>{doc.addPage();addBg();pageNum++;addHeader();};
 
       // Core text renderer — flows paragraphs across pages cleanly.
@@ -4872,9 +5008,46 @@ const toastError   = (msg, opts) => toast(msg, { type: 'error',   ...opts });
 
 
 /* ═══════════════════════════════════════════════
+   FONT PREVIEW
+═══════════════════════════════════════════════ */
+function _updateFontPreview() {
+  const sel = document.getElementById('bodyFont');
+  const prev = document.getElementById('fontPreview');
+  if (!sel || !prev) return;
+  const font = sel.value;
+  prev.style.fontFamily = font;
+}
+
+/* ═══════════════════════════════════════════════
+   DARK MODE TOGGLE
+═══════════════════════════════════════════════ */
+function toggleDarkMode() {
+  const isDark = document.documentElement.hasAttribute('data-dark');
+  if (isDark) {
+    document.documentElement.removeAttribute('data-dark');
+    document.getElementById('darkModeBtn').textContent = '☽';
+    localStorage.setItem('folio_dark', '0');
+  } else {
+    document.documentElement.setAttribute('data-dark', '');
+    document.getElementById('darkModeBtn').textContent = '☀';
+    localStorage.setItem('folio_dark', '1');
+  }
+}
+
+// Restore dark mode preference on load
+(function() {
+  if (localStorage.getItem('folio_dark') === '1') {
+    document.documentElement.setAttribute('data-dark', '');
+    const btn = document.getElementById('darkModeBtn');
+    if (btn) btn.textContent = '☀';
+  }
+})();
+
+/* ═══════════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════════ */
 buildThemeGrid();buildColorRow();buildOrnGrid();
+_updateFontPreview();
 // Auto-populate copyright if empty
 (function(){
   const el = document.getElementById('copyright');
