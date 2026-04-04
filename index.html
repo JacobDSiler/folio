@@ -267,42 +267,28 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .tab-btn:hover:not(.active){color:var(--text);background:var(--bg)}
 @media(max-width:768px){.app{grid-template-columns:1fr}.preview-area{display:none}}
 @media print{
-  /* Hide all editor chrome */
-  .sidebar,.preview-toolbar,#findReplaceBar,#scrollTopBtn,#scrollBottomBtn,
-  #toastContainer,.writing-mode,.writing-toolbar,.writing-dingbar,
-  .split-editor,.status-bar,.export-section,.preview-edit-mode-hint{display:none!important}
-
-  /* Reset layout so preview fills the full page */
-  html,body{height:auto!important;overflow:visible!important;background:#fff!important}
-  .app{display:block!important;height:auto!important;overflow:visible!important}
-  main.preview-area{
-    display:block!important;height:auto!important;overflow:visible!important;
-    background:#fff!important;padding:0!important;margin:0!important;
-    width:100%!important;position:static!important
-  }
-  .preview-scroller{
-    overflow:visible!important;padding:0!important;
-    display:block!important;width:100%!important
-  }
-  .preview-wrap{
-    display:block!important;width:100%!important;
-    gap:0!important;align-items:stretch!important
-  }
-  /* Each book page fills the print page — override inline px dimensions */
-  .book-page{
-    box-shadow:none!important;margin:0!important;border:none!important;
-    width:100%!important;height:auto!important;min-height:100vh!important;
-    overflow:visible!important;position:relative!important;
-    page-break-after:always!important;break-after:page!important;
-    background:#fff!important
-  }
-  .book-page:last-child{page-break-after:avoid!important;break-after:avoid!important}
-  /* Let absolutely-positioned content inside pages reflow */
-  .book-page > div[style]{
-    position:static!important;width:100%!important;height:auto!important;
-    padding:2cm 2.2cm!important;overflow:visible!important;box-sizing:border-box!important
-  }
+  /* Hide everything except #printBook which we populate on demand */
+  body > *{display:none!important}
+  #printBook{display:block!important}
 }
+/* Print book container — hidden normally, shown only on print */
+#printBook{display:none;font-family:'Crimson Pro',Georgia,serif;font-size:13pt;line-height:1.7;background:#fff;color:#1a1504}
+#printBook .pb{page-break-after:always;break-after:page;padding:2cm 2.5cm;min-height:100vh;box-sizing:border-box;position:relative}
+#printBook .pb:last-child{page-break-after:avoid;break-after:avoid}
+#printBook .pb-hdr{position:absolute;top:1cm;left:2.5cm;right:2.5cm;display:flex;justify-content:space-between;font-size:7.5pt;letter-spacing:.1em;text-transform:uppercase;opacity:.55;border-bottom:.5px solid #c9a86c;padding-bottom:2mm}
+#printBook .pb-ftr{position:absolute;bottom:1cm;left:0;right:0;text-align:center;font-size:8pt;opacity:.5}
+#printBook .pb-content{margin-top:1.5cm}
+#printBook h1.bt{font-family:'Playfair Display',Georgia,serif;font-size:2.2em;text-align:center;margin:2em 0 .4em;line-height:1.2}
+#printBook .bs{font-style:italic;text-align:center;font-size:1.05em;opacity:.7}
+#printBook .ba{text-align:center;letter-spacing:.12em;text-transform:uppercase;font-size:.88em;opacity:.5;margin-top:.8em}
+#printBook .cn{font-size:.7em;letter-spacing:.18em;text-transform:uppercase;text-align:center;margin-top:3em;margin-bottom:.3em;opacity:.7}
+#printBook h2.ct{font-family:'Playfair Display',Georgia,serif;font-size:1.55em;text-align:center;margin:.2em 0 0}
+#printBook .orn{text-align:center;font-size:1.1em;opacity:.7;margin:.8em 0 1.2em}
+#printBook .st{font-family:'Playfair Display',Georgia,serif;font-size:1.35em;text-align:center;margin:3em 0 .8em}
+#printBook p{margin:0;text-indent:1.2em}
+#printBook p.ni{text-indent:0}
+#printBook .sb{text-align:center;opacity:.6;margin:1em 0}
+#printBook .dc::first-letter{float:left;font-family:'Playfair Display',Georgia,serif;font-size:3.5em;line-height:.74;margin:.06em .07em 0 0;font-weight:700}
 [data-tip]{position:relative}
 [data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:#333;color:#fff;font-size:10px;padding:3px 7px;border-radius:4px;white-space:nowrap;pointer-events:none;z-index:10}
 .small-note{font-size:10.5px;color:var(--hint);margin-top:5px;line-height:1.5}
@@ -531,9 +517,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
         <div class="toggle-row">
           <span>Running header</span>
           <select id="runningHeader" onchange="renderPreview()" style="width:auto;font-size:11px;padding:3px 7px">
-            <option value="both" selected>Author · Title</option>
+            <option value="both" selected>Author · Book title</option>
+            <option value="recto">Author (left) · Chapter (right)</option>
             <option value="author">Author only</option>
-            <option value="title">Title only</option>
+            <option value="title">Book title only</option>
             <option value="off">Off</option>
           </select>
         </div>
@@ -2886,6 +2873,11 @@ function insertWritingDingbat(glyph) {
 
 function _autoResizeWritingArea(ta) {
   if (!ta) return;
+  // For manuscript view, just use a comfortable fixed height — body scrolls
+  if (_writingChId === null) {
+    ta.style.height = 'auto'; // let it be natural
+    return;
+  }
   ta.style.height = 'auto';
   ta.style.height = Math.max(400, ta.scrollHeight) + 'px';
 }
@@ -3372,13 +3364,23 @@ function renderPreview(){
   const H_ORN         = fsize * 1.0;   // ornament at body size
   const H_SCENE_BREAK = fsize * 0.92;  // scene break ornaments
 
-  const pageWrap=(inner,pn,isFirst=false,chapId=null)=>{
+  const pageWrap=(inner,pn,isFirst=false,chapId=null,chTitle='')=>{
     const chapAttr=chapId?` id="chap-${chapId}" data-chapid="${chapId}"`:"";
 
-    const hdrL = hdrMode==='title'?'':esc(author.toUpperCase());
-    const hdrR = hdrMode==='author'?'':esc(title.toUpperCase());
-    const hdr=showHdr&&!isFirst?`<div style="position:absolute;top:${Math.round(10*MM)}px;left:${mg}px;right:${mg}px;display:flex;justify-content:space-between;font-family:${font};font-size:${pt(H_HEADER)};color:${T.text}77;letter-spacing:0.08em;text-transform:uppercase;border-bottom:0.5px solid ${T.divider};padding-bottom:${mm(0.8)}"><span>${hdrL}</span><span>${hdrR}</span></div>`:'';
+    const _hdrFn=(showHdr&&!isFirst) ? ((chapterTitle, pageN) => {
+      let hL='', hR='';
+      if (hdrMode==='both')   { hL=esc(author.toUpperCase()); hR=esc(title.toUpperCase()); }
+      else if(hdrMode==='recto') {
+        // Odd pages (recto): chapter title right. Even pages (verso): author left.
+        if (pageN % 2 === 0) { hL=esc(author.toUpperCase()); hR=''; }
+        else                  { hL=''; hR=esc((chapterTitle||title).toUpperCase()); }
+      }
+      else if(hdrMode==='author') { hL=esc(author.toUpperCase()); }
+      else if(hdrMode==='title')  { hR=esc(title.toUpperCase()); }
+      return `<div style="position:absolute;top:${Math.round(10*MM)}px;left:${mg}px;right:${mg}px;display:flex;justify-content:space-between;font-family:${font};font-size:${pt(H_HEADER)};color:${T.text}77;letter-spacing:0.08em;text-transform:uppercase;border-bottom:0.5px solid ${T.divider};padding-bottom:${mm(0.8)}"><span>${hL}</span><span>${hR}</span></div>`;
+    }) : () => '';
     const ftr=showNums&&pn>2?`<div style="position:absolute;bottom:${Math.round(8*MM)}px;left:0;right:0;text-align:center;font-family:${font};font-size:${pt(H_FOOTER)};color:${T.text}66">${pn}</div>`:'';
+    const hdr=isFirst?'':_hdrFn(chTitle,pn);
     return `<div class="book-page"${chapAttr} style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;top:${contentT}px;left:${mg}px;right:${mg}px;bottom:${contentB}px;overflow:visible;display:flex;flex-direction:column">${inner}</div></div>`;
   };
 
@@ -4743,7 +4745,7 @@ function openManuscriptView() {
   ta.value = getFullManuscript();
   ta.readOnly = false;
   ta.style.color = 'var(--text)';
-  _autoResizeWritingArea(ta);
+  ta.style.height = 'auto'; // natural height, body scrolls
 
   const wc = getWordCount();
   document.getElementById('writingWC').textContent =
@@ -4817,7 +4819,9 @@ function _msBuildSplitOverlay(body) {
   if (existing) existing.remove();
 
   const text = document.getElementById('writingArea').value || getFullManuscript();
-  const paragraphs = text.split(/\n{2,}/).filter(p => p.trim());
+  // Split into paragraphs, keeping --- separators visible as dividers
+  const allParas = text.split(/\n{2,}/);
+  const paragraphs = allParas.map(p => p.trim()).filter(p => p);
 
   const overlay = document.createElement('div');
   overlay.id = 'msSplitOverlay';
@@ -4825,24 +4829,42 @@ function _msBuildSplitOverlay(body) {
 
   const hint = document.createElement('p');
   hint.style.cssText = 'font-family:var(--sans);font-size:11px;color:var(--hint);text-align:center;margin-bottom:24px;padding:0 20px';
-  hint.innerHTML = 'Click <strong>+</strong> between paragraphs to place a chapter split. Edit the chapter title in the bar that appears. <strong>Apply splits</strong> when done.';
+  hint.innerHTML = 'Click <strong>+ chapter split</strong> between paragraphs to divide the manuscript. Give each chapter a title. Hit <strong>Apply splits</strong> in the toolbar when done.';
   overlay.appendChild(hint);
 
-  // Build existing splits from current chapter structure
+  // Pre-populate splits from current chapter structure
+  // Find the paragraph index where each chapter starts in the compiled text
   _msSplits = [];
   const chSections = chapters.filter(c => c.type !== 'toc');
   if (chSections.length > 1) {
-    // Pre-populate splits from existing chapters
-    let charPos = 0;
-    chSections.forEach((ch, i) => {
-      if (i === 0) { charPos += (ch.title ? ch.title.length + 1 : 0) + (ch.content || '').length; return; }
-      _msSplits.push({ paraIdx: i, title: ch.title || '' });
-      charPos += (ch.title ? ch.title.length + 1 : 0) + (ch.content || '').length;
+    // Build a lookup: first unique paragraph of each chapter → paraIdx
+    let parasCounted = 0;
+    chSections.forEach((ch, chIdx) => {
+      if (chIdx === 0) {
+        // Count paragraphs in first chapter
+        const chParas = (ch.title ? [ch.title] : []).concat(
+          (ch.content||'').split(/\n{2,}/).map(p=>p.trim()).filter(p=>p)
+        );
+        parasCounted += chParas.length;
+        return;
+      }
+      // This chapter starts at parasCounted
+      _msSplits.push({ paraIdx: parasCounted, title: ch.title || '' });
+      const chParas = (ch.title ? [ch.title] : []).concat(
+        (ch.content||'').split(/\n{2,}/).map(p=>p.trim()).filter(p=>p)
+      );
+      parasCounted += chParas.length;
+    });
+    // Also skip the --- separators between chapters
+    // Adjust paraIdx for the --- lines that appear in getFullManuscript()
+    let sepAdjust = 0;
+    _msSplits.forEach((s, i) => {
+      s.paraIdx += i; // each chapter is separated by one '---' paragraph
     });
   }
 
   paragraphs.forEach((para, i) => {
-    // Split marker button between paragraphs
+    // Split marker row between paragraphs
     if (i > 0) {
       const splitRow = document.createElement('div');
       splitRow.dataset.paraIdx = i;
@@ -4855,9 +4877,9 @@ function _msBuildSplitOverlay(body) {
     }
 
     const p = document.createElement('p');
-    // Style section titles (from ---\n\nTitle pattern)
-    if (para.match(/^[-—]{3}$/) || para === '---') {
-      p.style.display = 'none';
+    if (para === '---') {
+      // Chapter separator line — show faint rule
+      p.style.cssText = 'border:none;border-top:1px dashed var(--border-mid);margin:8px 0;height:0;overflow:hidden';
     } else {
       p.style.cssText = 'margin:0 0 1em 0';
       p.textContent = para;
@@ -4968,7 +4990,7 @@ function _msConfirmSplits() {
 
   // Rebuild chapters from paragraphs + split positions
   const text = document.getElementById('writingArea').value || getFullManuscript();
-  const paragraphs = text.split(/\n{2,}/).filter(p => p.trim() && p !== '---');
+  const paragraphs = text.split(/\n{2,}/).map(p=>p.trim()).filter(p => p && p !== '---');
 
   // Group paragraphs by split boundaries
   const sortedSplits = [..._msSplits].sort((a,b) => a.paraIdx - b.paraIdx);
@@ -5362,6 +5384,73 @@ _updateFontPreview();
 // Auto-fit zoom on first load after preview renders
 setTimeout(zoomFit, 300);
 
+// Populate #printBook before printing
+window.addEventListener('beforeprint', () => {
+  const T=S.theme, font=getV('bodyFont'), orn=S.ornament, ac=S.accent;
+  const title=getV('bookTitle')||'Untitled', author=getV('bookAuthor')||'Author';
+  const subtitle=getV('bookSubtitle'), dedic=getV('dedication'), copy=getV('copyright');
+  const dropCapOn=getC('dropCap'), showNums=getC('pageNums');
+  const hdrMode=getV('runningHeader')||'both', showHdr=hdrMode!=='off';
+  let chCounter=0, pageNum=1, html='';
+
+  function pbHdr(chTitle) {
+    if (!showHdr || pageNum<=1) return '';
+    let hL='', hR='';
+    if(hdrMode==='both'){hL=esc(author.toUpperCase());hR=esc(title.toUpperCase());}
+    else if(hdrMode==='recto'){if(pageNum%2===0){hL=esc(author.toUpperCase());}else{hR=esc((chTitle||title).toUpperCase());}}
+    else if(hdrMode==='author'){hL=esc(author.toUpperCase());}
+    else if(hdrMode==='title'){hR=esc(title.toUpperCase());}
+    return `<div class="pb-hdr"><span>${hL}</span><span>${hR}</span></div>`;
+  }
+  function pbFtr() { return showNums&&pageNum>2?`<div class="pb-ftr">${pageNum}</div>`:''; }
+  function wrapPage(inner, chTitle='') {
+    const p=`<div class="pb">${pbHdr(chTitle)}${pbFtr()}<div class="pb-content">${inner}</div></div>`;
+    pageNum++; return p;
+  }
+  function renderParas(paras, chTitle, isFirst) {
+    return paras.map((p,pi)=>{
+      if(p==='__SCENE_BREAK__') return `<p class="sb">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`;
+      const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
+      const dc=dropCapOn&&pi===0&&isFirst?' dc':'';
+      return `<p class="${noInd?'ni':''}${dc}">${esc(p)}</p>`;
+    }).join('');
+  }
+
+  // Title page
+  html+=wrapPage(`<div style="display:flex;flex-direction:column;justify-content:center;align-items:center;height:80%">
+    <h1 class="bt">${esc(title)}</h1>${subtitle?`<p class="bs">${esc(subtitle)}</p>`:''}
+    <p class="ba">${esc(author)}</p>${copy?`<p style="font-size:.75em;opacity:.5;margin-top:2em;text-align:center">${esc(copy)}</p>`:''}</div>`);
+
+  // Front matter
+  getFront().forEach(sec=>{
+    const paras=(sec.content||'').split('\n').filter(p=>p.trim());
+    html+=wrapPage(`${sec.title?`<h2 class="st">${esc(sec.title)}</h2>`:''}<div style="margin-top:1em">${renderParas(paras,sec.title,true)}</div>`,sec.title);
+  });
+  if(dedic) html+=wrapPage(`<div style="display:flex;align-items:center;height:80%"><p style="font-style:italic;text-align:center;width:100%;opacity:.7">${esc(dedic)}</p></div>`);
+
+  // Chapters
+  getChapters().forEach(ch=>{
+    chCounter++;
+    const cn=chapterNumber(chCounter);
+    const paras=(ch.content||'').split('\n').filter(p=>p.trim());
+    const titleBlock=(cn||ch.title)?`${cn?`<p class="cn">Chapter ${esc(String(cn))}</p>`:''}`
+      +`${ch.title?`<h2 class="ct">${esc(ch.title)}</h2>`:''}<p class="orn">${esc(orn)}</p>`:'';
+    html+=wrapPage(`${titleBlock}<div style="margin-top:${titleBlock?'1em':'0'}">${renderParas(paras,ch.title,true)}</div>`,ch.title);
+  });
+
+  // Back matter
+  getBack().forEach(sec=>{
+    const paras=(sec.content||'').split('\n').filter(p=>p.trim());
+    html+=wrapPage(`${sec.title?`<h2 class="st">${esc(sec.title)}</h2>`:''}<div style="margin-top:1em">${renderParas(paras,sec.title,true)}</div>`,sec.title);
+  });
+
+  document.getElementById('printBook').innerHTML=html;
+  document.getElementById('printBook').style.fontFamily=font;
+});
+window.addEventListener('afterprint', ()=>{
+  document.getElementById('printBook').innerHTML='';
+});
+
 // Start blank — Firebase will restore the real folio once connected.
 // Demo only loads if Firebase confirms the user has no saved folios.
 chapters = [];
@@ -5391,5 +5480,6 @@ document.getElementById('bookPreview').addEventListener('mouseout', e => {
 });
 </script>
 <div id="toastContainer"></div>
+<div id="printBook"></div>
 </body>
 </html>
