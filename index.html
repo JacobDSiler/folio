@@ -2924,11 +2924,8 @@ function insertWritingDingbat(glyph) {
 
 function _autoResizeWritingArea(ta) {
   if (!ta) return;
-  // For manuscript view, just use a comfortable fixed height — body scrolls
-  if (_writingChId === null) {
-    ta.style.height = 'auto'; // let it be natural
-    return;
-  }
+  // Never auto-resize in manuscript view — writingBody must stay the scroller
+  if (_writingChId === null) return;
   ta.style.height = 'auto';
   ta.style.height = Math.max(400, ta.scrollHeight) + 'px';
 }
@@ -4796,7 +4793,11 @@ function openManuscriptView() {
   ta.value = getFullManuscript();
   ta.readOnly = false;
   ta.style.color = 'var(--text)';
-  ta.style.height = 'auto'; // natural height, body scrolls
+  // In ms view the textarea fills the body — body does the scrolling
+  // Do NOT call _autoResizeWritingArea here — that would make it
+  // taller than writingBody, killing the scroll.
+  ta.style.height = 'auto';
+  ta.style.minHeight = 'calc(100vh - 160px)'; // fill visible area
 
   const wc = getWordCount();
   document.getElementById('writingWC').textContent =
@@ -4809,10 +4810,22 @@ function openManuscriptView() {
   const lbl = document.getElementById('writingChapterLabel');
   if (lbl) lbl.textContent = '📖 Full manuscript — edit freely or switch to Split mode to divide into chapters';
 
-  // Wire ↑↓ buttons to scroll writingBody (not previewArea)
+  // Wire ↑↓ buttons to scroll writingBody (manuscript mode)
   const _wbScroll = document.getElementById('writingBody');
-  document.getElementById('wTopBtn').onclick = () => _wbScroll.scrollTo({top:0,behavior:'smooth'});
-  document.getElementById('wBotBtn').onclick = () => _wbScroll.scrollTo({top:999999,behavior:'smooth'});
+  const _wTop = document.getElementById('wTopBtn');
+  const _wBot = document.getElementById('wBotBtn');
+  if (_wTop) _wTop.onclick = () => _wbScroll.scrollTo({top:0,behavior:'smooth'});
+  if (_wBot) _wBot.onclick = () => _wbScroll.scrollTo({top:999999,behavior:'smooth'});
+
+  // Opacity feedback as body scrolls
+  _wbScroll.onscroll = () => {
+    const atTop = _wbScroll.scrollTop < 80;
+    const atBot = _wbScroll.scrollTop + _wbScroll.clientHeight >= _wbScroll.scrollHeight - 80;
+    if (_wTop) { _wTop.style.opacity = atTop ? '0.25' : '0.85'; _wTop.style.pointerEvents = atTop ? 'none' : 'all'; }
+    if (_wBot) { _wBot.style.opacity = atBot ? '0.25' : '0.85'; _wBot.style.pointerEvents = atBot ? 'none' : 'all'; }
+  };
+  // Initial state
+  setTimeout(() => _wbScroll.onscroll && _wbScroll.onscroll(), 150);
 
   ta.focus();
 }
@@ -4973,15 +4986,30 @@ function _msSplitBarHTML(paraIdx, title) {
 }
 
 function _msAddSplit(paraIdx, btn) {
-  _msSplits.push({ paraIdx, title: '' });
+  // Auto-suggest: grab first 5 words of the paragraph that follows
+  const overlay = document.getElementById('msSplitOverlay');
+  let suggested = '';
+  if (overlay) {
+    // Find the paragraph element after this split row
+    const allPs = Array.from(overlay.querySelectorAll('p'));
+    // Get text of the next visible paragraph
+    const splitRowEl = btn.closest('[data-para-idx]') || btn.closest('div');
+    let next = splitRowEl?.nextElementSibling;
+    while (next && (next.style.display==='none' || !next.textContent.trim())) next = next.nextElementSibling;
+    if (next && next.textContent.trim()) {
+      const words = next.textContent.trim().split(/\s+/).slice(0, 5).join(' ');
+      suggested = words.replace(/[.,!?;:]$/, '') + (words.split(/\s+/).length >= 5 ? '…' : '');
+    }
+  }
+  _msSplits.push({ paraIdx, title: suggested });
   _msSplits.sort((a,b) => a.paraIdx - b.paraIdx);
   // Replace the button row
   const row = btn.closest('[data-para-idx]') || btn.closest('div[data-para-idx]');
-  if (row) row.innerHTML = _msSplitBarHTML(paraIdx, '');
+  if (row) row.innerHTML = _msSplitBarHTML(paraIdx, suggested);
   else {
     // Find by data attribute
     const rows = document.querySelectorAll('#msSplitOverlay [data-para-idx]');
-    rows.forEach(r => { if (parseInt(r.dataset.paraIdx) === paraIdx) r.innerHTML = _msSplitBarHTML(paraIdx, ''); });
+    rows.forEach(r => { if (parseInt(r.dataset.paraIdx) === paraIdx) r.innerHTML = _msSplitBarHTML(paraIdx, suggested); });
   }
   _renderMsToolbar();
   // Auto-focus the title input
@@ -5072,13 +5100,23 @@ function _msConfirmSplits() {
 
   // Preserve TOC and non-chapter items, rebuild body chapters
   const nonBody = chapters.filter(c => c.type === 'toc');
-  const newChapters = groups.map((g, i) => ({
+  const newChapters = groups.map((g, i) => {
+    // Auto-suggest title from first few words if user left it blank
+    let chTitle = g.title.trim();
+    if (!chTitle && g.paras.length) {
+      const firstPara = g.paras[0].replace(/__SCENE_BREAK__/g, '').trim();
+      const words = firstPara.split(/\s+/).slice(0, 5).join(' ');
+      // Only use as title if it looks like a title (short, not mid-sentence)
+      chTitle = words.length > 1 ? words.replace(/[.,!?;:]$/, '') + '…' : '';
+    }
+    return {
     id: (chapters.filter(c=>c.type==='chapter')[i]?.id) || ('ch_' + Date.now() + '_' + i),
     type: 'chapter',
-    title: g.title,
+    title: chTitle,
     content: g.paras.join('\n\n'),
     expanded: false,
-  }));
+  };
+  });
 
   // Re-insert TOC at its original position (or start)
   const tocEntry = chapters.find(c => c.type === 'toc');
