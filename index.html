@@ -264,7 +264,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .tab-btn{padding:7px 3px;font-size:10.5px;font-family:var(--sans);border:none;background:transparent;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.15s;white-space:nowrap;text-align:center;letter-spacing:-0.01em;width:100%}
 .tab-btn.active{color:var(--text);border-bottom-color:var(--accent-ui);background:#faf9f7}
 .tab-btn:hover:not(.active){color:var(--text);background:var(--bg)}
-@media(max-width:768px){.app{grid-template-columns:1fr}.preview-area{display:none}}
+@media(max-width:768px){
+  .app{grid-template-columns:1fr;grid-template-rows:auto 1fr}
+  .sidebar{height:auto;max-height:60vh;border-right:none;border-bottom:.5px solid var(--border)}
+  .preview-area{display:flex;min-height:50vh}
+  .preview-toolbar .zoom-fit-btn,.preview-toolbar select{font-size:10px}
+  #scrollTopBtn,#scrollBottomBtn{right:8px}
+  .export-section{padding:6px 10px}
+}
 @media print{
   /* Hide everything except #printBook which we populate on demand */
   body > *{display:none!important}
@@ -510,6 +517,27 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
         </label>
         <input type="text" id="copyright" placeholder="© 2025 Your Name. All rights reserved." oninput="renderPreview()">
         <p class="small-note" style="margin-top:3px">Click "© Insert" to generate from author name and current year.</p>
+        <label style="margin-top:10px">Series <span style="font-weight:400;opacity:.6">optional</span></label>
+        <div style="display:flex;gap:6px">
+          <input type="text" id="bookSeries" placeholder="e.g. The Sky Bridge Saga" style="flex:1">
+          <input type="text" id="seriesNum" placeholder="#1" style="width:48px;text-align:center">
+        </div>
+        <label style="margin-top:8px">ISBN <span style="font-weight:400;opacity:.6">optional</span></label>
+        <input type="text" id="bookISBN" placeholder="978-0-000-00000-0">
+        <label style="margin-top:8px">Language</label>
+        <select id="bookLang">
+          <option value="en">English</option>
+          <option value="en-GB">English (UK)</option>
+          <option value="en-US">English (US)</option>
+          <option value="fr">French</option>
+          <option value="de">German</option>
+          <option value="es">Spanish</option>
+          <option value="it">Italian</option>
+          <option value="pt">Portuguese</option>
+          <option value="nl">Dutch</option>
+          <option value="ja">Japanese</option>
+          <option value="zh">Chinese</option>
+        </select>
         <div class="toggle-row" style="margin-top:12px">
           <span>Auto page numbers</span>
           <label class="toggle"><input type="checkbox" id="pageNums" checked onchange="renderPreview()"><span class="tog-track"></span></label>
@@ -1501,6 +1529,8 @@ function _serialise() {
       year:       getV('pubYear'),
       dedication: getV('dedication'),
       copyright:  getV('copyright'),
+      series: getV('bookSeries'), seriesNum: getV('seriesNum'),
+      isbn: getV('bookISBN'), lang: getV('bookLang'),
     },
     toggles: {
       pageNums:      getC('pageNums'),
@@ -1537,7 +1567,8 @@ function _serialise() {
 function _deserialise(state) {
   if (!state) return;
   const META_MAP = {title:'bookTitle',author:'bookAuthor',subtitle:'bookSubtitle',
-    publisher:'publisher',year:'pubYear',dedication:'dedication',copyright:'copyright'};
+    publisher:'publisher',year:'pubYear',dedication:'dedication',copyright:'copyright',
+    series:'bookSeries',seriesNum:'seriesNum',isbn:'bookISBN',lang:'bookLang'};
   if (state.meta)    Object.entries(state.meta).forEach(([k,v])=>{ const el=document.getElementById(META_MAP[k]); if(el) el.value=v||''; });
   if (state.toggles) Object.entries(state.toggles).forEach(([k,v])=>{
     const el=document.getElementById(k);
@@ -1690,16 +1721,35 @@ async function _loadVersionList() {
 
 function _renderVersionList(list) {
   const el = document.getElementById('verList');
-  if (!list.length) { el.innerHTML='<p class="small-note" style="padding:.4rem 0">No versions saved yet.</p>'; return; }
+  if (!list.length) { el.innerHTML='<p class="small-note" style="padding:.4rem 0">No versions yet — click Save version above to snapshot your work.</p>'; return; }
   el.innerHTML = list.map(v => {
-    const d = v.savedAt ? new Date(v.savedAt.seconds*1000).toLocaleString() : '—';
-    return `<div class="ver-card">
-      <span class="ver-name">${esc(v.name)}</span>
-      <span class="ver-date">${d}</span>
-      <button class="btn-sm btn-ghost" style="padding:2px 8px;font-size:10px" onclick="_restoreVersion('${v.id}')">Restore</button>
+    const d = v.savedAt ? new Date(v.savedAt.seconds*1000).toLocaleString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}) : '—';
+    const chs = v.state?.chapters?.filter(c=>c.type!=='toc').length ?? '?';
+    const rawWC = v.state?.chapters ? v.state.chapters.reduce((s,c)=>s+(c.content||'').trim().split(/\s+/).filter(x=>x).length,0) : 0;
+    const wc = rawWC ? formatWC(rawWC) : '?';
+    return `<div class="ver-card" style="flex-direction:column;align-items:stretch;gap:4px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
+        <span class="ver-name" style="font-weight:500">${esc(v.name)}</span>
+        <div style="display:flex;gap:4px">
+          <button class="btn-sm btn-ghost" style="padding:2px 7px;font-size:10px" onclick="_restoreVersion('${v.id}')">Restore</button>
+          <button class="btn-sm btn-ghost" style="padding:2px 7px;font-size:10px;color:#c44" onclick="_deleteVersion('${v.id}','${esc(v.name)}')">Delete</button>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--hint);display:flex;gap:10px">
+        <span>${d}</span><span>${chs} ch</span><span>${wc} words</span>
+      </div>
     </div>`;
   }).join('');
 }
+
+async function _deleteVersion(vid, name) {
+  if (!confirm('Delete version "' + name + '"? This cannot be undone.')) return;
+  const {doc: _vDoc, deleteDoc} = window._fb;
+  await deleteDoc(window._fb.doc(window._db,'folio_projects',_projId,'versions',vid));
+  await _loadVersionList();
+  toastInfo('Version deleted', {duration:2000});
+}
+
 
 async function _restoreVersion(vid) {
   if (!confirm('Restore this version? Current unsaved edits will be replaced.')) return;
@@ -2776,9 +2826,10 @@ function estimatePageCount(wordCount) {
   const baseArea = (152.4 - 36) * (228.6 - 50);
   // Scale words-per-page by font size squared, line spacing, and content area
   const wpp = BASE_WPP * Math.pow(13 / fsize, 2) * (1.7 / lspace) * (contentArea / baseArea);
-  // Add ~10% overhead for chapter headings, TOC, front/back matter, page breaks
-  const overhead = 1 + chapters.filter(c=>c.type!=='toc').length * 0.02;
-  return Math.max(1, Math.round(wordCount / wpp * overhead));
+  // Additive overhead: each chapter title block ≈ 0.3 pages, front/back ≈ 0.5 pages
+  const nCh = chapters.filter(c=>c.type==='chapter').length;
+  const nFB = chapters.filter(c=>c.type==='pre'||c.type==='post').length;
+  return Math.max(1, Math.round(wordCount / wpp + nCh * 0.3 + nFB * 0.5));
 }
 
 function getWordCount() {
@@ -4024,7 +4075,7 @@ async function exportEPUB(){
     });
     oebps.file('toc.ncx',`<?xml version="1.0" encoding="UTF-8"?><ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1"><head><meta name="dtb:uid" content="${id}"/></head><docTitle><text>${esc(title)}</text></docTitle><navMap>${spineItems.map((c,i)=>`<navPoint id="${c.id}" playOrder="${i+1}"><navLabel><text>${esc(c.label)}</text></navLabel><content src="${c.href}"/></navPoint>`).join('')}</navMap></ncx>`);
     oebps.file('nav.xhtml',xhtmlWrap('Table of Contents',`<nav xmlns:epub="http://www.idpf.org/2007/ops" epub:type="toc"><ol>${spineItems.map(c=>`<li><a href="${c.href}">${esc(c.label)}</a></li>`).join('')}</ol></nav>`));
-    oebps.file('content.opf',`<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">${id}</dc:identifier><dc:title>${esc(title)}</dc:title><dc:creator>${esc(author)}</dc:creator><dc:language>en</dc:language><dc:date>${now}</dc:date>${subtitle?`<dc:description>${esc(subtitle)}</dc:description>`:''}<meta property="dcterms:modified">${now}</meta></metadata><manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="css" href="style.css" media-type="text/css"/>${spineItems.map(c=>`<item id="${c.id}" href="${c.href}" media-type="application/xhtml+xml"/>`).join('')}</manifest><spine toc="ncx"><itemref idref="title"/>${spineItems.filter(c=>c.id!=='title').map(c=>`<itemref idref="${c.id}"/>`).join('')}</spine></package>`);
+    oebps.file('content.opf',`<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="book-id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">${id}</dc:identifier><dc:title>${esc(title)}</dc:title><dc:creator>${esc(author)}</dc:creator><dc:language>${getV('bookLang')||'en'}</dc:language>${getV('bookISBN')?`<dc:identifier id="isbn">urn:isbn:${esc(getV('bookISBN'))}</dc:identifier>`:''}<dc:date>${now}</dc:date>${subtitle?`<dc:description>${esc(subtitle)}</dc:description>`:''}<meta property="dcterms:modified">${now}</meta></metadata><manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/><item id="css" href="style.css" media-type="text/css"/>${spineItems.map(c=>`<item id="${c.id}" href="${c.href}" media-type="application/xhtml+xml"/>`).join('')}</manifest><spine toc="ncx"><itemref idref="title"/>${spineItems.filter(c=>c.id!=='title').map(c=>`<itemref idref="${c.id}"/>`).join('')}</spine></package>`);
     const blob=await zip.generateAsync({type:'blob',mimeType:'application/epub+zip',compression:'DEFLATE',compressionOptions:{level:9}});
     downloadBlob(blob,safeName(title)+'.epub');
     setStatus('EPUB exported — open in Calibre, Apple Books, or any e-reader!');
