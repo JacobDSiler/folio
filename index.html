@@ -3429,7 +3429,7 @@ function renderPreview(){
     }) : () => '';
     const ftr=showNums&&pn>2?`<div style="position:absolute;bottom:${Math.round(8*MM)}px;left:0;right:0;text-align:center;font-family:${font};font-size:${pt(H_FOOTER)};color:${T.text}66">${pn}</div>`:'';
     const hdr=isFirst?'':_hdrFn(chTitle,pn);
-    return `<div class="book-page"${chapAttr} style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;top:${contentT}px;left:${mg}px;right:${mg}px;bottom:${contentB}px;overflow:visible;display:flex;flex-direction:column">${inner}</div></div>`;
+    return `<div class="book-page"${chapAttr} style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;top:${contentT}px;left:${mg}px;right:${mg}px;bottom:${contentB}px;overflow:hidden;display:flex;flex-direction:column">${inner}</div></div>`;
   };
 
   // Cover
@@ -3554,7 +3554,11 @@ function renderPreview(){
       const contentW=pw-mg*2;
       const contentH=ph-contentT-contentB;
       const lineH=fsize*ptScale*parseFloat(lspace);
-      const linesPerPage=Math.max(1,Math.floor(contentH/lineH));
+      // Effective line height includes paragraph margin-bottom when indent=0
+      const paraMarginPx = indent==='0' ? 1.3 * MM : 0;
+      const effectiveLineH = lineH + paraMarginPx / Math.max(1, estimateLines('average paragraph') || 3);
+      // Safety factor 0.88: never fill a page more than 88% — prevents any overflow
+      const linesPerPage=Math.max(1,Math.floor(contentH / lineH * 0.88));
 
       // Word-wrap line estimator — much more accurate than char/lineLen because
       // it respects word boundaries exactly as the browser does.
@@ -3578,7 +3582,9 @@ function renderPreview(){
       const normParas=paras.map(p=>/^[-*_]{3,}$/.test(p.trim())?'__SCENE_BREAK__':p);
       const paraLines=normParas.map(p=>{
         if(p==='__SCENE_BREAK__') return 2;
-        return estimateLines(p);
+        // When using no-indent (blank line) mode, add 0.6 lines for the gap
+        const extra = indent==='0' ? 0.6 : 0;
+        return estimateLines(p) + extra;
       });
 
       // First page: subtract heading block height.
@@ -3590,7 +3596,7 @@ function renderPreview(){
           + (ch.title ? lineH*H_CHAPTER/fsize*1.5 : 0)
           + lineH // ornament line
         : 0;
-      const titleLineEstimate = Math.ceil(titleH / lineH);
+      const titleLineEstimate = Math.ceil(titleH / lineH * 1.1); // 10% buffer for title block
       const pages=[];
       let currentPage=[];
       let usedLines=titleLineEstimate;
@@ -4986,30 +4992,15 @@ function _msSplitBarHTML(paraIdx, title) {
 }
 
 function _msAddSplit(paraIdx, btn) {
-  // Auto-suggest: grab first 5 words of the paragraph that follows
-  const overlay = document.getElementById('msSplitOverlay');
-  let suggested = '';
-  if (overlay) {
-    // Find the paragraph element after this split row
-    const allPs = Array.from(overlay.querySelectorAll('p'));
-    // Get text of the next visible paragraph
-    const splitRowEl = btn.closest('[data-para-idx]') || btn.closest('div');
-    let next = splitRowEl?.nextElementSibling;
-    while (next && (next.style.display==='none' || !next.textContent.trim())) next = next.nextElementSibling;
-    if (next && next.textContent.trim()) {
-      const words = next.textContent.trim().split(/\s+/).slice(0, 5).join(' ');
-      suggested = words.replace(/[.,!?;:]$/, '') + (words.split(/\s+/).length >= 5 ? '…' : '');
-    }
-  }
-  _msSplits.push({ paraIdx, title: suggested });
+  _msSplits.push({ paraIdx, title: '' });
   _msSplits.sort((a,b) => a.paraIdx - b.paraIdx);
   // Replace the button row
   const row = btn.closest('[data-para-idx]') || btn.closest('div[data-para-idx]');
-  if (row) row.innerHTML = _msSplitBarHTML(paraIdx, suggested);
+  if (row) row.innerHTML = _msSplitBarHTML(paraIdx, '');
   else {
     // Find by data attribute
     const rows = document.querySelectorAll('#msSplitOverlay [data-para-idx]');
-    rows.forEach(r => { if (parseInt(r.dataset.paraIdx) === paraIdx) r.innerHTML = _msSplitBarHTML(paraIdx, suggested); });
+    rows.forEach(r => { if (parseInt(r.dataset.paraIdx) === paraIdx) r.innerHTML = _msSplitBarHTML(paraIdx, ''); });
   }
   _renderMsToolbar();
   // Auto-focus the title input
@@ -5101,19 +5092,20 @@ function _msConfirmSplits() {
   // Preserve TOC and non-chapter items, rebuild body chapters
   const nonBody = chapters.filter(c => c.type === 'toc');
   const newChapters = groups.map((g, i) => {
-    // Auto-suggest title from first few words if user left it blank
+    // Auto-suggest title: copy first few words of first paragraph.
+    // Content is NEVER modified — title is always a separate copy.
     let chTitle = g.title.trim();
     if (!chTitle && g.paras.length) {
       const firstPara = g.paras[0].replace(/__SCENE_BREAK__/g, '').trim();
-      const words = firstPara.split(/\s+/).slice(0, 5).join(' ');
-      // Only use as title if it looks like a title (short, not mid-sentence)
-      chTitle = words.length > 1 ? words.replace(/[.,!?;:]$/, '') + '…' : '';
+      const words = firstPara.split(/\s+/).slice(0, 6);
+      chTitle = words.join(' ').replace(/[.,!?;:]$/, '') + (words.length >= 6 ? '…' : '');
     }
+    // Content always contains ALL paragraphs in full — title is purely additive
     return {
     id: (chapters.filter(c=>c.type==='chapter')[i]?.id) || ('ch_' + Date.now() + '_' + i),
     type: 'chapter',
     title: chTitle,
-    content: g.paras.join('\n\n'),
+    content: g.paras.join('\n\n'), // full paragraph content, title is separate
     expanded: false,
   };
   });
