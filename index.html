@@ -500,11 +500,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
       <div class="section">
         <div class="section-title">Book Details</div>
         <label>Title</label>
-        <input type="text" id="bookTitle" value="The Midnight Garden" oninput="renderPreview()">
+        <input type="text" id="bookTitle" placeholder="Book title…" oninput="renderPreview()">
         <label>Author</label>
-        <input type="text" id="bookAuthor" value="Eleanor Ashford" oninput="renderPreview()">
+        <input type="text" id="bookAuthor" placeholder="Author name…" oninput="renderPreview()">
         <label>Subtitle</label>
-        <input type="text" id="bookSubtitle" value="A Novel" oninput="renderPreview()">
+        <input type="text" id="bookSubtitle" placeholder="Subtitle (optional)" oninput="renderPreview()">
         <label>Publisher (optional)</label>
         <input type="text" id="publisher" value="" placeholder="Your Press" oninput="renderPreview()">
         <label>Year</label>
@@ -1195,9 +1195,8 @@ window.addEventListener('fb-ready', async () => {
 });
 
 function _loadDemo() {
-  // Don't load demo if chapters exist OR if user has typed a real title
-  const existingTitle = (document.getElementById('bookTitle')?.value || '').trim();
-  if (chapters.length || (existingTitle && existingTitle !== 'The Midnight Garden')) return;
+  // Don't load demo if chapters already exist
+  if (chapters.length) return;
   chapters = [
     {id:uid(),type:'chapter',title:'The Garden at Midnight',
      content:`The clock struck twelve as Elara stepped through the iron gate. The garden lay before her, silver and strange under the full moon, each leaf edged with frost that caught the light like scattered diamonds.\n\nShe had been coming here for years. As a child, she had pressed her face against these very bars and wondered what secrets the old estate held. Now, at last, she was inside.\n\n__SCENE_BREAK__\n\nA figure stood at the far end of the path, half-hidden by the old rose arch. She stopped, her breath a small cloud in the cold air. The figure did not move.`,
@@ -5583,10 +5582,17 @@ window.addEventListener('afterprint', ()=>{
   document.getElementById('printBook').innerHTML='';
 });
 
-// Start blank — Firebase will restore the real folio once connected.
-// Demo only loads if Firebase confirms the user has no saved folios.
+// Start blank — show loading state until Firebase resolves.
+// renderPreview() is NOT called here — we wait for Firebase so users
+// never see the demo title page flash on load.
 chapters = [];
-renderPreview();
+document.getElementById('bookPreview').innerHTML = `
+  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+    height:100%;gap:16px;font-family:var(--sans);color:var(--hint);font-size:13px">
+    <div style="width:40px;height:40px;border-radius:50%;border:3px solid var(--border-mid);
+      border-top-color:var(--accent-ui);animation:folio-spin .8s linear infinite"></div>
+    <span>Loading your folio…</span>
+  </div>`;
 // Close export drawer on outside click
 document.addEventListener('click', e => {
   const sec = document.querySelector('.export-section');
