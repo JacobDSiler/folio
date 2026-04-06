@@ -1136,6 +1136,7 @@ window.addEventListener('fb-ready', async () => {
   _setFbStatus(true);
   document.getElementById('btnSaveProj').disabled = false;
   document.getElementById('btnSaveVer').disabled  = false;
+  _updateLoadingMsg('Loading your folio…');
   await loadFolioList();
 
   // Priority 1: URL param (shared link or direct open)
@@ -5495,6 +5496,17 @@ function toggleDarkMode() {
 /* ═══════════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════════ */
+
+function _showLoadingPreview(msg) {
+  const bp = document.getElementById('bookPreview');
+  if (!bp || bp.querySelector('.book-page')) return;
+  bp.innerHTML = `<div id="folioLoadingState" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;font-family:var(--sans);color:var(--hint);font-size:13px;text-align:center"><div style="width:38px;height:38px;border-radius:50%;border:3px solid var(--border-mid);border-top-color:var(--accent-ui);animation:folio-spin .8s linear infinite"></div><span id="folioLoadingMsg">${msg}</span></div>`;
+}
+
+function _updateLoadingMsg(msg) {
+  const el = document.getElementById('folioLoadingMsg');
+  if (el) el.textContent = msg;
+}
 buildThemeGrid();buildColorRow();buildOrnGrid();
 _updateFontPreview();
 // Auto-populate copyright if empty
@@ -5586,13 +5598,7 @@ window.addEventListener('afterprint', ()=>{
 // renderPreview() is NOT called here — we wait for Firebase so users
 // never see the demo title page flash on load.
 chapters = [];
-document.getElementById('bookPreview').innerHTML = `
-  <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
-    height:100%;gap:16px;font-family:var(--sans);color:var(--hint);font-size:13px">
-    <div style="width:40px;height:40px;border-radius:50%;border:3px solid var(--border-mid);
-      border-top-color:var(--accent-ui);animation:folio-spin .8s linear infinite"></div>
-    <span>Loading your folio…</span>
-  </div>`;
+_showLoadingPreview('Loading your folios…');
 // Close export drawer on outside click
 document.addEventListener('click', e => {
   const sec = document.querySelector('.export-section');
