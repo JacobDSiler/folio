@@ -4807,15 +4807,11 @@ function _updateWritingWC() {
 // ═══════════════════════════════════════════════
 
 function getFullManuscript() {
-  // Always computed fresh from chapters — never stale
+  // Pure content only — titles are metadata in the chapter list, not prose.
+  // This prevents titles bleeding into content during sync.
   return chapters
     .filter(c => c.type !== 'toc')
-    .map(c => {
-      const parts = [];
-      if (c.title) parts.push(c.title + '\n');
-      parts.push(c.content || '');
-      return parts.join('\n');
-    })
+    .map(c => c.content || '')
     .join('\n\n---\n\n');
 }
 
@@ -5100,16 +5096,8 @@ function _msSyncToChapters(close = true) {
   let changed = false;
   parts.forEach((part, i) => {
     const ch = bodyChapters[i];
-    const lines = part.split('\n');
-    // Strip leading title line if it matches the chapter title
-    const firstNonEmpty = lines.find(l => l.trim());
-    let newContent;
-    if (firstNonEmpty && ch.title && firstNonEmpty.trim() === ch.title.trim()) {
-      const titleIdx = lines.indexOf(firstNonEmpty);
-      newContent = lines.slice(titleIdx + 2).join('\n').trim();
-    } else {
-      newContent = part.trim();
-    }
+    // Content only — titles are never in the manuscript textarea
+    const newContent = part.trim();
     if (newContent !== ch.content) {
       ch.content = newContent;
       changed = true;
