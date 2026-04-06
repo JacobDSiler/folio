@@ -5145,20 +5145,36 @@ function _msConfirmSplits() {
   // Preserve TOC and non-chapter items, rebuild body chapters
   const nonBody = chapters.filter(c => c.type === 'toc');
   const newChapters = groups.map((g, i) => {
-    // Auto-suggest title: copy first few words of first paragraph.
-    // Content is NEVER modified — title is always a separate copy.
+    // Auto-suggest title from the first paragraph if the user left the bar blank.
+    // If the first paragraph IS the title (a short heading like "Chapter 25" or
+    // "PART ONE"), remove it from the content — it's structural, not prose.
     let chTitle = g.title.trim();
-    if (!chTitle && g.paras.length) {
+    let contentParas = [...g.paras];
+    if (g.paras.length) {
       const firstPara = g.paras[0].replace(/__SCENE_BREAK__/g, '').trim();
-      const words = firstPara.split(/\s+/).slice(0, 6);
-      chTitle = words.join(' ').replace(/[.,!?;:]$/, '') + (words.length >= 6 ? '…' : '');
+      // Detect heading-like first paragraph:
+      //   - Matches "Chapter N", "Part N", "CHAPTER N", Roman numerals alone
+      //   - Very short (< 40 chars) with no sentence-ending punctuation mid-text
+      //   - Or matches whatever the user typed in the title bar exactly
+      const isHeading = /^(chapter|part|prologue|epilogue|interlude|section)\b/i.test(firstPara)
+        || /^[IVXLCDM]+\.?$/i.test(firstPara)
+        || (firstPara.length < 40 && !/[.!?]/.test(firstPara.slice(0, -1)));
+      if (!chTitle) {
+        // No user-supplied title — use first paragraph words
+        const words = firstPara.split(/\s+/).slice(0, 6);
+        chTitle = words.join(' ').replace(/[.,!?;:]$/, '') + (words.length >= 6 ? '…' : '');
+      }
+      // If first paragraph looks like a heading (or exactly matches the title),
+      // remove it from content so it doesn't appear as prose.
+      if (isHeading || firstPara.toLowerCase() === chTitle.toLowerCase().replace(/…$/, '').trim()) {
+        contentParas = g.paras.slice(1);
+      }
     }
-    // Content always contains ALL paragraphs in full — title is purely additive
     return {
     id: (chapters.filter(c=>c.type==='chapter')[i]?.id) || ('ch_' + Date.now() + '_' + i),
     type: 'chapter',
     title: chTitle,
-    content: g.paras.join('\n\n'), // full paragraph content, title is separate
+    content: contentParas.join('\n\n'), // heading para stripped if it was structural
     expanded: false,
   };
   });
