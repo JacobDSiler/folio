@@ -1603,6 +1603,9 @@ function _deserialise(state) {
   }
   if (state.schema) importSchema=state.schema;
   _syncTOCToggle();
+  // Clear loading spinner — all fields are set, safe to render now
+  const _lEl = document.getElementById('folioLoadingState');
+  if (_lEl) _lEl.remove();
   renderPreview();
 }
 
@@ -1799,6 +1802,8 @@ function newFolio() {
   document.getElementById('inviteEmpty').style.display = '';
   document.getElementById('verList').innerHTML = '<p class="small-note" style="padding:.4rem 0">No versions saved yet.</p>';
   chapters = []; renderChapterList();
+  const _nfEl = document.getElementById('folioLoadingState');
+  if (_nfEl) _nfEl.remove();
   ['bookTitle','bookAuthor','bookSubtitle','publisher','pubYear','dedication','copyright'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value='';
   });
@@ -3388,6 +3393,8 @@ function applyCustomSize() {
 })();
 
 function renderPreview(){
+  // Don't render while the loading spinner is showing — prevents 'Untitled' flash
+  if (document.getElementById('folioLoadingMsg')) return;
   const T=S.theme;
   const title=getV('bookTitle')||'Untitled';
   const author=getV('bookAuthor')||'Author';
