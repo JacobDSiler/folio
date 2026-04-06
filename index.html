@@ -4821,7 +4821,8 @@ function getFullManuscript() {
 
 // ── Manuscript mode state ──
 let _msMode = 'write'; // 'write' | 'split'
-let _msDirty = false;  // true when user has edited the manuscript textarea
+let _msDirty = false;   // true when user has edited the manuscript textarea
+let _msParas = [];      // paragraph list used to build the split overlay — shared by confirm
 let _msSplits = [];    // [{pos, title}] character positions of split markers
 
 function openManuscriptView() {
@@ -4922,12 +4923,16 @@ function _setMsMode(mode) {
     ta.style.display = '';
     const splitOverlay = document.getElementById('msSplitOverlay');
     if (splitOverlay) splitOverlay.remove();
+    _msParas = []; // clear stored para list
     ta.readOnly = false;
     ta.value = getFullManuscript();
     _autoResizeWritingArea(ta);
     document.getElementById('writingDingbar').style.display = 'none';
     const lbl = document.getElementById('writingChapterLabel');
-    if (lbl) lbl.textContent = '📖 Full manuscript — edit freely or switch to Split mode to divide into chapters';
+    const chCount = chapters.filter(c=>c.type!=='toc').length;
+    if (lbl) lbl.textContent = chCount > 1
+      ? `📖 Full manuscript — ${chCount} chapters · edit freely or use Split mode to adjust chapter boundaries`
+      : '📖 Full manuscript — edit freely or switch to Split mode to divide into chapters';
   } else {
     // Split mode — show rendered paragraphs with clickable divider markers
     ta.style.display = 'none';
@@ -4946,6 +4951,7 @@ function _msBuildSplitOverlay(body) {
   // CRITICAL: use EXACTLY the same paragraph list as _msConfirmSplits.
   // '---' separators are EXCLUDED from the indexed list so paraIdx is consistent.
   const paragraphs = text.split(/\n{2,}/).map(p => p.trim()).filter(p => p && p !== '---');
+  _msParas = paragraphs; // store for _msConfirmSplits to use
 
   const overlay = document.createElement('div');
   overlay.id = 'msSplitOverlay';
@@ -5124,10 +5130,11 @@ function _msConfirmSplits() {
   const overlay = document.getElementById('msSplitOverlay');
   if (!overlay) return;
 
-  // Rebuild chapters from paragraphs + split positions
-  const text = document.getElementById('writingArea').value || getFullManuscript();
-  // MUST match _msBuildSplitOverlay's paragraph list exactly — same filter
-  const paragraphs = text.split(/\n{2,}/).map(p=>p.trim()).filter(p => p && p !== '---');
+  // Use the EXACT paragraph list that was used to build the split overlay.
+  // This guarantees paraIdx values are consistent — no re-parsing drift.
+  const paragraphs = _msParas.length ? _msParas
+    : (document.getElementById('writingArea').value || getFullManuscript())
+        .split(/\n{2,}/).map(p=>p.trim()).filter(p => p && p !== '---');
 
   // Group paragraphs by split boundaries
   const sortedSplits = [..._msSplits].sort((a,b) => a.paraIdx - b.paraIdx);
@@ -5187,10 +5194,14 @@ function _msConfirmSplits() {
   renderChapterList();
   _scheduleAutoSave();
   _msSplits = [];
+  _msParas = [];
 
   toastSuccess(`Split into ${newChapters.length} chapters ✓`, { icon: '✂', duration: 3000 });
-  // _msMode stays 'split' so closeWritingMode skips _msSyncToChapters
-  closeWritingMode(); // calls renderPreview() internally
+
+  // Switch back to Write mode showing the updated manuscript
+  // so the user can review and click Done when ready.
+  // This avoids a jarring scroll-to-top and lets them see the result.
+  _setMsMode('write');
 }
 
 // Override closeWritingMode to reset readOnly state
