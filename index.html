@@ -868,7 +868,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     </div>
     <div class="writing-body" id="writingBody">
       <div style="text-align:center;font-size:10.5px;color:var(--hint);font-family:var(--sans);margin-bottom:20px;letter-spacing:.05em" id="writingChapterLabel"></div>
-      <textarea class="writing-area" id="writingArea" placeholder="Start writing…" oninput="updateWritingContent();_autoResizeWritingArea(this)" onkeydown="_writingAreaKeydown(event)"></textarea>
+      <textarea class="writing-area" id="writingArea" placeholder="Start writing…" oninput="updateWritingContent();_autoResizeWritingArea(this);if(_writingChId===null)_msDirty=true" onkeydown="_writingAreaKeydown(event)"></textarea>
     </div>
     <!-- Sticky nav buttons — outside scroll content, fixed to writing-mode bottom-right -->
     <div style="position:absolute;bottom:60px;right:16px;display:flex;flex-direction:column;gap:6px;z-index:10;pointer-events:none">
@@ -4778,6 +4778,7 @@ function updateWritingTitle() {
 }
 
 function updateWritingContent() {
+  // In manuscript mode (_writingChId===null), sync is handled by _msSyncToChapters on close
   if (!_writingChId) return;
   const ch = chapters.find(c => c.id === _writingChId);
   if (!ch) return;
@@ -4820,6 +4821,7 @@ function getFullManuscript() {
 
 // ── Manuscript mode state ──
 let _msMode = 'write'; // 'write' | 'split'
+let _msDirty = false;  // true when user has edited the manuscript textarea
 let _msSplits = [];    // [{pos, title}] character positions of split markers
 
 function openManuscriptView() {
@@ -4828,6 +4830,7 @@ function openManuscriptView() {
   _writingChId = null;
   _msMode = 'write';
   _msSplits = [];
+  _msDirty = false;
 
   // Open writing pane
   document.getElementById('writingMode').classList.add('active');
@@ -5057,41 +5060,61 @@ function _msUpdateSplitTitle(paraIdx, title) {
 }
 
 function _msSyncToChapters(close = true) {
-  // Save edited manuscript text back to chapters
+  // Sync full-manuscript textarea back to the chapters array.
+  // SAFE: never nukes chapters, never overwrites with wrong content.
   const ta = document.getElementById('writingArea');
   if (!ta || ta.style.display === 'none') return;
   const text = ta.value;
   if (!text.trim()) return;
 
-  // Split on chapter separators (--- dividers from getFullManuscript)
-  const parts = text.split(/\n\n---\n\n/);
-  const bodyChapters = chapters.filter(c => c.type !== 'toc');
+  // Compare against what getFullManuscript() would produce.
+  // If nothing changed, skip entirely.
+  const current = getFullManuscript();
+  if (text.trim() === current.trim()) return;
 
+  const bodyChapters = chapters.filter(c => c.type !== 'toc');
+  if (!bodyChapters.length) return;
+
+  // Split on the exact separator getFullManuscript uses
+  const SEP = '\n\n---\n\n';
+  const parts = text.split(SEP);
+
+  // SAFE SYNC: only update if part count matches exactly.
+  // If the user added/removed separators, we don't know the mapping —
+  // refuse to sync destructively. Show a warning instead.
+  if (parts.length !== bodyChapters.length) {
+    toastWarning(
+      `Chapter structure changed (${parts.length} sections, expected ${bodyChapters.length}). ` +
+      'Use Split mode to restructure chapters.',
+      { icon: '⚠', duration: 5000, id: 'ms-mismatch' }
+    );
+    return;
+  }
+
+  let changed = false;
   parts.forEach((part, i) => {
     const ch = bodyChapters[i];
-    if (!ch) return;
     const lines = part.split('\n');
-    // If first non-empty line matches chapter title, skip it (it's the title header)
+    // Strip leading title line if it matches the chapter title
     const firstNonEmpty = lines.find(l => l.trim());
+    let newContent;
     if (firstNonEmpty && ch.title && firstNonEmpty.trim() === ch.title.trim()) {
-      // Skip title line and blank line after it
       const titleIdx = lines.indexOf(firstNonEmpty);
-      ch.content = lines.slice(titleIdx + 2).join('\n').trim();
+      newContent = lines.slice(titleIdx + 2).join('\n').trim();
     } else {
-      ch.content = part.trim();
+      newContent = part.trim();
+    }
+    if (newContent !== ch.content) {
+      ch.content = newContent;
+      changed = true;
     }
   });
 
-  // If part count doesn't match (user added/deleted --- separators), 
-  // treat the whole text as the first chapter's content
-  if (parts.length !== bodyChapters.length && bodyChapters.length > 0) {
-    bodyChapters[0].content = text;
-    for (let i = 1; i < bodyChapters.length; i++) bodyChapters[i].content = '';
+  if (changed) {
+    renderChapterList();
+    renderPreview();
+    _scheduleAutoSave();
   }
-
-  renderChapterList();
-  renderPreview();
-  _scheduleAutoSave();
 }
 
 function _msConfirmSplits() {
@@ -5176,7 +5199,7 @@ const _realCloseWriting = closeWritingMode;
 function closeWritingMode() {
   // Save manuscript edits ONLY if in write mode — split mode handled by _msConfirmSplits
   // Check BEFORE resetting display so the ta.style.display==='none' guard works
-  if (_writingChId === null && _msMode === 'write') _msSyncToChapters(true);
+  if (_writingChId === null && _msMode === 'write' && _msDirty) { _msDirty = false; _msSyncToChapters(true); }
   // Clean up ms split overlay
   const _msOv = document.getElementById('msSplitOverlay');
   if (_msOv) _msOv.remove();
