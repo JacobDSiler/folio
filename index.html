@@ -1690,22 +1690,40 @@ async function loadFolioById(id) {
     const snap = await getDoc(window._fb.doc(window._db,'folio_projects',id));
     if (!snap.exists()) { _hideSaving(); setStatus('Folio not found'); return; }
     const data = snap.data();
+
+    // Close writing mode / manuscript view before switching folios
+    if (document.getElementById('writingMode')?.classList.contains('active')) {
+      // Force-close without syncing — we're discarding current state
+      _writingChId = null;
+      _msMode = 'write';
+      document.getElementById('writingMode').classList.remove('active');
+      document.getElementById('previewScroller').style.display = '';
+      document.querySelector('.preview-toolbar').style.display = '';
+      const _msOv = document.getElementById('msSplitOverlay');
+      if (_msOv) _msOv.remove();
+    }
+
     _projId = id;
     localStorage.setItem('folio_last_open', id);
+    _autoSaveDirty = false; // don't auto-save until user makes changes
     document.getElementById('projName').value = data.name || '';
+
+    // Deserialise sets all fields AND calls renderPreview() at the end
     _deserialise(data.state);
     _updateInviteUI();
-    await loadFolioList();
-    await _loadVersionList();
-    await _subscribePresence();
-    // Record our presence
-    await _touchPresence();
+
+    // Switch to Chapters tab immediately so user sees their content
+    const chapBtn = document.querySelectorAll('.tab-btn')[1];
+    if (chapBtn) switchTab('chapters', chapBtn);
+
     _hideSaving();
     setStatus(`Folio "${data.name}" loaded ✓`);
     toastInfo(`Opened: ${data.name}`, { icon: '📖', duration: 2500, id: 'loaded' });
-    // Switch to details tab so user sees the book
-    const btn = document.querySelectorAll('.tab-btn')[2];
-    if (btn) switchTab('details', btn);
+
+    // Background tasks — don't block the UI
+    loadFolioList();
+    _loadVersionList();
+    _subscribePresence().then(() => _touchPresence());
   } catch(e) { _hideSaving(); setStatus('Load failed: '+e.message); console.error(e); }
 }
 
@@ -2938,10 +2956,19 @@ function _writingAreaKeydown(e) {
   const ta = e.target;
   const start = ta.selectionStart;
   const end   = ta.selectionEnd;
-  // Insert 4 spaces at cursor (standard paragraph indent feel)
-  ta.value = ta.value.slice(0, start) + '    ' + ta.value.slice(end);
-  ta.selectionStart = ta.selectionEnd = start + 4;
-  // Trigger content sync
+  if (e.shiftKey) {
+    // Shift+Tab: remove up to 4 spaces before cursor
+    const before = ta.value.slice(0, start);
+    const spaces = before.match(/ {1,4}$/)?.[0] || '';
+    if (spaces.length) {
+      ta.value = before.slice(0, -spaces.length) + ta.value.slice(end);
+      ta.selectionStart = ta.selectionEnd = start - spaces.length;
+    }
+  } else {
+    // Tab: insert 4 spaces at cursor
+    ta.value = ta.value.slice(0, start) + '    ' + ta.value.slice(end);
+    ta.selectionStart = ta.selectionEnd = start + 4;
+  }
   updateWritingContent();
 }
 
@@ -3552,7 +3579,7 @@ function renderPreview(){
         return `<p class="preview-editable" data-chid="${ch.id}" data-paraidx="${paras.indexOf(p)}"
           contenteditable="${_editMode}" spellcheck="true"
           onblur="if(_editMode)_onParaBlur(this)"
-          onkeydown="if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
+          onkeydown="if(_editMode&&event.key==='Tab'){event.preventDefault();const s=this.selectionStart??0,e=this.selectionEnd??0,t=this.innerText;document.execCommand('insertText',false,event.shiftKey?'':' '.repeat(4));}else if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
           style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0 0 ${mm(1.6)};text-align:${justify}">${esc(p)}</p>`;
       }).join('');
       pagesHTML+=pageWrap(`<div style="padding-top:${mm(5.3)}">${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(H_SECTION)};font-weight:700;color:${T.text};text-align:center;margin-bottom:${mm(4.2)}">${esc(ch.title)}</div>`:''}<div>${ps}</div></div>`,pageNum++,false,ch.id);
@@ -3639,7 +3666,7 @@ function renderPreview(){
           return `<p class="preview-editable" data-chid="${ch.id}" data-paraidx="${paras.indexOf(p)}"
             contenteditable="${_editMode}" spellcheck="true"
             onblur="if(_editMode)_onParaBlur(this)"
-            onkeydown="if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
+            onkeydown="if(_editMode&&event.key==='Tab'){event.preventDefault();const s=this.selectionStart??0,e=this.selectionEnd??0,t=this.innerText;document.execCommand('insertText',false,event.shiftKey?'':' '.repeat(4));}else if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
             style="${paraStyle}">${dc}</p>`;
         }).join('');
         pagesHTML+=pageWrap((pg===0?titleBlock:'')+parasHTML,pageNum,false,pg===0?ch.id:null);
@@ -4646,7 +4673,7 @@ function _makeEditableParaHTML(text, chId, paraIdx, style) {
   return `<p class="preview-editable" contenteditable="${_editMode}" spellcheck="true"
     data-chid="${chId}" data-paraidx="${paraIdx}" data-original="${esc(text)}"
     onblur="if(_editMode)_onEditBlur(this)"
-    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
+    onkeydown="if(event.key==='Tab'){event.preventDefault();document.execCommand('insertText',false,event.shiftKey?'':' '.repeat(4));}else if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
     style="${style}">${esc(text)}</p>`;
 }
 
