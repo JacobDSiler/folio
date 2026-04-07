@@ -3839,8 +3839,9 @@ async function exportPDF(){
       };
       const zdChar = ZD_MAP[S.ornament] || 'l'; // fallback to ❖ black diamond
       const pdfOrn = zdChar;
-      const ornLine = `${zdChar}   ${zdChar}   ${zdChar}`;
-      const ornFont = 'zapfdingbats';
+      // Scene break uses '* * *' — universally supported, no glyph fallback issues
+      const ornLine = '* * *';
+      const ornFont = 'times';
 
       // yStart: first usable y on a fresh page (clear of running header)
       const hdrMode=getV('runningHeader')||'both'; const hdrOn=hdrMode!=='off';
@@ -3971,12 +3972,25 @@ async function exportPDF(){
       bodyChapters.forEach(ch=>{
         newPage();
         const cn=chapterNumber(getChapters().indexOf(ch)+1);
-        let y=28;
-        if(cn){doc.setFont('times','normal');doc.setFontSize(8.5);doc.setTextColor(...acR);doc.text('CHAPTER '+cn,pw/2,y,{align:'center'});y+=7;}
-        if(ch.title){doc.setFont('times','bold');doc.setFontSize(17);doc.setTextColor(...txR);const tl=doc.splitTextToSize(ch.title,tw);doc.text(tl,pw/2,y,{align:'center'});y+=tl.length*9+5;}
-        // Chapter ornament in accent colour, body-size font, safe ASCII
-        doc.setFont(ornFont,'normal');doc.setFontSize(fsize);doc.setTextColor(...acR);
-        doc.text(pdfOrn,pw/2,y,{align:'center'});y+=9;
+        // Vertical positioning: chapter block sits at 1/3 down the page
+        // ph/3 ≈ 76mm on Trade 6×9 — standard trade fiction chapter drop
+        const chBlockTop = ph / 3.2;
+        let y = chBlockTop;
+        if(cn){
+          doc.setFont('times','normal');doc.setFontSize(9);doc.setTextColor(...acR);
+          doc.text('CHAPTER '+cn, pw/2, y, {align:'center'});
+          y += 7;
+        }
+        if(ch.title){
+          doc.setFont('times','bold');doc.setFontSize(18);doc.setTextColor(...txR);
+          const tl=doc.splitTextToSize(ch.title,tw*0.85);
+          doc.text(tl,pw/2,y,{align:'center'});
+          y+=tl.length*9.5+4;
+        }
+        // Ornament divider
+        doc.setFont('times','normal');doc.setFontSize(10);doc.setTextColor(...acR);
+        doc.text('—  —  —', pw/2, y, {align:'center'});
+        y += 10;
         setBody();
         const paras=ch.content.split('\n').filter(p=>p.trim());
         // Drop cap on first paragraph of chapters that have a title
@@ -3989,33 +4003,27 @@ async function exportPDF(){
           const dcMM=dcSize*0.352;            // drop cap height in mm
           const capLines=Math.ceil(dcMM/lh);  // how many body lines the cap spans
 
-          // 1. Draw the drop cap letter — baseline at y + dcMM*0.85 looks right
+          // Drop cap: letter sits flush with first body line, spans capLines rows
+          // Baseline of first body line = y (top of prose area)
+          const firstLineY = y;
           doc.setFont('times','bold');
           doc.setFontSize(dcSize);
           doc.setTextColor(...acR);
-          doc.text(dropLetter, mg, y + dcMM * 0.85);
-          const dcW = doc.getTextWidth(dropLetter) + 1.5; // cap width + gap
+          // Cap baseline: top of first line + cap height (ascender flush with line top)
+          doc.text(dropLetter, mg, firstLineY + dcMM * 0.78);
+          const dcW = doc.getTextWidth(dropLetter) + 2; // cap width + gap
 
-          // 2. Split the rest of the first paragraph to fit beside the cap
+          // Render rest of first paragraph beside the drop cap
           setBody();
           const narrowLines = doc.splitTextToSize(rest, tw - dcW);
-
-          // 3. Render lines: first capLines go beside the cap, rest go full width
-          let lineY = y + lh; // first body line baseline
+          let lineY = firstLineY;
           narrowLines.forEach((line, li) => {
-            if (y + dcMM + lh < lineY) {
-              // We've cleared the drop cap — switch to full width x
-              doc.text(line, mg, lineY);
-            } else {
-              // Still alongside the drop cap
-              doc.text(line, mg + dcW, lineY);
-            }
+            const pastCap = lineY > firstLineY + dcMM;
+            doc.text(line, pastCap ? mg : mg + dcW, lineY);
             lineY += lh;
           });
 
-          // 4. Continue remaining paragraphs below the first paragraph
-          //    dcY is the lower of: end of drop cap, or end of wrapped lines
-          const dcY = Math.max(y + dcMM + lh * 0.3, lineY + lh * 0.1);
+          const dcY = Math.max(firstLineY + dcMM + lh * 0.2, lineY);
           flowParas(paras.slice(1), dcY, tw, mg);
         } else {
           flowParas(paras, y, tw, mg);
