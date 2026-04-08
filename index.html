@@ -3621,7 +3621,8 @@ function renderPreview(){
       }
 
       // Safety factor 0.88: never fill more than 88% of a page — prevents overflow
-      const linesPerPage=Math.max(1,Math.floor(contentH / lineH * 0.88));
+      // 0.94 safety: small buffer prevents overflow without wasting lines
+      const linesPerPage=Math.max(1,Math.floor(contentH / lineH * 0.94));
 
       // Normalise markdown horizontal rules to scene breaks
       const normParas=paras.map(p=>/^[-*_]{3,}$/.test(p.trim())?'__SCENE_BREAK__':p);
@@ -3861,12 +3862,19 @@ async function exportPDF(){
         const lh=fsize*lspace*0.352;
         paras.forEach((para,pi)=>{
           if(para==='__SCENE_BREAK__'){
-            if(y+lh*2>yBottom){addPageNum();newPage();y=yStart;}
-            setBody();doc.setTextColor(...acR);
-            doc.setFont(ornFont,'normal');doc.setFontSize(fsize);doc.setTextColor(...acR);
-            doc.text(ornLine,pw/2,y,{align:'center'});
-            y+=lh*1.6;
-            setBody();
+            // If scene break falls in last 4 lines of page, absorb it —
+            // don't push a lone '* * *' onto the next page.
+            const nearBottom = y + lh * 4 > yBottom;
+            if(nearBottom){
+              // Skip the ornament; the page turn is separator enough
+              addPageNum(); newPage(); y = yStart;
+            } else {
+              setBody(); doc.setTextColor(...acR);
+              doc.setFont(ornFont,'normal'); doc.setFontSize(10); doc.setTextColor(...acR);
+              doc.text(ornLine, pw/2, y, {align:'center'});
+              y += lh * 1.8;
+              setBody();
+            }
             return;
           }
           const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
@@ -3972,25 +3980,25 @@ async function exportPDF(){
       bodyChapters.forEach(ch=>{
         newPage();
         const cn=chapterNumber(getChapters().indexOf(ch)+1);
-        // Vertical positioning: chapter block sits at 1/3 down the page
-        // ph/3 ≈ 76mm on Trade 6×9 — standard trade fiction chapter drop
-        const chBlockTop = ph / 3.2;
+        // Chapter block: title sits at ph/4 (~57mm on 6×9)
+        // Prose starts ~30mm below that — total ~87mm from top
+        const chBlockTop = ph / 4;
         let y = chBlockTop;
         if(cn){
           doc.setFont('times','normal');doc.setFontSize(9);doc.setTextColor(...acR);
           doc.text('CHAPTER '+cn, pw/2, y, {align:'center'});
-          y += 7;
+          y += 6;
         }
         if(ch.title){
           doc.setFont('times','bold');doc.setFontSize(18);doc.setTextColor(...txR);
           const tl=doc.splitTextToSize(ch.title,tw*0.85);
           doc.text(tl,pw/2,y,{align:'center'});
-          y+=tl.length*9.5+4;
+          y+=tl.length*9+3;
         }
-        // Ornament divider
+        // Ornament divider — tight gap
         doc.setFont('times','normal');doc.setFontSize(10);doc.setTextColor(...acR);
         doc.text('—  —  —', pw/2, y, {align:'center'});
-        y += 10;
+        y += 8;
         setBody();
         const paras=ch.content.split('\n').filter(p=>p.trim());
         // Drop cap on first paragraph of chapters that have a title
