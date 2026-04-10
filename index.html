@@ -1603,10 +1603,40 @@ function _deserialise(state) {
   }
   if (state.schema) importSchema=state.schema;
   _syncTOCToggle();
+  // Silently fix chapter boundary duplicates left by older sync versions
+  _deduplicateChapterBoundaries();
   // Clear loading spinner — all fields are set, safe to render now
   const _lEl = document.getElementById('folioLoadingState');
   if (_lEl) _lEl.remove();
   renderPreview();
+}
+
+// Remove paragraphs duplicated at chapter boundaries (legacy data corruption fix)
+function _deduplicateChapterBoundaries() {
+  const body = chapters.filter(c => c.type !== 'toc');
+  for (let i = 0; i < body.length - 1; i++) {
+    const curr = body[i];
+    const next = body[i + 1];
+    if (!curr.content || !next.content) continue;
+    const currParas = curr.content.split('\n').filter(p => p.trim());
+    const nextParas = next.content.split('\n').filter(p => p.trim());
+    if (!currParas.length || !nextParas.length) continue;
+    // If last paragraph of curr matches first paragraph of next, remove from curr
+    const lastOfCurr = currParas[currParas.length - 1].trim();
+    const firstOfNext = nextParas[0].trim();
+    if (lastOfCurr === firstOfNext && lastOfCurr.length > 20) {
+      // Remove the duplicate from curr
+      const cleaned = curr.content.split('\n');
+      // Find and remove the last occurrence of this paragraph
+      for (let j = cleaned.length - 1; j >= 0; j--) {
+        if (cleaned[j].trim() === lastOfCurr) {
+          cleaned.splice(j, 1);
+          break;
+        }
+      }
+      curr.content = cleaned.join('\n');
+    }
+  }
 }
 
 /* ── Save project ── */
@@ -1715,6 +1745,12 @@ async function loadFolioById(id) {
     _deserialise(data.state);
     _updateInviteUI();
 
+    // Belt-and-braces: ensure spinner is gone and preview is rendered
+    // (guards against any race where _deserialise's internal render was skipped)
+    const _spinner = document.getElementById('folioLoadingState');
+    if (_spinner) _spinner.remove();
+    renderPreview();
+
     // Switch to Chapters tab immediately so user sees their content
     const chapBtn = document.querySelectorAll('.tab-btn')[1];
     if (chapBtn) switchTab('chapters', chapBtn);
@@ -1727,7 +1763,27 @@ async function loadFolioById(id) {
     loadFolioList();
     _loadVersionList();
     _subscribePresence().then(() => _touchPresence());
-  } catch(e) { _hideSaving(); setStatus('Load failed: '+e.message); console.error(e); }
+  } catch(e) {
+    _hideSaving();
+    // Always clear the spinner so the user isn't left staring at it
+    const _errSpinner = document.getElementById('folioLoadingState');
+    if (_errSpinner) _errSpinner.remove();
+    const msg = e.code === 'permission-denied'
+      ? 'Could not open this folio — it may have been deleted or access was removed.'
+      : 'Load failed: ' + e.message;
+    setStatus(msg);
+    toastWarning(msg, { icon: '⚠', duration: 5000 });
+    // Show a friendly message in the preview pane instead of blank
+    const bp = document.getElementById('bookPreview');
+    if (bp && !bp.querySelector('.book-page')) {
+      bp.innerHTML = `<div style='display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;font-family:var(--sans);color:var(--hint);font-size:13px;text-align:center'>`
+        + `<span style='font-size:28px'>📖</span>`
+        + `<span>${msg}</span>`
+        + `<button class='btn-sm btn-ghost' onclick='newFolio()' style='margin-top:8px'>Start a new folio</button>`
+        + `</div>`;
+    }
+    console.error(e);
+  }
 }
 
 /* ── Version list ── */
@@ -3394,7 +3450,9 @@ function applyCustomSize() {
 
 function renderPreview(){
   // Don't render while the loading spinner is showing — prevents 'Untitled' flash
-  if (document.getElementById('folioLoadingMsg')) return;
+  // Only block render if the loading spinner is actively showing
+  const _loadingEl = document.getElementById('folioLoadingState');
+  if (_loadingEl && document.getElementById('folioLoadingMsg')) return;
   const T=S.theme;
   const title=getV('bookTitle')||'Untitled';
   const author=getV('bookAuthor')||'Author';
