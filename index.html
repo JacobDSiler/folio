@@ -395,6 +395,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     <input type="checkbox" id="frRegex" onchange="frSearch()" style="cursor:pointer">
     <span class="fr-label">.*</span>
   </label>
+  <div class="fr-sep"></div>
+  <span class="fr-label">Page</span>
+  <input class="fr-input" id="frPage" placeholder="1" style="width:46px;text-align:center" oninput="frGoToPage(this.value)" onkeydown="if(event.key==='Enter'){frGoToPage(this.value);this.blur()}" type="number" min="1">
   <button class="fr-close" onclick="closeFindReplace()" title="Close (Esc)">×</button>
 </div>
 
@@ -2799,6 +2802,37 @@ function scrollPreviewToBottom() {
   setTimeout(updateBtns, 600);
 })();
 
+// ── Scroll position persistence ──
+const _SCROLL_KEY = 'folio_scroll_';
+
+function _saveScrollPos() {
+  if (!_projId) return;
+  const area = document.getElementById('previewArea');
+  if (area) try { localStorage.setItem(_SCROLL_KEY + _projId, String(area.scrollTop)); } catch(e) {}
+}
+
+function _restoreScrollPos() {
+  if (!_projId) return;
+  const area = document.getElementById('previewArea');
+  if (!area) return;
+  try {
+    const saved = localStorage.getItem(_SCROLL_KEY + _projId);
+    if (saved) setTimeout(() => area.scrollTo({ top: parseInt(saved), behavior: 'instant' }), 80);
+  } catch(e) {}
+}
+
+// Save on scroll (debounced)
+(function() {
+  const area = document.getElementById('previewArea');
+  if (area) area.addEventListener('scroll', () => {
+    clearTimeout(window._scrollSaveTimer);
+    window._scrollSaveTimer = setTimeout(_saveScrollPos, 400);
+  }, { passive: true });
+})();
+
+// Restore after every render
+window.addEventListener('previewRendered', _restoreScrollPos);
+
 // Keyboard: Home/End scroll preview or writing area
 document.addEventListener('keydown', e => {
   // Don't steal from inputs/textareas
@@ -4958,6 +4992,12 @@ function openManuscriptView() {
   if (_wTop) _wTop.onclick = () => _wbScroll.scrollTo({top:0,behavior:'smooth'});
   if (_wBot) _wBot.onclick = () => _wbScroll.scrollTo({top:999999,behavior:'smooth'});
 
+  // Restore manuscript scroll position
+  if (_projId) {
+    try { const _ms = localStorage.getItem('folio_wscroll_ms_' + _projId);
+      if (_ms) setTimeout(() => _wbScroll.scrollTo({top:parseInt(_ms),behavior:'instant'}), 80);
+    } catch(e) {}
+  }
   // Opacity feedback as body scrolls
   _wbScroll.onscroll = () => {
     const atTop = _wbScroll.scrollTop < 80;
@@ -5302,6 +5342,12 @@ function _msConfirmSplits() {
 const _origCloseWriting = null;
 const _realCloseWriting = closeWritingMode;
 function closeWritingMode() {
+  // Save writing area scroll position before closing
+  const _wb = document.getElementById('writingBody');
+  if (_wb && _projId) {
+    const _wKey = 'folio_wscroll_' + (_writingChId || 'ms') + '_' + _projId;
+    try { localStorage.setItem(_wKey, String(_wb.scrollTop)); } catch(e) {}
+  }
   // Save manuscript edits ONLY if in write mode — split mode handled by _msConfirmSplits
   // Check BEFORE resetting display so the ta.style.display==='none' guard works
   if (_writingChId === null && _msMode === 'write' && _msDirty) { _msDirty = false; _msSyncToChapters(true); }
@@ -5336,6 +5382,17 @@ function closeWritingMode() {
 
 let _frMatches = [];  // [{chId, field:'content'|'title', start, end}]
 let _frCurrent = -1;
+
+function frGoToPage(val) {
+  const n = parseInt(val);
+  if (!n || n < 1) return;
+  const pages = document.querySelectorAll('.book-page');
+  if (!pages.length) return;
+  const target = pages[Math.min(n, pages.length) - 1];
+  const inp = document.getElementById('frPage');
+  if (inp) inp.value = Math.min(n, pages.length);
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 
 function openFindReplace() {
   const bar = document.getElementById('findReplaceBar');
