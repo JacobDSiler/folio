@@ -938,6 +938,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     <span style="width:1px;height:16px;background:rgba(255,255,255,0.2);flex-shrink:0"></span>
     <button id="editModeBtn" class="zoom-fit-btn" onclick="toggleEditMode()" title="Click paragraphs in the preview to edit them directly" style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">✏ Edit</button>
     <button class="zoom-fit-btn" onclick="openFindReplace()" title="Find &amp; Replace (Ctrl+H)" style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">⌕ Find</button>
+    <button onclick="openPOD()" title="Print &amp; Publish" style="background:rgba(201,149,106,0.3);padding:3px 10px;font-size:11px;border:1px solid rgba(201,149,106,0.5);border-radius:5px;color:#f0ebe0;cursor:pointer;font-family:var(--sans)">📦 Publish</button>
   </div>
   <div class="preview-scroller" id="previewScroller">
     <div class="preview-wrap" id="bookPreview"></div>
@@ -3927,7 +3928,7 @@ async function exportPDF(){
       const[pw,ph]=getPageDims();
       const doc=new jsPDF({orientation:'portrait',unit:'mm',format:[pw,ph]});
       const mgMM=parseFloat(document.getElementById('pageMargin')?.value||18);
-      const mg=mgMM,tw=pw-mg*2;
+      const mg=mgMM,tw=pw-mg*2-1;
       const bgR=hexToRgb(T.bg),txR=hexToRgb(T.text),acR=hexToRgb(accent),dvR=hexToRgb(T.divider);
       let pageNum=1;
       const addBg=()=>{if(T.bg!=='#ffffff'){doc.setFillColor(...bgR);doc.rect(0,0,pw,ph,'F')}};
@@ -3955,7 +3956,7 @@ async function exportPDF(){
       const hdrMode=getV('runningHeader')||'both'; const hdrOn=hdrMode!=='off';
       const yStart=hdrOn?21:mg;
       // Bottom threshold — leave room for page number
-      const yBottom=ph-mg-9;
+      const yBottom=ph-mg-14;
 
       const setBody=()=>{doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);};
       const addPageNum=()=>{if(!showNums||pageNum<=2)return;doc.setFont('times','normal');doc.setFontSize(7.5);doc.setTextColor(...txR);doc.text(String(pageNum),pw/2,ph-8,{align:'center'})};
@@ -5394,6 +5395,63 @@ function closeWritingMode() {
 let _frMatches = [];  // [{chId, field:'content'|'title', start, end}]
 let _frCurrent = -1;
 
+// ── Print & Publish ──
+function openPOD() {
+  const pages = document.querySelectorAll('.book-page').length;
+  const title = getV('bookTitle'); const author = getV('bookAuthor');
+  document.getElementById('podChecklist').innerHTML = [
+    { ok:true,      label:'Trim size: 6×9 in',          note:'Accepted by all major providers' },
+    { ok:true,      label:'Margins: ≥0.5 in all sides', note:'Meets KDP & IngramSpark minimums' },
+    { ok:true,      label:'Fonts: PDF built-in',        note:'Times-Roman — universally accepted' },
+    { ok:pages>=24, label:`Pages: ${pages}`,             note:pages>=24?'Above 24-page KDP minimum':'KDP requires at least 24 pages' },
+    { ok:!!title,   label:'Book title',                 note:title||'Add in Details tab' },
+    { ok:!!author,  label:'Author name',                note:author||'Add in Details tab' },
+    { ok:!!getV('copyright'), label:'Copyright notice',note:getV('copyright')||'Add in Details tab' },
+  ].map(c=>`<div style="display:flex;align-items:flex-start;gap:8px">`
+    +`<span style="font-size:13px;flex-shrink:0">${c.ok?'✅':'⚠️'}</span>`
+    +`<div><span style="font-weight:500;color:var(--text)">${c.label}</span>`
+    +(c.note?` <span style="color:var(--hint)">— ${c.note}</span>`:'')
+    +'</div></div>'
+  ).join('');
+  document.getElementById('podProviders').innerHTML = [
+    {name:'Amazon KDP',  logo:'📚',color:'#e07b20',
+     desc:'Largest reach via Amazon. Free to publish.',
+     note:'60% royalty on paperback. Use KDP Cover Creator for the cover.',
+     url:'https://kdp.amazon.com/en_US/title-setup/paperback/new/details',label:'Open KDP →'},
+    {name:'IngramSpark', logo:'🌐',color:'#005f9e',
+     desc:'Trade distribution to 40,000+ retailers & libraries worldwide.',
+     note:'$49 setup (often waived). Reaches shops KDP doesn\'t.',
+     url:'https://www.ingramspark.com/plan-your-book/print',label:'Open IngramSpark →'},
+    {name:'Lulu',        logo:'🟠',color:'#f26522',
+     desc:'Free setup. Great for ordering author proof copies.',
+     note:'Best first step — order a proof before wide release.',
+     url:'https://www.lulu.com/create/books',label:'Open Lulu →'},
+    {name:'Bookvault',   logo:'📖',color:'#2563eb',
+     desc:'UK & EU printing — faster, cheaper for European authors.',
+     note:'Good choice for Ireland/UK/EU readership.',
+     url:'https://www.bookvault.app',label:'Open Bookvault →'},
+  ].map(p=>`<a href="${p.url}" target="_blank" rel="noopener" `
+    +`style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;`
+    +`background:var(--bg);border:.5px solid var(--border-mid);border-radius:9px;`
+    +`text-decoration:none;transition:border-color .15s" `
+    +`onmouseover="this.style.borderColor='${p.color}'" onmouseout="this.style.borderColor=''">`
+    +`<span style="font-size:20px;flex-shrink:0;margin-top:2px">${p.logo}</span>`
+    +`<div style="flex:1;min-width:0">`
+    +`<div style="font-family:var(--sans);font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px">${p.name}</div>`
+    +`<div style="font-family:var(--sans);font-size:11.5px;color:var(--muted);line-height:1.5;margin-bottom:3px">${p.desc}</div>`
+    +`<div style="font-family:var(--sans);font-size:10.5px;color:var(--hint)">${p.note}</div>`
+    +`</div>`
+    +`<span style="font-family:var(--sans);font-size:11px;color:${p.color};white-space:nowrap;`
+    +`padding:4px 9px;border-radius:5px;border:1px solid ${p.color}55;align-self:center">${p.label}</span>`
+    +`</a>`
+  ).join('');
+  document.getElementById('podPanel').style.display='flex';
+  document.addEventListener('keydown',_podEsc);
+}
+function closePOD(){document.getElementById('podPanel').style.display='none';document.removeEventListener('keydown',_podEsc);}
+function _podEsc(e){if(e.key==='Escape')closePOD();}
+document.getElementById('podPanel').addEventListener('click',function(e){if(e.target===this)closePOD();});
+
 function frGoToPage(val) {
   const n = parseInt(val);
   if (!n || n < 1) return;
@@ -5828,5 +5886,26 @@ document.getElementById('bookPreview').addEventListener('mouseout', e => {
 </script>
 <div id="toastContainer"></div>
 <div id="printBook"></div>
+
+
+<!-- Print & Publish panel -->
+<div id="podPanel" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:540px;width:92%;max-height:88vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:28px 28px 24px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <div style="font-family:var(--sans);font-size:16px;font-weight:600;color:var(--text)">📦 Print &amp; Publish</div>
+      <button onclick="closePOD()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint);padding:2px 6px;border-radius:4px" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--hint)'">×</button>
+    </div>
+    <div style="background:var(--bg);border-radius:9px;padding:14px 16px;margin-bottom:20px">
+      <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:10px">Interior spec check</div>
+      <div id="podChecklist" style="display:flex;flex-direction:column;gap:6px;font-family:var(--sans);font-size:12px"></div>
+    </div>
+    <button onclick="exportPDF();closePOD();" style="width:100%;padding:10px;border-radius:8px;border:none;background:var(--accent-ui);color:#fff;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer;margin-bottom:20px">⬇ Download Print-Ready PDF</button>
+    <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:10px">Upload to a provider</div>
+    <div style="display:flex;flex-direction:column;gap:10px" id="podProviders"></div>
+    <div style="margin-top:18px;padding:12px 14px;background:#fef9f0;border:.5px solid #f0d080;border-radius:8px;font-family:var(--sans);font-size:11.5px;color:#92400e;line-height:1.6">
+      <strong>Cover needed?</strong> Every provider requires a cover PDF. <a href="https://www.canva.com/create/book-covers/" target="_blank" style="color:#c9956a">Canva's free book cover maker</a> is the easiest starting point. KDP's free Cover Creator is at kdp.amazon.com.
+    </div>
+  </div>
+</div>
 </body>
 </html>
