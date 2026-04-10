@@ -3486,7 +3486,7 @@ function renderPreview(){
   const hdrH = Math.round(14 * MM);   // header area
   const ftrH = Math.round(12 * MM);   // footer area
   const contentT = Math.round(28 * MM);
-  const contentB = Math.round(22 * MM);
+  const contentB = Math.round(21 * MM); // 21mm bottom margin
 
   const accent=S.accent;
   const orn=S.ornament;
@@ -3679,8 +3679,8 @@ function renderPreview(){
       }
 
       // Safety factor 0.88: never fill more than 88% of a page — prevents overflow
-      // 0.94 safety: small buffer prevents overflow without wasting lines
-      const linesPerPage=Math.max(1,Math.floor(contentH / lineH * 0.94));
+      // No safety factor — overflow:hidden clips any overflow visually
+      const linesPerPage=Math.max(1,Math.floor(contentH / lineH));
 
       // Normalise markdown horizontal rules to scene breaks
       const normParas=paras.map(p=>/^[-*_]{3,}$/.test(p.trim())?'__SCENE_BREAK__':p);
@@ -3694,13 +3694,17 @@ function renderPreview(){
       // First page: subtract heading block height.
       // Title block = top padding (18mm) + chNum + title + ornament + bottom margin (16mm)
       // Measured: roughly 6-7 lines worth at standard sizes.
+      // titleH matches the actual CSS rendering of titleBlock:
+      // chNum at H_CHNUM * ptScale * 1.2 line-height + margin
+      // title at H_CHAPTER * ptScale * 1.3 line-height
+      // ornament at H_ORN * ptScale
       const titleH = (ch.title||chNum)
-        ? Math.round(8*MM) + Math.round(10*MM) // top + bottom padding (matches titleBlock)
-          + (chNum ? lineH*H_CHNUM/fsize*1.4 : 0)
-          + (ch.title ? lineH*H_CHAPTER/fsize*1.5 : 0)
-          + lineH // ornament line
+        ? Math.round(8*MM) + Math.round(10*MM)
+          + (chNum ? H_CHNUM*ptScale*1.2 + 1.6*MM : 0)
+          + (ch.title ? H_CHAPTER*ptScale*1.3 : 0)
+          + H_ORN*ptScale
         : 0;
-      const titleLineEstimate = Math.ceil(titleH / lineH * 1.1); // 10% buffer for title block
+      const titleLineEstimate = Math.ceil(titleH / lineH); // match actual title height
       const pages=[];
       let currentPage=[];
       let usedLines=titleLineEstimate;
