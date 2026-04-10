@@ -3915,7 +3915,9 @@ async function exportPDF(){
       const setBody=()=>{doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);};
       const addPageNum=()=>{if(!showNums||pageNum<=2)return;doc.setFont('times','normal');doc.setFontSize(7.5);doc.setTextColor(...txR);doc.text(String(pageNum),pw/2,ph-8,{align:'center'})};
       const addHeader=()=>{if(!hdrOn||pageNum<=1)return;doc.setFont('times','normal');doc.setFontSize(6.5);doc.setTextColor(...txR);const _hl=hdrMode==='title'?'':author.toUpperCase();const _hr=hdrMode==='author'?'':title.toUpperCase();if(_hl)doc.text(_hl,mg,13);if(_hr)doc.text(_hr,pw-mg,13,{align:'right'});doc.setDrawColor(...dvR);doc.line(mg,14.5,pw-mg,14.5)};
-      const newPage=()=>{doc.addPage();addBg();pageNum++;addHeader();};
+      let _pageBlank = false; // true when current page has no content yet
+      const newPage=()=>{doc.addPage();addBg();pageNum++;addHeader();_pageBlank=true;};
+      const markUsed=()=>{_pageBlank=false;};
 
       // Core text renderer — flows paragraphs across pages cleanly.
       // Font must be set (via setBody) before calling this.
@@ -3934,6 +3936,7 @@ async function exportPDF(){
               setBody(); doc.setTextColor(...acR);
               doc.setFont(ornFont,'normal'); doc.setFontSize(10); doc.setTextColor(...acR);
               doc.text(ornLine, pw/2, y, {align:'center'});
+              markUsed();
               y += lh * 1.8;
               setBody();
             }
@@ -3949,11 +3952,12 @@ async function exportPDF(){
             // First line of paragraph gets indent; continuation lines start at xLeft
             const lineX=xLeft+(li===0?indentMm:0);
             doc.text(line,lineX,y);
+            markUsed();
             y+=lh;
           });
           if(indent===0) y+=lh*0.3;
         });
-        return y;
+        return y; // caller can check if we ended on a fresh page (y === yStart)
       };
 
       addBg();
@@ -4040,7 +4044,11 @@ async function exportPDF(){
       }
 
       bodyChapters.forEach(ch=>{
-        newPage();
+        // Only start a new page if the current one has content on it.
+        // If flowParas ended exactly at a page boundary, it already called
+        // newPage() — reusing that blank page avoids a phantom empty page.
+        if (!_pageBlank) newPage();
+        _pageBlank = false; // chapter title/content marks this page used
         const cn=chapterNumber(getChapters().indexOf(ch)+1);
         // Chapter block: title at ~38mm from top — Penguin/Tor trade standard
         // This brings first prose to ~65mm, matching commercial paperbacks
@@ -4106,7 +4114,8 @@ async function exportPDF(){
 
       // Back matter
       backMatter.forEach(bm=>{
-        newPage();
+        if (!_pageBlank) newPage();
+        _pageBlank = false;
         if(bm.title){doc.setFont('times','bold');doc.setFontSize(16);doc.setTextColor(...txR);doc.text(bm.title,pw/2,28,{align:'center'})}
         const startY=bm.title?42:yStart;
         const paras=bm.content.split('\n').filter(p=>p.trim());
