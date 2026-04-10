@@ -2811,8 +2811,13 @@ function _saveScrollPos() {
   if (area) try { localStorage.setItem(_SCROLL_KEY + _projId, String(area.scrollTop)); } catch(e) {}
 }
 
+let _lastUserScroll = 0; // timestamp of last manual scroll — guards restore
+
 function _restoreScrollPos() {
   if (!_projId) return;
+  // Don't restore if the user has scrolled manually in the last 2 seconds.
+  // This prevents TOC navigation and manual scrolling being overridden.
+  if (Date.now() - _lastUserScroll < 2000) return;
   const area = document.getElementById('previewArea');
   if (!area) return;
   try {
@@ -2825,6 +2830,7 @@ function _restoreScrollPos() {
 (function() {
   const area = document.getElementById('previewArea');
   if (area) area.addEventListener('scroll', () => {
+    _lastUserScroll = Date.now(); // record manual scroll time
     clearTimeout(window._scrollSaveTimer);
     window._scrollSaveTimer = setTimeout(_saveScrollPos, 400);
   }, { passive: true });
@@ -2885,8 +2891,13 @@ function scrollToChapter(chapId) {
       node = node.offsetParent;
     }
     scroller.scrollTo({ top: top - 20, behavior: 'smooth' });
-  // Re-check scroll buttons after animation (~600ms)
-  setTimeout(() => window.dispatchEvent(new Event('previewRendered')), 650);
+    // Update scroll buttons after animation, and save the new position.
+    // Do NOT dispatch previewRendered — that would trigger _restoreScrollPos
+    // and snap back to the old saved position.
+    setTimeout(() => {
+      if (typeof updateBtns === 'function') updateBtns();
+      _saveScrollPos();
+    }, 650);
   }
   // Flash highlight on the page
   el.style.transition = 'box-shadow .2s';
