@@ -3341,6 +3341,7 @@ function insertCopyright() {
 
 function hexToRgb(h){const v=h.replace('#','');return[parseInt(v.slice(0,2),16),parseInt(v.slice(2,4),16),parseInt(v.slice(4,6),16)]}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function md(s){return String(s||'').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>').replace(/\_\_(.+?)\_\_/g,'<strong>$1</strong>').replace(/\_(.+?)\_/g,'<em>$1</em>');}
 function safeName(s){return(s||'book').replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase().slice(0,60)}
 function downloadBlob(blob,filename){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000)}
 function setStatus(msg){document.getElementById('statusBar').textContent=msg}
@@ -3691,7 +3692,7 @@ function renderPreview(){
           contenteditable="${_editMode}" spellcheck="true"
           onblur="if(_editMode)_onParaBlur(this)"
           onkeydown="if(_editMode&&event.key==='Tab'){event.preventDefault();const s=this.selectionStart??0,e=this.selectionEnd??0,t=this.innerText;document.execCommand('insertText',false,event.shiftKey?'':' '.repeat(4));}else if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
-          style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0 0 ${mm(1.6)};text-align:${justify}">${esc(p)}</p>`;
+          style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0 0 ${mm(1.6)};text-align:${justify}">${md(esc(p))}</p>`;
       }).join('');
       pagesHTML+=pageWrap(`<div style="padding-top:${mm(5.3)}">${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(H_SECTION)};font-weight:700;color:${T.text};text-align:center;margin-bottom:${mm(4.2)}">${esc(ch.title)}</div>`:''}<div>${ps}</div></div>`,pageNum++,false,ch.id);
       return;
@@ -3776,8 +3777,8 @@ function renderPreview(){
           const isFirst=pg===0&&pi===0&&(ch.title||chNum);
           const noInd=(pg===0&&pi===0)||(pi>0&&slice[pi-1]==='__SCENE_BREAK__');
           const dc=dropCap&&isFirst&&p.length>1
-            ?`<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${pt(fsize*3.6)};line-height:0.76;margin:${pt(fsize*0.08)} ${mm(1)} 0 0;color:${accent};font-weight:700">${esc(p[0])}</span>${esc(p.slice(1))}`
-            :esc(p);
+            ?`<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${pt(fsize*3.6)};line-height:0.76;margin:${pt(fsize*0.08)} ${mm(1)} 0 0;color:${accent};font-weight:700">${esc(p[0])}</span>${md(esc(p.slice(1)))}`
+            :md(esc(p));
           const paraStyle=`font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0;text-align:${justify};text-indent:${noInd?'0':indentPx};margin-bottom:${indent==='0'?mm(1.3):'0'}`;
           return `<p class="preview-editable" data-chid="${ch.id}" data-paraidx="${paras.indexOf(p)}"
             contenteditable="${_editMode}" spellcheck="true"
@@ -3903,6 +3904,24 @@ function showChapterExportMenu(chId, anchorEl) {
   }, 10);
 }
 
+// Draw text with *italic* and **bold** inline markdown via jsPDF font switching
+function _pdfTextMd(doc, text, x, y) {
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  if (parts.length === 1) { doc.text(text, x, y); return; }
+  let cx = x;
+  const bf = doc.getFont();
+  parts.forEach(pt => {
+    if (!pt) return;
+    let inner = pt;
+    if (pt.startsWith('**') && pt.endsWith('**')) { doc.setFont('times','bold');   inner = pt.slice(2,-2); }
+    else if (pt.startsWith('*') && pt.endsWith('*')) { doc.setFont('times','italic'); inner = pt.slice(1,-1); }
+    else doc.setFont(bf.fontName, bf.fontStyle);
+    doc.text(inner, cx, y);
+    cx += doc.getTextWidth(inner);
+  });
+  doc.setFont(bf.fontName, bf.fontStyle);
+}
+
 async function exportPDF(){
   setExportState(true,'PDF');
   try{
@@ -3997,7 +4016,7 @@ async function exportPDF(){
             if(y>yBottom){addPageNum();newPage();y=yStart;setBody();}
             // First line of paragraph gets indent; continuation lines start at xLeft
             const lineX=xLeft+(li===0?indentMm:0);
-            doc.text(line,lineX,y);
+            _pdfTextMd(doc,line,lineX,y);
             markUsed();
             y+=lh;
           });
@@ -4228,7 +4247,7 @@ async function exportEPUB(){
     // Front matter
     frontMatter.forEach((fm,i)=>{
       const fname=`front${String(i+1).padStart(3,'0')}.xhtml`;
-      const body=`${fm.title?`<h2 class="section-title">${esc(fm.title)}</h2>`:''}`+fm.content.split('\n').filter(p=>p.trim()).map(p=>`<p>${esc(p)}</p>`).join('');
+      const body=`${fm.title?`<h2 class="section-title">${esc(fm.title)}</h2>`:''}`+fm.content.split('\n').filter(p=>p.trim()).map(p=>`<p>${md(esc(p))}</p>`).join('');
       oebps.file(fname,xhtmlWrap(fm.title||'Front Matter',body));
       spineItems.push({id:`front${i+1}`,href:fname,label:fm.title||`Front Matter ${i+1}`});
     });
@@ -4242,7 +4261,7 @@ async function exportEPUB(){
         if(p==='__SCENE_BREAK__') return `<p class="scene-break">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`;
         const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
         const dc=(pi===0&&ch.title)?' drop-cap':'';
-        return `<p class="${noInd?'no-indent':''}${dc}">${esc(p)}</p>`;
+        return `<p class="${noInd?'no-indent':''}${dc}">${md(esc(p))}</p>`;
       }).join('');
       const body=`${cn?`<p class="chapter-num">Chapter ${esc(String(cn))}</p>`:''} ${ch.title?`<h2 class="chapter-title">${esc(ch.title)}</h2>`:''}<p class="ornament">${esc(orn)}</p>${bodyParas}`;
       const fname=`chapter${String(i+1).padStart(3,'0')}.xhtml`;
@@ -4253,7 +4272,7 @@ async function exportEPUB(){
     // Back matter
     backMatter.forEach((bm,i)=>{
       const fname=`back${String(i+1).padStart(3,'0')}.xhtml`;
-      const body=`${bm.title?`<h2 class="section-title">${esc(bm.title)}</h2>`:''}`+bm.content.split('\n').filter(p=>p.trim()).map(p=>`<p>${esc(p)}</p>`).join('');
+      const body=`${bm.title?`<h2 class="section-title">${esc(bm.title)}</h2>`:''}`+bm.content.split('\n').filter(p=>p.trim()).map(p=>`<p>${md(esc(p))}</p>`).join('');
       oebps.file(fname,xhtmlWrap(bm.title||'Back Matter',body));
       spineItems.push({id:`back${i+1}`,href:fname,label:bm.title||`Back Matter ${i+1}`});
     });
@@ -4283,7 +4302,7 @@ async function exportMOBI(){
     bodyChapters.forEach((ch,i)=>{
       const cn=chapterNumber(i+1);const label=cn?`Chapter ${cn}${ch.title?' — '+ch.title:''}`:ch.title||`Chapter ${i+1}`;
       const paras=ch.content.split('\n').filter(p=>p.trim());
-      const bodyHTML=paras.map((p,pi)=>{if(p==='__SCENE_BREAK__') return`<p class="scene">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`;const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');return`<p class="${noInd?'noind':''}">${esc(p)}</p>`;}).join('');
+      const bodyHTML=paras.map((p,pi)=>{if(p==='__SCENE_BREAK__') return`<p class="scene">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`;const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');return`<p class="${noInd?'noind':''}">${md(esc(p))}</p>`;}).join('');
       const fname=`ch${String(i+1).padStart(3,'0')}.html`;
       zip.file(fname,`<html><head><meta charset="UTF-8"/><title>${esc(label)}</title><link rel="stylesheet" href="style.css"/></head><body>${cn?`<p class="chnum">Chapter ${esc(String(cn))}</p>`:''}${ch.title?`<h2 class="chtitle">${esc(ch.title)}</h2>`:''}<p class="orn">${esc(orn)}</p>${bodyHTML}</body></html>`);
       spineItems.push({id:`ch${i+1}`,href:fname,label});
@@ -5816,7 +5835,7 @@ window.addEventListener('beforeprint', () => {
       if(p==='__SCENE_BREAK__') return `<p class="sb">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`;
       const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
       const dc=dropCapOn&&pi===0&&isFirst?' dc':'';
-      return `<p class="${noInd?'ni':''}${dc}">${esc(p)}</p>`;
+      return `<p class="${noInd?'ni':''}${dc}">${md(esc(p))}</p>`;
     }).join('');
   }
 
