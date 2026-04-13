@@ -5481,7 +5481,10 @@ function openPOD() {
 }
 function closePOD(){document.getElementById('podPanel').style.display='none';document.removeEventListener('keydown',_podEsc);}
 function _podEsc(e){if(e.key==='Escape')closePOD();}
-document.getElementById('podPanel').addEventListener('click',function(e){if(e.target===this)closePOD();});
+// Backdrop click closes POD panel (delegated — element may not exist at parse time)
+document.addEventListener('click', function(e) {
+  if (e.target && e.target.id === 'podPanel') closePOD();
+});
 
 function frGoToPage(val) {
   const n = parseInt(val);
@@ -5573,16 +5576,16 @@ function _frJumpToCurrent() {
     if (taWM) { taWM.focus(); taWM.setSelectionRange(match.start, match.end); taWM.blur(); taWM.focus(); return; }
   }
 
-  // Open writing mode for this chapter and highlight
-  openWritingMode(match.chId);
-  // Wait for writing mode to open, then select and scroll match into view
+  // Navigate the preview to the chapter page containing the match.
+  // Do NOT open writing mode — find works in the formatted preview.
+  scrollToChapter(match.chId);
+  // If writing mode is already open for this chapter, also select in textarea
   setTimeout(() => {
-    if (match.field === 'content') {
+    if (match.field === 'content' && _writingChId === match.chId) {
       const ta = document.getElementById('writingArea');
       if (!ta) return;
       ta.focus();
       ta.setSelectionRange(match.start, match.end);
-      // Scroll the match into the visible centre of the textarea
       const lineH = parseInt(getComputedStyle(ta).lineHeight) || 24;
       const charsPerLine = Math.max(1, Math.floor(ta.clientWidth / 8));
       const lineNum = Math.floor(match.start / charsPerLine);
