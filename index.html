@@ -162,9 +162,21 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .exp-btn .lbl{font-size:9px;opacity:.7;font-weight:400}
 .status-bar{padding:6px 1.25rem;font-size:11px;color:var(--hint);background:#faf9f7;border-top:0.5px solid var(--border);flex-shrink:0}
 .preview-area{overflow:auto;background:#c8c4bc;display:flex;flex-direction:column;align-items:center;position:relative;height:100%;min-height:0}
-.preview-area::-webkit-scrollbar{width:8px;height:8px}
-.preview-area::-webkit-scrollbar-thumb{background:rgba(0,0,0,0.25);border-radius:4px}
-.preview-area::-webkit-scrollbar-track{background:rgba(0,0,0,0.08)}
+/* Chunky preview scrollbar — easy to grab on large screens */
+.preview-area::-webkit-scrollbar{width:14px;height:14px}
+.preview-area::-webkit-scrollbar-thumb{
+  background:rgba(0,0,0,0.32);border-radius:7px;
+  border:3px solid #c8c4bc; /* creates padding inside track */
+  min-height:48px; /* never shrinks to unclickable size */
+}
+.preview-area::-webkit-scrollbar-thumb:hover{background:rgba(0,0,0,0.48)}
+.preview-area::-webkit-scrollbar-thumb:active{background:rgba(201,149,106,0.75)}
+.preview-area::-webkit-scrollbar-track{
+  background:rgba(0,0,0,0.06);border-radius:7px;
+}
+[data-dark] .preview-area::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.22);border-color:#1e1a14}
+[data-dark] .preview-area::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.38)}
+[data-dark] .preview-area::-webkit-scrollbar-track{background:rgba(255,255,255,0.04)}
 /* ── Writing mode (full chapter prose editor in preview pane) ── */
 .writing-mode{display:none;flex-direction:column;height:100%;background:var(--bg);position:relative}
 .writing-mode.active{display:flex}
