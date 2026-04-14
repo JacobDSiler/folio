@@ -382,6 +382,13 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .ver-date{font-size:9.5px;color:var(--hint)}
 
 /* ── Custom context menu ── */
+/* Context menu submenu */
+#ctxDingbatSub{position:fixed;z-index:10000;background:var(--surface);border:.5px solid var(--border-mid);border-radius:9px;box-shadow:0 6px 24px rgba(0,0,0,0.35);padding:8px;display:none;flex-direction:column;gap:4px;min-width:200px}
+#ctxDingbatSub.open{display:flex}
+#ctxDingbatSub .sub-label{font-family:var(--sans);font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);padding:0 4px 4px}
+#ctxDingbatSub .dingbat-grid{display:flex;flex-wrap:wrap;gap:4px}
+#ctxDingbatSub .dingbat-grid .db-btn{font-size:18px;padding:4px 7px;border-radius:6px}
+.ctx-item.has-sub::after{content:"›";margin-left:auto;color:var(--hint)}
 #ctxMenu{position:fixed;z-index:9999;background:var(--surface);border:.5px solid var(--border-mid);border-radius:9px;box-shadow:0 6px 24px rgba(0,0,0,0.35);padding:4px;min-width:160px;display:none;flex-direction:column;gap:1px;font-family:var(--sans);font-size:12.5px}#ctxMenu.open{display:flex}.ctx-item{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;color:var(--text);white-space:nowrap;background:none;border:none;width:100%;text-align:left;font-family:var(--sans);font-size:12.5px}.ctx-item:hover{background:var(--bg)}.ctx-item.danger{color:#c44}.ctx-item.danger:hover{background:#fef2f2}.ctx-sep{height:.5px;background:var(--border);margin:3px 4px}.ctx-kbd{margin-left:auto;font-size:10px;color:var(--hint);background:var(--bg);border:.5px solid var(--border-mid);border-radius:3px;padding:1px 5px;font-family:monospace}
 </style>
 </head>
@@ -5830,6 +5837,86 @@ function _ctxCut() {
   } else { document.execCommand('cut'); }
 }
 
+// ── Dingbat submenu ──
+function _ctxDingbatOpen(btn) {
+  // Populate the grid with current ornaments
+  const grid = document.getElementById('ctxDingbatGrid');
+  grid.innerHTML = ORNAMENTS.map(o =>
+    `<button class="db-btn${o===S.ornament?' db-active':''}" `
+    + `onclick="_ctxInsertDingbat('${o}')" title="${o}">${o}</button>`
+  ).join('');
+
+  // Position submenu beside the parent item
+  const sub = document.getElementById('ctxDingbatSub');
+  sub.style.left = '0'; sub.style.top = '0';
+  sub.classList.add('open');
+  const btnR  = btn.getBoundingClientRect();
+  const subW  = sub.offsetWidth, subH = sub.offsetHeight;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  // Try to open to the right; fall back to left if no room
+  const leftPos = btnR.right + 4 + subW > vw ? btnR.left - subW - 4 : btnR.right + 4;
+  const topPos  = Math.min(btnR.top, vh - subH - 8);
+  sub.style.left = leftPos + 'px';
+  sub.style.top  = topPos  + 'px';
+}
+
+function _ctxInsertDingbat(glyph) {
+  // Close both menus
+  document.getElementById('ctxDingbatSub').classList.remove('open');
+  _ctxClose();
+
+  const el = _ctxTarget;
+  if (!el) return;
+
+  if (el.tagName === 'TEXTAREA') {
+    // Restore focus and cursor, then insert
+    el.focus();
+    _insertIntoTextarea(el, glyph);
+    // Trigger the right sync path depending on which textarea
+    if (el.id === 'writingArea') {
+      if (_writingChId === null) _msDirty = true;
+      updateWritingContent();
+    } else {
+      // Sidebar .ch-content-area — find chapter id from DOM
+      const item = el.closest('.ch-item');
+      const chId = item?.dataset?.id;
+      if (chId) updateChContent(chId, el.value);
+    }
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+  } else if (el.isContentEditable) {
+    // Restore selection in contenteditable, insert glyph
+    if (_ctxSavedRange) {
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(_ctxSavedRange);
+    }
+    if (glyph === '__SCENE_BREAK__') {
+      // In preview edit mode, scene break is a special marker
+      document.execCommand('insertText', false, '\n__SCENE_BREAK__\n');
+    } else {
+      document.execCommand('insertText', false, glyph);
+    }
+    el.dispatchEvent(new Event('blur', {bubbles: true}));
+  }
+}
+
+// Close submenu when moving away from the dingbat item to another item
+document.getElementById('ctxMenu').addEventListener('mouseover', e => {
+  const item = e.target.closest('.ctx-item');
+  if (item && item.id !== 'ctxDingbat') {
+    document.getElementById('ctxDingbatSub').classList.remove('open');
+  }
+});
+
+// Close submenu with main menu
+const _origCtxClose = _ctxClose;
+window._ctxClose = _ctxClose;
+function _ctxClose() {
+  document.getElementById('ctxMenu').classList.remove('open');
+  document.getElementById('ctxDingbatSub').classList.remove('open');
+  _ctxTarget = null;
+}
+
 // Keyboard shortcuts for bold/italic in all editing surfaces
 document.addEventListener('keydown', e => {
   if (!(e.ctrlKey || e.metaKey)) return;
@@ -6118,6 +6205,7 @@ document.getElementById('bookPreview').addEventListener('mouseout', e => {
 </div>
 
 <!-- Custom context menu -->
-<div id="ctxMenu"><button class="ctx-item" id="ctxBold"    onclick="_ctxWrap('**')"><span>𝐁</span> Bold   <span class="ctx-kbd">Ctrl+B</span></button><button class="ctx-item" id="ctxItalic"  onclick="_ctxWrap('*')"><span>𝐼</span> Italic <span class="ctx-kbd">Ctrl+I</span></button><div class="ctx-sep"></div><button class="ctx-item" id="ctxScene"   onclick="_ctxScene()"><span>✦</span> Scene break</button><button class="ctx-item" id="ctxFind"    onclick="_ctxFind()"><span>⌕</span> Find selection <span class="ctx-kbd">Ctrl+F</span></button><div class="ctx-sep"></div><button class="ctx-item" id="ctxCopy"    onclick="_ctxCopy()"><span>⎘</span> Copy  <span class="ctx-kbd">Ctrl+C</span></button><button class="ctx-item" id="ctxCut"     onclick="_ctxCut()"><span>✂</span> Cut   <span class="ctx-kbd">Ctrl+X</span></button></div>
+<div id="ctxMenu"><button class="ctx-item" id="ctxBold"    onclick="_ctxWrap('**')"><span>𝐁</span> Bold   <span class="ctx-kbd">Ctrl+B</span></button><button class="ctx-item" id="ctxItalic"  onclick="_ctxWrap('*')"><span>𝐼</span> Italic <span class="ctx-kbd">Ctrl+I</span></button><div class="ctx-sep"></div><button class="ctx-item" id="ctxScene"   onclick="_ctxScene()"><span>✦</span> Scene break</button><button class="ctx-item" id="ctxFind"    onclick="_ctxFind()"><span>⌕</span> Find selection <span class="ctx-kbd">Ctrl+F</span></button><div class="ctx-sep"></div><button class="ctx-item" id="ctxCopy"    onclick="_ctxCopy()"><span>⎘</span> Copy  <span class="ctx-kbd">Ctrl+C</span></button><button class="ctx-item" id="ctxCut"     onclick="_ctxCut()"><span>✂</span> Cut   <span class="ctx-kbd">Ctrl+X</span></button><div class="ctx-sep"></div><button class="ctx-item has-sub" id="ctxDingbat" onmouseenter="_ctxDingbatOpen(this)" onclick="_ctxDingbatOpen(this)">✦ Insert dingbat</button></div>
+<div id="ctxDingbatSub"><span class="sub-label">Ornaments</span><div class="dingbat-grid" id="ctxDingbatGrid"></div><div style="height:.5px;background:var(--border);margin:6px 0"></div><span class="sub-label">Scene break</span><div class="dingbat-grid"><button class="db-btn" onclick="_ctxInsertDingbat('__SCENE_BREAK__')" title="Scene break">— ✦ —</button></div></div>
 </body>
 </html>
