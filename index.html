@@ -380,6 +380,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .ver-card{display:flex;align-items:center;gap:8px;padding:6px 9px;border:.5px solid var(--border);border-radius:6px;font-size:11px;margin-bottom:4px;background:var(--surface)}
 .ver-name{flex:1;font-weight:500}
 .ver-date{font-size:9.5px;color:var(--hint)}
+
+/* ── Custom context menu ── */
+#ctxMenu{position:fixed;z-index:9999;background:var(--surface);border:.5px solid var(--border-mid);border-radius:9px;box-shadow:0 6px 24px rgba(0,0,0,0.35);padding:4px;min-width:160px;display:none;flex-direction:column;gap:1px;font-family:var(--sans);font-size:12.5px}#ctxMenu.open{display:flex}.ctx-item{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;color:var(--text);white-space:nowrap;background:none;border:none;width:100%;text-align:left;font-family:var(--sans);font-size:12.5px}.ctx-item:hover{background:var(--bg)}.ctx-item.danger{color:#c44}.ctx-item.danger:hover{background:#fef2f2}.ctx-sep{height:.5px;background:var(--border);margin:3px 4px}.ctx-kbd{margin-left:auto;font-size:10px;color:var(--hint);background:var(--bg);border:.5px solid var(--border-mid);border-radius:3px;padding:1px 5px;font-family:monospace}
 </style>
 </head>
 <body>
@@ -883,7 +886,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     </div>
     <div class="writing-body" id="writingBody">
       <div style="text-align:center;font-size:10.5px;color:var(--hint);font-family:var(--sans);margin-bottom:20px;letter-spacing:.05em" id="writingChapterLabel"></div>
-      <textarea class="writing-area" id="writingArea" placeholder="Start writing…" oninput="updateWritingContent();_autoResizeWritingArea(this);if(_writingChId===null)_msDirty=true" onkeydown="_writingAreaKeydown(event)"></textarea>
+      <textarea class="writing-area" id="writingArea" placeholder="Start writing…" oninput="updateWritingContent();_autoResizeWritingArea(this);if(_writingChId===null)_msDirty=true" onkeydown="_writingAreaKeydown(event)" oncontextmenu="_ctxOpen(event,this)"></textarea>
     </div>
     <!-- Sticky nav buttons — outside scroll content, fixed to writing-mode bottom-right -->
     <div style="position:absolute;bottom:60px;right:16px;display:flex;flex-direction:column;gap:6px;z-index:10;pointer-events:none">
@@ -3703,6 +3706,7 @@ function renderPreview(){
         return `<p class="preview-editable" data-chid="${ch.id}" data-paraidx="${paras.indexOf(p)}"
           contenteditable="${_editMode}" spellcheck="true"
           onblur="if(_editMode)_onParaBlur(this)"
+          oncontextmenu="if(_editMode){_ctxOpen(event,this)}"
           onkeydown="if(_editMode&&event.key==='Tab'){event.preventDefault();const s=this.selectionStart??0,e=this.selectionEnd??0,t=this.innerText;document.execCommand('insertText',false,event.shiftKey?'':' '.repeat(4));}else if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
           style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0 0 ${mm(1.6)};text-align:${justify}">${md(esc(p))}</p>`;
       }).join('');
@@ -3795,6 +3799,7 @@ function renderPreview(){
           return `<p class="preview-editable" data-chid="${ch.id}" data-paraidx="${paras.indexOf(p)}"
             contenteditable="${_editMode}" spellcheck="true"
             onblur="if(_editMode)_onParaBlur(this)"
+            oncontextmenu="if(_editMode){_ctxOpen(event,this)}"
             onkeydown="if(_editMode&&event.key==='Tab'){event.preventDefault();const s=this.selectionStart??0,e=this.selectionEnd??0,t=this.innerText;document.execCommand('insertText',false,event.shiftKey?'':' '.repeat(4));}else if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
             style="${paraStyle}">${dc}</p>`;
         }).join('');
@@ -5688,6 +5693,170 @@ document.addEventListener('keydown', e => {
 
 
 /* ═══════════════════════════════════════════════
+   CUSTOM CONTEXT MENU
+═══════════════════════════════════════════════ */
+
+let _ctxTarget = null; // the element that was right-clicked
+let _ctxSavedRange = null; // saved selection for contenteditable
+
+function _ctxOpen(e, el) {
+  e.preventDefault();
+  _ctxTarget = el;
+
+  // Save contenteditable selection before menu steals focus
+  const sel = window.getSelection();
+  _ctxSavedRange = (sel && sel.rangeCount > 0) ? sel.getRangeAt(0).cloneRange() : null;
+
+  // Show/hide items based on surface type
+  const isTA = (el.tagName === 'TEXTAREA');
+  const isCE = (el.isContentEditable);
+  const hasSel = isTA
+    ? (el.selectionStart !== el.selectionEnd)
+    : (sel && sel.toString().length > 0);
+
+  // Bold/italic only relevant when text is selected
+  document.getElementById('ctxBold').style.opacity   = hasSel ? '1' : '0.4';
+  document.getElementById('ctxItalic').style.opacity = hasSel ? '1' : '0.4';
+  // Scene break only in textareas (not contenteditable preview)
+  document.getElementById('ctxScene').style.display = isTA ? '' : 'none';
+  // Find selection only when text is selected
+  document.getElementById('ctxFind').style.display = hasSel ? '' : 'none';
+
+  // Position near cursor, keep inside viewport
+  const menu = document.getElementById('ctxMenu');
+  menu.style.left = '0'; menu.style.top = '0';
+  menu.classList.add('open');
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  const vw = window.innerWidth,  vh = window.innerHeight;
+  menu.style.left = Math.min(e.clientX + 2, vw - mw - 8) + 'px';
+  menu.style.top  = Math.min(e.clientY + 2, vh - mh - 8) + 'px';
+}
+
+function _ctxClose() {
+  document.getElementById('ctxMenu').classList.remove('open');
+  _ctxTarget = null;
+}
+
+// Close on any click elsewhere or Escape
+document.addEventListener('click', e => {
+  if (!document.getElementById('ctxMenu').contains(e.target)) _ctxClose();
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') _ctxClose(); });
+
+// Wrap selected text in textarea with marker (e.g. ** or *)
+function _ctxWrap(marker) {
+  _ctxClose();
+  if (!_ctxTarget) return;
+  const el = _ctxTarget;
+
+  if (el.tagName === 'TEXTAREA') {
+    const s = el.selectionStart, e2 = el.selectionEnd;
+    const sel = el.value.slice(s, e2);
+    if (!sel) return;
+    // Toggle: if already wrapped, unwrap; otherwise wrap
+    const already = sel.startsWith(marker) && sel.endsWith(marker) && sel.length > marker.length * 2;
+    const replacement = already ? sel.slice(marker.length, -marker.length) : marker + sel + marker;
+    el.focus();
+    el.setSelectionRange(s, e2);
+    document.execCommand('insertText', false, replacement);
+    el.setSelectionRange(s, s + replacement.length);
+    // Trigger content sync
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+  } else if (el.isContentEditable) {
+    // Restore saved selection
+    if (_ctxSavedRange) {
+      const sel2 = window.getSelection();
+      sel2.removeAllRanges();
+      sel2.addRange(_ctxSavedRange);
+    }
+    const text = window.getSelection().toString();
+    if (!text) return;
+    const already = text.startsWith(marker) && text.endsWith(marker) && text.length > marker.length * 2;
+    const replacement = already ? text.slice(marker.length, -marker.length) : marker + text + marker;
+    document.execCommand('insertText', false, replacement);
+    el.dispatchEvent(new Event('blur', {bubbles: true}));
+  }
+}
+
+function _ctxScene() {
+  _ctxClose();
+  const el = _ctxTarget;
+  if (!el || el.tagName !== 'TEXTAREA') return;
+  el.focus();
+  const s = el.selectionStart;
+  // Insert scene break on its own line
+  const before = el.value.slice(0, s);
+  const after  = el.value.slice(s);
+  const needBefore = before.length && !before.endsWith('\n');
+  const insertion = (needBefore ? '\n' : '') + '__SCENE_BREAK__\n';
+  document.execCommand('insertText', false, insertion);
+  el.dispatchEvent(new Event('input', {bubbles: true}));
+}
+
+function _ctxFind() {
+  const el = _ctxTarget;
+  const text = el?.tagName === 'TEXTAREA'
+    ? el.value.slice(el.selectionStart, el.selectionEnd)
+    : (_ctxSavedRange ? _ctxSavedRange.toString() : '');
+  _ctxClose();
+  if (!text) return;
+  openFindReplace();
+  const inp = document.getElementById('frFind');
+  inp.value = text;
+  frSearch();
+}
+
+function _ctxCopy() {
+  _ctxClose();
+  const el = _ctxTarget;
+  if (el?.tagName === 'TEXTAREA') {
+    const text = el.value.slice(el.selectionStart, el.selectionEnd);
+    if (text) navigator.clipboard.writeText(text).catch(() => document.execCommand('copy'));
+  } else { document.execCommand('copy'); }
+}
+
+function _ctxCut() {
+  _ctxClose();
+  const el = _ctxTarget;
+  if (el?.tagName === 'TEXTAREA') {
+    const s = el.selectionStart, e2 = el.selectionEnd;
+    const text = el.value.slice(s, e2);
+    if (text) {
+      navigator.clipboard.writeText(text).catch(() => {});
+      el.focus(); el.setSelectionRange(s, e2);
+      document.execCommand('insertText', false, '');
+      el.dispatchEvent(new Event('input', {bubbles: true}));
+    }
+  } else { document.execCommand('cut'); }
+}
+
+// Keyboard shortcuts for bold/italic in all editing surfaces
+document.addEventListener('keydown', e => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const active = document.activeElement;
+  const isEditing = active && (active.tagName === 'TEXTAREA' || active.isContentEditable);
+  if (!isEditing) return;
+  if (e.key === 'b' || e.key === 'B') {
+    e.preventDefault();
+    _ctxTarget = active;
+    if (active.isContentEditable) {
+      const sel = window.getSelection();
+      _ctxSavedRange = sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+    }
+    _ctxWrap('**');
+  }
+  if (e.key === 'i' || e.key === 'I') {
+    e.preventDefault();
+    _ctxTarget = active;
+    if (active.isContentEditable) {
+      const sel = window.getSelection();
+      _ctxSavedRange = sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+    }
+    _ctxWrap('*');
+  }
+});
+
+/* ═══════════════════════════════════════════════
    TOAST NOTIFICATION SYSTEM
 ═══════════════════════════════════════════════ */
 
@@ -5900,6 +6069,12 @@ document.addEventListener('click', e => {
   if (sec && !sec.contains(e.target)) closeExportDrawer();
 });
 
+// Delegated contextmenu for dynamically created .ch-content-area textareas
+document.addEventListener('contextmenu', e => {
+  const ta = e.target.closest('.ch-content-area');
+  if (ta) _ctxOpen(e, ta);
+});
+
 // Delegated click handler for TOC navigation rows
 document.getElementById('bookPreview').addEventListener('click', e => {
   const row = e.target.closest('.toc-nav-row');
@@ -5941,5 +6116,8 @@ document.getElementById('bookPreview').addEventListener('mouseout', e => {
     </div>
   </div>
 </div>
+
+<!-- Custom context menu -->
+<div id="ctxMenu"><button class="ctx-item" id="ctxBold"    onclick="_ctxWrap('**')"><span>𝐁</span> Bold   <span class="ctx-kbd">Ctrl+B</span></button><button class="ctx-item" id="ctxItalic"  onclick="_ctxWrap('*')"><span>𝐼</span> Italic <span class="ctx-kbd">Ctrl+I</span></button><div class="ctx-sep"></div><button class="ctx-item" id="ctxScene"   onclick="_ctxScene()"><span>✦</span> Scene break</button><button class="ctx-item" id="ctxFind"    onclick="_ctxFind()"><span>⌕</span> Find selection <span class="ctx-kbd">Ctrl+F</span></button><div class="ctx-sep"></div><button class="ctx-item" id="ctxCopy"    onclick="_ctxCopy()"><span>⎘</span> Copy  <span class="ctx-kbd">Ctrl+C</span></button><button class="ctx-item" id="ctxCut"     onclick="_ctxCut()"><span>✂</span> Cut   <span class="ctx-kbd">Ctrl+X</span></button></div>
 </body>
 </html>
