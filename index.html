@@ -1018,6 +1018,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 </div>
 
 <script>
+// Toast helpers hoisted — must be defined before any async code that calls them
+function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
+function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
+function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
 
 
 /* ═══════════════════════════════════════════════
@@ -3364,6 +3368,7 @@ function insertCopyright() {
 function hexToRgb(h){const v=h.replace('#','');return[parseInt(v.slice(0,2),16),parseInt(v.slice(2,4),16),parseInt(v.slice(4,6),16)]}
 function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
 function md(s){return String(s||'').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>').replace(/\_\_(.+?)\_\_/g,'<strong>$1</strong>').replace(/\_(.+?)\_/g,'<em>$1</em>');}
+
 function safeName(s){return(s||'book').replace(/[^a-zA-Z0-9_-]/g,'-').toLowerCase().slice(0,60)}
 function downloadBlob(blob,filename){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),5000)}
 function setStatus(msg){document.getElementById('statusBar').textContent=msg}
@@ -5901,10 +5906,13 @@ function _ctxInsertDingbat(glyph) {
 }
 
 // Close submenu when moving away from the dingbat item to another item
-document.getElementById('ctxMenu').addEventListener('mouseover', e => {
+// Use document delegation — ctxMenu element may not exist at parse time
+document.addEventListener('mouseover', e => {
+  const menu = document.getElementById('ctxMenu');
+  if (!menu || !menu.classList.contains('open')) return;
   const item = e.target.closest('.ctx-item');
   if (item && item.id !== 'ctxDingbat') {
-    document.getElementById('ctxDingbatSub').classList.remove('open');
+    document.getElementById('ctxDingbatSub')?.classList.remove('open');
   }
 });
 
@@ -5912,8 +5920,8 @@ document.getElementById('ctxMenu').addEventListener('mouseover', e => {
 const _origCtxClose = _ctxClose;
 window._ctxClose = _ctxClose;
 function _ctxClose() {
-  document.getElementById('ctxMenu').classList.remove('open');
-  document.getElementById('ctxDingbatSub').classList.remove('open');
+  document.getElementById('ctxMenu')?.classList.remove('open');
+  document.getElementById('ctxDingbatSub')?.classList.remove('open');
   _ctxTarget = null;
 }
 
@@ -6002,9 +6010,7 @@ function toast(msg, opts = {}) {
 }
 
 // Convenience wrappers
-const toastInfo    = (msg, opts) => toast(msg, { type: 'info',    ...opts });
-const toastSuccess = (msg, opts) => toast(msg, { type: 'success', ...opts });
-const toastWarning = (msg, opts) => toast(msg, { type: 'warning', ...opts });
+// toast helpers moved to top of script for hoisting
 const toastError   = (msg, opts) => toast(msg, { type: 'error',   ...opts });
 
 
