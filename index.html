@@ -5522,13 +5522,10 @@ function openPOD() {
   document.addEventListener('keydown',_podEsc);
 }
 // ── Lulu integration ──
-const LULU_WORKER_KEY = 'folio_lulu_worker_url';
+const LULU_WORKER_URL = 'https://folio-lulu.jacobdsiler.workers.dev';
 
 function openLuluModal() {
   closePOD();
-  // Restore saved worker URL and address fields
-  const saved = localStorage.getItem(LULU_WORKER_KEY) || '';
-  document.getElementById('lmWorkerUrl').value = saved;
   document.getElementById('lmStatus').className = 'lm-status';
   document.getElementById('lmStatus').textContent = '';
   document.getElementById('lmCost').className = 'lm-cost';
@@ -5549,16 +5546,12 @@ function _luluEsc(e) { if (e.key === 'Escape') closeLuluModal(); }
 document.addEventListener('click', e => {
   if (e.target?.id === 'luluModal') closeLuluModal();
 });
-function _lmSaveWorkerUrl() {
-  localStorage.setItem(LULU_WORKER_KEY, document.getElementById('lmWorkerUrl').value.trim());
-}
 function _lmSaveField(id) {
   localStorage.setItem('folio_lulu_' + id, document.getElementById(id).value);
 }
 
 async function _lmGetCost() {
-  const workerUrl = document.getElementById('lmWorkerUrl').value.trim();
-  if (!workerUrl) { _lmShowErr('Enter your Worker URL first'); return; }
+  const workerUrl = LULU_WORKER_URL;
   const pages = document.querySelectorAll('.book-page').length;
   const paper = document.getElementById('lmPaper').value;
   const qty   = document.getElementById('lmQty').value || 1;
@@ -5584,8 +5577,7 @@ async function _lmGetCost() {
 }
 
 async function _lmSubmit() {
-  const workerUrl = document.getElementById('lmWorkerUrl').value.trim();
-  if (!workerUrl) { _lmShowErr('Enter your Worker URL first'); return; }
+  const workerUrl = LULU_WORKER_URL;
 
   const name    = document.getElementById('lmName').value.trim();
   const street  = document.getElementById('lmStreet').value.trim();
@@ -6395,14 +6387,6 @@ document.getElementById('bookPreview').addEventListener('mouseout', e => {
       <div style="font-family:var(--sans);font-size:15px;font-weight:600;color:var(--text)">🟠 Order via Lulu</div>
       <button onclick="closeLuluModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint)" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--hint)'">×</button>
     </div>
-
-    <!-- Worker URL -->
-    <label>Lulu Worker URL
-      <span style="font-weight:400;opacity:.6">— your deployed folio-lulu worker</span>
-    </label>
-    <input id="lmWorkerUrl" placeholder="https://folio-lulu.YOUR-SUBDOMAIN.workers.dev"
-           value="" oninput="_lmSaveWorkerUrl()">
-    <p style="font-family:var(--sans);font-size:10.5px;color:var(--hint);margin:3px 0 10px">Deploy the folio-lulu Cloudflare Worker and paste its URL here. Saved locally.</p>
 
     <!-- Paper & Quantity -->
     <div class="lm-row">
