@@ -390,6 +390,28 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 #ctxDingbatSub .dingbat-grid .db-btn{font-size:18px;padding:4px 7px;border-radius:6px}
 .ctx-item.has-sub::after{content:"›";margin-left:auto;color:var(--hint)}
 #ctxMenu{position:fixed;z-index:9999;background:var(--surface);border:.5px solid var(--border-mid);border-radius:9px;box-shadow:0 6px 24px rgba(0,0,0,0.35);padding:4px;min-width:160px;display:none;flex-direction:column;gap:1px;font-family:var(--sans);font-size:12.5px}#ctxMenu.open{display:flex}.ctx-item{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:6px;cursor:pointer;color:var(--text);white-space:nowrap;background:none;border:none;width:100%;text-align:left;font-family:var(--sans);font-size:12.5px}.ctx-item:hover{background:var(--bg)}.ctx-item.danger{color:#c44}.ctx-item.danger:hover{background:#fef2f2}.ctx-sep{height:.5px;background:var(--border);margin:3px 4px}.ctx-kbd{margin-left:auto;font-size:10px;color:var(--hint);background:var(--bg);border:.5px solid var(--border-mid);border-radius:3px;padding:1px 5px;font-family:monospace}
+
+/* ── Lulu order modal ── */
+#luluModal{position:fixed;top:0;left:0;right:0;bottom:0;z-index:300;background:rgba(10,8,5,0.78);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center}
+#luluModal.open{display:flex}
+#luluModal .lm-box{background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:480px;width:92%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:26px 26px 22px}
+#luluModal label{display:block;font-family:var(--sans);font-size:11.5px;font-weight:500;color:var(--hint);margin:12px 0 4px}
+#luluModal input,#luluModal select{width:100%;font-family:var(--sans);font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--bg);color:var(--text);outline:none}
+#luluModal input:focus,#luluModal select:focus{border-color:var(--accent-ui)}
+.lm-row{display:flex;gap:10px}
+.lm-row>*{flex:1}
+.lm-cost{background:var(--bg);border-radius:9px;padding:12px 14px;margin:14px 0;font-family:var(--sans);font-size:12.5px;display:none}
+.lm-cost.show{display:block}
+.lm-cost-line{display:flex;justify-content:space-between;margin-bottom:4px}
+.lm-cost-total{font-weight:600;font-size:13.5px;border-top:.5px solid var(--border-mid);padding-top:8px;margin-top:6px}
+.lm-submit{width:100%;padding:11px;border-radius:8px;border:none;background:var(--accent-ui);color:#fff;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer;margin-top:12px}
+.lm-submit:disabled{opacity:.5;cursor:not-allowed}
+.lm-status{margin-top:14px;padding:12px 14px;border-radius:8px;font-family:var(--sans);font-size:12.5px;display:none;line-height:1.6}
+.lm-status.show{display:block}
+.lm-status.ok{background:#d1fae5;color:#065f46}
+.lm-status.err{background:#fef2f2;color:#b91c1c}
+.lm-spinner{display:inline-block;width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;animation:folio-spin .6s linear infinite;vertical-align:middle;margin-right:6px}
+
 </style>
 </head>
 <body>
@@ -5471,31 +5493,183 @@ function openPOD() {
      note:'$49 setup (often waived). Reaches shops KDP doesn\'t.',
      url:'https://www.ingramspark.com/plan-your-book/print',label:'Open IngramSpark →'},
     {name:'Lulu',        logo:'🟠',color:'#f26522',
-     desc:'Free setup. Great for ordering author proof copies.',
-     note:'Best first step — order a proof before wide release.',
-     url:'https://www.lulu.com/create/books',label:'Open Lulu →'},
+     desc:'Order author copies directly from Folio — integrated.',
+     note:'Print-ready PDF submitted automatically. Add cover on Lulu.',
+     url:null, label:'Order via Lulu ✦', action:'openLuluModal'},
     {name:'Bookvault',   logo:'📖',color:'#2563eb',
      desc:'UK & EU printing — faster, cheaper for European authors.',
      note:'Good choice for Ireland/UK/EU readership.',
      url:'https://www.bookvault.app',label:'Open Bookvault →'},
-  ].map(p=>`<a href="${p.url}" target="_blank" rel="noopener" `
-    +`style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;`
-    +`background:var(--bg);border:.5px solid var(--border-mid);border-radius:9px;`
-    +`text-decoration:none;transition:border-color .15s" `
-    +`onmouseover="this.style.borderColor='${p.color}'" onmouseout="this.style.borderColor=''">`
-    +`<span style="font-size:20px;flex-shrink:0;margin-top:2px">${p.logo}</span>`
-    +`<div style="flex:1;min-width:0">`
-    +`<div style="font-family:var(--sans);font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px">${p.name}</div>`
-    +`<div style="font-family:var(--sans);font-size:11.5px;color:var(--muted);line-height:1.5;margin-bottom:3px">${p.desc}</div>`
-    +`<div style="font-family:var(--sans);font-size:10.5px;color:var(--hint)">${p.note}</div>`
-    +`</div>`
-    +`<span style="font-family:var(--sans);font-size:11px;color:${p.color};white-space:nowrap;`
-    +`padding:4px 9px;border-radius:5px;border:1px solid ${p.color}55;align-self:center">${p.label}</span>`
-    +`</a>`
-  ).join('');
+  ].map(p=>{
+    const inner = `<span style="font-size:20px;flex-shrink:0;margin-top:2px">${p.logo}</span>`
+      +`<div style="flex:1;min-width:0">`
+      +`<div style="font-family:var(--sans);font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px">${p.name}</div>`
+      +`<div style="font-family:var(--sans);font-size:11.5px;color:var(--muted);line-height:1.5;margin-bottom:3px">${p.desc}</div>`
+      +`<div style="font-family:var(--sans);font-size:10.5px;color:var(--hint)">${p.note}</div>`
+      +`</div>`
+      +`<span style="font-family:var(--sans);font-size:11px;color:${p.color};white-space:nowrap;`
+      +`padding:4px 9px;border-radius:5px;border:1px solid ${p.color}55;align-self:center">${p.label}</span>`;
+    const shared = `style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;`
+      +`background:var(--bg);border:.5px solid var(--border-mid);border-radius:9px;`
+      +`text-decoration:none;transition:border-color .15s;cursor:pointer" `
+      +`onmouseover="this.style.borderColor='${p.color}'" onmouseout="this.style.borderColor=''"` ;
+    if (p.action) {
+      return `<div ${shared} onclick="${p.action}()">${inner}</div>`;
+    }
+    return `<a href="${p.url}" target="_blank" rel="noopener" ${shared}>${inner}</a>`;
+  }).join('');
   document.getElementById('podPanel').style.display='flex';
   document.addEventListener('keydown',_podEsc);
 }
+// ── Lulu integration ──
+const LULU_WORKER_KEY = 'folio_lulu_worker_url';
+
+function openLuluModal() {
+  closePOD();
+  // Restore saved worker URL and address fields
+  const saved = localStorage.getItem(LULU_WORKER_KEY) || '';
+  document.getElementById('lmWorkerUrl').value = saved;
+  document.getElementById('lmStatus').className = 'lm-status';
+  document.getElementById('lmStatus').textContent = '';
+  document.getElementById('lmCost').className = 'lm-cost';
+  document.getElementById('lmSubmitBtn').disabled = false;
+  // Restore shipping fields
+  ['lmName','lmStreet','lmCity','lmPost','lmPhone'].forEach(id => {
+    const v = localStorage.getItem('folio_lulu_' + id);
+    if (v) document.getElementById(id).value = v;
+  });
+  document.getElementById('luluModal').classList.add('open');
+  document.addEventListener('keydown', _luluEsc);
+}
+function closeLuluModal() {
+  document.getElementById('luluModal').classList.remove('open');
+  document.removeEventListener('keydown', _luluEsc);
+}
+function _luluEsc(e) { if (e.key === 'Escape') closeLuluModal(); }
+document.addEventListener('click', e => {
+  if (e.target?.id === 'luluModal') closeLuluModal();
+});
+function _lmSaveWorkerUrl() {
+  localStorage.setItem(LULU_WORKER_KEY, document.getElementById('lmWorkerUrl').value.trim());
+}
+function _lmSaveField(id) {
+  localStorage.setItem('folio_lulu_' + id, document.getElementById(id).value);
+}
+
+async function _lmGetCost() {
+  const workerUrl = document.getElementById('lmWorkerUrl').value.trim();
+  if (!workerUrl) { _lmShowErr('Enter your Worker URL first'); return; }
+  const pages = document.querySelectorAll('.book-page').length;
+  const paper = document.getElementById('lmPaper').value;
+  const qty   = document.getElementById('lmQty').value || 1;
+  const costEl = document.getElementById('lmCost');
+  costEl.className = 'lm-cost show';
+  costEl.innerHTML = '<span class="lm-spinner"></span>Getting price…';
+  try {
+    const r = await fetch(`${workerUrl}/cost?pages=${pages}&paper=${paper}&quantity=${qty}`);
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Cost calc failed');
+    const sym = d.currency === 'GBP' ? '£' : d.currency === 'EUR' ? '€' : '$';
+    const shippingOptions = (d.shipping_options || []).slice(0,2)
+      .map(s => `<div class="lm-cost-line"><span>${s.level}</span><span>${sym}${(s.total_cost_incl_tax/100).toFixed(2)}</span></div>`).join('');
+    costEl.innerHTML = `
+      <div class="lm-cost-line"><span>Unit price (${d.quantity}x)</span><span>${sym}${(d.unit_price/100).toFixed(2)}</span></div>
+      ${shippingOptions || ''}
+      <div class="lm-cost-total lm-cost-line"><span>Estimated total</span><span>${sym}${(d.cost_ex_shipping/100).toFixed(2)} + shipping</span></div>
+      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">${d.spine_note} · ${d.pages} pages</div>
+    `;
+  } catch(e) {
+    costEl.innerHTML = `<span style="color:#c44">⚠ ${e.message}</span>`;
+  }
+}
+
+async function _lmSubmit() {
+  const workerUrl = document.getElementById('lmWorkerUrl').value.trim();
+  if (!workerUrl) { _lmShowErr('Enter your Worker URL first'); return; }
+
+  const name    = document.getElementById('lmName').value.trim();
+  const street  = document.getElementById('lmStreet').value.trim();
+  const city    = document.getElementById('lmCity').value.trim();
+  const post    = document.getElementById('lmPost').value.trim();
+  const country = document.getElementById('lmCountry').value;
+  const phone   = document.getElementById('lmPhone').value.trim();
+  if (!name || !street || !city || !post) { _lmShowErr('Fill in all shipping fields'); return; }
+
+  // Save address for next time
+  ['lmName','lmStreet','lmCity','lmPost','lmPhone'].forEach(_lmSaveField);
+
+  const btn = document.getElementById('lmSubmitBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="lm-spinner"></span>Generating PDF…';
+
+  try {
+    // Export PDF to blob
+    const pdfBlob = await _exportPDFBlob();
+    btn.innerHTML = '<span class="lm-spinner"></span>Submitting to Lulu…';
+
+    const form = new FormData();
+    form.append('interior_pdf', pdfBlob, 'interior.pdf');
+    form.append('quantity', document.getElementById('lmQty').value || '1');
+    form.append('metadata', JSON.stringify({
+      title:  getV('bookTitle') || 'Untitled',
+      author: getV('bookAuthor') || 'Author',
+      isbn:   getV('bookISBN') || '',
+      paper:  document.getElementById('lmPaper').value,
+    }));
+    form.append('shipping', JSON.stringify({
+      name: name, street1: street, city, postcode: post,
+      country_code: country, phone,
+    }));
+
+    const r = await fetch(workerUrl + '/job', { method: 'POST', body: form });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Submission failed');
+
+    const statusEl = document.getElementById('lmStatus');
+    statusEl.className = 'lm-status show ok';
+    statusEl.innerHTML = `✅ Order submitted! Job ID: <strong>${d.job_id}</strong><br>`
+      + `${d.sandbox ? '<em>(Sandbox — no real charge)</em><br>' : ''}`
+      + `<a href="${d.lulu_url}" target="_blank" style="color:#065f46;font-weight:500">View on Lulu + add cover →</a>`;
+    btn.innerHTML = 'Submitted ✓';
+  } catch(e) {
+    _lmShowErr(e.message);
+    btn.disabled = false;
+    btn.innerHTML = 'Submit print order';
+  }
+}
+
+function _lmShowErr(msg) {
+  const el = document.getElementById('lmStatus');
+  el.className = 'lm-status show err';
+  el.textContent = '⚠ ' + msg;
+}
+
+// Export PDF as a Blob (wraps exportPDF which normally triggers download)
+async function _exportPDFBlob() {
+  const {jsPDF} = window.jspdf;
+  // Re-run the PDF generation synchronously and capture as blob
+  // We call the same logic as exportPDF but return blob instead of saving
+  return new Promise((resolve, reject) => {
+    try {
+      // Temporarily override jsPDF save to capture the blob
+      const origSave = jsPDF.prototype.save;
+      let captured = null;
+      jsPDF.prototype.save = function(filename) {
+        captured = this.output('blob');
+        jsPDF.prototype.save = origSave; // restore
+      };
+      exportPDF().then(() => {
+        jsPDF.prototype.save = origSave;
+        if (captured) resolve(captured);
+        else reject(new Error('PDF generation produced no output'));
+      }).catch(e => {
+        jsPDF.prototype.save = origSave;
+        reject(e);
+      });
+    } catch(e) { reject(e); }
+  });
+}
+
 function closePOD(){document.getElementById('podPanel').style.display='none';document.removeEventListener('keydown',_podEsc);}
 function _podEsc(e){if(e.key==='Escape')closePOD();}
 // Backdrop click closes POD panel (delegated — element may not exist at parse time)
@@ -6213,5 +6387,77 @@ document.getElementById('bookPreview').addEventListener('mouseout', e => {
 <!-- Custom context menu -->
 <div id="ctxMenu"><button class="ctx-item" id="ctxBold"    onclick="_ctxWrap('**')"><span>𝐁</span> Bold   <span class="ctx-kbd">Ctrl+B</span></button><button class="ctx-item" id="ctxItalic"  onclick="_ctxWrap('*')"><span>𝐼</span> Italic <span class="ctx-kbd">Ctrl+I</span></button><div class="ctx-sep"></div><button class="ctx-item" id="ctxScene"   onclick="_ctxScene()"><span>✦</span> Scene break</button><button class="ctx-item" id="ctxFind"    onclick="_ctxFind()"><span>⌕</span> Find selection <span class="ctx-kbd">Ctrl+F</span></button><div class="ctx-sep"></div><button class="ctx-item" id="ctxCopy"    onclick="_ctxCopy()"><span>⎘</span> Copy  <span class="ctx-kbd">Ctrl+C</span></button><button class="ctx-item" id="ctxCut"     onclick="_ctxCut()"><span>✂</span> Cut   <span class="ctx-kbd">Ctrl+X</span></button><div class="ctx-sep"></div><button class="ctx-item has-sub" id="ctxDingbat" onmouseenter="_ctxDingbatOpen(this)" onclick="_ctxDingbatOpen(this)">✦ Insert dingbat</button></div>
 <div id="ctxDingbatSub"><span class="sub-label">Ornaments</span><div class="dingbat-grid" id="ctxDingbatGrid"></div><div style="height:.5px;background:var(--border);margin:6px 0"></div><span class="sub-label">Scene break</span><div class="dingbat-grid"><button class="db-btn" onclick="_ctxInsertDingbat('__SCENE_BREAK__')" title="Scene break">— ✦ —</button></div></div>
+
+<!-- Lulu order modal -->
+<div id="luluModal">
+  <div class="lm-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <div style="font-family:var(--sans);font-size:15px;font-weight:600;color:var(--text)">🟠 Order via Lulu</div>
+      <button onclick="closeLuluModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint)" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--hint)'">×</button>
+    </div>
+
+    <!-- Worker URL -->
+    <label>Lulu Worker URL
+      <span style="font-weight:400;opacity:.6">— your deployed folio-lulu worker</span>
+    </label>
+    <input id="lmWorkerUrl" placeholder="https://folio-lulu.YOUR-SUBDOMAIN.workers.dev"
+           value="" oninput="_lmSaveWorkerUrl()">
+    <p style="font-family:var(--sans);font-size:10.5px;color:var(--hint);margin:3px 0 10px">Deploy the folio-lulu Cloudflare Worker and paste its URL here. Saved locally.</p>
+
+    <!-- Paper & Quantity -->
+    <div class="lm-row">
+      <div>
+        <label>Paper</label>
+        <select id="lmPaper">
+          <option value="white">White 60lb (standard)</option>
+          <option value="cream">Cream 60lb</option>
+        </select>
+      </div>
+      <div>
+        <label>Copies</label>
+        <input id="lmQty" type="number" min="1" max="50" value="1">
+      </div>
+    </div>
+
+    <!-- Shipping address -->
+    <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--hint);margin:16px 0 6px">Shipping address</div>
+    <label>Full name</label>
+    <input id="lmName" placeholder="Jane Siler">
+    <label>Street address</label>
+    <input id="lmStreet" placeholder="12 Bridge Street">
+    <div class="lm-row">
+      <div><label>City</label><input id="lmCity" placeholder="Mullingar"></div>
+      <div><label>Postcode</label><input id="lmPost" placeholder="N91 XY12"></div>
+    </div>
+    <div class="lm-row">
+      <div>
+        <label>Country</label>
+        <select id="lmCountry">
+          <option value="IE">Ireland</option>
+          <option value="GB">United Kingdom</option>
+          <option value="US">United States</option>
+          <option value="AU">Australia</option>
+          <option value="CA">Canada</option>
+          <option value="DE">Germany</option>
+          <option value="FR">France</option>
+          <option value="NL">Netherlands</option>
+        </select>
+      </div>
+      <div><label>Phone (optional)</label><input id="lmPhone" placeholder="+353 ..."></div>
+    </div>
+
+    <!-- Cost estimate -->
+    <button onclick="_lmGetCost()" style="margin-top:14px;padding:7px 16px;border-radius:7px;border:.5px solid var(--border-mid);background:var(--bg);font-family:var(--sans);font-size:12.5px;cursor:pointer;color:var(--text)">Get price estimate</button>
+    <div class="lm-cost" id="lmCost"></div>
+
+    <!-- Cover note -->
+    <div style="padding:10px 12px;background:#fef9f0;border:.5px solid #f0d080;border-radius:8px;font-family:var(--sans);font-size:11.5px;color:#92400e;line-height:1.6;margin-top:10px">
+      <strong>Cover required.</strong> After submitting, Lulu will email you a link to add your cover. Use KDP Cover Creator or Canva to create a print-ready cover PDF.
+    </div>
+
+    <button class="lm-submit" id="lmSubmitBtn" onclick="_lmSubmit()">Submit print order</button>
+    <div class="lm-status" id="lmStatus"></div>
+  </div>
+</div>
 </body>
 </html>
