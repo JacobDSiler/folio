@@ -5551,6 +5551,8 @@ function openLuluModal() {
     const v = localStorage.getItem('folio_lulu_' + id);
     if (v) document.getElementById(id).value = v;
   });
+  const savedCountry = localStorage.getItem('folio_lulu_lmCountry');
+  if (savedCountry) document.getElementById('lmCountry').value = savedCountry;
   document.getElementById('luluModal').classList.add('open');
   document.addEventListener('keydown', _luluEsc);
   _lmBuildCoverLinks(); // populate cover tools with current book data
@@ -5640,10 +5642,17 @@ async function _lmGetCost() {
   costEl.className = 'lm-cost show';
   costEl.innerHTML = '<span class="lm-spinner"></span>Getting price…';
   try {
-    const r = await fetch(`${workerUrl}/cost?pages=${pages}&paper=${paper}&quantity=${qty}`);
+    const country = document.getElementById('lmCountry').value || 'IE';
+    const r = await fetch(`${workerUrl}/cost?pages=${pages}&paper=${paper}&quantity=${qty}&country=${country}`);
     const d = await r.json();
     if (!r.ok) throw new Error(d.error || 'Cost calc failed');
-    const sym = d.currency === 'GBP' ? '£' : d.currency === 'EUR' ? '€' : '$';
+    const CURRENCY_SYMBOLS = {
+      GBP:'£', EUR:'€', USD:'$', CAD:'C$', AUD:'A$',
+      JPY:'¥', KRW:'₩', INR:'₹', BRL:'R$', MXN:'$',
+      CHF:'Fr', SEK:'kr', NOK:'kr', DKK:'kr', PLN:'zł',
+      SGD:'S$', AED:'د.إ', ZAR:'R', NZD:'NZ$', ARS:'$',
+    };
+    const sym = CURRENCY_SYMBOLS[d.currency] || d.currency || '$';
     // API returns prices as decimal strings; unit_price may be absent — derive from total
     const totalCost  = parseFloat(d.total_cost  || 0);
     const shipCost   = parseFloat((d.shipping_cost && d.shipping_cost.total_cost_incl_tax) || 0);
@@ -5654,7 +5663,7 @@ async function _lmGetCost() {
     costEl.innerHTML = `
       <div class="lm-cost-line"><span>Unit price (1 copy)</span><span>${sym}${unitPrice}</span></div>
       <div class="lm-cost-line"><span>Shipping (MAIL)</span><span>${sym}${shipCost.toFixed(2)}</span></div>
-      <div class="lm-cost-total lm-cost-line"><span>Estimated total</span><span>${sym}${totalCost.toFixed(2)}</span></div>
+      <div class="lm-cost-total lm-cost-line"><span>Estimated total</span><span>${sym}${totalCost.toFixed(2)} <span style="font-size:10px;opacity:.6">${d.currency}</span></span></div>
       <div style="font-size:10.5px;color:var(--hint);margin-top:4px">${d.spine_note} · ${d.pages} pages</div>
     `;
     _lmBuildCoverLinks(); // refresh spine width in cover section
@@ -5676,6 +5685,7 @@ async function _lmSubmit() {
 
   // Save address for next time
   ['lmName','lmStreet','lmCity','lmPost','lmPhone'].forEach(_lmSaveField);
+  try { localStorage.setItem('folio_lulu_lmCountry', document.getElementById('lmCountry').value); } catch(e) {}
 
   const btn = document.getElementById('lmSubmitBtn');
   btn.disabled = true;
@@ -6482,15 +6492,46 @@ document.getElementById('bookPreview').addEventListener('mouseout', e => {
     <div class="lm-row">
       <div>
         <label>Country</label>
-        <select id="lmCountry">
-          <option value="IE">Ireland</option>
-          <option value="GB">United Kingdom</option>
-          <option value="US">United States</option>
-          <option value="AU">Australia</option>
-          <option value="CA">Canada</option>
-          <option value="DE">Germany</option>
-          <option value="FR">France</option>
-          <option value="NL">Netherlands</option>
+        <select id="lmCountry" onchange="_lmBuildCoverLinks()">
+          <optgroup label="Common">
+            <option value="IE">Ireland</option>
+            <option value="GB">United Kingdom</option>
+            <option value="US">United States</option>
+            <option value="CA">Canada</option>
+            <option value="AU">Australia</option>
+          </optgroup>
+          <optgroup label="Europe">
+            <option value="DE">Germany</option>
+            <option value="FR">France</option>
+            <option value="NL">Netherlands</option>
+            <option value="ES">Spain</option>
+            <option value="IT">Italy</option>
+            <option value="BE">Belgium</option>
+            <option value="SE">Sweden</option>
+            <option value="NO">Norway</option>
+            <option value="DK">Denmark</option>
+            <option value="FI">Finland</option>
+            <option value="PT">Portugal</option>
+            <option value="AT">Austria</option>
+            <option value="CH">Switzerland</option>
+            <option value="PL">Poland</option>
+          </optgroup>
+          <optgroup label="Americas">
+            <option value="MX">Mexico</option>
+            <option value="BR">Brazil</option>
+            <option value="AR">Argentina</option>
+          </optgroup>
+          <optgroup label="Asia / Pacific">
+            <option value="JP">Japan</option>
+            <option value="KR">South Korea</option>
+            <option value="SG">Singapore</option>
+            <option value="IN">India</option>
+            <option value="NZ">New Zealand</option>
+          </optgroup>
+          <optgroup label="Middle East / Africa">
+            <option value="AE">United Arab Emirates</option>
+            <option value="ZA">South Africa</option>
+          </optgroup>
         </select>
       </div>
       <div><label>Phone (optional)</label><input id="lmPhone" placeholder="+353 ..."></div>
