@@ -15,6 +15,7 @@
 <script type="module">
 import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import{getFirestore,doc,getDoc,setDoc,collection,query,where,getDocs,deleteDoc,addDoc,onSnapshot,serverTimestamp,orderBy,limit}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import{getStorage,ref,uploadBytes,getDownloadURL,deleteObject}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js';
 import{getAuth,signInAnonymously,signInWithPopup,signInWithRedirect,linkWithPopup,linkWithRedirect,getRedirectResult,GoogleAuthProvider,onAuthStateChanged,signOut}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 const FC={apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",authDomain:"miscellaneous-117e9.firebaseapp.com",projectId:"miscellaneous-117e9",storageBucket:"miscellaneous-117e9.firebasestorage.app",messagingSenderId:"514858431339",appId:"1:514858431339:web:8b3acbe89966b45fe3922e"};
 const app=initializeApp(FC);
@@ -5716,6 +5717,7 @@ async function _lmSubmit() {
   btn.disabled = true;
   btn.innerHTML = '<span class="lm-spinner"></span>Generating PDF…';
 
+  let pdfStorageRef = null; // keep ref for cleanup
   try {
     // Step 1: Generate PDF blob
     let pdfBlob;
@@ -5723,34 +5725,23 @@ async function _lmSubmit() {
     catch(e) { throw new Error('PDF generation failed: ' + e.message); }
     if (!pdfBlob || pdfBlob.size === 0) throw new Error('PDF was empty — try exporting manually first');
 
-    // Step 2: Get a short-lived Lulu token from the worker
-    btn.innerHTML = '<span class="lm-spinner"></span>Authenticating…';
-    const tokRes = await fetch(workerUrl + '/token');
-    if (!tokRes.ok) throw new Error('Could not get upload token');
-    const tokData = await tokRes.json();
-    const { access_token, upload_url } = tokData;
+    // Step 2: Upload PDF to Firebase Storage to get a public URL
+    // Lulu's API accepts source_url — no need to route the file through our worker
+    btn.innerHTML = '<span class="lm-spinner"></span>Uploading PDF (' + Math.round(pdfBlob.size/1024) + ' KB)…';
+    const storage = getStorage();
+    const safeName = (getV('bookTitle')||'book').replace(/[^a-z0-9]/gi,'-').toLowerCase();
+    const storagePath = `folio-lulu/${_projId || 'anon'}/${safeName}-${Date.now()}.pdf`;
+    pdfStorageRef = ref(storage, storagePath);
+    await uploadBytes(pdfStorageRef, pdfBlob, { contentType: 'application/pdf' });
+    const pdfUrl = await getDownloadURL(pdfStorageRef);
 
-    // Step 3: Upload PDF directly from browser to Lulu (bypasses worker size limits)
-    btn.innerHTML = '<span class="lm-spinner"></span>Uploading PDF to Lulu… (' + Math.round(pdfBlob.size/1024) + ' KB)';
-    const upForm = new FormData();
-    upForm.append('file', pdfBlob, 'interior.pdf');
-    const upRes = await fetch(upload_url, {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + access_token },
-      body: upForm,
-    });
-    if (!upRes.ok) throw new Error('PDF upload to Lulu failed: ' + await upRes.text());
-    const upData = await upRes.json();
-    const fileId = upData.id;
-    if (!fileId) throw new Error('No file ID returned from Lulu upload');
-
-    // Step 4: Create print job via worker (just JSON — no large payload)
+    // Step 3: Create print job via worker — passes URL, not the file
     btn.innerHTML = '<span class="lm-spinner"></span>Creating print job…';
     const jobRes = await fetch(workerUrl + '/job', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        file_id: fileId,
+        source_url: pdfUrl,
         quantity: parseInt(document.getElementById('lmQty').value || '1'),
         metadata: {
           title:  getV('bookTitle') || 'Untitled',
@@ -5764,6 +5755,9 @@ async function _lmSubmit() {
     const jobData = await jobRes.json();
     if (!jobRes.ok) throw new Error(jobData.error || 'Job creation failed: ' + jobRes.status);
 
+    // Step 4: Clean up — delete the temp PDF from storage
+    if (pdfStorageRef) deleteObject(pdfStorageRef).catch(()=>{});
+
     const statusEl = document.getElementById('lmStatus');
     statusEl.className = 'lm-status show ok';
     statusEl.innerHTML = `✅ Order submitted! Job ID: <strong>${jobData.job_id}</strong><br>`
@@ -5775,6 +5769,8 @@ async function _lmSubmit() {
     _lmShowErr(e.message);
     btn.disabled = false;
     btn.innerHTML = 'Submit print order';
+    // Clean up temp file on error too
+    if (pdfStorageRef) deleteObject(pdfStorageRef).catch(()=>{});
   }
 }
 
