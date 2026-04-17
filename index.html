@@ -19,9 +19,10 @@ import{getStorage,ref,uploadBytes,getDownloadURL,deleteObject}from'https://www.g
 import{getAuth,signInAnonymously,signInWithPopup,signInWithRedirect,linkWithPopup,linkWithRedirect,getRedirectResult,GoogleAuthProvider,onAuthStateChanged,signOut}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 const FC={apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",authDomain:"miscellaneous-117e9.firebaseapp.com",projectId:"miscellaneous-117e9",storageBucket:"miscellaneous-117e9.firebasestorage.app",messagingSenderId:"514858431339",appId:"1:514858431339:web:8b3acbe89966b45fe3922e"};
 const app=initializeApp(FC);
-const db=getFirestore(app);
-const _storage=getStorage(app);const auth=getAuth(app);
+const db=getFirestore(app);const auth=getAuth(app);
 window._db=db;window._auth=auth;
+window._storage=getStorage(app);
+window._storageLib={ref,uploadBytes,getDownloadURL,deleteObject};
 window._fb={doc,getDoc,setDoc,collection,query,where,getDocs,deleteDoc,addDoc,onSnapshot,serverTimestamp,orderBy,limit};
 window._googleProvider=new GoogleAuthProvider();
 window._googleProvider.setCustomParameters({prompt:'select_account'});
@@ -5729,12 +5730,13 @@ async function _lmSubmit() {
     // Step 2: Upload PDF to Firebase Storage to get a public URL
     // Lulu's API accepts source_url — no need to route the file through our worker
     btn.innerHTML = '<span class="lm-spinner"></span>Uploading PDF (' + Math.round(pdfBlob.size/1024) + ' KB)…';
-    const storage = _storage;
+    const storage = window._storage;
+    const {ref:sRef,uploadBytes:sUpload,getDownloadURL:sUrl,deleteObject:sDel} = window._storageLib;
     const safeName = (getV('bookTitle')||'book').replace(/[^a-z0-9]/gi,'-').toLowerCase();
     const storagePath = `folio-lulu/${_projId || 'anon'}/${safeName}-${Date.now()}.pdf`;
-    pdfStorageRef = ref(storage, storagePath);
-    await uploadBytes(pdfStorageRef, pdfBlob, { contentType: 'application/pdf' });
-    const pdfUrl = await getDownloadURL(pdfStorageRef);
+    pdfStorageRef = sRef(storage, storagePath);
+    await sUpload(pdfStorageRef, pdfBlob, { contentType: 'application/pdf' });
+    const pdfUrl = await sUrl(pdfStorageRef);
 
     // Step 3: Create print job via worker — passes URL, not the file
     btn.innerHTML = '<span class="lm-spinner"></span>Creating print job…';
@@ -5757,7 +5759,7 @@ async function _lmSubmit() {
     if (!jobRes.ok) throw new Error(jobData.error || 'Job creation failed: ' + jobRes.status);
 
     // Step 4: Clean up — delete the temp PDF from storage
-    if (pdfStorageRef) deleteObject(pdfStorageRef).catch(()=>{});
+    if (pdfStorageRef) window._storageLib.deleteObject(pdfStorageRef).catch(()=>{});
 
     const statusEl = document.getElementById('lmStatus');
     statusEl.className = 'lm-status show ok';
@@ -5771,7 +5773,7 @@ async function _lmSubmit() {
     btn.disabled = false;
     btn.innerHTML = 'Submit print order';
     // Clean up temp file on error too
-    if (pdfStorageRef) deleteObject(pdfStorageRef).catch(()=>{});
+    if (pdfStorageRef) window._storageLib.deleteObject(pdfStorageRef).catch(()=>{});
   }
 }
 
