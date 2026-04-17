@@ -5727,24 +5727,34 @@ async function _lmSubmit() {
     catch(e) { throw new Error('PDF generation failed: ' + e.message); }
     if (!pdfBlob || pdfBlob.size === 0) throw new Error('PDF was empty — try exporting manually first');
 
-    // Step 2: Upload PDF to Firebase Storage to get a public URL
-    // Lulu's API accepts source_url — no need to route the file through our worker
-    btn.innerHTML = '<span class="lm-spinner"></span>Uploading PDF (' + Math.round(pdfBlob.size/1024) + ' KB)…';
+    // Step 2: Upload interior + placeholder cover to Firebase Storage
+    btn.innerHTML = '<span class="lm-spinner"></span>Uploading PDF…';
     const storage = window._storage;
-    const {ref:sRef,uploadBytes:sUpload,getDownloadURL:sUrl,deleteObject:sDel} = window._storageLib;
+    const {ref:sRef,uploadBytes:sUpload,getDownloadURL:sUrl} = window._storageLib;
+    const pages   = document.querySelectorAll('.book-page').length || 200;
     const safeName = (getV('bookTitle')||'book').replace(/[^a-z0-9]/gi,'-').toLowerCase();
-    const storagePath = `folio-lulu/${_projId || 'anon'}/${safeName}-${Date.now()}.pdf`;
-    pdfStorageRef = sRef(storage, storagePath);
-    await sUpload(pdfStorageRef, pdfBlob, { contentType: 'application/pdf' });
-    const pdfUrl = await sUrl(pdfStorageRef);
+    const stamp    = `${_projId||'anon'}-${Date.now()}`;
 
-    // Step 3: Create print job via worker — passes URL, not the file
+    // Interior
+    pdfStorageRef = sRef(storage, `folio-lulu/${stamp}-interior.pdf`);
+    await sUpload(pdfStorageRef, pdfBlob, { contentType: 'application/pdf' });
+    const interiorUrl = await sUrl(pdfStorageRef);
+
+    // Placeholder cover — user replaces on Lulu's site
+    btn.innerHTML = '<span class="lm-spinner"></span>Generating placeholder cover…';
+    const coverBlob = _generatePlaceholderCover(pages);
+    const coverRef  = sRef(storage, `folio-lulu/${stamp}-cover.pdf`);
+    await sUpload(coverRef, coverBlob, { contentType: 'application/pdf' });
+    const coverUrl  = await sUrl(coverRef);
+
+    // Step 3: Create print job via worker
     btn.innerHTML = '<span class="lm-spinner"></span>Creating print job…';
     const jobRes = await fetch(workerUrl + '/job', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        source_url: pdfUrl,
+        source_url:       interiorUrl,
+        cover_source_url: coverUrl,
         quantity: parseInt(document.getElementById('lmQty').value || '1'),
         metadata: {
           title:  getV('bookTitle') || 'Untitled',
@@ -5758,14 +5768,16 @@ async function _lmSubmit() {
     const jobData = await jobRes.json();
     if (!jobRes.ok) throw new Error(jobData.error || 'Job creation failed: ' + jobRes.status);
 
-    // Step 4: Clean up — delete the temp PDF from storage
-    if (pdfStorageRef) window._storageLib.deleteObject(pdfStorageRef).catch(()=>{});
+    // Step 4: Clean up temp files (fire and forget)
+    window._storageLib.deleteObject(pdfStorageRef).catch(()=>{});
+    window._storageLib.deleteObject(coverRef).catch(()=>{});
 
     const statusEl = document.getElementById('lmStatus');
     statusEl.className = 'lm-status show ok';
     statusEl.innerHTML = `✅ Order submitted! Job ID: <strong>${jobData.job_id}</strong><br>`
       + `${jobData.sandbox ? '<em>(Sandbox — no real charge)</em><br>' : ''}`
-      + `<a href="${jobData.lulu_url}" target="_blank" style="color:#065f46;font-weight:500">View on Lulu + add cover →</a>`;
+      + `<a href="${jobData.lulu_url}" target="_blank" style="color:#065f46;font-weight:500">View on Lulu →</a>`
+      + `<div style="margin-top:6px;font-size:11px;opacity:.8">A placeholder cover was submitted. Replace it with your real cover on Lulu before paying.</div>`;
     btn.innerHTML = 'Submitted ✓';
   } catch(e) {
     console.error('Lulu submit error:', e);
@@ -5785,7 +5797,72 @@ function _lmShowErr(msg) {
 
 // Export PDF as a Blob without triggering a download
 async function _exportPDFBlob() {
-  return exportPDF(true); // returnBlob=true skips doc.save(), returns blob directly
+  return exportPDF(true);
+}
+
+// Generate a minimal placeholder cover PDF for Lulu submission.
+// The user replaces this with their real cover on Lulu's site.
+function _generatePlaceholderCover(pageCount) {
+  const {jsPDF} = window.jspdf;
+  const title   = getV('bookTitle')  || 'Untitled';
+  const author  = getV('bookAuthor') || '';
+  const accent  = S.accent || '#8B4513';
+
+  // Cover dimensions (inches → mm)
+  const spineIn  = pageCount * 0.00225;
+  const fullWIn  = 6.25 * 2 + spineIn;  // back + spine + front + bleed
+  const fullHIn  = 9.25;                 // trim + bleed top/bottom
+  const fullWmm  = fullWIn * 25.4;
+  const fullHmm  = fullHIn * 25.4;
+  const spineWmm = spineIn * 25.4;
+  const frontX   = 6.25 * 25.4 + spineWmm; // front cover starts after back+spine
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm',
+    format: [fullHmm, fullWmm] }); // jsPDF landscape: [h, w]
+
+  const [ar, ag, ab] = hexToRgb(accent) || [139, 69, 19];
+
+  // Back cover — white with subtle author credit
+  doc.setFillColor(250, 248, 243);
+  doc.rect(0, 0, 6.25*25.4, fullHmm, 'F');
+  doc.setFont('times', 'italic'); doc.setFontSize(9);
+  doc.setTextColor(120, 100, 80);
+  if (author) doc.text(author, 6.25*25.4/2, fullHmm - 12, { align: 'center' });
+  doc.setFontSize(7); doc.setTextColor(160, 140, 120);
+  doc.text('PLACEHOLDER COVER — replace on Lulu', 6.25*25.4/2, fullHmm - 7, { align: 'center' });
+
+  // Spine — accent colour
+  doc.setFillColor(ar, ag, ab);
+  doc.rect(6.25*25.4, 0, spineWmm, fullHmm, 'F');
+  if (spineIn >= 0.25 && title) {
+    doc.setFont('times', 'bold'); doc.setFontSize(7);
+    doc.setTextColor(255, 255, 255);
+    // Rotate text for spine
+    doc.text(title, 6.25*25.4 + spineWmm/2, fullHmm/2,
+      { align: 'center', angle: 90 });
+  }
+
+  // Front cover — accent background
+  doc.setFillColor(ar, ag, ab);
+  doc.rect(frontX, 0, 6.25*25.4, fullHmm, 'F');
+  // Title
+  doc.setFont('times', 'bold'); doc.setFontSize(22);
+  doc.setTextColor(255, 255, 255);
+  const titleLines = doc.splitTextToSize(title, 6.25*25.4 - 20);
+  doc.text(titleLines, frontX + 6.25*25.4/2, fullHmm * 0.38, { align: 'center' });
+  // Author
+  if (author) {
+    doc.setFont('times', 'normal'); doc.setFontSize(12);
+    doc.setTextColor(255, 240, 220);
+    doc.text(author, frontX + 6.25*25.4/2, fullHmm * 0.62, { align: 'center' });
+  }
+  // Placeholder watermark
+  doc.setFont('times', 'italic'); doc.setFontSize(7);
+  doc.setTextColor(255, 255, 255, 0.5);
+  doc.text('Placeholder — replace on Lulu', frontX + 6.25*25.4/2, fullHmm - 8,
+    { align: 'center' });
+
+  return doc.output('blob');
 }
 
 function closePOD(){document.getElementById('podPanel').style.display='none';document.removeEventListener('keydown',_podEsc);}
