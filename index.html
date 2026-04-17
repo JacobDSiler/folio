@@ -5719,43 +5719,56 @@ async function _lmSubmit() {
   try {
     // Step 1: Generate PDF blob
     let pdfBlob;
-    try {
-      pdfBlob = await _exportPDFBlob();
-    } catch(pdfErr) {
-      throw new Error('PDF generation failed: ' + pdfErr.message);
-    }
+    try { pdfBlob = await _exportPDFBlob(); }
+    catch(e) { throw new Error('PDF generation failed: ' + e.message); }
     if (!pdfBlob || pdfBlob.size === 0) throw new Error('PDF was empty — try exporting manually first');
-    btn.innerHTML = '<span class="lm-spinner"></span>Uploading to Lulu… (' + Math.round(pdfBlob.size/1024) + ' KB)';
 
-    // Step 2: Submit to worker
-    const form = new FormData();
-    form.append('interior_pdf', pdfBlob, 'interior.pdf');
-    form.append('quantity', document.getElementById('lmQty').value || '1');
-    form.append('metadata', JSON.stringify({
-      title:  getV('bookTitle') || 'Untitled',
-      author: getV('bookAuthor') || 'Author',
-      isbn:   getV('bookISBN') || '',
-      paper:  document.getElementById('lmPaper').value,
-    }));
-    form.append('shipping', JSON.stringify({
-      name: name, street1: street, city, postcode: post,
-      country_code: country, phone,
-    }));
+    // Step 2: Get a short-lived Lulu token from the worker
+    btn.innerHTML = '<span class="lm-spinner"></span>Authenticating…';
+    const tokRes = await fetch(workerUrl + '/token');
+    if (!tokRes.ok) throw new Error('Could not get upload token');
+    const tokData = await tokRes.json();
+    const { access_token, upload_url } = tokData;
 
-    let r;
-    try {
-      r = await fetch(workerUrl + '/job', { method: 'POST', body: form });
-    } catch(netErr) {
-      throw new Error('Could not reach worker — check CORS / worker deployment: ' + netErr.message);
-    }
-    const d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'Worker error ' + r.status);
+    // Step 3: Upload PDF directly from browser to Lulu (bypasses worker size limits)
+    btn.innerHTML = '<span class="lm-spinner"></span>Uploading PDF to Lulu… (' + Math.round(pdfBlob.size/1024) + ' KB)';
+    const upForm = new FormData();
+    upForm.append('file', pdfBlob, 'interior.pdf');
+    const upRes = await fetch(upload_url, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + access_token },
+      body: upForm,
+    });
+    if (!upRes.ok) throw new Error('PDF upload to Lulu failed: ' + await upRes.text());
+    const upData = await upRes.json();
+    const fileId = upData.id;
+    if (!fileId) throw new Error('No file ID returned from Lulu upload');
+
+    // Step 4: Create print job via worker (just JSON — no large payload)
+    btn.innerHTML = '<span class="lm-spinner"></span>Creating print job…';
+    const jobRes = await fetch(workerUrl + '/job', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        file_id: fileId,
+        quantity: parseInt(document.getElementById('lmQty').value || '1'),
+        metadata: {
+          title:  getV('bookTitle') || 'Untitled',
+          author: getV('bookAuthor') || 'Author',
+          isbn:   getV('bookISBN') || '',
+          paper:  document.getElementById('lmPaper').value,
+        },
+        shipping: { name, street1: street, city, postcode: post, country_code: country, phone },
+      }),
+    });
+    const jobData = await jobRes.json();
+    if (!jobRes.ok) throw new Error(jobData.error || 'Job creation failed: ' + jobRes.status);
 
     const statusEl = document.getElementById('lmStatus');
     statusEl.className = 'lm-status show ok';
-    statusEl.innerHTML = `✅ Order submitted! Job ID: <strong>${d.job_id}</strong><br>`
-      + `${d.sandbox ? '<em>(Sandbox — no real charge)</em><br>' : ''}`
-      + `<a href="${d.lulu_url}" target="_blank" style="color:#065f46;font-weight:500">View on Lulu + add cover →</a>`;
+    statusEl.innerHTML = `✅ Order submitted! Job ID: <strong>${jobData.job_id}</strong><br>`
+      + `${jobData.sandbox ? '<em>(Sandbox — no real charge)</em><br>' : ''}`
+      + `<a href="${jobData.lulu_url}" target="_blank" style="color:#065f46;font-weight:500">View on Lulu + add cover →</a>`;
     btn.innerHTML = 'Submitted ✓';
   } catch(e) {
     console.error('Lulu submit error:', e);
