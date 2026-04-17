@@ -4272,7 +4272,7 @@ async function exportPDF(returnBlob=false){
 
       doc.setProperties({title,author,subject:subtitle,creator:'Folio Book Formatter'});
       if (returnBlob) {
-        setExportState(false,'PDF');
+        // Don't call setExportState — caller manages its own UI
         return doc.output('blob');
       }
       doc.save(safeName(title)+'.pdf');
@@ -4280,7 +4280,7 @@ async function exportPDF(returnBlob=false){
   }catch(e){
     setStatus('PDF error: '+e.message);
     console.error(e);
-    if (returnBlob) { setExportState(false,'PDF'); throw e; }
+    if (returnBlob) { throw e; } // caller handles error
   }
   setExportState(false,'PDF');
 }
@@ -5717,10 +5717,17 @@ async function _lmSubmit() {
   btn.innerHTML = '<span class="lm-spinner"></span>Generating PDF…';
 
   try {
-    // Export PDF to blob
-    const pdfBlob = await _exportPDFBlob();
-    btn.innerHTML = '<span class="lm-spinner"></span>Submitting to Lulu…';
+    // Step 1: Generate PDF blob
+    let pdfBlob;
+    try {
+      pdfBlob = await _exportPDFBlob();
+    } catch(pdfErr) {
+      throw new Error('PDF generation failed: ' + pdfErr.message);
+    }
+    if (!pdfBlob || pdfBlob.size === 0) throw new Error('PDF was empty — try exporting manually first');
+    btn.innerHTML = '<span class="lm-spinner"></span>Uploading to Lulu… (' + Math.round(pdfBlob.size/1024) + ' KB)';
 
+    // Step 2: Submit to worker
     const form = new FormData();
     form.append('interior_pdf', pdfBlob, 'interior.pdf');
     form.append('quantity', document.getElementById('lmQty').value || '1');
@@ -5735,9 +5742,14 @@ async function _lmSubmit() {
       country_code: country, phone,
     }));
 
-    const r = await fetch(workerUrl + '/job', { method: 'POST', body: form });
+    let r;
+    try {
+      r = await fetch(workerUrl + '/job', { method: 'POST', body: form });
+    } catch(netErr) {
+      throw new Error('Could not reach worker — check CORS / worker deployment: ' + netErr.message);
+    }
     const d = await r.json();
-    if (!r.ok) throw new Error(d.error || 'Submission failed');
+    if (!r.ok) throw new Error(d.error || 'Worker error ' + r.status);
 
     const statusEl = document.getElementById('lmStatus');
     statusEl.className = 'lm-status show ok';
@@ -5746,6 +5758,7 @@ async function _lmSubmit() {
       + `<a href="${d.lulu_url}" target="_blank" style="color:#065f46;font-weight:500">View on Lulu + add cover →</a>`;
     btn.innerHTML = 'Submitted ✓';
   } catch(e) {
+    console.error('Lulu submit error:', e);
     _lmShowErr(e.message);
     btn.disabled = false;
     btn.innerHTML = 'Submit print order';
