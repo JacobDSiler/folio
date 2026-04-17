@@ -5571,41 +5571,43 @@ function _lmBuildCoverLinks() {
     ? `${spine}" (too narrow for spine text)`
     : `${spine}"`;
 
-  // Canva deep-link — their book cover template with dimensions
-  // 6x9 trim + 0.125in bleed each side = 6.25 x 9.25
-  // Full wrap width = (6.25 * 2) + spine
+  // Cover dimensions
   const fullW = (6.25 * 2 + spineIn).toFixed(3);
-  const canvaUrl = `https://www.canva.com/design/play?`
-    + `type=TAEFakp5Npo&`
-    + `dimensions=${encodeURIComponent(`${fullW}x9.25`)}&`
-    + `units=in`;
 
-  // KDP Cover Creator — pre-fills trim size and page count
-  const kdpUrl = `https://kdp.amazon.com/cover-calculator?`
-    + `trimWidth=6&trimHeight=9&pageCount=${pages}&paperType=white&coverType=paperback`;
+  // Canva — plain book cover creator page (deep-link API requires Partner access)
+  const canvaUrl = 'https://www.canva.com/create/book-covers/';
 
-  // Lulu cover guidelines
-  const luluGuideUrl = 'https://help.lulu.com/en/support/solutions/articles/1000230623-print-book-cover-requirements';
+  // KDP cover calculator — URL params load the page but don't auto-fill dropdowns
+  // (KDP uses JS-rendered dropdowns). We pass them anyway and note specs clearly.
+  const kdpUrl = `https://kdp.amazon.com/cover-calculator`;
 
-  // Book Bolt — another popular free cover tool
-  const bookBoltUrl = 'https://bookbolt.io/tools/book-cover-template-generator/?'  
-    + `trimWidth=6&trimHeight=9&pages=${pages}&paperWhiteness=white`;
+  // Lulu cover tool — built into their book creation flow
+  const luluCoverUrl = 'https://help.lulu.com/en/support/solutions/articles/64000282777-upload-your-cover-file';
 
+  // Lulu full bleed specs
+  const luluBleedUrl = 'https://help.lulu.com/en/support/solutions/articles/64000255584-what-is-full-bleed-';
+
+  const spineOk = spineIn >= 0.25;
   const tools = [
     {
       icon: '🎨', name: 'Canva Book Cover Maker',
-      desc: `Free · Full-wrap template · ${fullW}" × 9.25" with bleed`,
-      url: canvaUrl, badge: 'Recommended', badgeColor: '#059669', badgeBg: '#d1fae5',
+      desc: `Free · Set custom size to ${fullW}" × 9.25" · Download as PDF`,
+      url: canvaUrl, badge: 'Free', badgeColor: '#059669', badgeBg: '#d1fae5',
     },
     {
-      icon: '📦', name: 'KDP Cover Creator',
-      desc: `Free · ${pages} pages pre-filled · Download as PDF`,
-      url: kdpUrl, badge: 'Free', badgeColor: '#1d4ed8', badgeBg: '#dbeafe',
+      icon: '📦', name: 'KDP Cover Calculator',
+      desc: `Free template · Enter: 6×9, Paperback, White, ${pages} pages`,
+      url: kdpUrl, badge: 'Template', badgeColor: '#1d4ed8', badgeBg: '#dbeafe',
     },
     {
-      icon: '📐', name: 'Lulu Cover Requirements',
-      desc: `Spine: ${spine}" · Full wrap: ${fullW}" × 9.25" · 0.125" bleed`,
-      url: luluGuideUrl, badge: 'Specs', badgeColor: '#92400e', badgeBg: '#fef3c7',
+      icon: '🟠', name: 'Upload Cover on Lulu',
+      desc: `Lulu has a built-in cover tool · Or upload your own PDF`,
+      url: luluCoverUrl, badge: 'Built-in', badgeColor: '#f26522', badgeBg: '#fff7ed',
+    },
+    {
+      icon: '📐', name: 'Full bleed & spine specs',
+      desc: `Spine: ${spine}" · Full wrap: ${fullW}" × 9.25" · 0.125" bleed required`,
+      url: luluBleedUrl, badge: 'Specs', badgeColor: '#92400e', badgeBg: '#fef3c7',
     },
   ];
 
@@ -5619,6 +5621,29 @@ function _lmBuildCoverLinks() {
     + `<span class="lm-cover-tool-badge" style="color:${t.badgeColor};background:${t.badgeBg}">${t.badge}</span>`
     + `</a>`
   ).join('');
+}
+
+function _lmCopySpecs() {
+  const pages  = document.querySelectorAll('.book-page').length || 200;
+  const paper  = document.getElementById('lmPaper')?.value || 'white';
+  const thick  = paper === 'cream' ? 0.00245 : 0.00225;
+  const spine  = (pages * thick).toFixed(3);
+  const fullW  = (6.25 * 2 + parseFloat(spine)).toFixed(3);
+  const title  = getV('bookTitle') || 'My Book';
+  const author = getV('bookAuthor') || 'Author';
+  const text = [
+    `Book: ${title} by ${author}`,
+    `Pages: ${pages}  |  Paper: ${paper} 60lb`,
+    `Trim size: 6" × 9"`,
+    `Spine width: ${spine}"`,
+    `Full cover (with bleed): ${fullW}" × 9.25"`,
+    `Back cover: 6.125" | Spine: ${spine}" | Front cover: 6.125"`,
+    `Bleed: 0.125" on all sides`,
+    `Resolution: 300 DPI minimum`,
+  ].join('\n');
+  navigator.clipboard.writeText(text)
+    .then(() => toastSuccess('Cover specs copied!', { icon: '📐', duration: 2500 }))
+    .catch(() => toastWarning('Could not copy — check browser permissions', { duration: 3000 }));
 }
 
 function closeLuluModal() {
@@ -5663,7 +5688,7 @@ async function _lmGetCost() {
     costEl.innerHTML = `
       <div class="lm-cost-line"><span>Unit price (1 copy)</span><span>${sym}${unitPrice}</span></div>
       <div class="lm-cost-line"><span>Shipping (MAIL)</span><span>${sym}${shipCost.toFixed(2)}</span></div>
-      <div class="lm-cost-total lm-cost-line"><span>Estimated total</span><span>${sym}${totalCost.toFixed(2)} <span style="font-size:10px;opacity:.6">${d.currency}</span></span></div>
+      <div class="lm-cost-total lm-cost-line"><span>Estimated total</span><span>${sym}${totalCost.toFixed(2)} <span style="font-size:10px;opacity:.6" title="Currency is determined by your Lulu account registration country">${d.currency} ⓘ</span></span></div>
       <div style="font-size:10.5px;color:var(--hint);margin-top:4px">${d.spine_note} · ${d.pages} pages</div>
     `;
     _lmBuildCoverLinks(); // refresh spine width in cover section
@@ -6544,10 +6569,13 @@ document.getElementById('bookPreview').addEventListener('mouseout', e => {
     <!-- Cover helper -->
     <div style="margin-top:14px;border:.5px solid var(--border-mid);border-radius:9px;overflow:hidden">
       <div style="padding:10px 14px;background:#fef9f0;border-bottom:.5px solid #f0d080;display:flex;align-items:center;justify-content:space-between;gap:8px">
-        <div style="font-family:var(--sans);font-size:12px;color:#92400e;line-height:1.5">
+        <div style="font-family:var(--sans);font-size:12px;color:#92400e;line-height:1.5;flex:1">
           <strong>Cover required</strong> — every provider needs a print-ready cover PDF.
-          Your spine will be <strong id="lmSpineDisplay">—</strong> wide.
+          Spine: <strong id="lmSpineDisplay">—</strong>.
         </div>
+        <button onclick="_lmCopySpecs()" title="Copy cover dimensions to clipboard"
+          style="background:#f26522;border:none;color:#fff;font-family:var(--sans);font-size:11px;padding:4px 10px;border-radius:5px;cursor:pointer;white-space:nowrap;flex-shrink:0"
+          >⎘ Copy specs</button>
       </div>
       <div style="display:flex;flex-direction:column;gap:0" id="lmCoverLinks"></div>
     </div>
