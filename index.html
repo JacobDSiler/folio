@@ -5778,14 +5778,14 @@ async function _lmSubmit() {
         `<div style="font-size:13px;font-weight:600;margin-bottom:6px">✅ Draft job created on Lulu</div>`
       + `<div style="font-size:11.5px;line-height:1.7;margin-bottom:10px">`
       + `${jobData.sandbox ? '<div style="color:#065f46;margin-bottom:4px">🧪 Sandbox mode — no real charge</div>' : ''}`
-      + `Nothing is printed or charged yet. Lulu will email you a link to review the order, `
-      + `add your real cover, and complete payment.</div>`
+      + `Job ID: <strong>${jobData.job_id}</strong>. `
+      + `Find it in your Lulu Developer Portal. Payment uses the card on file in your API account.</div>`
       + `<div style="font-size:11px;color:#065f46;background:#d1fae5;padding:8px 10px;border-radius:6px;margin-bottom:8px">`
       + `A placeholder cover was included. You must replace it on Lulu before paying.</div>`
       + `<a href="${jobData.lulu_url}" target="_blank" `
       + `style="display:inline-block;padding:7px 14px;background:#f26522;color:#fff;`
       + `border-radius:6px;text-decoration:none;font-family:var(--sans);font-size:12.5px;font-weight:500">`
-      + `Go to Lulu Developer Portal to pay →</a>`
+      + `View print jobs on Lulu →</a>`
       + `<div style="font-size:10.5px;color:var(--hint);margin-top:6px">Job ID: ${jobData.job_id}</div>`;
     btn.innerHTML = 'Submitted ✓';
   } catch(e) {
