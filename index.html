@@ -897,6 +897,10 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     </div>
     <!-- Slide-up drawer with all 8 formats -->
     <div class="exp-drawer" id="expDrawer">
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 10px 2px;font-family:var(--sans);font-size:11px;color:var(--hint)">
+        <label class="toggle" style="margin:0" title="Embed Tinos font — required for Lulu, IngramSpark and other POD providers. Slower export."><input type="checkbox" id="chkEmbedFonts" onchange="localStorage.setItem('folio_embedFonts',this.checked)"><span class="tog-track"></span></label>
+        <span>Embed fonts in PDF <span style="opacity:.6">(slower · required for POD)</span></span>
+      </div>
       <div class="exp-grid">
         <button class="exp-btn" id="btnPDF"  onclick="pickExport('PDF','Print-ready',exportPDF)"><span class="fmt">PDF</span><span class="lbl">Print</span></button>
         <button class="exp-btn" id="btnEPUB" onclick="pickExport('EPUB','E-readers',exportEPUB)"><span class="fmt">EPUB</span><span class="lbl">E-reader</span></button>
@@ -3241,6 +3245,9 @@ function toggleTOC(on) {
 }
 
 // Keep the checkbox in sync with the actual chapters array
+// Restore embed fonts preference
+(function(){ var v=localStorage.getItem('folio_embedFonts'); var el=document.getElementById('chkEmbedFonts'); if(el&&v!==null) el.checked=(v==='true'); })();
+
 function _syncTOCToggle() {
   const el = document.getElementById('showTOC');
   if (el) el.checked = !!chapters.find(c => c.type === 'toc');
@@ -4007,9 +4014,10 @@ async function exportPDF(returnBlob=false){
       const orn=S.ornament;
       const accent=S.accent;
       const[pw,ph]=getPageDims();
-      // Load embeddable Tinos font (Times-compatible, OFL licensed)
-      // Lazy-loaded at export time so page load is unaffected
-      await _loadPDFFonts();
+      // Load embeddable Tinos font only when toggle is on (or when exporting for Lulu)
+      const _embedFonts = returnBlob || document.getElementById('chkEmbedFonts')?.checked;
+      if (_embedFonts) await _loadPDFFonts();
+      else window._pdfFonts = null;
       const doc=new jsPDF({orientation:'portrait',unit:'mm',format:[pw,ph]});
       // Register embedded font — required by Lulu and other POD providers
       if (window._pdfFonts) {
@@ -5576,8 +5584,7 @@ async function openPOD() {
         + ` style="font-family:var(--sans);font-size:11px;padding:4px 10px;border-radius:5px;`
         + `background:#f26522;color:#fff;text-decoration:none;white-space:nowrap;flex-shrink:0">`
         + `View / Pay →</a>`
-        + `<button onclick="_lmClearJob('${j.jobId}')" title="Clear this job"
-        + ` style="background:none;border:.5px solid var(--border-mid);border-radius:5px;`
+        + `<button onclick="_lmClearJob('${j.jobId}')" title="Clear this job"` + ` style="background:none;border:.5px solid var(--border-mid);border-radius:5px;`
         + `padding:4px 8px;cursor:pointer;font-size:11px;color:var(--hint);flex-shrink:0">✕</button>`
         + `</div>`;
     }).join('');
@@ -5820,7 +5827,8 @@ function _lmConfirmSubmit() {
     + 'Book: ' + title + '\n'
     + 'Copies: ' + qty + '\n'
     + 'Ship to: ' + name + ', ' + city + ', ' + country + '\n\n'
-    + 'A generated placeholder cover will be included. You can replace it on Lulu, or keep it as-is for a proof copy.\n'
+    + 'A generated placeholder cover will be included (fonts embedded automatically).\n'
+    + 'You can replace it on Lulu, or keep it as-is for a plain proof copy.\n'
     + 'Nothing is charged until you add a payment method\n'
     + 'and approve the job on developers.lulu.com.'
   );
