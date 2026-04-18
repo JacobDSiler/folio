@@ -1100,6 +1100,8 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
+
+// FOLIO_AUDIO_BUILD=2026-04-18-pause-id3  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -6803,6 +6805,7 @@ let _apElVoices     = [];                          // fetched via /voices/eleven
 let _apGoogleVoices = GOOGLE_TTS_VOICES.slice();   // replaced on /voices/google
 let _apBusy         = false;
 let _apCurrentAudio = null;                        // active HTMLAudioElement
+let _apPlayingKey   = null;                        // key of track currently playing (null when paused/stopped)
 
 /* ── IndexedDB layer ───────────────────────────────────────── */
 function _apDBOpen() {
@@ -6973,6 +6976,176 @@ function _b64ToBlob(b64, mime) {
   return new Blob([arr], { type: mime || 'audio/mpeg' });
 }
 
+/* ══════ ID3v2.3 writer for audiobook-style MP3 output ══════
+   Produces a single-file MP3 containing:
+     • TIT2 TPE1 TALB TCON TYER COMM APIC  — standard metadata
+     • CHAP x N + CTOC                     — chapter markers
+   iTunes, Apple Books, VLC, Doppler, and most podcast players
+   read these and expose a chapter drawer / per-chapter seek.
+   ────────────────────────────────────────────────────────── */
+
+function _id3U32BE(n) {
+  return [
+    (n >>> 24) & 0xFF, (n >>> 16) & 0xFF,
+    (n >>>  8) & 0xFF,  n         & 0xFF,
+  ];
+}
+function _id3Synchsafe(n) {
+  return [
+    (n >> 21) & 0x7F, (n >> 14) & 0x7F,
+    (n >>  7) & 0x7F,  n        & 0x7F,
+  ];
+}
+function _id3StrToUtf8(s) {
+  return new TextEncoder().encode(s == null ? '' : String(s));
+}
+
+function _id3Frame(id, payload) {
+  // id: 4 ASCII chars. Frame size is raw 32-bit BE for ID3v2.3.
+  const out = new Uint8Array(10 + payload.length);
+  for (let i = 0; i < 4; i++) out[i] = id.charCodeAt(i);
+  const sz = _id3U32BE(payload.length);
+  for (let i = 0; i < 4; i++) out[4 + i] = sz[i];
+  // flags (2 bytes of 0) already zero-initialised
+  out.set(payload, 10);
+  return out;
+}
+
+function _id3TextFrame(id, text) {
+  const b = _id3StrToUtf8(text);
+  const payload = new Uint8Array(1 + b.length);
+  payload[0] = 0x03; // encoding: UTF-8
+  payload.set(b, 1);
+  return _id3Frame(id, payload);
+}
+
+function _id3CommFrame(text) {
+  // COMM: encoding + lang(3) + short desc +   + full text
+  const tb = _id3StrToUtf8(text);
+  const payload = new Uint8Array(1 + 3 + 1 + tb.length);
+  payload[0] = 0x03;                        // UTF-8
+  payload[1] = 0x65; payload[2] = 0x6E; payload[3] = 0x67; // "eng"
+  payload[4] = 0;                           // empty short description +  
+  payload.set(tb, 5);
+  return _id3Frame('COMM', payload);
+}
+
+function _id3ChapFrame(elementId, startMs, endMs, title) {
+  const idB = _id3StrToUtf8(elementId);
+  const sub = title ? _id3TextFrame('TIT2', title) : new Uint8Array(0);
+  const payload = new Uint8Array(idB.length + 1 + 16 + sub.length);
+  let pos = 0;
+  payload.set(idB, pos); pos += idB.length;
+  payload[pos++] = 0; // element ID  
+  const st = _id3U32BE(startMs | 0);
+  const et = _id3U32BE(endMs   | 0);
+  for (let i = 0; i < 4; i++) payload[pos++] = st[i];
+  for (let i = 0; i < 4; i++) payload[pos++] = et[i];
+  // start/end byte offsets = 0xFFFFFFFF (not specified — use times only)
+  for (let i = 0; i < 8; i++) payload[pos++] = 0xFF;
+  payload.set(sub, pos);
+  return _id3Frame('CHAP', payload);
+}
+
+function _id3TocFrame(elementIds) {
+  const idB = _id3StrToUtf8('toc');
+  // child element IDs, each null-terminated
+  let childLen = 0;
+  const childBytesList = elementIds.map(x => {
+    const b = _id3StrToUtf8(x);
+    childLen += b.length + 1;
+    return b;
+  });
+  const payload = new Uint8Array(idB.length + 1 + 1 + 1 + childLen);
+  let pos = 0;
+  payload.set(idB, pos); pos += idB.length;
+  payload[pos++] = 0;          //  
+  payload[pos++] = 0x03;       // flags: top-level + ordered
+  payload[pos++] = elementIds.length & 0xFF; // entry count
+  for (let i = 0; i < childBytesList.length; i++) {
+    const b = childBytesList[i];
+    payload.set(b, pos); pos += b.length;
+    payload[pos++] = 0;
+  }
+  return _id3Frame('CTOC', payload);
+}
+
+function _id3ApicFrame(mime, imgBytes) {
+  const mimeB = _id3StrToUtf8(mime);
+  // encoding + mime  + pic type + desc  + image
+  const payload = new Uint8Array(1 + mimeB.length + 1 + 1 + 1 + imgBytes.length);
+  let pos = 0;
+  payload[pos++] = 0x03;                 // UTF-8
+  payload.set(mimeB, pos); pos += mimeB.length; payload[pos++] = 0;
+  payload[pos++] = 0x03;                 // picture type: Cover (front)
+  payload[pos++] = 0;                    // empty description  
+  payload.set(imgBytes, pos);
+  return _id3Frame('APIC', payload);
+}
+
+function _buildId3v23Tag(frames) {
+  const framesTotal = frames.reduce((s, f) => s + f.length, 0);
+  const out = new Uint8Array(10 + framesTotal);
+  out[0] = 0x49; out[1] = 0x44; out[2] = 0x33;   // "ID3"
+  out[3] = 0x03; out[4] = 0x00;                  // version 2.3.0
+  out[5] = 0x00;                                 // flags
+  const sz = _id3Synchsafe(framesTotal);         // tag size IS synchsafe
+  for (let i = 0; i < 4; i++) out[6 + i] = sz[i];
+  let pos = 10;
+  for (let i = 0; i < frames.length; i++) {
+    out.set(frames[i], pos); pos += frames[i].length;
+  }
+  return out;
+}
+
+// Strip any leading ID3v2 tag from a blob so we don't embed
+// multiple tags in the merged file.
+async function _apStripLeadingId3(blob) {
+  const buf = await blob.arrayBuffer();
+  const arr = new Uint8Array(buf);
+  if (arr.length >= 10 && arr[0] === 0x49 && arr[1] === 0x44 && arr[2] === 0x33) {
+    const size = ((arr[6] & 0x7F) << 21) | ((arr[7] & 0x7F) << 14) |
+                 ((arr[8] & 0x7F) <<  7) | (arr[9] & 0x7F);
+    const total = 10 + size;
+    if (total < arr.length) return arr.subarray(total);
+  }
+  return arr;
+}
+
+// Decode a data: URL into { mime, bytes } for APIC
+function _dataUrlToBytes(dataUrl) {
+  if (!dataUrl || typeof dataUrl !== 'string') return null;
+  const m = /^data:([^;,]+)(;base64)?,(.*)$/.exec(dataUrl);
+  if (!m) return null;
+  const mime = m[1];
+  const b64 = !!m[2];
+  const payload = m[3];
+  if (b64) {
+    const bin = atob(payload);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return { mime, bytes: out };
+  }
+  return { mime, bytes: _id3StrToUtf8(decodeURIComponent(payload)) };
+}
+
+function _apGetBookMeta() {
+  const v = id => {
+    const el = document.getElementById(id);
+    return el ? (el.value || '').trim() : '';
+  };
+  const title = v('bookTitle') || v('projName') || 'Audiobook';
+  const author = v('bookAuthor') || '';
+  const subtitle = v('bookSubtitle') || '';
+  const publisher = v('publisher') || '';
+  const year = v('pubYear') || String(new Date().getFullYear());
+  const narrator = (_apProvider === 'google')
+    ? ('Google TTS · ' + (_apVoiceId || ''))
+    : ('ElevenLabs · ' + (_apVoiceId || ''));
+  const cover = (typeof S !== 'undefined' && S && S.coverImg) ? S.coverImg : null;
+  return { title, author, subtitle, publisher, year, narrator, cover };
+}
+
 async function _concatenateBlobs(blobs) {
   const arrays = await Promise.all(blobs.map(b => b.arrayBuffer()));
   const total = arrays.reduce((sum, a) => sum + a.byteLength, 0);
@@ -7042,19 +7215,38 @@ async function _apGoogleTTS(text, voice, speed, apiKey) {
 }
 
 async function _apElevenLabsTTS(text, voiceId, apiKey) {
-  const resp = await fetch(TTS_WORKER_URL + '/elevenlabs', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      text: text,
-      voiceId: voiceId,
-      apiKey: apiKey,
-      modelId: _apElModelId || 'eleven_multilingual_v2',
-    }),
-  });
+  // Direct browser call — ElevenLabs' free tier treats datacenter IPs
+  // (including Cloudflare Workers) as VPN/proxy traffic and auto-disables
+  // the account. The key is already client-side, so the worker hop adds
+  // no security and only triggers the abuse detector. The /v1/text-to-speech
+  // endpoint supports CORS explicitly for client-side use.
+  const modelId = _apElModelId || 'eleven_multilingual_v2';
+  const resp = await fetch(
+    'https://api.elevenlabs.io/v1/text-to-speech/' + encodeURIComponent(voiceId),
+    {
+      method: 'POST',
+      headers: {
+        'xi-api-key': apiKey,
+        'Content-Type': 'application/json',
+        'Accept': 'audio/mpeg',
+      },
+      body: JSON.stringify({
+        text: text,
+        model_id: modelId,
+        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+      }),
+    }
+  );
   if (!resp.ok) {
-    const t = await resp.text();
-    throw new Error('ElevenLabs: ' + resp.status + ' ' + t.slice(0, 200));
+    const body = await resp.text();
+    if (/detected_unusual_activity/i.test(body)) {
+      throw new Error(
+        'ElevenLabs flagged this account for "unusual activity" and disabled ' +
+        'the free tier. Sign in at elevenlabs.io and contact their support to ' +
+        're-enable it, or upgrade to Starter ($5/mo). ' + resp.status
+      );
+    }
+    throw new Error('ElevenLabs: ' + resp.status + ' ' + body.slice(0, 200));
   }
   return await resp.blob();
 }
@@ -7076,12 +7268,19 @@ async function _apFetchGoogleVoices(apiKey) {
 async function _apFetchElevenLabsVoices(key) {
   if (!key) { _apElVoices = []; return; }
   try {
-    const resp = await fetch(
-      TTS_WORKER_URL + '/voices/elevenlabs?apiKey=' + encodeURIComponent(key)
-    );
+    // Direct browser call (see comment on _apElevenLabsTTS).
+    const resp = await fetch('https://api.elevenlabs.io/v1/voices', {
+      headers: { 'xi-api-key': key, 'Accept': 'application/json' },
+    });
     if (!resp.ok) { _apElVoices = []; return; }
     const data = await resp.json();
-    _apElVoices = Array.isArray(data.voices) ? data.voices : [];
+    const raw = Array.isArray(data.voices) ? data.voices : [];
+    _apElVoices = raw.map(v => ({
+      id: v.voice_id,
+      label: v.name + (v.category ? ' · ' + v.category : ''),
+      category: v.category || '',
+      previewUrl: v.preview_url || '',
+    }));
   } catch (e) { _apElVoices = []; }
 }
 
@@ -7120,7 +7319,13 @@ async function _apLoadCloudSettings() {
   if (!_apCanCloudSync()) return false;
   try {
     const ref = window._fb.doc(window._db, 'folio_user_settings', window._uid);
-    const snap = await window._fb.getDoc(ref);
+    // Hard-bound the fetch: if the SDK wedges we fall back to localStorage
+    // so Folio never appears stuck.
+    const getP = window._fb.getDoc(ref);
+    const timeoutP = new Promise((_, rej) =>
+      setTimeout(() => rej(new Error('timeout')), 5000)
+    );
+    const snap = await Promise.race([getP, timeoutP]);
     if (!snap.exists()) { _apCloudLoaded = true; return false; }
     const d = snap.data() || {};
     if (d.audioProvider)                    _apProvider  = d.audioProvider;
@@ -7167,24 +7372,34 @@ function _apScheduleCloudSave() {
   _apCloudSaveTimer = setTimeout(_apSaveCloudSettings, 900);
 }
 
-// Re-sync when auth state changes (e.g. user links a Google account mid-session)
-window.addEventListener('auth-changed', async (e) => {
-  const user = e && e.detail && e.detail.user;
-  if (user && _apCanCloudSync()) {
-    _apCloudLoaded = false;
-    await _apLoadCloudSettings();
-    // Re-hydrate any open inputs
-    const gInput = document.getElementById('apGoogleKey');
-    if (gInput) gInput.value = _apGoogleKey || '';
-    const elInput = document.getElementById('apElKey');
-    if (elInput) elInput.value = _apElKey || '';
-    const elModelSel = document.getElementById('apElModel');
-    if (elModelSel) elModelSel.value = _apElModelId || 'eleven_multilingual_v2';
-    const speedSel = document.getElementById('apSpeed');
-    if (speedSel) speedSel.value = String(_apSpeed);
-    _apUpdateProviderUI();
-    _apPopulateVoices();
-  }
+// Re-sync when auth state changes (e.g. user links a Google account mid-session).
+// EVERYTHING in this handler is best-effort — failures must never block Folio boot
+// or any other auth-changed subscriber (e.g. _refreshAuthUI).
+window.addEventListener('auth-changed', (e) => {
+  (async () => {
+    try {
+      const user = e && e.detail && e.detail.user;
+      if (!user || !_apCanCloudSync()) return;
+      _apCloudLoaded = false;
+      // Race with a 4s timeout so a wedged network can never leave this pending.
+      const load = _apLoadCloudSettings();
+      const timeout = new Promise((res) => setTimeout(() => res(false), 4000));
+      await Promise.race([load, timeout]);
+      // Re-hydrate any open inputs (null-safe — panel may not be rendered yet)
+      const gInput = document.getElementById('apGoogleKey');
+      if (gInput) gInput.value = _apGoogleKey || '';
+      const elInput = document.getElementById('apElKey');
+      if (elInput) elInput.value = _apElKey || '';
+      const elModelSel = document.getElementById('apElModel');
+      if (elModelSel) elModelSel.value = _apElModelId || 'eleven_multilingual_v2';
+      const speedSel = document.getElementById('apSpeed');
+      if (speedSel) speedSel.value = String(_apSpeed);
+      _apUpdateProviderUI();
+      _apPopulateVoices();
+    } catch (err) {
+      console.warn('[audio auth-changed]', err);
+    }
+  })();
 });
 
 /* ── Settings persistence + provider switching ─────────────── */
@@ -7327,15 +7542,18 @@ async function _apRenderTracks() {
     const titleHtml = _apEsc(titlePrefix + sec.title);
 
     let actions = '';
+    const isPlaying = (_apPlayingKey === key);
+    const playIcon  = isPlaying ? '⏸' : '▶';
+    const playTitle = isPlaying ? 'Pause' : 'Play';
     if (tr && tr.blob && !stale) {
       actions =
-        '<button class="ap-mini" onclick="_apPlay(\'' + key + '\')" title="Play">▶</button>' +
+        '<button class="ap-mini" onclick="_apPlay(\'' + key + '\')" title="' + playTitle + '">' + playIcon + '</button>' +
         '<button class="ap-mini" onclick="_apDownload(\'' + key + '\')" title="Download MP3">↓</button>' +
         '<button class="ap-mini" onclick="_apDeleteTrack(\'' + key + '\')" title="Delete">✕</button>';
     } else if (tr && tr.blob && stale) {
       actions =
         '<button class="ap-mini" onclick="_apGenerate(\'' + sec.sectionId + '\')" title="Regenerate (text changed)">Regenerate</button>' +
-        '<button class="ap-mini" onclick="_apPlay(\'' + key + '\')" title="Play old version">▶</button>' +
+        '<button class="ap-mini" onclick="_apPlay(\'' + key + '\')" title="' + playTitle + ' old version">' + playIcon + '</button>' +
         '<button class="ap-mini" onclick="_apDeleteTrack(\'' + key + '\')" title="Delete">✕</button>';
     } else {
       actions =
@@ -7508,23 +7726,74 @@ async function _apGenerateAllRemaining() {
 
 /* ── Track actions ─────────────────────────────────────────── */
 async function _apPlay(key) {
-  const t = await _apDBGet(key);
-  if (!t || !t.blob) { toastWarning('Track not found', {duration:2000}); return; }
-  if (_apCurrentAudio) {
-    try { _apCurrentAudio.pause(); } catch(e){}
-    _apCurrentAudio = null;
+  // Toggle: clicking the currently-playing track pauses it; clicking a paused
+  // track resumes it; clicking any other track stops the current one and
+  // starts fresh. The ▶ / ⏸ icon in the track row reflects this state.
+  if (_apCurrentAudio && _apCurrentAudio._apKey === key) {
+    if (_apCurrentAudio.paused) {
+      try { await _apCurrentAudio.play(); } catch(e) {
+        toastWarning('Playback failed: ' + e.message, {duration:3000});
+      }
+    } else {
+      try { _apCurrentAudio.pause(); } catch(e){}
+    }
+    _apRenderTracks();
+    return;
   }
-  const url = URL.createObjectURL(t.blob);
+
+  // Stop any other playback first
+  if (_apCurrentAudio) {
+    try {
+      _apCurrentAudio.pause();
+      if (_apCurrentAudio._apUrl) URL.revokeObjectURL(_apCurrentAudio._apUrl);
+    } catch(e){}
+    _apCurrentAudio = null;
+    _apPlayingKey = null;
+  }
+
+  const tr = await _apDBGet(key);
+  if (!tr || !tr.blob) { toastWarning('Track not found', {duration:2000}); _apRenderTracks(); return; }
+
+  const url = URL.createObjectURL(tr.blob);
   const audio = new Audio(url);
+  audio._apKey = key;
+  audio._apUrl = url;
   _apCurrentAudio = audio;
+  _apPlayingKey = key;
+
+  audio.addEventListener('play', () => {
+    if (_apCurrentAudio === audio) {
+      _apPlayingKey = key;
+      _apRenderTracks();
+    }
+  });
+  audio.addEventListener('pause', () => {
+    // Fires for both user-pause and end-of-track (immediately before 'ended').
+    if (_apCurrentAudio === audio && !audio.ended) {
+      _apPlayingKey = null;
+      _apRenderTracks();
+    }
+  });
   audio.addEventListener('ended', () => {
     try { URL.revokeObjectURL(url); } catch(e){}
-    if (_apCurrentAudio === audio) _apCurrentAudio = null;
+    if (_apCurrentAudio === audio) {
+      _apCurrentAudio = null;
+      _apPlayingKey = null;
+    }
+    _apRenderTracks();
   });
-  audio.play().catch(err => {
+
+  try {
+    await audio.play();
+    toastInfo('Playing "' + (tr.title || 'track') + '"', { icon:'▶', duration:1600 });
+  } catch (err) {
     toastWarning('Playback failed: ' + err.message, {duration:3000});
-  });
-  toastInfo('Playing "' + (t.title || 'track') + '"', { icon:'▶', duration:1800 });
+    if (_apCurrentAudio === audio) {
+      _apCurrentAudio = null;
+      _apPlayingKey = null;
+    }
+    _apRenderTracks();
+  }
 }
 
 async function _apDownload(key) {
@@ -7604,24 +7873,98 @@ async function _apConcatAll() {
 
   const byKey = {};
   for (let i = 0; i < tracks.length; i++) byKey[tracks[i].key] = tracks[i];
-  const ordered = [];
+
+  // Walk sections in book order and collect chapter rows.
+  const rows = [];   // { title, trackObj }
   let missing = 0;
   for (let i = 0; i < sections.length; i++) {
     const sec = sections[i];
-    const t = byKey[_apTrackKey(sec.sectionId)];
-    if (t && t.blob) ordered.push(t.blob);
+    const tr = byKey[_apTrackKey(sec.sectionId)];
+    if (tr && tr.blob) rows.push({ section: sec, track: tr });
     else missing++;
   }
-  if (!ordered.length) { toastWarning('No generated tracks to combine', {duration:2800}); return; }
+  if (!rows.length) { toastWarning('No generated tracks to combine', {duration:2800}); return; }
   if (missing) {
     const ok = confirm(missing + ' section(s) have no audio yet — combine what you have?');
     if (!ok) return;
   }
 
+  const progressEl = document.getElementById('apProgress');
+  if (progressEl) progressEl.textContent = 'Building audiobook MP3…';
+
   try {
-    const final = await _concatenateBlobs(ordered);
-    const projNameEl = document.getElementById('projName');
-    const bookName = (projNameEl && projNameEl.value) || 'audiobook';
+    // Strip leading ID3 from each source so we don't embed multiple tags.
+    const bodies = [];
+    const chapters = [];  // { id, startMs, endMs, title }
+    let cursorMs = 0;
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i];
+      const bytes = await _apStripLeadingId3(r.track.blob);
+      bodies.push(bytes);
+      const durMs = Math.max(1, Math.round((r.track.durationSecs || 0) * 1000));
+      const chapId = 'ch' + String(i + 1).padStart(3, '0');
+      let title = r.track.title || r.section.title || ('Chapter ' + (i + 1));
+      if (r.section.sectionType === 'chapter' && r.section.chapterNumber) {
+        // Prefix with chapter number for cleaner listing in player UIs
+        title = 'Chapter ' + r.section.chapterNumber + ' — ' + title.replace(/^Ch\s*\d+\s*[·:\-]?\s*/, '');
+      }
+      chapters.push({
+        id: chapId,
+        startMs: cursorMs,
+        endMs: cursorMs + durMs,
+        title: title,
+      });
+      cursorMs += durMs;
+    }
+
+    // Gather book metadata from Folio inputs
+    const meta = _apGetBookMeta();
+
+    // Build ID3 frames
+    const frames = [];
+    frames.push(_id3TextFrame('TIT2', meta.title));
+    if (meta.author)   frames.push(_id3TextFrame('TPE1', meta.author));
+    if (meta.narrator) frames.push(_id3TextFrame('TPE2', meta.narrator));  // Album artist = narrator
+    frames.push(_id3TextFrame('TALB', meta.title));
+    frames.push(_id3TextFrame('TCON', 'Audiobook'));
+    frames.push(_id3TextFrame('TYER', meta.year));
+    if (meta.publisher) frames.push(_id3TextFrame('TPUB', meta.publisher));
+    if (meta.subtitle)  frames.push(_id3TextFrame('TIT3', meta.subtitle));
+    frames.push(_id3CommFrame(
+      'Audiobook generated by Folio using ' + (_apProvider === 'google' ? 'Google Cloud TTS' : 'ElevenLabs') +
+      '. ' + chapters.length + ' chapter' + (chapters.length === 1 ? '' : 's') + '.'
+    ));
+
+    // Cover art (if any)
+    if (meta.cover) {
+      const parsed = _dataUrlToBytes(meta.cover);
+      if (parsed && parsed.bytes && parsed.bytes.length) {
+        frames.push(_id3ApicFrame(parsed.mime || 'image/jpeg', parsed.bytes));
+      }
+    }
+
+    // Chapter frames + TOC
+    for (let i = 0; i < chapters.length; i++) {
+      const c = chapters[i];
+      frames.push(_id3ChapFrame(c.id, c.startMs, c.endMs, c.title));
+    }
+    frames.push(_id3TocFrame(chapters.map(c => c.id)));
+
+    const id3 = _buildId3v23Tag(frames);
+
+    // Concatenate: [ID3 tag] + [mp3 body 1] + [mp3 body 2] + ...
+    let total = id3.length;
+    for (let i = 0; i < bodies.length; i++) total += bodies[i].length;
+    const out = new Uint8Array(total);
+    let pos = 0;
+    out.set(id3, pos); pos += id3.length;
+    for (let i = 0; i < bodies.length; i++) {
+      out.set(bodies[i], pos); pos += bodies[i].length;
+    }
+    const final = new Blob([out], { type: 'audio/mpeg' });
+
+    const bookName = (document.getElementById('projName') && document.getElementById('projName').value) ||
+                     meta.title || 'audiobook';
     const url = URL.createObjectURL(final);
     const a = document.createElement('a');
     a.href = url;
@@ -7629,11 +7972,16 @@ async function _apConcatAll() {
     document.body.appendChild(a);
     a.click();
     a.remove();
-    setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 1000);
-    toastSuccess('Audiobook MP3 downloaded ✓', { icon:'🎧', duration:2800 });
+    setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 1500);
+    if (progressEl) progressEl.textContent = '';
+    toastSuccess(
+      chapters.length + ' chapters · audiobook MP3 downloaded ✓',
+      { icon: '🎧', duration: 3000 }
+    );
   } catch (e) {
     console.error('[audio concat]', e);
-    toastWarning('Concatenation failed: ' + e.message, { duration: 4000 });
+    if (progressEl) progressEl.textContent = '';
+    toastWarning('Audiobook export failed: ' + e.message, { duration: 4000 });
   }
 }
 
@@ -7680,8 +8028,12 @@ function closeAudioPanel() {
   panel.classList.remove('open');
   panel.setAttribute('aria-hidden', 'true');
   if (_apCurrentAudio) {
-    try { _apCurrentAudio.pause(); } catch(e){}
+    try {
+      _apCurrentAudio.pause();
+      if (_apCurrentAudio._apUrl) URL.revokeObjectURL(_apCurrentAudio._apUrl);
+    } catch(e){}
     _apCurrentAudio = null;
+    _apPlayingKey = null;
   }
   const pe = document.getElementById('apProgress');
   if (pe) pe.textContent = '';
@@ -7810,7 +8162,7 @@ window._apConcatAll            = _apConcatAll;
       <button type="button" class="ap-btn"        id="apZipAll" onclick="_apDownloadZip()">↓ Download All as ZIP</button>
     </div>
     <div class="ap-concat">
-      <button type="button" class="ap-btn" id="apConcat" onclick="_apConcatAll()">Concatenate &amp; Export Single MP3</button>
+      <button type="button" class="ap-btn" id="apConcat" onclick="_apConcatAll()">🎧 Export Audiobook (MP3 with chapters)</button>
     </div>
   </div>
 </div>
