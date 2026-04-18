@@ -5514,7 +5514,7 @@ function openPOD() {
      note:'$49 setup (often waived). Reaches shops KDP doesn\'t.',
      url:'https://www.ingramspark.com/plan-your-book/print',label:'Open IngramSpark →'},
     {name:'Lulu',        logo:'🟠',color:'#f26522',
-     desc:'Order author copies directly from Folio — integrated.',
+     desc:'Order author copies directly from Folio — requires Google sign-in.',
      note:'Print-ready PDF submitted automatically. Add cover on Lulu.',
      url:null, label:'Order via Lulu ✦', action:'openLuluModal'},
     {name:'Bookvault',   logo:'📖',color:'#2563eb',
@@ -5546,6 +5546,15 @@ function openPOD() {
 const LULU_WORKER_URL = 'https://folio-publish-lulu.jacobdsiler.workers.dev';
 
 function openLuluModal() {
+  // Require Google sign-in — anonymous users cannot place orders
+  if (!window._user || window._user.isAnonymous) {
+    closePOD();
+    toastWarning(
+      'Sign in with Google to place a print order — this protects your account and order history.',
+      { icon: '🔒', duration: 5000, action: { label: 'Sign in', fn: () => document.getElementById('btnGoogleSignIn')?.click() } }
+    );
+    return;
+  }
   closePOD();
   document.getElementById('lmStatus').className = 'lm-status';
   document.getElementById('lmStatus').textContent = '';
@@ -5703,6 +5712,11 @@ async function _lmGetCost() {
 }
 
 async function _lmSubmit() {
+  // Belt-and-braces auth check — should already be blocked by openLuluModal
+  if (!window._user || window._user.isAnonymous) {
+    _lmShowErr('You must be signed in with Google to place a print order.');
+    return;
+  }
   const workerUrl = LULU_WORKER_URL;
 
   const name    = document.getElementById('lmName').value.trim();
