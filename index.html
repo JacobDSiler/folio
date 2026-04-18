@@ -4036,6 +4036,11 @@ async function exportPDF(returnBlob=false){
       }
       // Use embedded Tinos if loaded, fall back to built-in Times-Roman
       const PDF_FONT = window._pdfFonts ? 'Tinos' : 'times';
+      // Tinos lacks Unicode dingbat glyphs — map them to ASCII when embedding
+      const _ORN_MAP = {'❖':'*','✿':'*','❀':'*','❄':'*','❇':'*','❉':'*','❊':'*','❋':'*','❧':'*'};
+      const _pdfSafeText = s => PDF_FONT === 'Tinos'
+        ? s.replace(/[❖✿❀❄❇❉❊❋❧]/g, c => _ORN_MAP[c] || '*')
+        : s;
       const mgMM=parseFloat(document.getElementById('pageMargin')?.value||18);
       const mg=mgMM,tw=pw-mg*2-1;
       const bgR=hexToRgb(T.bg),txR=hexToRgb(T.text),acR=hexToRgb(accent),dvR=hexToRgb(T.divider);
@@ -4101,7 +4106,7 @@ async function exportPDF(returnBlob=false){
           const indentMm=noInd?0:indent;
           setBody();
           // Always split at full wrap width — indent applied via x position only
-          const lines=doc.splitTextToSize(para,wrapWidth);
+          const lines=doc.splitTextToSize(_pdfSafeText(para),wrapWidth);
           lines.forEach((line,li)=>{
             if(y>yBottom){addPageNum();newPage();y=yStart;setBody();}
             // First line of paragraph gets indent; continuation lines start at xLeft
@@ -4148,7 +4153,7 @@ async function exportPDF(returnBlob=false){
       _pdfEstP+=_tocPageCount;
       // Front matter (pre)
       frontMatter.forEach(fm=>{
-        const _pl=doc.splitTextToSize(fm.content,tw);
+        const _pl=doc.splitTextToSize(_pdfSafeText(fm.content),tw);
         _pdfEstP+=Math.max(1,Math.ceil(_pl.length*fsize*0.352*lspace/(yBottom-yStart)));
       });
       // Pre-calculate chapter start pages
@@ -4250,7 +4255,7 @@ async function exportPDF(returnBlob=false){
 
           // Render rest of first paragraph beside the drop cap
           setBody();
-          const narrowLines = doc.splitTextToSize(rest, tw - dcW);
+          const narrowLines = doc.splitTextToSize(_pdfSafeText(rest), tw - dcW);
           // First prose line starts at firstLineY (same baseline as drop cap)
           let lineY = firstLineY;
           narrowLines.forEach((line, li) => {
