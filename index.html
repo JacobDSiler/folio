@@ -5556,6 +5556,30 @@ function openPOD() {
     }
     return `<a href="${p.url}" target="_blank" rel="noopener" ${shared}>${inner}</a>`;
   }).join('');
+  // Render Lulu jobs list
+  const jobs = _lmGetJobs();
+  const jobsSection = document.getElementById('podJobsList');
+  const jobsItems   = document.getElementById('podJobsItems');
+  if (jobs.length && jobsSection && jobsItems) {
+    jobsSection.style.display = 'block';
+    jobsItems.innerHTML = jobs.map(j =>
+      `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;`
+      + `background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px">`
+      + `<div style="flex:1;min-width:0">`
+      + `<div style="font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--text);`
+      + `white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${j.title}</div>`
+      + `<div style="font-family:var(--sans);font-size:10.5px;color:var(--hint);margin-top:1px">`
+      + `Job #${j.id} · ${j.date}</div>`
+      + `</div>`
+      + `<a href="${j.url}" target="_blank" rel="noopener"`
+      + ` style="font-family:var(--sans);font-size:11px;padding:4px 10px;border-radius:5px;`
+      + `background:#f26522;color:#fff;text-decoration:none;white-space:nowrap;flex-shrink:0">`
+      + `View / Pay →</a>`
+      + `</div>`
+    ).join('');
+  } else if (jobsSection) {
+    jobsSection.style.display = 'none';
+  }
   document.getElementById('podPanel').style.display='flex';
   document.addEventListener('keydown',_podEsc);
 }
@@ -5666,6 +5690,29 @@ function _lmCopySpecs() {
   navigator.clipboard.writeText(text)
     .then(() => toastSuccess('Cover specs copied!', { icon: '📐', duration: 2500 }))
     .catch(() => toastWarning('Could not copy — check browser permissions', { duration: 3000 }));
+}
+
+// ── Lulu jobs persistence ──
+const LULU_JOBS_KEY = 'folio_lulu_jobs';
+
+function _lmSaveJob(jobId, luluUrl) {
+  try {
+    const jobs = _lmGetJobs();
+    jobs.unshift({
+      id:      jobId,
+      url:     luluUrl,
+      title:   getV('bookTitle') || 'Untitled',
+      date:    new Date().toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }),
+      projId:  _projId || '',
+    });
+    // Keep last 20 jobs
+    localStorage.setItem(LULU_JOBS_KEY, JSON.stringify(jobs.slice(0, 20)));
+  } catch(e) { console.warn('Could not save job:', e); }
+}
+
+function _lmGetJobs() {
+  try { return JSON.parse(localStorage.getItem(LULU_JOBS_KEY) || '[]'); }
+  catch(e) { return []; }
 }
 
 function closeLuluModal() {
@@ -5812,6 +5859,9 @@ async function _lmSubmit() {
     // Note: do NOT delete files immediately — Lulu fetches them asynchronously
     // after job creation. Files will be cleaned up after 48h or manually.
     // See folio-lulu/ folder in Firebase Storage.
+
+    // Save job to localStorage for the jobs list in Publish panel
+    _lmSaveJob(jobData.job_id, jobData.lulu_url);
 
     const statusEl = document.getElementById('lmStatus');
     statusEl.className = 'lm-status show ok';
@@ -6639,6 +6689,12 @@ document.getElementById('bookPreview').addEventListener('mouseout', e => {
     <div style="display:flex;flex-direction:column;gap:10px" id="podProviders"></div>
     <div style="margin-top:18px;padding:12px 14px;background:#fef9f0;border:.5px solid #f0d080;border-radius:8px;font-family:var(--sans);font-size:11.5px;color:#92400e;line-height:1.6">
       <strong>Cover needed?</strong> Every provider requires a cover PDF. <a href="https://www.canva.com/create/book-covers/" target="_blank" style="color:#c9956a">Canva's free book cover maker</a> is the easiest starting point. KDP's free Cover Creator is at kdp.amazon.com.
+    </div>
+
+    <!-- Lulu jobs list -->
+    <div id="podJobsList" style="display:none;margin-top:18px">
+      <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:8px">Recent Lulu orders</div>
+      <div id="podJobsItems" style="display:flex;flex-direction:column;gap:6px"></div>
     </div>
   </div>
 </div>
