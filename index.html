@@ -5811,66 +5811,48 @@ async function _exportPDFBlob() {
 }
 
 // Generate a minimal placeholder cover PDF for Lulu submission.
-// The user replaces this with their real cover on Lulu's site.
+// TEXT-FREE — uses only filled rectangles so no fonts need embedding.
+// Lulu requires all fonts to be embedded; standard PDF fonts are not embedded
+// by jsPDF, so we avoid text entirely. User replaces this on Lulu's site.
 function _generatePlaceholderCover(pageCount) {
   const {jsPDF} = window.jspdf;
-  const title   = getV('bookTitle')  || 'Untitled';
-  const author  = getV('bookAuthor') || '';
   const accent  = S.accent || '#8B4513';
 
-  // Cover dimensions (inches → mm)
-  const spineIn  = (pageCount / 2) * 0.00225; // Lulu measures sheets (pages/2)
-  const fullWIn  = 6.25 * 2 + spineIn;  // back + spine + front + bleed
-  const fullHIn  = 9.25;                 // trim + bleed top/bottom
+  // Cover dimensions (inches → mm). Lulu spine = sheets * 0.00225"
+  const spineIn  = (pageCount / 2) * 0.00225;
+  const fullWIn  = 6.25 * 2 + spineIn; // back + spine + front (each with 0.125" bleed)
+  const fullHmm  = 9.25 * 25.4;        // 235.0mm
   const fullWmm  = fullWIn * 25.4;
-  const fullHmm  = fullHIn * 25.4;
   const spineWmm = spineIn * 25.4;
-  const frontX   = 6.25 * 25.4 + spineWmm; // front cover starts after back+spine
+  const backW    = 6.25 * 25.4;        // 158.75mm
+  const frontX   = backW + spineWmm;   // front cover x-start
 
+  // jsPDF landscape: format is [height, width]
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm',
-    format: [fullHmm, fullWmm] }); // jsPDF landscape: [h, w]
+    format: [fullHmm, fullWmm] });
 
   const [ar, ag, ab] = hexToRgb(accent) || [139, 69, 19];
 
-  // Back cover — white with subtle author credit
+  // Back cover — warm off-white
   doc.setFillColor(250, 248, 243);
-  doc.rect(0, 0, 6.25*25.4, fullHmm, 'F');
-  doc.setFont('times', 'italic'); doc.setFontSize(9);
-  doc.setTextColor(120, 100, 80);
-  if (author) doc.text(author, 6.25*25.4/2, fullHmm - 12, { align: 'center' });
-  doc.setFontSize(7); doc.setTextColor(160, 140, 120);
-  doc.text('PLACEHOLDER COVER — replace on Lulu', 6.25*25.4/2, fullHmm - 7, { align: 'center' });
+  doc.rect(0, 0, backW, fullHmm, 'F');
 
-  // Spine — accent colour
+  // Spine — accent colour solid block
   doc.setFillColor(ar, ag, ab);
-  doc.rect(6.25*25.4, 0, spineWmm, fullHmm, 'F');
-  if (spineIn >= 0.25 && title) {
-    doc.setFont('times', 'bold'); doc.setFontSize(7);
-    doc.setTextColor(255, 255, 255);
-    // Rotate text for spine
-    doc.text(title, 6.25*25.4 + spineWmm/2, fullHmm/2,
-      { align: 'center', angle: 90 });
-  }
+  doc.rect(backW, 0, spineWmm, fullHmm, 'F');
 
-  // Front cover — accent background
+  // Front cover — accent colour with subtle lighter inner panel
   doc.setFillColor(ar, ag, ab);
-  doc.rect(frontX, 0, 6.25*25.4, fullHmm, 'F');
-  // Title
-  doc.setFont('times', 'bold'); doc.setFontSize(22);
-  doc.setTextColor(255, 255, 255);
-  const titleLines = doc.splitTextToSize(title, 6.25*25.4 - 20);
-  doc.text(titleLines, frontX + 6.25*25.4/2, fullHmm * 0.38, { align: 'center' });
-  // Author
-  if (author) {
-    doc.setFont('times', 'normal'); doc.setFontSize(12);
-    doc.setTextColor(255, 240, 220);
-    doc.text(author, frontX + 6.25*25.4/2, fullHmm * 0.62, { align: 'center' });
-  }
-  // Placeholder watermark
-  doc.setFont('times', 'italic'); doc.setFontSize(7);
-  doc.setTextColor(255, 255, 255, 0.5);
-  doc.text('Placeholder — replace on Lulu', frontX + 6.25*25.4/2, fullHmm - 8,
-    { align: 'center' });
+  doc.rect(frontX, 0, backW, fullHmm, 'F');
+  // Inner panel (5mm inset) — slightly lighter to give depth
+  const inset = 8;
+  const lr = Math.min(255, ar + 40), lg = Math.min(255, ag + 40), lb = Math.min(255, ab + 40);
+  doc.setFillColor(lr, lg, lb);
+  doc.rect(frontX + inset, inset, backW - inset*2, fullHmm - inset*2, 'F');
+
+  // Centre mark — small accent square so it's obviously a placeholder and not blank
+  doc.setFillColor(ar, ag, ab);
+  doc.rect(frontX + backW/2 - 6, fullHmm/2 - 6, 12, 12, 'F');
 
   return doc.output('blob');
 }
