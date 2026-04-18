@@ -5514,7 +5514,7 @@ function openPOD() {
      note:'$49 setup (often waived). Reaches shops KDP doesn\'t.',
      url:'https://www.ingramspark.com/plan-your-book/print',label:'Open IngramSpark →'},
     {name:'Lulu',        logo:'🟠',color:'#f26522',
-     desc:'Order author copies directly from Folio — requires Google sign-in.',
+     desc:'Order author copies directly from Folio — integrated.',
      note:'Print-ready PDF submitted automatically. Add cover on Lulu.',
      url:null, label:'Order via Lulu ✦', action:'openLuluModal'},
     {name:'Bookvault',   logo:'📖',color:'#2563eb',
@@ -5546,15 +5546,6 @@ function openPOD() {
 const LULU_WORKER_URL = 'https://folio-publish-lulu.jacobdsiler.workers.dev';
 
 function openLuluModal() {
-  // Require Google sign-in — anonymous users cannot place orders
-  if (!window._user || window._user.isAnonymous) {
-    closePOD();
-    toastWarning(
-      'Sign in with Google to place a print order — this protects your account and order history.',
-      { icon: '🔒', duration: 5000, action: { label: 'Sign in', fn: () => document.getElementById('btnGoogleSignIn')?.click() } }
-    );
-    return;
-  }
   closePOD();
   document.getElementById('lmStatus').className = 'lm-status';
   document.getElementById('lmStatus').textContent = '';
@@ -5711,12 +5702,29 @@ async function _lmGetCost() {
   }
 }
 
+function _lmConfirmSubmit() {
+  var name   = document.getElementById('lmName').value.trim();
+  var street = document.getElementById('lmStreet').value.trim();
+  var city   = document.getElementById('lmCity').value.trim();
+  var post   = document.getElementById('lmPost').value.trim();
+  if (!name || !street || !city || !post) { _lmShowErr('Fill in all shipping fields first'); return; }
+  var title   = getV('bookTitle') || 'Untitled';
+  var qty     = document.getElementById('lmQty').value || '1';
+  var sel     = document.getElementById('lmCountry');
+  var country = sel.options[sel.selectedIndex].text;
+  var ok = confirm(
+    'Submit print order to Lulu?\n\n'
+    + 'Book: ' + title + '\n'
+    + 'Copies: ' + qty + '\n'
+    + 'Ship to: ' + name + ', ' + city + ', ' + country + '\n\n'
+    + 'A placeholder cover will be submitted — replace it on Lulu.\n'
+    + 'Nothing is charged until you add a payment method\n'
+    + 'and approve the job on developers.lulu.com.'
+  );
+  if (ok) _lmSubmit();
+}
+
 async function _lmSubmit() {
-  // Belt-and-braces auth check — should already be blocked by openLuluModal
-  if (!window._user || window._user.isAnonymous) {
-    _lmShowErr('You must be signed in with Google to place a print order.');
-    return;
-  }
   const workerUrl = LULU_WORKER_URL;
 
   const name    = document.getElementById('lmName').value.trim();
@@ -6688,7 +6696,7 @@ document.getElementById('bookPreview').addEventListener('mouseout', e => {
       <div style="display:flex;flex-direction:column;gap:0" id="lmCoverLinks"></div>
     </div>
 
-    <button class="lm-submit" id="lmSubmitBtn" onclick="_lmSubmit()">Submit print order</button>
+    <button class="lm-submit" id="lmSubmitBtn" onclick="_lmConfirmSubmit()">Submit print order</button>
     <div class="lm-status" id="lmStatus"></div>
   </div>
 </div>
