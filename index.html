@@ -6798,6 +6798,7 @@ let _apVoiceId      = localStorage.getItem('folio_audio_voice')    || 'en-US-Neu
 let _apSpeed        = parseFloat(localStorage.getItem('folio_audio_speed') || '1.0');
 let _apGoogleKey    = localStorage.getItem('folio_audio_google_key') || '';
 let _apElKey        = localStorage.getItem('folio_audio_el_key')     || '';
+let _apElModelId    = localStorage.getItem('folio_audio_el_model')   || 'eleven_multilingual_v2';
 let _apElVoices     = [];                          // fetched via /voices/elevenlabs
 let _apGoogleVoices = GOOGLE_TTS_VOICES.slice();   // replaced on /voices/google
 let _apBusy         = false;
@@ -7048,7 +7049,7 @@ async function _apElevenLabsTTS(text, voiceId, apiKey) {
       text: text,
       voiceId: voiceId,
       apiKey: apiKey,
-      modelId: 'eleven_monolingual_v1',
+      modelId: _apElModelId || 'eleven_multilingual_v2',
     }),
   });
   if (!resp.ok) {
@@ -7133,6 +7134,13 @@ function _apOnGoogleKey() {
     _apPopulateVoices();
     _apRenderTracks();   // refresh footer (Generate All enabled state)
   }, 600);
+}
+
+function _apOnElModel() {
+  const sel = document.getElementById('apElModel');
+  if (!sel) return;
+  _apElModelId = sel.value || 'eleven_multilingual_v2';
+  try { localStorage.setItem('folio_audio_el_model', _apElModelId); } catch(e){}
 }
 
 let _apElKeyDebounce = null;
@@ -7538,6 +7546,8 @@ async function openAudioPanel() {
   if (gInput) gInput.value = _apGoogleKey || '';
   const elInput = document.getElementById('apElKey');
   if (elInput) elInput.value = _apElKey || '';
+  const elModelSel = document.getElementById('apElModel');
+  if (elModelSel) elModelSel.value = _apElModelId || 'eleven_multilingual_v2';
 
   _apUpdateProviderUI();
 
@@ -7583,6 +7593,7 @@ window.closeAudioPanel         = closeAudioPanel;
 window._apSetProvider          = _apSetProvider;
 window._apOnGoogleKey          = _apOnGoogleKey;
 window._apOnElKey              = _apOnElKey;
+window._apOnElModel            = _apOnElModel;
 window._apSaveSettings         = _apSaveSettings;
 window._apGenerate             = _apGenerate;
 window._apGenerateAllRemaining = _apGenerateAllRemaining;
@@ -7664,6 +7675,13 @@ window._apConcatAll            = _apConcatAll;
     <div class="ap-key-row" id="apElRow">
       <label>ElevenLabs API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span></label>
       <input type="password" id="apElKey" placeholder="sk-…" oninput="_apOnElKey()" autocomplete="off">
+      <label style="margin-top:10px">Model</label>
+      <select id="apElModel" onchange="_apOnElModel()">
+        <option value="eleven_multilingual_v2">Multilingual v2 — highest quality (free tier ✓)</option>
+        <option value="eleven_turbo_v2_5">Turbo v2.5 — fast &amp; low-latency (free tier ✓)</option>
+        <option value="eleven_flash_v2_5">Flash v2.5 — cheapest / fastest (free tier ✓)</option>
+        <option value="eleven_monolingual_v1">Monolingual v1 — legacy (paid tier only)</option>
+      </select>
       <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Get your key at <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" style="color:var(--accent-ui)">elevenlabs.io</a>. It is sent per-request to the Folio TTS worker and never stored on the server.</div>
     </div>
 
