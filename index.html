@@ -3975,8 +3975,8 @@ function _pdfTextMd(doc, text, x, y) {
   parts.forEach(pt => {
     if (!pt) return;
     let inner = pt;
-    if (pt.startsWith('**') && pt.endsWith('**')) { doc.setFont('times','bold');   inner = pt.slice(2,-2); }
-    else if (pt.startsWith('*') && pt.endsWith('*')) { doc.setFont('times','italic'); inner = pt.slice(1,-1); }
+    if (pt.startsWith('**') && pt.endsWith('**')) { doc.setFont(bf.fontName,'bold');       inner = pt.slice(2,-2); }
+    else if (pt.startsWith('*') && pt.endsWith('*')) { doc.setFont(bf.fontName,'italic');  inner = pt.slice(1,-1); }
     else doc.setFont(bf.fontName, bf.fontStyle);
     doc.text(inner, cx, y);
     cx += doc.getTextWidth(inner);
@@ -4007,7 +4007,24 @@ async function exportPDF(returnBlob=false){
       const orn=S.ornament;
       const accent=S.accent;
       const[pw,ph]=getPageDims();
+      // Load embeddable Tinos font (Times-compatible, OFL licensed)
+      // Lazy-loaded at export time so page load is unaffected
+      await _loadPDFFonts();
       const doc=new jsPDF({orientation:'portrait',unit:'mm',format:[pw,ph]});
+      // Register embedded font — required by Lulu and other POD providers
+      if (window._pdfFonts) {
+        const {reg,bold,italic,bolditalic} = window._pdfFonts;
+        doc.addFileToVFS('Tinos-Regular.ttf',    reg);
+        doc.addFileToVFS('Tinos-Bold.ttf',        bold);
+        doc.addFileToVFS('Tinos-Italic.ttf',      italic);
+        doc.addFileToVFS('Tinos-BoldItalic.ttf',  bolditalic);
+        doc.addFont('Tinos-Regular.ttf',   'Tinos', 'normal');
+        doc.addFont('Tinos-Bold.ttf',       'Tinos', 'bold');
+        doc.addFont('Tinos-Italic.ttf',     'Tinos', 'italic');
+        doc.addFont('Tinos-BoldItalic.ttf', 'Tinos', 'bolditalic');
+      }
+      // Use embedded Tinos if loaded, fall back to built-in Times-Roman
+      const PDF_FONT = window._pdfFonts ? 'Tinos' : 'times';
       const mgMM=parseFloat(document.getElementById('pageMargin')?.value||18);
       const mg=mgMM,tw=pw-mg*2-1;
       const bgR=hexToRgb(T.bg),txR=hexToRgb(T.text),acR=hexToRgb(accent),dvR=hexToRgb(T.divider);
@@ -4031,7 +4048,7 @@ async function exportPDF(returnBlob=false){
       const pdfOrn = zdChar;
       // Scene break uses '* * *' — universally supported, no glyph fallback issues
       const ornLine = '* * *';
-      const ornFont = 'times';
+      const ornFont = PDF_FONT;
 
       // yStart: first usable y on a fresh page (clear of running header)
       const hdrMode=getV('runningHeader')||'both'; const hdrOn=hdrMode!=='off';
@@ -4039,9 +4056,9 @@ async function exportPDF(returnBlob=false){
       // Bottom threshold — leave room for page number
       const yBottom=ph-mg-14;
 
-      const setBody=()=>{doc.setFont('times','normal');doc.setFontSize(fsize);doc.setTextColor(...txR);};
-      const addPageNum=()=>{if(!showNums||pageNum<=2)return;doc.setFont('times','normal');doc.setFontSize(7.5);doc.setTextColor(...txR);doc.text(String(pageNum),pw/2,ph-8,{align:'center'})};
-      const addHeader=()=>{if(!hdrOn||pageNum<=1)return;doc.setFont('times','normal');doc.setFontSize(6.5);doc.setTextColor(...txR);const _hl=hdrMode==='title'?'':author.toUpperCase();const _hr=hdrMode==='author'?'':title.toUpperCase();if(_hl)doc.text(_hl,mg,13);if(_hr)doc.text(_hr,pw-mg,13,{align:'right'});doc.setDrawColor(...dvR);doc.line(mg,14.5,pw-mg,14.5)};
+      const setBody=()=>{doc.setFont(PDF_FONT,'normal');doc.setFontSize(fsize);doc.setTextColor(...txR);};
+      const addPageNum=()=>{if(!showNums||pageNum<=2)return;doc.setFont(PDF_FONT,'normal');doc.setFontSize(7.5);doc.setTextColor(...txR);doc.text(String(pageNum),pw/2,ph-8,{align:'center'})};
+      const addHeader=()=>{if(!hdrOn||pageNum<=1)return;doc.setFont(PDF_FONT,'normal');doc.setFontSize(6.5);doc.setTextColor(...txR);const _hl=hdrMode==='title'?'':author.toUpperCase();const _hr=hdrMode==='author'?'':title.toUpperCase();if(_hl)doc.text(_hl,mg,13);if(_hr)doc.text(_hr,pw-mg,13,{align:'right'});doc.setDrawColor(...dvR);doc.line(mg,14.5,pw-mg,14.5)};
       let _pageBlank = false; // true when current page has no content yet
       const newPage=()=>{doc.addPage();addBg();pageNum++;addHeader();_pageBlank=true;};
       const markUsed=()=>{_pageBlank=false;};
@@ -4088,19 +4105,19 @@ async function exportPDF(returnBlob=false){
       };
 
       addBg();
-      doc.setFont('times','bold');doc.setFontSize(28);doc.setTextColor(...txR);
+      doc.setFont(PDF_FONT,'bold');doc.setFontSize(28);doc.setTextColor(...txR);
       const titleLines=doc.splitTextToSize(title,tw);
       doc.text(titleLines,pw/2,ph*0.4,{align:'center'});
-      if(subtitle){doc.setFont('times','italic');doc.setFontSize(13);doc.setTextColor(...acR);doc.text(subtitle,pw/2,ph*0.4+titleLines.length*12+6,{align:'center'})}
+      if(subtitle){doc.setFont(PDF_FONT,'italic');doc.setFontSize(13);doc.setTextColor(...acR);doc.text(subtitle,pw/2,ph*0.4+titleLines.length*12+6,{align:'center'})}
       doc.setDrawColor(...dvR);doc.line(pw/2-16,ph*0.52,pw/2+16,ph*0.52);
-      doc.setFont('times','normal');doc.setFontSize(11);doc.setTextColor(...txR);doc.text(author,pw/2,ph*0.52+8,{align:'center'});
-      if(copy){newPage();doc.setFont('times','normal');doc.setFontSize(8);doc.setTextColor(...txR);const cl=doc.splitTextToSize(copy,tw*0.85);doc.text(cl,mg,ph-mg-cl.length*4);addPageNum()}
-      if(dedic){newPage();doc.setFont('times','italic');doc.setFontSize(11.5);doc.setTextColor(...txR);const dl=doc.splitTextToSize(dedic,tw*0.7);doc.text(dl,pw/2,ph/2,{align:'center'});addPageNum()}
+      doc.setFont(PDF_FONT,'normal');doc.setFontSize(11);doc.setTextColor(...txR);doc.text(author,pw/2,ph*0.52+8,{align:'center'});
+      if(copy){newPage();doc.setFont(PDF_FONT,'normal');doc.setFontSize(8);doc.setTextColor(...txR);const cl=doc.splitTextToSize(copy,tw*0.85);doc.text(cl,mg,ph-mg-cl.length*4);addPageNum()}
+      if(dedic){newPage();doc.setFont(PDF_FONT,'italic');doc.setFontSize(11.5);doc.setTextColor(...txR);const dl=doc.splitTextToSize(dedic,tw*0.7);doc.text(dl,pw/2,ph/2,{align:'center'});addPageNum()}
 
       // Front matter
       frontMatter.forEach(fm=>{
         newPage();
-        if(fm.title){doc.setFont('times','bold');doc.setFontSize(16);doc.setTextColor(...txR);doc.text(fm.title,pw/2,28,{align:'center'})}
+        if(fm.title){doc.setFont(PDF_FONT,'bold');doc.setFontSize(16);doc.setTextColor(...txR);doc.text(fm.title,pw/2,28,{align:'center'})}
         const startY=fm.title?42:yStart;
         const paras=fm.content.split('\n').filter(p=>p.trim());
         flowParas(paras,startY,tw,mg);
@@ -4143,7 +4160,7 @@ async function exportPDF(returnBlob=false){
         const tocEntry=chapters.find(c=>c.type==='toc');
         const tocTitle=(tocEntry&&tocEntry.title)||'Contents';
         newPage();
-        doc.setFont('times','bold');doc.setFontSize(16);doc.setTextColor(...txR);
+        doc.setFont(PDF_FONT,'bold');doc.setFontSize(16);doc.setTextColor(...txR);
         doc.text(tocTitle,pw/2,35,{align:'center'});
         markUsed(); // TOC title drawn
         let ty=48; let _pdfCh2=0;
@@ -4153,7 +4170,7 @@ async function exportPDF(returnBlob=false){
           const label=cn&&sec.title?`${cn}. ${sec.title}`:cn?`Chapter ${cn}`:sec.title;
           if(!label) return;
           const pgStr=String(_chStartPages[sec.id]||'');
-          doc.setFont('times','normal');doc.setFontSize(10);doc.setTextColor(...txR);
+          doc.setFont(PDF_FONT,'normal');doc.setFontSize(10);doc.setTextColor(...txR);
           // Truncate label if too long
           let displayLabel=label;
           const maxW=tw-doc.getTextWidth(pgStr)-6;
@@ -4184,18 +4201,18 @@ async function exportPDF(returnBlob=false){
         const chBlockTop = 38;
         let y = chBlockTop;
         if(cn){
-          doc.setFont('times','normal');doc.setFontSize(9);doc.setTextColor(...acR);
+          doc.setFont(PDF_FONT,'normal');doc.setFontSize(9);doc.setTextColor(...acR);
           doc.text('CHAPTER '+cn, pw/2, y, {align:'center'});
           y += 6;
         }
         if(ch.title){
-          doc.setFont('times','bold');doc.setFontSize(18);doc.setTextColor(...txR);
+          doc.setFont(PDF_FONT,'bold');doc.setFontSize(18);doc.setTextColor(...txR);
           const tl=doc.splitTextToSize(ch.title,tw*0.85);
           doc.text(tl,pw/2,y,{align:'center'});
           y+=tl.length*9+3;
         }
         // Ornament divider — tight gap
-        doc.setFont('times','normal');doc.setFontSize(10);doc.setTextColor(...acR);
+        doc.setFont(PDF_FONT,'normal');doc.setFontSize(10);doc.setTextColor(...acR);
         doc.text('—  —  —', pw/2, y, {align:'center'});
         y += 8;
         setBody();
@@ -4213,7 +4230,7 @@ async function exportPDF(returnBlob=false){
           // Drop cap: baseline at firstLineY so cap sits WITH the first line
           // Cap top = firstLineY - dcMM (cap ascends above first line baseline)
           const firstLineY = y;
-          doc.setFont('times','bold');
+          doc.setFont(PDF_FONT,'bold');
           doc.setFontSize(dcSize);
           doc.setTextColor(...acR);
           // Baseline = firstLineY: cap sits at the same baseline as first text line
@@ -4245,7 +4262,7 @@ async function exportPDF(returnBlob=false){
       backMatter.forEach(bm=>{
         if (!_pageBlank) newPage();
         _pageBlank = false;
-        if(bm.title){doc.setFont('times','bold');doc.setFontSize(16);doc.setTextColor(...txR);doc.text(bm.title,pw/2,28,{align:'center'})}
+        if(bm.title){doc.setFont(PDF_FONT,'bold');doc.setFontSize(16);doc.setTextColor(...txR);doc.text(bm.title,pw/2,28,{align:'center'})}
         const startY=bm.title?42:yStart;
         const paras=bm.content.split('\n').filter(p=>p.trim());
         flowParas(paras,startY,tw,mg);
@@ -5825,6 +5842,39 @@ function _lmShowErr(msg) {
   const el = document.getElementById('lmStatus');
   el.className = 'lm-status show err';
   el.textContent = '⚠ ' + msg;
+}
+
+// Load Tinos font (Times-compatible, embeddable) for PDF export
+// Cached after first load — subsequent exports reuse window._pdfFonts
+async function _loadPDFFonts() {
+  if (window._pdfFonts) return; // already loaded
+  // Direct TTF URLs from Google Fonts API (verified working)
+  const urls = {
+    reg:        'https://fonts.gstatic.com/s/tinos/v25/buE4poGnedXvwgX8.ttf',
+    bold:       'https://fonts.gstatic.com/s/tinos/v25/buE1poGnedXvwj1AW0Fp.ttf',
+    italic:     'https://fonts.gstatic.com/s/tinos/v25/buE2poGnedXvwjX-fmE.ttf',
+    bolditalic: 'https://fonts.gstatic.com/s/tinos/v25/buEzpoGnedXvwjX-Rt1s0Co.ttf',
+  };
+  try {
+    setStatus('Loading fonts for PDF export…');
+    const results = await Promise.all(
+      Object.entries(urls).map(async ([key, url]) => {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error('Font fetch failed: ' + url);
+        const buf = await r.arrayBuffer();
+        // Convert ArrayBuffer to binary string for jsPDF VFS
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        return [key, btoa(binary)];
+      })
+    );
+    window._pdfFonts = Object.fromEntries(results);
+    setStatus('');
+  } catch(e) {
+    console.warn('Font loading failed, using built-in Times-Roman:', e);
+    window._pdfFonts = null; // fall back to Times-Roman
+  }
 }
 
 // Export PDF as a Blob without triggering a download
