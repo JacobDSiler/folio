@@ -4145,6 +4145,7 @@ async function exportPDF(returnBlob=false){
         newPage();
         doc.setFont('times','bold');doc.setFontSize(16);doc.setTextColor(...txR);
         doc.text(tocTitle,pw/2,35,{align:'center'});
+        markUsed(); // TOC title drawn
         let ty=48; let _pdfCh2=0;
         tocSections.forEach(sec=>{
           if(sec.type==='chapter') _pdfCh2++;
@@ -4164,6 +4165,7 @@ async function exportPDF(returnBlob=false){
           const lx2=pw-mg-doc.getTextWidth(pgStr)-2;
           if(lx2>lx1) doc.line(lx1,ty-0.5,lx2,ty-0.5);
           doc.setLineDash([]);
+          markUsed(); // TOC row drawn — page is not blank
           ty+=7;
           if(ty>yBottom){addPageNum();newPage();ty=yStart;}
         });
@@ -5566,7 +5568,7 @@ function _lmBuildCoverLinks() {
   const pages   = document.querySelectorAll('.book-page').length || 200;
   const paper   = document.getElementById('lmPaper')?.value || 'white';
   const thick   = paper === 'cream' ? 0.00245 : 0.00225;
-  const spine   = (pages * thick).toFixed(3);
+  const spine   = ((pages / 2) * thick).toFixed(3); // Lulu: sheets not pages
   const spineIn = parseFloat(spine);
   // Update spine display in header
   const sd = document.getElementById('lmSpineDisplay');
@@ -5630,7 +5632,7 @@ function _lmCopySpecs() {
   const pages  = document.querySelectorAll('.book-page').length || 200;
   const paper  = document.getElementById('lmPaper')?.value || 'white';
   const thick  = paper === 'cream' ? 0.00245 : 0.00225;
-  const spine  = (pages * thick).toFixed(3);
+  const spine  = ((pages / 2) * thick).toFixed(3); // Lulu: sheets not pages
   const fullW  = (6.25 * 2 + parseFloat(spine)).toFixed(3);
   const title  = getV('bookTitle') || 'My Book';
   const author = getV('bookAuthor') || 'Author';
@@ -5817,7 +5819,7 @@ function _generatePlaceholderCover(pageCount) {
   const accent  = S.accent || '#8B4513';
 
   // Cover dimensions (inches → mm)
-  const spineIn  = pageCount * 0.00225;
+  const spineIn  = (pageCount / 2) * 0.00225; // Lulu measures sheets (pages/2)
   const fullWIn  = 6.25 * 2 + spineIn;  // back + spine + front + bleed
   const fullHIn  = 9.25;                 // trim + bleed top/bottom
   const fullWmm  = fullWIn * 25.4;
