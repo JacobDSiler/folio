@@ -7085,6 +7085,108 @@ async function _apFetchElevenLabsVoices(key) {
   } catch (e) { _apElVoices = []; }
 }
 
+/* ── Cloud settings sync (Firestore) ───────────────────────
+   Settings are mirrored to Firestore at folio_user_settings/{uid}
+   so they follow the user across devices. localStorage remains the
+   offline mirror; cloud wins when both are present.
+   Firestore security rules should restrict this doc to its owner:
+
+     match /folio_user_settings/{uid} {
+       allow read, write: if request.auth != null
+                          && request.auth.uid == uid;
+     }
+   ─────────────────────────────────────────────────────────── */
+
+let _apCloudLoaded      = false;
+let _apCloudSaveTimer   = null;
+let _apLastCloudPayload = '';
+
+function _apCanCloudSync() {
+  return !!(window._uid && window._fb && window._db);
+}
+
+function _apMirrorToLocalStorage() {
+  try {
+    localStorage.setItem('folio_audio_provider', _apProvider);
+    if (_apVoiceId)    localStorage.setItem('folio_audio_voice', _apVoiceId);
+    localStorage.setItem('folio_audio_speed', String(_apSpeed));
+    if (_apGoogleKey)  localStorage.setItem('folio_audio_google_key', _apGoogleKey);
+    if (_apElKey)      localStorage.setItem('folio_audio_el_key',     _apElKey);
+    if (_apElModelId)  localStorage.setItem('folio_audio_el_model',   _apElModelId);
+  } catch(e){}
+}
+
+async function _apLoadCloudSettings() {
+  if (!_apCanCloudSync()) return false;
+  try {
+    const ref = window._fb.doc(window._db, 'folio_user_settings', window._uid);
+    const snap = await window._fb.getDoc(ref);
+    if (!snap.exists()) { _apCloudLoaded = true; return false; }
+    const d = snap.data() || {};
+    if (d.audioProvider)                    _apProvider  = d.audioProvider;
+    if (d.audioVoice)                       _apVoiceId   = d.audioVoice;
+    if (typeof d.audioSpeed === 'number')   _apSpeed     = d.audioSpeed;
+    if (typeof d.audioGoogleKey === 'string') _apGoogleKey = d.audioGoogleKey;
+    if (typeof d.audioElKey === 'string')     _apElKey     = d.audioElKey;
+    if (d.audioElModel)                     _apElModelId = d.audioElModel;
+    _apMirrorToLocalStorage();
+    _apCloudLoaded = true;
+    return true;
+  } catch (e) {
+    console.warn('[audio cloud load]', e);
+    return false;
+  }
+}
+
+async function _apSaveCloudSettings() {
+  if (!_apCanCloudSync()) return;
+  const payload = {
+    audioProvider:   _apProvider || 'google',
+    audioVoice:      _apVoiceId  || '',
+    audioSpeed:      _apSpeed    || 1.0,
+    audioGoogleKey:  _apGoogleKey || '',
+    audioElKey:      _apElKey     || '',
+    audioElModel:    _apElModelId || 'eleven_multilingual_v2',
+  };
+  // Skip no-op writes
+  const serialized = JSON.stringify(payload);
+  if (serialized === _apLastCloudPayload) return;
+  _apLastCloudPayload = serialized;
+  try {
+    const ref = window._fb.doc(window._db, 'folio_user_settings', window._uid);
+    payload.updatedAt = window._fb.serverTimestamp();
+    await window._fb.setDoc(ref, payload, { merge: true });
+  } catch (e) {
+    console.warn('[audio cloud save]', e);
+  }
+}
+
+function _apScheduleCloudSave() {
+  if (!_apCanCloudSync()) return;
+  clearTimeout(_apCloudSaveTimer);
+  _apCloudSaveTimer = setTimeout(_apSaveCloudSettings, 900);
+}
+
+// Re-sync when auth state changes (e.g. user links a Google account mid-session)
+window.addEventListener('auth-changed', async (e) => {
+  const user = e && e.detail && e.detail.user;
+  if (user && _apCanCloudSync()) {
+    _apCloudLoaded = false;
+    await _apLoadCloudSettings();
+    // Re-hydrate any open inputs
+    const gInput = document.getElementById('apGoogleKey');
+    if (gInput) gInput.value = _apGoogleKey || '';
+    const elInput = document.getElementById('apElKey');
+    if (elInput) elInput.value = _apElKey || '';
+    const elModelSel = document.getElementById('apElModel');
+    if (elModelSel) elModelSel.value = _apElModelId || 'eleven_multilingual_v2';
+    const speedSel = document.getElementById('apSpeed');
+    if (speedSel) speedSel.value = String(_apSpeed);
+    _apUpdateProviderUI();
+    _apPopulateVoices();
+  }
+});
+
 /* ── Settings persistence + provider switching ─────────────── */
 function _apSaveSettings() {
   const voiceSel = document.getElementById('apVoice');
@@ -7096,6 +7198,7 @@ function _apSaveSettings() {
     localStorage.setItem('folio_audio_voice',    _apVoiceId);
     localStorage.setItem('folio_audio_speed',    String(_apSpeed));
   } catch(e){}
+  _apScheduleCloudSave();
 }
 
 async function _apSetProvider(p) {
@@ -7128,6 +7231,7 @@ function _apOnGoogleKey() {
   if (!el) return;
   _apGoogleKey = el.value.trim();
   try { localStorage.setItem('folio_audio_google_key', _apGoogleKey); } catch(e){}
+  _apScheduleCloudSave();
   clearTimeout(_apGoogleKeyDebounce);
   _apGoogleKeyDebounce = setTimeout(async () => {
     await _apFetchGoogleVoices(_apGoogleKey);
@@ -7141,6 +7245,7 @@ function _apOnElModel() {
   if (!sel) return;
   _apElModelId = sel.value || 'eleven_multilingual_v2';
   try { localStorage.setItem('folio_audio_el_model', _apElModelId); } catch(e){}
+  _apScheduleCloudSave();
 }
 
 let _apElKeyDebounce = null;
@@ -7149,6 +7254,7 @@ function _apOnElKey() {
   if (!el) return;
   _apElKey = el.value.trim();
   try { localStorage.setItem('folio_audio_el_key', _apElKey); } catch(e){}
+  _apScheduleCloudSave();
   clearTimeout(_apElKeyDebounce);
   _apElKeyDebounce = setTimeout(async () => {
     await _apFetchElevenLabsVoices(_apElKey);
@@ -7539,6 +7645,11 @@ async function openAudioPanel() {
   panel.classList.add('open');
   panel.setAttribute('aria-hidden', 'false');
 
+  // Pull any cloud-synced settings first — updates module-level state vars.
+  if (!_apCloudLoaded && _apCanCloudSync()) {
+    try { await _apLoadCloudSettings(); } catch(e) { /* silent */ }
+  }
+
   // Hydrate inputs from stored settings
   const speedSel = document.getElementById('apSpeed');
   if (speedSel) speedSel.value = String(_apSpeed);
@@ -7594,6 +7705,8 @@ window._apSetProvider          = _apSetProvider;
 window._apOnGoogleKey          = _apOnGoogleKey;
 window._apOnElKey              = _apOnElKey;
 window._apOnElModel            = _apOnElModel;
+window._apSaveCloudSettings    = _apSaveCloudSettings;
+window._apLoadCloudSettings    = _apLoadCloudSettings;
 window._apSaveSettings         = _apSaveSettings;
 window._apGenerate             = _apGenerate;
 window._apGenerateAllRemaining = _apGenerateAllRemaining;
@@ -7647,6 +7760,7 @@ window._apConcatAll            = _apConcatAll;
       <button type="button" id="apProvGoogle"      onclick="_apSetProvider('google')">Google TTS</button>
       <button type="button" id="apProvElevenlabs"  onclick="_apSetProvider('elevenlabs')">ElevenLabs</button>
     </div>
+    <div id="apSyncHint" style="font-size:10.5px;color:var(--hint);margin:6px 0 2px">Settings (incl. API keys) sync to your Folio account when signed in.</div>
 
     <div class="ap-row">
       <div>
