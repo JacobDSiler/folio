@@ -897,12 +897,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
     </div>
     <!-- Slide-up drawer with all 8 formats -->
     <div class="exp-drawer" id="expDrawer">
-      <div style="display:flex;align-items:center;gap:8px;padding:6px 10px 2px;font-family:var(--sans);font-size:11px;color:var(--hint)">
-        <label class="toggle" style="margin:0" title="Embed Tinos font — required for Lulu, IngramSpark and other POD providers. Slower export."><input type="checkbox" id="chkEmbedFonts" onchange="localStorage.setItem('folio_embedFonts',this.checked)"><span class="tog-track"></span></label>
-        <span>Embed fonts in PDF <span style="opacity:.6">(slower · required for POD)</span></span>
-      </div>
       <div class="exp-grid">
-        <button class="exp-btn" id="btnPDF"  onclick="pickExport('PDF','Print-ready',exportPDF)"><span class="fmt">PDF</span><span class="lbl">Print</span></button>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:3px">
+          <button class="exp-btn" id="btnPDF" onclick="pickExport('PDF','Print-ready',exportPDF)"><span class="fmt">PDF</span><span class="lbl">Print</span></button>
+          <label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-family:var(--sans);font-size:9.5px;color:var(--hint);white-space:nowrap" title="Embed Tinos font in the PDF — required for POD providers like Lulu and IngramSpark. Adds a few seconds to export.">
+            <input type="checkbox" id="chkEmbedFonts" onchange="localStorage.setItem('folio_embedFonts',this.checked)" style="width:11px;height:11px;cursor:pointer;accent-color:var(--accent-ui)">
+            Embed fonts
+          </label>
+        </div>
         <button class="exp-btn" id="btnEPUB" onclick="pickExport('EPUB','E-readers',exportEPUB)"><span class="fmt">EPUB</span><span class="lbl">E-reader</span></button>
         <button class="exp-btn" id="btnMOBI" onclick="pickExport('MOBI','Kindle-ready',exportMOBI)"><span class="fmt">MOBI</span><span class="lbl">Kindle</span></button>
         <button class="exp-btn" id="btnDOCX" onclick="pickExport('DOCX','Word / edit',exportDOCX)"><span class="fmt">DOCX</span><span class="lbl">Word</span></button>
