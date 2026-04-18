@@ -156,7 +156,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .exp-toggle.open{background:var(--accent-ui);color:#fff}
 /* Slide-up drawer */
 .exp-drawer{overflow:hidden;max-height:0;transition:max-height .28s cubic-bezier(.4,0,.2,1),opacity .2s;opacity:0;pointer-events:none}
-.exp-drawer.open{max-height:200px;opacity:1;pointer-events:all}
+.exp-drawer.open{max-height:260px;opacity:1;pointer-events:all}
 .exp-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding-bottom:2px}
 .exp-btn{padding:7px 4px;border-radius:7px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid var(--border-mid);background:transparent;color:var(--accent-ui);font-family:var(--sans);display:flex;flex-direction:column;align-items:center;gap:1px;transition:all .15s}
 .exp-btn:hover{background:#faf8f3;border-color:var(--accent-ui)}
@@ -407,6 +407,49 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .lm-cost.show{display:block}
 .lm-cost-line{display:flex;justify-content:space-between;margin-bottom:4px}
 .lm-cost-total{font-weight:600;font-size:13.5px;border-top:.5px solid var(--border-mid);padding-top:8px;margin-top:6px}
+/* ══════ Audio / Audiobook export panel ══════ */
+#audioPanel{position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center}
+#audioPanel.open{display:flex}
+#audioPanel .ap-box{background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:620px;width:94%;max-height:90vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:26px 28px 22px;font-family:var(--sans);color:var(--text)}
+#audioPanel h3{font-size:15px;font-weight:600;margin-bottom:4px;letter-spacing:-0.01em}
+#audioPanel .ap-hd{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+#audioPanel label{display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:12px 0 4px}
+#audioPanel input[type=text],#audioPanel input[type=password],#audioPanel select{width:100%;font-family:var(--sans);font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--bg);color:var(--text);outline:none}
+#audioPanel input:focus,#audioPanel select:focus{border-color:var(--accent-ui)}
+.ap-prov{display:flex;gap:6px;margin-bottom:4px}
+.ap-prov button{flex:1;padding:8px 10px;border-radius:8px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);font-family:var(--sans);font-size:12.5px;cursor:pointer;transition:all .15s}
+.ap-prov button.active{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
+.ap-row{display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-bottom:4px}
+.ap-tracks{margin-top:16px;border-top:.5px solid var(--border);padding-top:12px}
+.ap-track{display:grid;grid-template-columns:22px 1fr auto auto;gap:8px;align-items:center;padding:8px 6px;border-bottom:.5px solid var(--border);font-size:12.5px}
+.ap-track:last-child{border-bottom:none}
+.ap-track .ap-icon{font-size:14px;text-align:center}
+.ap-track .ap-title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ap-track .ap-title .ap-sub{font-size:10.5px;color:var(--hint);margin-left:6px}
+.ap-track .ap-dur{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;min-width:42px;text-align:right}
+.ap-track .ap-actions{display:flex;gap:4px}
+.ap-track .ap-mini{padding:3px 7px;border-radius:6px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);font-size:11px;cursor:pointer;font-family:var(--sans)}
+.ap-track .ap-mini:hover{background:var(--bg);border-color:var(--accent-ui)}
+.ap-track .ap-mini:disabled{opacity:.4;cursor:not-allowed}
+.ap-track.ap-busy{background:linear-gradient(90deg,var(--surface),#faf5ea,var(--surface));background-size:200% 100%;animation:apShimmer 1.4s linear infinite}
+[data-dark] .ap-track.ap-busy{background:linear-gradient(90deg,var(--surface),#32302c,var(--surface));background-size:200% 100%;animation:apShimmer 1.4s linear infinite}
+@keyframes apShimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.ap-footer{margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.ap-footer .ap-btn{padding:9px;border-radius:8px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);font-family:var(--sans);font-size:12.5px;cursor:pointer;transition:all .15s}
+.ap-footer .ap-btn:hover{background:var(--bg);border-color:var(--accent-ui)}
+.ap-footer .ap-btn.primary{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
+.ap-footer .ap-btn.primary:hover{opacity:.9}
+.ap-footer .ap-btn:disabled{opacity:.4;cursor:not-allowed}
+.ap-concat{margin-top:8px}
+.ap-concat .ap-btn{width:100%;padding:10px;border-radius:8px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);font-family:var(--sans);font-size:12.5px;cursor:pointer}
+.ap-concat .ap-btn:hover{background:var(--bg);border-color:var(--accent-ui)}
+.ap-progress{font-size:11px;color:var(--hint);margin-top:8px;min-height:14px}
+.ap-empty{font-size:12px;color:var(--hint);padding:14px 4px;text-align:center}
+.ap-close{background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint);padding:2px 6px;border-radius:4px}
+.ap-close:hover{color:var(--text)}
+.ap-key-row{display:none}
+.ap-key-row.show{display:block}
+
 .lm-cover-tool{display:flex;align-items:center;gap:10px;padding:10px 14px;text-decoration:none;border-bottom:.5px solid var(--border);transition:background .12s;background:var(--surface)}
 .lm-cover-tool:last-child{border-bottom:none}
 .lm-cover-tool:hover{background:var(--bg)}
@@ -910,6 +953,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
         <button class="exp-btn" id="btnMD"   onclick="pickExport('MD','Markdown',exportMarkdown)"><span class="fmt">MD</span><span class="lbl">Markdown</span></button>
         <button class="exp-btn" id="btnHTML" onclick="pickExport('HTML','Web / ebook',exportHTML)"><span class="fmt">HTML</span><span class="lbl">HTML</span></button>
         <button class="exp-btn" id="btnTXT"  onclick="pickExport('TXT','Plain text',exportTXT)"><span class="fmt">TXT</span><span class="lbl">Text</span></button>
+        <button class="exp-btn" id="btnAUDIO" onclick="openAudioPanel()" title="Generate audiobook from your chapters"><span class="fmt">🎙</span><span class="lbl">Audio</span></button>
       </div>
     </div>
   </div>
@@ -6723,6 +6767,831 @@ document.getElementById('bookPreview').addEventListener('mouseout', e => {
   const row = e.target.closest('.toc-nav-row[data-chapid]');
   if (row) row.style.opacity = '';
 });
+
+/* ═══════════════════════════════════════════════════════════════════
+   AUDIOBOOK EXPORT — Google TTS & ElevenLabs
+   -------------------------------------------------------------------
+   • User supplies their own API key for each provider (never stored
+     server-side — only in this browser's localStorage and sent per-
+     request to the Folio TTS worker which forwards to the provider).
+   • All audio blobs are persisted in IndexedDB (DB: folio_audio).
+   • Chunking, MP3 concatenation, ZIP and single-MP3 export are all
+     handled client-side.
+   ═══════════════════════════════════════════════════════════════════ */
+
+const TTS_WORKER_URL = 'https://folio-tts.jacobdsiler.workers.dev';
+
+const GOOGLE_TTS_VOICES = [
+  { id: 'en-US-Neural2-F', label: 'Neural2 · Female (US)',   lang: 'en-US' },
+  { id: 'en-US-Neural2-A', label: 'Neural2 · Male (US)',     lang: 'en-US' },
+  { id: 'en-US-Neural2-C', label: 'Neural2 · Female 2 (US)', lang: 'en-US' },
+  { id: 'en-US-Neural2-D', label: 'Neural2 · Male 2 (US)',   lang: 'en-US' },
+  { id: 'en-GB-Neural2-A', label: 'Neural2 · Female (UK)',   lang: 'en-GB' },
+  { id: 'en-GB-Neural2-B', label: 'Neural2 · Male (UK)',     lang: 'en-GB' },
+  { id: 'en-AU-Neural2-A', label: 'Neural2 · Female (AU)',   lang: 'en-AU' },
+  { id: 'en-AU-Neural2-B', label: 'Neural2 · Male (AU)',     lang: 'en-AU' },
+];
+
+/* ── Provider / settings state ─────────────────────────────── */
+let _apProvider     = localStorage.getItem('folio_audio_provider') || 'google';
+let _apVoiceId      = localStorage.getItem('folio_audio_voice')    || 'en-US-Neural2-F';
+let _apSpeed        = parseFloat(localStorage.getItem('folio_audio_speed') || '1.0');
+let _apGoogleKey    = localStorage.getItem('folio_audio_google_key') || '';
+let _apElKey        = localStorage.getItem('folio_audio_el_key')     || '';
+let _apElVoices     = [];                          // fetched via /voices/elevenlabs
+let _apGoogleVoices = GOOGLE_TTS_VOICES.slice();   // replaced on /voices/google
+let _apBusy         = false;
+let _apCurrentAudio = null;                        // active HTMLAudioElement
+
+/* ── IndexedDB layer ───────────────────────────────────────── */
+function _apDBOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('folio_audio', 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains('tracks')) {
+        const store = db.createObjectStore('tracks', { keyPath: 'key' });
+        store.createIndex('projId', 'projId', { unique: false });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+async function _apDBGet(key) {
+  const db = await _apDBOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('tracks', 'readonly');
+    const r  = tx.objectStore('tracks').get(key);
+    r.onsuccess = () => res(r.result || null);
+    r.onerror   = () => rej(r.error);
+  });
+}
+
+async function _apDBPut(track) {
+  const db = await _apDBOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('tracks', 'readwrite');
+    const r  = tx.objectStore('tracks').put(track);
+    r.onsuccess = () => res(true);
+    r.onerror   = () => rej(r.error);
+  });
+}
+
+async function _apDBDelete(key) {
+  const db = await _apDBOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('tracks', 'readwrite');
+    const r  = tx.objectStore('tracks').delete(key);
+    r.onsuccess = () => res(true);
+    r.onerror   = () => rej(r.error);
+  });
+}
+
+async function _apDBGetAllForProject(projId) {
+  const db = await _apDBOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('tracks', 'readonly');
+    const idx = tx.objectStore('tracks').index('projId');
+    const r  = idx.getAll(projId);
+    r.onsuccess = () => res(r.result || []);
+    r.onerror   = () => rej(r.error);
+  });
+}
+
+/* ── Text processing (critical — get this right) ───────────── */
+function _audioCleanText(raw) {
+  return (raw || '')
+    .replace(/__SCENE_BREAK__/g, '...')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/[❖✿❀❄❇❉❊❋❧]/g, '')
+    .replace(/—/g, ' — ')
+    .replace(/\n{2,}/g, '\n')
+    .trim();
+}
+
+function _chunkText(text, maxChars) {
+  if (!maxChars) maxChars = 4500;
+  const sentences = text.match(/[^.!?]+[.!?]+["']?\s*/g) || [text];
+  const chunks = [];
+  let current = '';
+  for (let i = 0; i < sentences.length; i++) {
+    const s = sentences[i];
+    if ((current + s).length > maxChars) {
+      if (current) chunks.push(current.trim());
+      if (s.length > maxChars) {
+        // Pathological single sentence — split on whitespace.
+        const words = s.split(/\s+/);
+        let buf = '';
+        for (let w = 0; w < words.length; w++) {
+          if ((buf + ' ' + words[w]).length > maxChars) {
+            if (buf) chunks.push(buf.trim());
+            buf = words[w];
+          } else {
+            buf = buf ? buf + ' ' + words[w] : words[w];
+          }
+        }
+        current = buf;
+      } else {
+        current = s;
+      }
+    } else {
+      current += s;
+    }
+  }
+  if (current.trim()) chunks.push(current.trim());
+  return chunks;
+}
+
+function _textHash(str) {
+  let h = 0;
+  const s = str || '';
+  for (let i = 0; i < s.length; i++) {
+    h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;
+  }
+  return h;
+}
+
+/* ── Section → text assembly ───────────────────────────────── */
+// Chapters → individual tracks. Front matter & back matter each
+// collapse into a single combined track.
+function _apSectionList() {
+  const list = [];
+  const front = (typeof getFront    === 'function') ? getFront()    : [];
+  const body  = (typeof getChapters === 'function') ? getChapters() : [];
+  const back  = (typeof getBack     === 'function') ? getBack()     : [];
+
+  if (front.length) list.push({
+    sectionId: 'front', sectionType: 'pre',
+    title: 'Front Matter', sources: front,
+  });
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    list.push({
+      sectionId: ch.id, sectionType: 'chapter',
+      title: ch.title || ('Chapter ' + (i + 1)),
+      chapterNumber: i + 1,
+      sources: [ch],
+    });
+  }
+  if (back.length) list.push({
+    sectionId: 'back', sectionType: 'post',
+    title: 'Back Matter', sources: back,
+  });
+  return list;
+}
+
+function _apGetSectionText(section) {
+  let text = '';
+  for (let i = 0; i < section.sources.length; i++) {
+    const src = section.sources[i];
+    if (src.title) {
+      if (section.sectionType === 'chapter' && section.chapterNumber) {
+        text += 'Chapter ' + section.chapterNumber + '. ' + src.title + '.\n\n';
+      } else {
+        text += src.title + '.\n\n';
+      }
+    }
+    text += (src.content || '') + '\n\n';
+  }
+  return _audioCleanText(text);
+}
+
+function _apTrackKey(sectionId) {
+  return (_projId || 'local') + '_' + sectionId;
+}
+
+/* ── Blob helpers ──────────────────────────────────────────── */
+function _b64ToBlob(b64, mime) {
+  const bin = atob(b64);
+  const len = bin.length;
+  const arr = new Uint8Array(len);
+  for (let i = 0; i < len; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime || 'audio/mpeg' });
+}
+
+async function _concatenateBlobs(blobs) {
+  const arrays = await Promise.all(blobs.map(b => b.arrayBuffer()));
+  const total = arrays.reduce((sum, a) => sum + a.byteLength, 0);
+  const result = new Uint8Array(total);
+  let offset = 0;
+  for (let i = 0; i < arrays.length; i++) {
+    result.set(new Uint8Array(arrays[i]), offset);
+    offset += arrays[i].byteLength;
+  }
+  return new Blob([result], { type: 'audio/mpeg' });
+}
+
+async function _getBlobDuration(blob) {
+  return new Promise(resolve => {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    let done = false;
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      try { URL.revokeObjectURL(url); } catch(e){}
+      resolve(val);
+    };
+    audio.addEventListener('loadedmetadata', () => finish(audio.duration || 0));
+    audio.addEventListener('error', () => finish(0));
+    setTimeout(() => finish(0), 8000);
+  });
+}
+
+function _fmtDuration(secs) {
+  if (!secs || !isFinite(secs) || secs <= 0) return '—';
+  const s = Math.floor(secs);
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+async function _loadJSZip() {
+  if (window.JSZip) return window.JSZip;
+  await new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+    s.onload = res;
+    s.onerror = rej;
+    document.head.appendChild(s);
+  });
+  return window.JSZip;
+}
+
+/* ── TTS API calls (user key required, never stored server-side) ── */
+async function _apGoogleTTS(text, voice, speed, apiKey) {
+  const resp = await fetch(TTS_WORKER_URL + '/google', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text: text,
+      voice: voice,
+      speakingRate: speed,
+      apiKey: apiKey,
+    }),
+  });
+  if (!resp.ok) {
+    const t = await resp.text();
+    throw new Error('Google TTS: ' + resp.status + ' ' + t.slice(0, 200));
+  }
+  const data = await resp.json();
+  if (!data.audioContent) throw new Error('Google TTS: empty audioContent');
+  return _b64ToBlob(data.audioContent, 'audio/mpeg');
+}
+
+async function _apElevenLabsTTS(text, voiceId, apiKey) {
+  const resp = await fetch(TTS_WORKER_URL + '/elevenlabs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      text: text,
+      voiceId: voiceId,
+      apiKey: apiKey,
+      modelId: 'eleven_monolingual_v1',
+    }),
+  });
+  if (!resp.ok) {
+    const t = await resp.text();
+    throw new Error('ElevenLabs: ' + resp.status + ' ' + t.slice(0, 200));
+  }
+  return await resp.blob();
+}
+
+/* ── Voice list fetching ───────────────────────────────────── */
+async function _apFetchGoogleVoices(apiKey) {
+  try {
+    const url = TTS_WORKER_URL + '/voices/google' +
+      (apiKey ? '?apiKey=' + encodeURIComponent(apiKey) : '');
+    const resp = await fetch(url);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data && Array.isArray(data.voices) && data.voices.length) {
+      _apGoogleVoices = data.voices;
+    }
+  } catch (e) { /* silent — keep hardcoded list */ }
+}
+
+async function _apFetchElevenLabsVoices(key) {
+  if (!key) { _apElVoices = []; return; }
+  try {
+    const resp = await fetch(
+      TTS_WORKER_URL + '/voices/elevenlabs?apiKey=' + encodeURIComponent(key)
+    );
+    if (!resp.ok) { _apElVoices = []; return; }
+    const data = await resp.json();
+    _apElVoices = Array.isArray(data.voices) ? data.voices : [];
+  } catch (e) { _apElVoices = []; }
+}
+
+/* ── Settings persistence + provider switching ─────────────── */
+function _apSaveSettings() {
+  const voiceSel = document.getElementById('apVoice');
+  const speedSel = document.getElementById('apSpeed');
+  if (voiceSel) _apVoiceId = voiceSel.value;
+  if (speedSel) _apSpeed = parseFloat(speedSel.value) || 1.0;
+  try {
+    localStorage.setItem('folio_audio_provider', _apProvider);
+    localStorage.setItem('folio_audio_voice',    _apVoiceId);
+    localStorage.setItem('folio_audio_speed',    String(_apSpeed));
+  } catch(e){}
+}
+
+async function _apSetProvider(p) {
+  _apProvider = (p === 'elevenlabs') ? 'elevenlabs' : 'google';
+  _apUpdateProviderUI();
+  if (_apProvider === 'google') {
+    // Refresh Google voices (dynamic if key present, static if not)
+    _apFetchGoogleVoices(_apGoogleKey).then(() => _apPopulateVoices());
+  } else if (_apProvider === 'elevenlabs' && _apElKey) {
+    await _apFetchElevenLabsVoices(_apElKey);
+  }
+  _apPopulateVoices();
+  _apSaveSettings();
+}
+
+function _apUpdateProviderUI() {
+  const g = document.getElementById('apProvGoogle');
+  const e = document.getElementById('apProvElevenlabs');
+  const gRow = document.getElementById('apGoogleRow');
+  const eRow = document.getElementById('apElRow');
+  if (g) g.classList.toggle('active', _apProvider === 'google');
+  if (e) e.classList.toggle('active', _apProvider === 'elevenlabs');
+  if (gRow) gRow.classList.toggle('show', _apProvider === 'google');
+  if (eRow) eRow.classList.toggle('show', _apProvider === 'elevenlabs');
+}
+
+let _apGoogleKeyDebounce = null;
+function _apOnGoogleKey() {
+  const el = document.getElementById('apGoogleKey');
+  if (!el) return;
+  _apGoogleKey = el.value.trim();
+  try { localStorage.setItem('folio_audio_google_key', _apGoogleKey); } catch(e){}
+  clearTimeout(_apGoogleKeyDebounce);
+  _apGoogleKeyDebounce = setTimeout(async () => {
+    await _apFetchGoogleVoices(_apGoogleKey);
+    _apPopulateVoices();
+    _apRenderTracks();   // refresh footer (Generate All enabled state)
+  }, 600);
+}
+
+let _apElKeyDebounce = null;
+function _apOnElKey() {
+  const el = document.getElementById('apElKey');
+  if (!el) return;
+  _apElKey = el.value.trim();
+  try { localStorage.setItem('folio_audio_el_key', _apElKey); } catch(e){}
+  clearTimeout(_apElKeyDebounce);
+  _apElKeyDebounce = setTimeout(async () => {
+    await _apFetchElevenLabsVoices(_apElKey);
+    _apPopulateVoices();
+    _apRenderTracks();
+  }, 600);
+}
+
+function _apPopulateVoices() {
+  const sel = document.getElementById('apVoice');
+  if (!sel) return;
+  sel.innerHTML = '';
+  const list = (_apProvider === 'google') ? _apGoogleVoices : _apElVoices;
+  if (!list.length) {
+    const opt = document.createElement('option');
+    opt.value = '';
+    opt.textContent = (_apProvider === 'elevenlabs')
+      ? (_apElKey ? 'No voices — check API key' : 'Enter ElevenLabs API key ↑')
+      : 'No voices available';
+    sel.appendChild(opt);
+    sel.disabled = true;
+    return;
+  }
+  sel.disabled = false;
+  for (let i = 0; i < list.length; i++) {
+    const v = list[i];
+    const opt = document.createElement('option');
+    opt.value = v.id;
+    opt.textContent = v.label || v.id;
+    sel.appendChild(opt);
+  }
+  const has = list.some(v => v.id === _apVoiceId);
+  sel.value = has ? _apVoiceId : list[0].id;
+  _apVoiceId = sel.value;
+}
+
+/* ── Track rendering ───────────────────────────────────────── */
+async function _apRenderTracks() {
+  const host = document.getElementById('apTracks');
+  if (!host) return;
+  const sections = _apSectionList();
+  if (!sections.length) {
+    host.innerHTML = '<div class="ap-empty">No chapters yet — add a chapter first.</div>';
+    return;
+  }
+  const projId = _projId || 'local';
+  const tracks = await _apDBGetAllForProject(projId);
+  const byKey = {};
+  for (let i = 0; i < tracks.length; i++) byKey[tracks[i].key] = tracks[i];
+
+  const rows = [];
+  for (let i = 0; i < sections.length; i++) {
+    const sec = sections[i];
+    const key = _apTrackKey(sec.sectionId);
+    const tr  = byKey[key];
+    const curHash = _textHash(_apGetSectionText(sec));
+
+    let icon = '⚪';
+    let durText = '—';
+    let stale = false;
+    if (tr && tr.blob) {
+      stale = (tr.textHash !== curHash);
+      icon = stale ? '🟡' : '✅';
+      durText = _fmtDuration(tr.durationSecs);
+    }
+
+    const titlePrefix = sec.sectionType === 'chapter'
+      ? ('Ch ' + sec.chapterNumber + ' · ')
+      : '';
+    const titleHtml = _apEsc(titlePrefix + sec.title);
+
+    let actions = '';
+    if (tr && tr.blob && !stale) {
+      actions =
+        '<button class="ap-mini" onclick="_apPlay(\'' + key + '\')" title="Play">▶</button>' +
+        '<button class="ap-mini" onclick="_apDownload(\'' + key + '\')" title="Download MP3">↓</button>' +
+        '<button class="ap-mini" onclick="_apDeleteTrack(\'' + key + '\')" title="Delete">✕</button>';
+    } else if (tr && tr.blob && stale) {
+      actions =
+        '<button class="ap-mini" onclick="_apGenerate(\'' + sec.sectionId + '\')" title="Regenerate (text changed)">Regenerate</button>' +
+        '<button class="ap-mini" onclick="_apPlay(\'' + key + '\')" title="Play old version">▶</button>' +
+        '<button class="ap-mini" onclick="_apDeleteTrack(\'' + key + '\')" title="Delete">✕</button>';
+    } else {
+      actions =
+        '<button class="ap-mini" onclick="_apGenerate(\'' + sec.sectionId + '\')" title="Generate">Generate</button>';
+    }
+
+    const subNote = stale ? ' <span class="ap-sub">(text changed)</span>' : '';
+
+    rows.push(
+      '<div class="ap-track" data-secid="' + _apEsc(sec.sectionId) + '">' +
+        '<div class="ap-icon">' + icon + '</div>' +
+        '<div class="ap-title">' + titleHtml + subNote + '</div>' +
+        '<div class="ap-dur">' + durText + '</div>' +
+        '<div class="ap-actions">' + actions + '</div>' +
+      '</div>'
+    );
+  }
+  host.innerHTML = rows.join('');
+  _apUpdateFooterState(sections, byKey);
+}
+
+function _apEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function _apUpdateFooterState(sections, byKey) {
+  const genAll = document.getElementById('apGenAll');
+  const zipAll = document.getElementById('apZipAll');
+  const concat = document.getElementById('apConcat');
+  if (!genAll) return;
+  const anyGenerated = Object.keys(byKey).some(k => byKey[k] && byKey[k].blob);
+  const anyMissing = sections.some(s => {
+    const t = byKey[_apTrackKey(s.sectionId)];
+    if (!t || !t.blob) return true;
+    return t.textHash !== _textHash(_apGetSectionText(s));
+  });
+  genAll.disabled = _apBusy || !anyMissing;
+  zipAll.disabled = _apBusy || !anyGenerated;
+  concat.disabled = _apBusy || !anyGenerated;
+}
+
+/* ── Pre-flight checks for the active provider ─────────────── */
+function _apPreflight() {
+  if (_apProvider === 'google') {
+    if (!_apGoogleKey) {
+      toastWarning('Enter your Google Cloud TTS API key first', {icon:'🔑', duration:3200});
+      const i = document.getElementById('apGoogleKey');
+      if (i) i.focus();
+      return false;
+    }
+  } else if (_apProvider === 'elevenlabs') {
+    if (!_apElKey) {
+      toastWarning('Enter your ElevenLabs API key first', {icon:'🔑', duration:3200});
+      const i = document.getElementById('apElKey');
+      if (i) i.focus();
+      return false;
+    }
+  }
+  if (!_apVoiceId) {
+    toastWarning('Pick a voice first', {duration:2500});
+    return false;
+  }
+  return true;
+}
+
+/* ── Per-section generation pipeline ───────────────────────── */
+async function _apGenerate(sectionId) {
+  if (_apBusy) { toastWarning('Already generating — hold tight', {duration:2000}); return; }
+  const sections = _apSectionList();
+  const sec = sections.find(s => s.sectionId === sectionId);
+  if (!sec) { toastWarning('Section not found', {duration:2000}); return; }
+  if (!_apPreflight()) return;
+
+  _apBusy = true;
+  _apSetRowBusy(sectionId, true);
+  const progressEl = document.getElementById('apProgress');
+
+  try {
+    const rawText = _apGetSectionText(sec);
+    if (!rawText) throw new Error('Section is empty');
+    const hash = _textHash(rawText);
+    const chunks = _chunkText(rawText, 4500);
+    const blobs = [];
+    let totalDur = 0;
+
+    for (let i = 0; i < chunks.length; i++) {
+      if (progressEl) progressEl.textContent =
+        'Generating "' + sec.title + '" — chunk ' + (i + 1) + ' of ' + chunks.length + '…';
+      let blob;
+      if (_apProvider === 'google') {
+        blob = await _apGoogleTTS(chunks[i], _apVoiceId, _apSpeed, _apGoogleKey);
+      } else {
+        blob = await _apElevenLabsTTS(chunks[i], _apVoiceId, _apElKey);
+      }
+      blobs.push(blob);
+      const d = await _getBlobDuration(blob);
+      totalDur += d;
+    }
+
+    const finalBlob = blobs.length === 1 ? blobs[0] : await _concatenateBlobs(blobs);
+
+    const track = {
+      key: _apTrackKey(sec.sectionId),
+      projId: _projId || 'local',
+      sectionId: sec.sectionId,
+      sectionType: sec.sectionType,
+      title: sec.title,
+      blob: finalBlob,
+      durationSecs: totalDur || await _getBlobDuration(finalBlob),
+      provider: _apProvider,
+      voice: _apVoiceId,
+      generatedAt: Date.now(),
+      textHash: hash,
+    };
+    await _apDBPut(track);
+    if (progressEl) progressEl.textContent = '';
+    toastSuccess('"' + sec.title + '" ready (' + _fmtDuration(track.durationSecs) + ')',
+      { icon:'🎙', duration:2400 });
+  } catch (e) {
+    console.error('[audio]', e);
+    if (progressEl) progressEl.textContent = '';
+    toastWarning('Generation failed: ' + e.message, { duration: 5000 });
+  } finally {
+    _apBusy = false;
+    _apSetRowBusy(sectionId, false);
+    await _apRenderTracks();
+  }
+}
+
+function _apSetRowBusy(sectionId, busy) {
+  const row = document.querySelector('[data-secid="' + sectionId + '"]');
+  if (!row) return;
+  row.classList.toggle('ap-busy', busy);
+  if (busy) {
+    const ic = row.querySelector('.ap-icon');
+    if (ic) ic.textContent = '🔄';
+    const act = row.querySelector('.ap-actions');
+    if (act) act.innerHTML = '<span style="font-size:11px;color:var(--hint)">…</span>';
+  }
+}
+
+async function _apGenerateAllRemaining() {
+  if (_apBusy) return;
+  if (!_apPreflight()) return;
+  const sections = _apSectionList();
+  const projId = _projId || 'local';
+  const tracks = await _apDBGetAllForProject(projId);
+  const byKey = {};
+  for (let i = 0; i < tracks.length; i++) byKey[tracks[i].key] = tracks[i];
+
+  const todo = [];
+  for (let i = 0; i < sections.length; i++) {
+    const sec = sections[i];
+    const t = byKey[_apTrackKey(sec.sectionId)];
+    const curHash = _textHash(_apGetSectionText(sec));
+    if (!t || !t.blob || t.textHash !== curHash) todo.push(sec);
+  }
+  if (!todo.length) { toastInfo('All sections already up-to-date', {duration:2200}); return; }
+
+  for (let i = 0; i < todo.length; i++) {
+    await _apGenerate(todo[i].sectionId);
+  }
+  toastSuccess('All sections generated ✓', { icon:'🎙', duration:2800 });
+}
+
+/* ── Track actions ─────────────────────────────────────────── */
+async function _apPlay(key) {
+  const t = await _apDBGet(key);
+  if (!t || !t.blob) { toastWarning('Track not found', {duration:2000}); return; }
+  if (_apCurrentAudio) {
+    try { _apCurrentAudio.pause(); } catch(e){}
+    _apCurrentAudio = null;
+  }
+  const url = URL.createObjectURL(t.blob);
+  const audio = new Audio(url);
+  _apCurrentAudio = audio;
+  audio.addEventListener('ended', () => {
+    try { URL.revokeObjectURL(url); } catch(e){}
+    if (_apCurrentAudio === audio) _apCurrentAudio = null;
+  });
+  audio.play().catch(err => {
+    toastWarning('Playback failed: ' + err.message, {duration:3000});
+  });
+  toastInfo('Playing "' + (t.title || 'track') + '"', { icon:'▶', duration:1800 });
+}
+
+async function _apDownload(key) {
+  const t = await _apDBGet(key);
+  if (!t || !t.blob) { toastWarning('Track not found', {duration:2000}); return; }
+  const fn = _apTrackFilename(t);
+  const url = URL.createObjectURL(t.blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fn;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 1000);
+}
+
+function _apTrackFilename(t) {
+  const base = safeName(t.title || 'track');
+  const prefix = (t.sectionType === 'chapter') ? 'ch-' : '';
+  return prefix + base + '.mp3';
+}
+
+async function _apDeleteTrack(key) {
+  if (!confirm('Delete this audio track? This only removes it from your browser — you can regenerate later.')) return;
+  await _apDBDelete(key);
+  toastInfo('Track deleted', {duration:1800});
+  await _apRenderTracks();
+}
+
+/* ── ZIP all tracks ────────────────────────────────────────── */
+async function _apDownloadZip() {
+  if (_apBusy) return;
+  const sections = _apSectionList();
+  const projId = _projId || 'local';
+  const tracks = await _apDBGetAllForProject(projId);
+  if (!tracks.length) { toastWarning('Nothing to zip — generate some tracks first', {duration:2800}); return; }
+
+  try {
+    const JSZip = await _loadJSZip();
+    const zip = new JSZip();
+    const byKey = {};
+    for (let i = 0; i < tracks.length; i++) byKey[tracks[i].key] = tracks[i];
+    let order = 1;
+    for (let i = 0; i < sections.length; i++) {
+      const sec = sections[i];
+      const t = byKey[_apTrackKey(sec.sectionId)];
+      if (!t || !t.blob) continue;
+      const num = String(order++).padStart(2, '0');
+      const fn = num + '-' + safeName(sec.title || 'track') + '.mp3';
+      zip.file(fn, t.blob);
+    }
+    const projNameEl = document.getElementById('projName');
+    const bookName = (projNameEl && projNameEl.value) || 'audiobook';
+    const out = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(out);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = safeName(bookName) + '-audio.zip';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 1000);
+    toastSuccess('Audio ZIP downloaded ✓', { icon:'📦', duration:2500 });
+  } catch (e) {
+    console.error('[audio zip]', e);
+    toastWarning('ZIP failed: ' + e.message, { duration: 4000 });
+  }
+}
+
+/* ── Concatenate all to a single MP3 ───────────────────────── */
+async function _apConcatAll() {
+  if (_apBusy) return;
+  const sections = _apSectionList();
+  const projId = _projId || 'local';
+  const tracks = await _apDBGetAllForProject(projId);
+  if (!tracks.length) { toastWarning('Nothing to concatenate — generate some tracks first', {duration:2800}); return; }
+
+  const byKey = {};
+  for (let i = 0; i < tracks.length; i++) byKey[tracks[i].key] = tracks[i];
+  const ordered = [];
+  let missing = 0;
+  for (let i = 0; i < sections.length; i++) {
+    const sec = sections[i];
+    const t = byKey[_apTrackKey(sec.sectionId)];
+    if (t && t.blob) ordered.push(t.blob);
+    else missing++;
+  }
+  if (!ordered.length) { toastWarning('No generated tracks to combine', {duration:2800}); return; }
+  if (missing) {
+    const ok = confirm(missing + ' section(s) have no audio yet — combine what you have?');
+    if (!ok) return;
+  }
+
+  try {
+    const final = await _concatenateBlobs(ordered);
+    const projNameEl = document.getElementById('projName');
+    const bookName = (projNameEl && projNameEl.value) || 'audiobook';
+    const url = URL.createObjectURL(final);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = safeName(bookName) + '-audiobook.mp3';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 1000);
+    toastSuccess('Audiobook MP3 downloaded ✓', { icon:'🎧', duration:2800 });
+  } catch (e) {
+    console.error('[audio concat]', e);
+    toastWarning('Concatenation failed: ' + e.message, { duration: 4000 });
+  }
+}
+
+/* ── Panel open / close ────────────────────────────────────── */
+async function openAudioPanel() {
+  const panel = document.getElementById('audioPanel');
+  if (!panel) return;
+  if (typeof closeExportDrawer === 'function') closeExportDrawer();
+  panel.classList.add('open');
+  panel.setAttribute('aria-hidden', 'false');
+
+  // Hydrate inputs from stored settings
+  const speedSel = document.getElementById('apSpeed');
+  if (speedSel) speedSel.value = String(_apSpeed);
+  const gInput = document.getElementById('apGoogleKey');
+  if (gInput) gInput.value = _apGoogleKey || '';
+  const elInput = document.getElementById('apElKey');
+  if (elInput) elInput.value = _apElKey || '';
+
+  _apUpdateProviderUI();
+
+  // Fetch voices lazily — using user key where available
+  if (_apProvider === 'google') {
+    _apFetchGoogleVoices(_apGoogleKey).then(() => _apPopulateVoices());
+  }
+  if (_apProvider === 'elevenlabs' && _apElKey && !_apElVoices.length) {
+    await _apFetchElevenLabsVoices(_apElKey);
+  }
+  _apPopulateVoices();
+
+  await _apRenderTracks();
+}
+
+function closeAudioPanel() {
+  const panel = document.getElementById('audioPanel');
+  if (!panel) return;
+  panel.classList.remove('open');
+  panel.setAttribute('aria-hidden', 'true');
+  if (_apCurrentAudio) {
+    try { _apCurrentAudio.pause(); } catch(e){}
+    _apCurrentAudio = null;
+  }
+  const pe = document.getElementById('apProgress');
+  if (pe) pe.textContent = '';
+}
+
+/* ── Event hooks ───────────────────────────────────────────── */
+window.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'audioPanel') closeAudioPanel();
+});
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const p = document.getElementById('audioPanel');
+    if (p && p.classList.contains('open')) closeAudioPanel();
+  }
+});
+
+// Expose to window for inline onclick handlers
+window.openAudioPanel          = openAudioPanel;
+window.closeAudioPanel         = closeAudioPanel;
+window._apSetProvider          = _apSetProvider;
+window._apOnGoogleKey          = _apOnGoogleKey;
+window._apOnElKey              = _apOnElKey;
+window._apSaveSettings         = _apSaveSettings;
+window._apGenerate             = _apGenerate;
+window._apGenerateAllRemaining = _apGenerateAllRemaining;
+window._apPlay                 = _apPlay;
+window._apDownload             = _apDownload;
+window._apDeleteTrack          = _apDeleteTrack;
+window._apDownloadZip          = _apDownloadZip;
+window._apConcatAll            = _apConcatAll;
+
 </script>
 <div id="toastContainer"></div>
 <div id="printBook"></div>
@@ -6750,6 +7619,66 @@ document.getElementById('bookPreview').addEventListener('mouseout', e => {
     <div id="podJobsList" style="display:none;margin-top:18px">
       <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:8px">Recent Lulu orders</div>
       <div id="podJobsItems" style="display:flex;flex-direction:column;gap:6px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Audio / Audiobook export panel -->
+<div id="audioPanel" aria-hidden="true" role="dialog" aria-labelledby="apTitle">
+  <div class="ap-box">
+    <div class="ap-hd">
+      <h3 id="apTitle">🎙 Audio Export</h3>
+      <button class="ap-close" onclick="closeAudioPanel()" aria-label="Close">×</button>
+    </div>
+
+    <label>Provider</label>
+    <div class="ap-prov">
+      <button type="button" id="apProvGoogle"      onclick="_apSetProvider('google')">Google TTS</button>
+      <button type="button" id="apProvElevenlabs"  onclick="_apSetProvider('elevenlabs')">ElevenLabs</button>
+    </div>
+
+    <div class="ap-row">
+      <div>
+        <label>Voice</label>
+        <select id="apVoice" onchange="_apSaveSettings()"></select>
+      </div>
+      <div>
+        <label>Speed</label>
+        <select id="apSpeed" onchange="_apSaveSettings()">
+          <option value="0.85">0.85×</option>
+          <option value="0.9">0.9×</option>
+          <option value="0.95">0.95×</option>
+          <option value="1.0" selected>1.0×</option>
+          <option value="1.05">1.05×</option>
+          <option value="1.1">1.1×</option>
+          <option value="1.2">1.2×</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="ap-key-row" id="apGoogleRow">
+      <label>Google Cloud TTS API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span></label>
+      <input type="password" id="apGoogleKey" placeholder="AIza…" oninput="_apOnGoogleKey()" autocomplete="off">
+      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Create a restricted key for <em>Cloud Text-to-Speech API</em> only in the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--accent-ui)">Google Cloud Console</a>. Keys are kept in your browser and sent per-request to the Folio TTS worker — never stored server-side.</div>
+    </div>
+    <div class="ap-key-row" id="apElRow">
+      <label>ElevenLabs API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span></label>
+      <input type="password" id="apElKey" placeholder="sk-…" oninput="_apOnElKey()" autocomplete="off">
+      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Get your key at <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" style="color:var(--accent-ui)">elevenlabs.io</a>. It is sent per-request to the Folio TTS worker and never stored on the server.</div>
+    </div>
+
+    <div class="ap-tracks" id="apTracks">
+      <div class="ap-empty">Loading tracks…</div>
+    </div>
+
+    <div class="ap-progress" id="apProgress"></div>
+
+    <div class="ap-footer">
+      <button type="button" class="ap-btn primary" id="apGenAll" onclick="_apGenerateAllRemaining()">▶▶ Generate All Remaining</button>
+      <button type="button" class="ap-btn"        id="apZipAll" onclick="_apDownloadZip()">↓ Download All as ZIP</button>
+    </div>
+    <div class="ap-concat">
+      <button type="button" class="ap-btn" id="apConcat" onclick="_apConcatAll()">Concatenate &amp; Export Single MP3</button>
     </div>
   </div>
 </div>
