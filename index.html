@@ -5768,9 +5768,9 @@ async function _lmSubmit() {
     const jobData = await jobRes.json();
     if (!jobRes.ok) throw new Error(jobData.error || 'Job creation failed: ' + jobRes.status);
 
-    // Step 4: Clean up temp files (fire and forget)
-    window._storageLib.deleteObject(pdfStorageRef).catch(()=>{});
-    window._storageLib.deleteObject(coverRef).catch(()=>{});
+    // Note: do NOT delete files immediately — Lulu fetches them asynchronously
+    // after job creation. Files will be cleaned up after 48h or manually.
+    // See folio-lulu/ folder in Firebase Storage.
 
     const statusEl = document.getElementById('lmStatus');
     statusEl.className = 'lm-status show ok';
@@ -5793,8 +5793,7 @@ async function _lmSubmit() {
     _lmShowErr(e.message);
     btn.disabled = false;
     btn.innerHTML = 'Submit print order';
-    // Clean up temp file on error too
-    if (pdfStorageRef) window._storageLib.deleteObject(pdfStorageRef).catch(()=>{});
+    // Files in Firebase Storage can be cleaned up manually if needed.
   }
 }
 
