@@ -5504,7 +5504,7 @@ let _frMatches = [];  // [{chId, field:'content'|'title', start, end}]
 let _frCurrent = -1;
 
 // ── Print & Publish ──
-function openPOD() {
+async function openPOD() {
   const pages = document.querySelectorAll('.book-page').length;
   const title = getV('bookTitle'); const author = getV('bookAuthor');
   document.getElementById('podChecklist').innerHTML = [
@@ -5557,26 +5557,30 @@ function openPOD() {
     return `<a href="${p.url}" target="_blank" rel="noopener" ${shared}>${inner}</a>`;
   }).join('');
   // Render Lulu jobs list
-  const jobs = _lmGetJobs();
+  const jobs = await _lmGetJobs();
   const jobsSection = document.getElementById('podJobsList');
   const jobsItems   = document.getElementById('podJobsItems');
   if (jobs.length && jobsSection && jobsItems) {
     jobsSection.style.display = 'block';
-    jobsItems.innerHTML = jobs.map(j =>
-      `<div style="display:flex;align-items:center;gap:10px;padding:9px 12px;`
-      + `background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px">`
-      + `<div style="flex:1;min-width:0">`
-      + `<div style="font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--text);`
-      + `white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${j.title}</div>`
-      + `<div style="font-family:var(--sans);font-size:10.5px;color:var(--hint);margin-top:1px">`
-      + `Job #${j.id} · ${j.date}</div>`
-      + `</div>`
-      + `<a href="${j.url}" target="_blank" rel="noopener"`
-      + ` style="font-family:var(--sans);font-size:11px;padding:4px 10px;border-radius:5px;`
-      + `background:#f26522;color:#fff;text-decoration:none;white-space:nowrap;flex-shrink:0">`
-      + `View / Pay →</a>`
-      + `</div>`
-    ).join('');
+    jobsItems.innerHTML = jobs.map(j => {
+      const dateStr = j.createdAt?.toDate ? j.createdAt.toDate().toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) : 'Recently';
+      return `<div style="display:flex;align-items:center;gap:8px;padding:9px 12px;`
+        + `background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px">`
+        + `<div style="flex:1;min-width:0">`
+        + `<div style="font-family:var(--sans);font-size:12.5px;font-weight:500;color:var(--text);`
+        + `white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${j.title}</div>`
+        + `<div style="font-family:var(--sans);font-size:10.5px;color:var(--hint);margin-top:1px">`
+        + `Job #${j.jobId} · ${dateStr}</div>`
+        + `</div>`
+        + `<a href="${j.luluUrl}" target="_blank" rel="noopener"`
+        + ` style="font-family:var(--sans);font-size:11px;padding:4px 10px;border-radius:5px;`
+        + `background:#f26522;color:#fff;text-decoration:none;white-space:nowrap;flex-shrink:0">`
+        + `View / Pay →</a>`
+        + `<button onclick="_lmClearJob('${j.jobId}')" title="Clear this job"
+        + ` style="background:none;border:.5px solid var(--border-mid);border-radius:5px;`
+        + `padding:4px 8px;cursor:pointer;font-size:11px;color:var(--hint);flex-shrink:0">✕</button>`
+        + `</div>`;
+    }).join('');
   } else if (jobsSection) {
     jobsSection.style.display = 'none';
   }
@@ -5692,27 +5696,62 @@ function _lmCopySpecs() {
     .catch(() => toastWarning('Could not copy — check browser permissions', { duration: 3000 }));
 }
 
-// ── Lulu jobs persistence ──
-const LULU_JOBS_KEY = 'folio_lulu_jobs';
+// ── Lulu jobs persistence (Firestore) ──
+// Jobs stored in: users/{uid}/lulu_jobs/{jobId}
 
-function _lmSaveJob(jobId, luluUrl) {
+async function _lmSaveJob(jobId, luluUrl) {
+  const uid = window._user?.uid;
+  if (!uid || !window._db) return;
   try {
-    const jobs = _lmGetJobs();
-    jobs.unshift({
-      id:      jobId,
-      url:     luluUrl,
-      title:   getV('bookTitle') || 'Untitled',
-      date:    new Date().toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }),
-      projId:  _projId || '',
+    const jobRef = window._fb.doc(window._db, 'lulu_jobs', `${uid}_${jobId}`);
+    await window._fb.setDoc(jobRef, {
+      jobId,
+      luluUrl,
+      title:     getV('bookTitle') || 'Untitled',
+      createdAt: window._fb.serverTimestamp(),
+      projId:    _projId || '',
+      uid,
+      status:    'created',
     });
-    // Keep last 20 jobs
-    localStorage.setItem(LULU_JOBS_KEY, JSON.stringify(jobs.slice(0, 20)));
-  } catch(e) { console.warn('Could not save job:', e); }
+  } catch(e) { console.warn('Could not save job to Firestore:', e); }
 }
 
-function _lmGetJobs() {
-  try { return JSON.parse(localStorage.getItem(LULU_JOBS_KEY) || '[]'); }
-  catch(e) { return []; }
+async function _lmGetJobs() {
+  const uid = window._user?.uid;
+  if (!uid || !window._db) return [];
+  try {
+    const q = window._fb.query(
+      window._fb.collection(window._db, 'lulu_jobs'),
+      window._fb.where('uid', '==', uid),
+      window._fb.orderBy('createdAt', 'desc'),
+      window._fb.limit(20)
+    );
+    const snap = await window._fb.getDocs(q);
+    return snap.docs.map(d => d.data());
+  } catch(e) { console.warn('Could not load jobs:', e); return []; }
+}
+
+async function _lmMarkJobDone(jobId) {
+  const uid = window._user?.uid;
+  if (!uid || !window._db) return;
+  try {
+    const jobRef = window._fb.doc(window._db, 'lulu_jobs', `${uid}_${jobId}`);
+    await window._fb.deleteDoc(jobRef);
+  } catch(e) {}
+}
+
+async function _lmClearJob(jobId) {
+  await _lmMarkJobDone(jobId);
+  // Re-render the jobs list
+  const jobs = await _lmGetJobs();
+  const jobsSection = document.getElementById('podJobsList');
+  const jobsItems   = document.getElementById('podJobsItems');
+  if (!jobs.length && jobsSection) { jobsSection.style.display = 'none'; return; }
+  if (jobsItems) jobsItems.innerHTML = jobs.length
+    ? jobs.map(j => `<div>Job #${j.jobId}</div>`).join('')
+    : '';
+  // Full re-render by reopening
+  openPOD();
 }
 
 function closeLuluModal() {
@@ -5781,7 +5820,7 @@ function _lmConfirmSubmit() {
     + 'Book: ' + title + '\n'
     + 'Copies: ' + qty + '\n'
     + 'Ship to: ' + name + ', ' + city + ', ' + country + '\n\n'
-    + 'A placeholder cover will be submitted — replace it on Lulu.\n'
+    + 'A generated placeholder cover will be included. You can replace it on Lulu, or keep it as-is for a proof copy.\n'
     + 'Nothing is charged until you add a payment method\n'
     + 'and approve the job on developers.lulu.com.'
   );
@@ -5861,7 +5900,7 @@ async function _lmSubmit() {
     // See folio-lulu/ folder in Firebase Storage.
 
     // Save job to localStorage for the jobs list in Publish panel
-    _lmSaveJob(jobData.job_id, jobData.lulu_url);
+    await _lmSaveJob(jobData.job_id, jobData.lulu_url);
 
     const statusEl = document.getElementById('lmStatus');
     statusEl.className = 'lm-status show ok';
@@ -5872,7 +5911,7 @@ async function _lmSubmit() {
       + `Job ID: <strong>${jobData.job_id}</strong>. `
       + `Find it in your Lulu Developer Portal. Payment uses the card on file in your API account.</div>`
       + `<div style="font-size:11px;color:#065f46;background:#d1fae5;padding:8px 10px;border-radius:6px;margin-bottom:8px">`
-      + `A placeholder cover was included. You must replace it on Lulu before paying.</div>`
+      + `A generated placeholder cover was included. You can replace it on Lulu, or keep it for a plain proof copy.</div>`
       + `<a href="${jobData.lulu_url}" target="_blank" `
       + `style="display:inline-block;padding:7px 14px;background:#f26522;color:#fff;`
       + `border-radius:6px;text-decoration:none;font-family:var(--sans);font-size:12.5px;font-weight:500">`
