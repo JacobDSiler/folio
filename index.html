@@ -1526,7 +1526,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-20-reader-polish  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-20-reader-chapnav  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -7719,14 +7719,20 @@ function _rdResumeProgress() {
 
 function _rdJumpToChapter(chid) {
   if (!chid) return;
+  // Use Folio's own scroller — it walks offsetTop within #previewArea, which
+  // scrollIntoView() mis-handles for the nested scroll container we use in
+  // reader mode. This is the same path the in-book TOC rows already use.
+  if (typeof scrollToChapter === 'function') {
+    scrollToChapter(chid);
+    return;
+  }
+  // Fallback (should never hit in practice):
   const bp = document.getElementById('bookPreview');
   if (!bp) return;
-  const target = bp.querySelector('[id="chap-' + chid + '"], [data-chapid="' + chid + '"]');
+  const target = bp.querySelector('[id="chap-' + chid + '"]') ||
+                 bp.querySelector('[data-chapid="' + chid + '"]') ||
+                 bp.querySelector('[data-chid="' + chid + '"]');
   if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  else {
-    const p = bp.querySelector('[data-chid="' + chid + '"]');
-    if (p) p.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
 }
 
 function _rdToggleTypo() {
