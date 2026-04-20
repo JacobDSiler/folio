@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -427,9 +426,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
   background: var(--surface);
   border: 1px solid var(--border-mid);
   border-radius: 50%;
-  width: 22px;
-  height: 22px;
-  font-size: 11.5px;
+  width: 24px;
+  height: 24px;
+  font-size: 12.5px;
   line-height: 1;
   display: none;
   align-items: center;
@@ -440,6 +439,18 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
   color: var(--muted);
   user-select: none;
   transition: transform .12s, color .12s;
+}
+/* Invisible hit-area bridge so the cursor can cross the gap between
+   paragraph and button without losing :hover. */
+#bmFloatBtn::after {
+  content: "";
+  position: absolute;
+  top: -10px;
+  bottom: -10px;
+  left: -6px;
+  right: -36px;   /* extends 36px into the paragraph's left margin */
+  z-index: -1;
+  background: transparent;
 }
 #bmFloatBtn.show { display: flex; }
 #bmFloatBtn:hover { transform: scale(1.15); color: var(--accent-ui); }
@@ -490,6 +501,229 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
   0%   { background: rgba(201, 140, 42, 0.35); }
   100% { background: transparent; }
 }
+
+/* ══════ Reader mode (Phase 1: ?read=<folioId>) ══════ */
+html[data-reader] .sidebar { display: none !important; }
+html[data-reader] .app { grid-template-columns: 1fr !important; }
+html[data-reader] .preview-toolbar { display: none !important; }
+html[data-reader] #writingMode,
+html[data-reader] #splitEditor    { display: none !important; }
+html[data-reader] #editModeBtn    { display: none !important; }
+html[data-reader] .preview-area   { padding-top: 52px; }
+
+#readerBar {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 46px;
+  z-index: 80;
+  background: rgba(26, 31, 14, 0.94);
+  backdrop-filter: blur(10px);
+  color: rgba(255,255,255,0.92);
+  font-family: var(--sans);
+  align-items: center;
+  padding: 0 14px;
+  gap: 10px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.18);
+}
+html[data-reader] #readerBar { display: flex; }
+#readerBar .rd-title {
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+#readerBar .rd-sub {
+  font-size: 10.5px;
+  color: rgba(255,255,255,0.55);
+  margin-left: 10px;
+  font-weight: 400;
+}
+#readerBar button {
+  background: transparent;
+  border: 1px solid rgba(255,255,255,0.16);
+  color: inherit;
+  font-size: 11.5px;
+  border-radius: 6px;
+  padding: 5px 10px;
+  cursor: pointer;
+  font-family: var(--sans);
+  transition: all .15s;
+}
+#readerBar button:hover {
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.3);
+}
+#readerBar select {
+  background: rgba(255,255,255,0.08);
+  color: inherit;
+  border: 1px solid rgba(255,255,255,0.16);
+  font-family: var(--sans);
+  font-size: 11.5px;
+  border-radius: 6px;
+  padding: 4px 8px;
+  outline: none;
+}
+
+/* Reader side panels (Bookmarks / Annotations / Chapters) */
+#readerDrawer {
+  position: fixed;
+  top: 46px;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  background: var(--surface);
+  border-left: 1px solid var(--border-mid);
+  z-index: 75;
+  box-shadow: -4px 0 16px rgba(0,0,0,0.16);
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform .2s ease;
+}
+#readerDrawer.open { transform: translateX(0); }
+#readerDrawer .rd-drawer-hd {
+  padding: 12px 14px;
+  border-bottom: .5px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+}
+#readerDrawer .rd-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+}
+
+/* Continue-reading pill */
+#readerContinue {
+  position: fixed;
+  top: 60px;
+  right: 14px;
+  z-index: 70;
+  background: var(--accent-ui);
+  color: #fff;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-family: var(--sans);
+  font-size: 11.5px;
+  cursor: pointer;
+  border: none;
+  display: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.22);
+  animation: rdPillIn .3s ease-out;
+}
+#readerContinue.show { display: inline-flex; align-items: center; gap: 6px; }
+@keyframes rdPillIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ══════ Annotations (Phase 1: localStorage only) ══════ */
+/* ══════ Annotations (Phase 1: localStorage only) ══════ */
+.annot {
+  background-color: var(--annot-color, #ffe58a);
+  border-radius: 2px;
+  padding: 0 1px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+  cursor: pointer;
+  transition: filter .12s;
+  position: relative;
+}
+.annot:hover { filter: brightness(0.92); }
+.annot.has-note { box-shadow: 0 1px 0 rgba(0,0,0,0.25); }
+[data-dark] .annot { color: #1a1a1a; }
+
+/* Selection popover */
+#annPop {
+  position: absolute;
+  z-index: 60;
+  background: var(--surface);
+  border: .5px solid var(--border-mid);
+  border-radius: 8px;
+  padding: 5px 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  display: none;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--sans);
+  font-size: 12px;
+}
+#annPop.show { display: flex; }
+.ann-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(0,0,0,0.1);
+  cursor: pointer;
+  padding: 0;
+}
+.ann-swatch:hover { transform: scale(1.1); }
+.ann-swatch.active { box-shadow: 0 0 0 2px var(--accent-ui); }
+.ann-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 3px 8px;
+  font-size: 11.5px;
+  color: var(--text);
+  border-radius: 5px;
+  font-family: var(--sans);
+}
+.ann-btn:hover { background: var(--bg); }
+.ann-btn.danger { color: #c04040; }
+#annPop .ann-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border-mid);
+  margin: 0 3px;
+}
+
+/* Note tooltip popover */
+#annNoteBox {
+  position: absolute;
+  z-index: 70;
+  background: var(--surface);
+  border: .5px solid var(--border-mid);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.22);
+  display: none;
+  min-width: 240px;
+  max-width: 360px;
+  font-family: var(--sans);
+  font-size: 12.5px;
+}
+#annNoteBox.show { display: block; }
+#annNoteBox textarea {
+  width: 100%;
+  min-height: 72px;
+  padding: 6px 8px;
+  border: .5px solid var(--border-mid);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  resize: vertical;
+  outline: none;
+}
+#annNoteBox textarea:focus { border-color: var(--accent-ui); }
+#annNoteBox .ann-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+/* Sidebar annotation list (reuses .bm-* visual style) */
+.ann-list { display: flex; flex-direction: column; gap: 6px; }
+.ann-item { border-left: 3px solid var(--annot-color, #ffe58a); }
 
 /* ══════ Audio / Audiobook export panel ══════ */
 /* ══════ Audio / Audiobook export panel ══════ */
@@ -979,6 +1213,18 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
       </div>
 
       <div class="section">
+        <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
+          <span>✍ Annotations</span>
+          <span id="annCount" style="font-size:9px;color:var(--hint);font-weight:400;letter-spacing:.03em">0</span>
+        </div>
+        <div id="annList" class="ann-list"></div>
+        <div id="annEmpty" style="font-size:11.5px;color:var(--hint);padding:.35rem 0">
+          Select any text in the preview to highlight it or attach a note.
+        </div>
+        <p class="small-note" style="margin-top:6px">Highlights and notes live locally. Scope controls for editor/beta-reader exposure come in Phase&nbsp;2.</p>
+      </div>
+
+      <div class="section">
         <div class="section-title">Invite &amp; Share</div>
         <div id="inviteArea" style="display:none">
           <p class="small-note" style="margin-bottom:8px">Share this link — anyone who opens it loads your folio instantly. No account needed.</p>
@@ -1198,7 +1444,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-20-bookmarks-phase1  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-20-annotations-reader  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -6863,11 +7109,809 @@ document.getElementById('bookPreview').addEventListener('mouseover', e => {
   if (row && row.dataset.chapid) row.style.opacity = '0.65';
 });
 /* ═══════════════════════════════════════════════════════════════════
+   READER MODE — Phase 1 (?read=<folioId> URL param)
+   - Full-width read-only view of an existing folio
+   - Isolated bookmark/annotation namespace (folio_reader_*)
+   - Last-read-position tracking per book
+   ═══════════════════════════════════════════════════════════════════ */
+
+let _readerMode     = false;
+let _readerFolioId  = null;
+let _readerReady    = false;
+
+function _rdIsActive() { return _readerMode; }
+
+function _rdReadQueryParam() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('read') || null;
+  } catch (e) { return null; }
+}
+
+// Called once at boot. If ?read=... is present, activates reader mode.
+function _rdMaybeActivate() {
+  const id = _rdReadQueryParam();
+  if (!id) return;
+  _readerMode = true;
+  _readerFolioId = id;
+  document.documentElement.setAttribute('data-reader', '1');
+
+  // Load the folio once Firebase is ready. loadFolio() already handles the
+  // auth/network dance; we just need to call it after fb-ready.
+  const startLoad = () => {
+    if (typeof loadFolio === 'function') {
+      loadFolio(id).catch(err => {
+        if (typeof toastWarning === 'function')
+          toastWarning('Could not open this book: ' + (err.message || err), { duration: 5000 });
+      });
+    }
+  };
+  if (typeof _fbReady !== 'undefined' && _fbReady) {
+    startLoad();
+  } else {
+    window.addEventListener('fb-ready', startLoad, { once: true });
+  }
+
+  // Hydrate title and chapter nav as soon as chapters load.
+  window.addEventListener('auth-changed', _rdHydrate, { once: false });
+  setTimeout(_rdHydrate, 800);
+  setTimeout(_rdHydrate, 2500);
+
+  // Track reading progress (scroll position) — throttled.
+  const saveProgressThrottled = _rdThrottle(_rdSaveProgress, 1200);
+  const scope = document.getElementById('previewArea');
+  if (scope) scope.addEventListener('scroll', saveProgressThrottled);
+
+  // Restore progress after the book renders.
+  setTimeout(_rdMaybeShowContinuePill, 1600);
+}
+
+function _rdHydrate() {
+  if (!_readerMode) return;
+  // Title
+  const titleEl = document.getElementById('rdTitle');
+  const subEl = document.getElementById('rdSub');
+  if (titleEl) {
+    const t = (document.getElementById('bookTitle') && document.getElementById('bookTitle').value) ||
+              (document.getElementById('projName')   && document.getElementById('projName').value) ||
+              'Untitled';
+    titleEl.textContent = t;
+  }
+  if (subEl) {
+    const a = document.getElementById('bookAuthor') && document.getElementById('bookAuthor').value;
+    subEl.textContent = a ? 'by ' + a : '';
+  }
+  // Chapter picker
+  const sel = document.getElementById('rdChapSel');
+  if (sel && typeof chapters !== 'undefined' && chapters.length) {
+    sel.innerHTML = '';
+    const opt0 = document.createElement('option');
+    opt0.value = ''; opt0.textContent = 'Chapters…'; sel.appendChild(opt0);
+    let chNum = 0;
+    for (const c of chapters) {
+      if (!c.title && c.type === 'chapter') continue;
+      const opt = document.createElement('option');
+      opt.value = c.id;
+      if (c.type === 'chapter') { chNum++; opt.textContent = 'Ch ' + chNum + ' · ' + (c.title || ''); }
+      else opt.textContent = (c.title || c.type);
+      sel.appendChild(opt);
+    }
+  }
+}
+
+function _rdThrottle(fn, ms) {
+  let last = 0, timer = 0;
+  return function() {
+    const now = Date.now();
+    const remaining = ms - (now - last);
+    if (remaining <= 0) { last = now; fn.apply(this, arguments); }
+    else if (!timer) {
+      timer = setTimeout(() => { timer = 0; last = Date.now(); fn.apply(this, arguments); }, remaining);
+    }
+  };
+}
+
+function _rdProgressKey() {
+  return 'folio_reader_progress_' + (_readerFolioId || _projId || 'local');
+}
+
+function _rdSaveProgress() {
+  if (!_readerMode) return;
+  const scope = document.getElementById('previewArea');
+  const bp = document.getElementById('bookPreview');
+  if (!scope || !bp) return;
+  // Find topmost visible paragraph
+  const rect = scope.getBoundingClientRect();
+  const candidates = bp.querySelectorAll('.preview-editable[data-chid][data-paraidx]');
+  let top = null, topDist = Infinity;
+  for (const el of candidates) {
+    const r = el.getBoundingClientRect();
+    const dist = r.top - rect.top;
+    if (dist >= 0 && dist < topDist) { topDist = dist; top = el; }
+  }
+  if (!top) return;
+  const data = {
+    chid:    top.getAttribute('data-chid'),
+    paraidx: parseInt(top.getAttribute('data-paraidx'), 10),
+    scrollY: scope.scrollTop,
+    updatedAt: Date.now(),
+  };
+  try { localStorage.setItem(_rdProgressKey(), JSON.stringify(data)); } catch(e){}
+}
+
+function _rdMaybeShowContinuePill() {
+  if (!_readerMode) return;
+  try {
+    const raw = localStorage.getItem(_rdProgressKey());
+    if (!raw) return;
+    const p = JSON.parse(raw);
+    // Only show if more than ~1.5 screens down (i.e. user actually read)
+    const scope = document.getElementById('previewArea');
+    if (!scope) return;
+    if (p.scrollY > scope.clientHeight * 1.5) {
+      const pill = document.getElementById('readerContinue');
+      if (pill) pill.classList.add('show');
+    }
+  } catch(e){}
+}
+
+function _rdResumeProgress() {
+  const pill = document.getElementById('readerContinue');
+  if (pill) pill.classList.remove('show');
+  try {
+    const raw = localStorage.getItem(_rdProgressKey());
+    if (!raw) return;
+    const p = JSON.parse(raw);
+    const bp = document.getElementById('bookPreview');
+    if (!bp) return;
+    const sel = '[data-chid="' + p.chid + '"][data-paraidx="' + p.paraidx + '"]';
+    const target = bp.querySelector(sel);
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    else {
+      const scope = document.getElementById('previewArea');
+      if (scope) scope.scrollTo({ top: p.scrollY, behavior: 'smooth' });
+    }
+  } catch(e){}
+}
+
+function _rdJumpToChapter(chid) {
+  if (!chid) return;
+  const bp = document.getElementById('bookPreview');
+  if (!bp) return;
+  const target = bp.querySelector('[id="chap-' + chid + '"], [data-chapid="' + chid + '"]');
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  else {
+    const p = bp.querySelector('[data-chid="' + chid + '"]');
+    if (p) p.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+function _rdToggleTypo() {
+  // Cycle through a few readable font sizes stored in folio_zoom.
+  // This is a Phase 1 placeholder — fuller typography controls come later.
+  const current = parseFloat(localStorage.getItem('folio_zoom') || '85');
+  const cycle = [75, 85, 100, 115, 130];
+  let idx = cycle.findIndex(v => Math.abs(v - current) < 5);
+  idx = (idx + 1) % cycle.length;
+  const next = cycle[idx];
+  if (typeof setZoom === 'function') setZoom(next);
+  if (typeof toastInfo === 'function') toastInfo('Zoom: ' + next + '%', { duration: 1200 });
+}
+
+function _rdExit() {
+  // Drop the ?read=... param, reload to return to the editor view.
+  const u = new URL(window.location.href);
+  u.searchParams.delete('read');
+  window.location.href = u.toString();
+}
+
+function _rdOpenDrawer(which) {
+  const d = document.getElementById('readerDrawer');
+  const body = document.getElementById('rdDrawerBody');
+  const title = document.getElementById('rdDrawerTitle');
+  if (!d || !body || !title) return;
+  if (which === 'bookmarks') {
+    title.textContent = '🔖 Bookmarks';
+    body.innerHTML = '<div id="bmList" class="bm-list"></div><div id="bmEmpty" style="font-size:11.5px;color:var(--hint);padding:.35rem 0">No bookmarks yet — hover a paragraph to add one.</div>';
+    if (typeof _bmRenderList === 'function') _bmRenderList();
+  } else if (which === 'annotations') {
+    title.textContent = '✍ Annotations';
+    body.innerHTML = '<div id="annList" class="ann-list"></div><div id="annEmpty" style="font-size:11.5px;color:var(--hint);padding:.35rem 0">No highlights or notes yet — select text to add one.</div>';
+    if (typeof _annRenderSidebarList === 'function') _annRenderSidebarList();
+  }
+  d.classList.add('open');
+}
+
+function _rdCloseDrawer() {
+  const d = document.getElementById('readerDrawer');
+  if (d) d.classList.remove('open');
+}
+
+// Boot reader mode ASAP (before main script hits renderPreview).
+(function _rdBoot() {
+  const start = () => _rdMaybeActivate();
+  if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+})();
+
+// Expose for inline onclick handlers
+window._rdExit          = _rdExit;
+window._rdToggleTypo    = _rdToggleTypo;
+window._rdOpenDrawer    = _rdOpenDrawer;
+window._rdCloseDrawer   = _rdCloseDrawer;
+window._rdJumpToChapter = _rdJumpToChapter;
+window._rdResumeProgress = _rdResumeProgress;
+
+/* ═══════════════════════════════════════════════════════════════════
+   ANNOTATIONS — Phase 1 (localStorage only, scope-aware data shape)
+   - highlight: colored span over a selected range
+   - note:      same, plus a free-text comment attached
+   ═══════════════════════════════════════════════════════════════════ */
+
+const ANN_COLORS = [
+  { id: 'yellow',  value: '#ffe58a', label: 'Yellow'   },
+  { id: 'green',   value: '#c7f0c7', label: 'Green'    },
+  { id: 'blue',    value: '#c7dbf5', label: 'Blue'     },
+  { id: 'pink',    value: '#fbd0e0', label: 'Pink'     },
+  { id: 'orange',  value: '#fcd6a8', label: 'Orange'   },
+];
+
+function _annFolioKey() {
+  // Same split as _bmFolioKey — reader notes live under their own prefix.
+  const prefix = (typeof _readerMode !== 'undefined' && _readerMode)
+    ? 'folio_reader_annotations_'
+    : 'folio_annotations_';
+  return prefix + (_readerFolioId || _projId || 'local');
+}
+
+function _annLoad() {
+  try {
+    const raw = localStorage.getItem(_annFolioKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) { return []; }
+}
+
+function _annSave(list) {
+  try { localStorage.setItem(_annFolioKey(), JSON.stringify(list)); } catch(e){}
+}
+
+function _annParagraphText(chid, paraidx) {
+  const ch = chapters.find(c => c.id === chid);
+  if (!ch) return '';
+  const paras = (ch.content || '').split('\n').filter(p => p.trim());
+  return paras[paraidx] || '';
+}
+
+// Compute char offset within the paragraph element's visible text for a
+// given (node, nodeOffset) from a Selection.  Uses document.createTreeWalker.
+function _annCharOffset(paraEl, node, nodeOffset) {
+  let offset = 0;
+  const walker = document.createTreeWalker(paraEl, NodeFilter.SHOW_TEXT, null);
+  let n;
+  while ((n = walker.nextNode())) {
+    if (n === node) return offset + nodeOffset;
+    offset += n.nodeValue.length;
+  }
+  return offset;
+}
+
+function _annGetSelectionInfo() {
+  const sel = window.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
+  const range = sel.getRangeAt(0);
+  // Require both ends inside the SAME paragraph.preview-editable
+  const para = range.startContainer.parentElement &&
+               range.startContainer.parentElement.closest('.preview-editable[data-chid][data-paraidx]');
+  const paraEnd = range.endContainer.parentElement &&
+               range.endContainer.parentElement.closest('.preview-editable[data-chid][data-paraidx]');
+  if (!para || para !== paraEnd) return null;
+  const start = _annCharOffset(para, range.startContainer, range.startOffset);
+  const end   = _annCharOffset(para, range.endContainer,   range.endOffset);
+  if (end <= start) return null;
+  const rects = range.getClientRects();
+  const lastRect = rects[rects.length - 1];
+  return {
+    chid: para.getAttribute('data-chid'),
+    paraidx: parseInt(para.getAttribute('data-paraidx'), 10),
+    start, end,
+    text: range.toString(),
+    rect: lastRect,
+  };
+}
+
+let _annPendingSelection = null;
+let _annActiveId = null;   // when popover is re-opened on existing highlight
+
+function _annBuildPopover() {
+  const pop = document.getElementById('annPop');
+  if (!pop) return;
+  pop.innerHTML = '';
+  for (const c of ANN_COLORS) {
+    const b = document.createElement('button');
+    b.className = 'ann-swatch';
+    b.style.background = c.value;
+    b.type = 'button';
+    b.title = c.label;
+    b.dataset.color = c.value;
+    b.addEventListener('click', (e) => {
+      e.preventDefault();
+      _annApplyColor(c.value);
+    });
+    pop.appendChild(b);
+  }
+  const sep = document.createElement('div');
+  sep.className = 'ann-sep';
+  pop.appendChild(sep);
+
+  const note = document.createElement('button');
+  note.className = 'ann-btn';
+  note.type = 'button';
+  note.textContent = '📝 Note';
+  note.addEventListener('click', (e) => { e.preventDefault(); _annOpenNoteBox(); });
+  pop.appendChild(note);
+
+  const del = document.createElement('button');
+  del.className = 'ann-btn danger';
+  del.type = 'button';
+  del.textContent = '✕';
+  del.title = 'Remove annotation';
+  del.addEventListener('click', (e) => { e.preventDefault(); _annRemoveActive(); });
+  pop.appendChild(del);
+}
+
+function _annShowPopover(rect) {
+  const pop = document.getElementById('annPop');
+  if (!pop || !rect) return;
+  pop.classList.add('show');
+  const top  = rect.bottom + window.scrollY + 6;
+  const left = Math.min(
+    window.scrollX + rect.left,
+    window.scrollX + window.innerWidth - pop.offsetWidth - 12
+  );
+  pop.style.top  = top  + 'px';
+  pop.style.left = left + 'px';
+}
+
+function _annHidePopover() {
+  const pop = document.getElementById('annPop');
+  if (pop) pop.classList.remove('show');
+}
+
+function _annApplyColor(color) {
+  // Priority: if there's an active existing annotation (user clicked a highlight),
+  // update its color. Otherwise create from pending selection.
+  if (_annActiveId) {
+    const list = _annLoad();
+    const a = list.find(x => x.id === _annActiveId);
+    if (a) { a.color = color; _annSave(list); _annRender(); }
+    _annHidePopover();
+    return;
+  }
+  if (!_annPendingSelection) return;
+  const s = _annPendingSelection;
+  const list = _annLoad();
+  list.push({
+    id: 'an' + Math.random().toString(36).slice(2, 9),
+    type: 'highlight',
+    scope: 'private',
+    folioId: _projId || 'local',
+    chapterId: s.chid,
+    paragraphIndex: s.paraidx,
+    selectionStart: s.start,
+    selectionEnd: s.end,
+    selectedText: s.text,
+    color: color,
+    note: '',
+    createdAt: Date.now(),
+    createdBy: (window._uid || 'local'),
+  });
+  _annSave(list);
+  _annPendingSelection = null;
+  _annHidePopover();
+  window.getSelection().removeAllRanges();
+  _annRender();
+  if (typeof toastSuccess === 'function') toastSuccess('Highlight added', { icon:'✍', duration: 1400 });
+}
+
+function _annRemoveActive() {
+  if (!_annActiveId) return;
+  const list = _annLoad();
+  const idx = list.findIndex(x => x.id === _annActiveId);
+  if (idx >= 0) {
+    list.splice(idx, 1);
+    _annSave(list);
+  }
+  _annActiveId = null;
+  _annHidePopover();
+  _annCloseNoteBox();
+  _annRender();
+  if (typeof toastInfo === 'function') toastInfo('Annotation removed', { duration: 1400 });
+}
+
+function _annOpenNoteBox() {
+  const box = document.getElementById('annNoteBox');
+  const pop = document.getElementById('annPop');
+  if (!box || !pop) return;
+  // Reuse the popover's position for the note box
+  box.style.top  = pop.style.top;
+  box.style.left = pop.style.left;
+
+  let current = { note: '', id: null };
+  if (_annActiveId) {
+    const list = _annLoad();
+    const a = list.find(x => x.id === _annActiveId);
+    if (a) current = { note: a.note || '', id: a.id };
+  }
+
+  box.innerHTML =
+    '<div style="font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:6px">Note</div>' +
+    '<textarea id="annNoteInput" placeholder="Thoughts, revision notes, questions…"></textarea>' +
+    '<div class="ann-note-actions">' +
+      '<button type="button" class="ann-btn" onclick="_annCloseNoteBox()">Cancel</button>' +
+      '<button type="button" class="ann-btn" style="background:var(--accent-ui);color:#fff" onclick="_annSaveNote()">Save</button>' +
+    '</div>';
+  const ta = document.getElementById('annNoteInput');
+  if (ta) { ta.value = current.note; ta.focus(); }
+  box.classList.add('show');
+  _annHidePopover();
+}
+
+function _annCloseNoteBox() {
+  const box = document.getElementById('annNoteBox');
+  if (box) box.classList.remove('show');
+}
+
+function _annSaveNote() {
+  const ta = document.getElementById('annNoteInput');
+  if (!ta) return;
+  const text = ta.value.trim();
+
+  // Applying to an existing annotation
+  if (_annActiveId) {
+    const list = _annLoad();
+    const a = list.find(x => x.id === _annActiveId);
+    if (a) {
+      a.note = text;
+      a.type = text ? 'note' : 'highlight';
+      _annSave(list);
+    }
+    _annCloseNoteBox();
+    _annRender();
+    return;
+  }
+  // Applying to a fresh selection that hasn't been saved yet
+  if (_annPendingSelection) {
+    const s = _annPendingSelection;
+    const list = _annLoad();
+    list.push({
+      id: 'an' + Math.random().toString(36).slice(2, 9),
+      type: text ? 'note' : 'highlight',
+      scope: 'private',
+      folioId: _projId || 'local',
+      chapterId: s.chid,
+      paragraphIndex: s.paraidx,
+      selectionStart: s.start,
+      selectionEnd: s.end,
+      selectedText: s.text,
+      color: '#ffe58a',
+      note: text,
+      createdAt: Date.now(),
+      createdBy: (window._uid || 'local'),
+    });
+    _annSave(list);
+    _annPendingSelection = null;
+    _annCloseNoteBox();
+    window.getSelection().removeAllRanges();
+    _annRender();
+  }
+}
+
+// Walk text nodes in paragraphEl and wrap the [startOffset, endOffset) range
+// in a <span class="annot" data-annotid=.. data-annotcolor=..>.
+function _annWrapRange(paraEl, startOffset, endOffset, annotId, color, hasNote) {
+  const walker = document.createTreeWalker(paraEl, NodeFilter.SHOW_TEXT, null);
+  let offset = 0;
+  const splits = [];
+  let n;
+  while ((n = walker.nextNode())) {
+    const nodeLen = n.nodeValue.length;
+    const nodeStart = offset;
+    const nodeEnd = offset + nodeLen;
+    if (nodeEnd <= startOffset) { offset = nodeEnd; continue; }
+    if (nodeStart >= endOffset) break;
+    const s = Math.max(0, startOffset - nodeStart);
+    const e = Math.min(nodeLen, endOffset - nodeStart);
+    splits.push({ node: n, s, e });
+    offset = nodeEnd;
+  }
+  for (const { node, s, e } of splits) {
+    const before = node.nodeValue.slice(0, s);
+    const middle = node.nodeValue.slice(s, e);
+    const after  = node.nodeValue.slice(e);
+    if (!middle) continue;
+    const parent = node.parentNode;
+    const span = document.createElement('span');
+    span.className = 'annot' + (hasNote ? ' has-note' : '');
+    span.style.setProperty('--annot-color', color);
+    span.style.backgroundColor = color;
+    span.dataset.annotid = annotId;
+    span.textContent = middle;
+    if (before) parent.insertBefore(document.createTextNode(before), node);
+    parent.insertBefore(span, node);
+    if (after) parent.insertBefore(document.createTextNode(after), node);
+    parent.removeChild(node);
+  }
+}
+
+// Remove any existing .annot spans in the preview (merge their text back).
+function _annClearMarks() {
+  const bp = document.getElementById('bookPreview');
+  if (!bp) return;
+  bp.querySelectorAll('.annot').forEach(span => {
+    const parent = span.parentNode;
+    while (span.firstChild) parent.insertBefore(span.firstChild, span);
+    parent.removeChild(span);
+    parent.normalize();
+  });
+}
+
+function _annApplyMarks() {
+  const bp = document.getElementById('bookPreview');
+  if (!bp) return;
+  _annClearMarks();
+  const list = _annLoad();
+  // Sort earliest-first so consecutive wraps in the same paragraph don't mis-align.
+  // (We re-read offsets before wrapping each, since earlier wraps change the DOM
+  //  but not the textual offsets of later ones within the same paragraph.)
+  const grouped = {};
+  for (const a of list) {
+    const key = a.chapterId + '|' + a.paragraphIndex;
+    (grouped[key] = grouped[key] || []).push(a);
+  }
+  Object.values(grouped).forEach(anns => {
+    // Apply end-first within each paragraph — DOM mutations earlier in the
+    // text don't affect later text-offset math if we wrap from the end back.
+    anns.sort((a, b) => b.selectionStart - a.selectionStart);
+    for (const a of anns) {
+      const sel = '.preview-editable[data-chid="' + a.chapterId +
+                  '"][data-paraidx="' + a.paragraphIndex + '"]';
+      const paras = bp.querySelectorAll(sel);
+      paras.forEach(p => {
+        _annWrapRange(p, a.selectionStart, a.selectionEnd, a.id, a.color, !!(a.note && a.note.length));
+      });
+    }
+  });
+}
+
+function _annRender() {
+  _annApplyMarks();
+  _annRenderSidebarList();
+}
+
+function _annRenderSidebarList() {
+  const list = _annLoad();
+  const host = document.getElementById('annList');
+  const empty = document.getElementById('annEmpty');
+  const count = document.getElementById('annCount');
+  if (!host) return;
+  if (count) count.textContent = String(list.length);
+  if (!list.length) {
+    host.innerHTML = '';
+    if (empty) empty.style.display = '';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+
+  // Group by chapter, ordered by book flow
+  const byCh = {};
+  for (const a of list) (byCh[a.chapterId] = byCh[a.chapterId] || []).push(a);
+  const chapIdOrder = chapters.map(c => c.id);
+  const ordered = chapIdOrder.filter(id => byCh[id]);
+
+  const chunks = [];
+  for (const chid of ordered) {
+    const group = byCh[chid].slice().sort(
+      (a, b) => a.paragraphIndex - b.paragraphIndex || a.selectionStart - b.selectionStart
+    );
+    const chTitle = (chapters.find(c => c.id === chid) || {}).title || 'Untitled';
+    for (const a of group) {
+      const noteBits = a.note
+        ? '<div style="font-size:11px;color:var(--text);margin-top:4px;font-style:italic">📝 ' + _esc(a.note) + '</div>'
+        : '';
+      chunks.push(
+        '<div class="bm-item ann-item" style="--annot-color:' + _esc(a.color) + '" ' +
+          'onclick="_annJumpTo(\'' + _esc(a.id) + '\')">' +
+          '<div class="bm-ch">' + _esc(chTitle) + ' · ¶' + (a.paragraphIndex + 1) +
+            '<span class="bm-scope">' + _esc(a.scope || 'private') + '</span>' +
+          '</div>' +
+          '<div class="bm-snip">“' + _esc(a.selectedText || '') + '”</div>' +
+          noteBits +
+          '<div class="bm-actions">' +
+            '<button class="bm-mini" onclick="event.stopPropagation();_annEditNote(\'' + _esc(a.id) + '\')" title="Edit note">📝</button>' +
+            '<button class="bm-mini" onclick="event.stopPropagation();_annDelete(\'' + _esc(a.id) + '\')" title="Remove">✕</button>' +
+          '</div>' +
+        '</div>'
+      );
+    }
+  }
+  host.innerHTML = chunks.join('');
+}
+
+function _annEditNote(id) {
+  _annActiveId = id;
+  // Position the note box near the annotation if it's on screen
+  const bp = document.getElementById('bookPreview');
+  const span = bp && bp.querySelector('.annot[data-annotid="' + id + '"]');
+  const box = document.getElementById('annNoteBox');
+  if (box) {
+    if (span) {
+      const r = span.getBoundingClientRect();
+      box.style.top  = (r.bottom + window.scrollY + 6) + 'px';
+      box.style.left = (r.left + window.scrollX) + 'px';
+    } else {
+      box.style.top = '100px'; box.style.left = '100px';
+    }
+  }
+  _annOpenNoteBox();
+}
+
+function _annDelete(id) {
+  const list = _annLoad();
+  const i = list.findIndex(a => a.id === id);
+  if (i >= 0) {
+    list.splice(i, 1);
+    _annSave(list);
+    _annRender();
+    if (typeof toastInfo === 'function') toastInfo('Annotation removed', { duration: 1400 });
+  }
+}
+
+function _annJumpTo(id) {
+  const list = _annLoad();
+  const a = list.find(x => x.id === id);
+  if (!a) return;
+  const bp = document.getElementById('bookPreview');
+  if (!bp) return;
+  const span = bp.querySelector('.annot[data-annotid="' + id + '"]');
+  const target = span ||
+    bp.querySelector('[data-chid="' + a.chapterId + '"][data-paraidx="' + a.paragraphIndex + '"]');
+  if (!target) {
+    if (typeof toastWarning === 'function')
+      toastWarning('Paragraph not found — the chapter may have been edited.', { duration: 2500 });
+    return;
+  }
+  target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  target.classList.remove('bm-flash');
+  void target.offsetWidth;
+  target.classList.add('bm-flash');
+}
+
+/* ── Selection detection in the preview pane ───────────── */
+function _annBindSelectionHandlers() {
+  const bp = document.getElementById('bookPreview');
+  if (!bp) return;
+
+  // When the user finishes selecting, show the popover.
+  const onMaybeSelection = () => {
+    // Slight delay so the browser's selection is settled.
+    setTimeout(() => {
+      _annActiveId = null;
+      const info = _annGetSelectionInfo();
+      if (!info) { _annHidePopover(); _annPendingSelection = null; return; }
+      _annPendingSelection = info;
+      _annShowPopover(info.rect);
+    }, 10);
+  };
+
+  bp.addEventListener('mouseup',    onMaybeSelection);
+  bp.addEventListener('touchend',   onMaybeSelection);
+  bp.addEventListener('keyup', (e) => {
+    // Shift+Arrow keyboard selection
+    if (e.shiftKey) onMaybeSelection();
+  });
+
+  // Click on an existing .annot → open popover anchored on it.
+  bp.addEventListener('click', (e) => {
+    const span = e.target.closest && e.target.closest('.annot[data-annotid]');
+    if (!span) return;
+    e.preventDefault();
+    e.stopPropagation();
+    _annActiveId = span.dataset.annotid;
+    _annPendingSelection = null;
+    const r = span.getBoundingClientRect();
+    _annShowPopover(r);
+  });
+
+  // Global click to dismiss popover/note when clicking outside.
+  document.addEventListener('mousedown', (e) => {
+    const pop = document.getElementById('annPop');
+    const box = document.getElementById('annNoteBox');
+    const inPop = pop && pop.contains(e.target);
+    const inBox = box && box.contains(e.target);
+    const inPreview = bp.contains(e.target);
+    if (!inPop && !inBox && !inPreview) {
+      _annHidePopover();
+      _annCloseNoteBox();
+      _annActiveId = null;
+      _annPendingSelection = null;
+    }
+  });
+
+  // Escape dismisses
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      _annHidePopover();
+      _annCloseNoteBox();
+      _annActiveId = null;
+      _annPendingSelection = null;
+    }
+  });
+}
+
+// Boot annotations after DOM + renderer settle.
+(function _annBoot() {
+  const start = () => {
+    _annBuildPopover();
+    _annBindSelectionHandlers();
+    _annRender();
+  };
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(start, 0);
+  } else {
+    window.addEventListener('DOMContentLoaded', start);
+  }
+})();
+
+// Re-apply on preview re-renders by piggy-backing on the bookmark mutation
+// observer: _bmInstallRenderHook runs _bmApplyMarks on DOM changes, but we
+// need _annApplyMarks too. Replace with a combined renderer below.
+
+// Hook: extend the existing mutation observer to also re-apply annotations.
+// We patch by scheduling our own rAF after bookmark marks.
+(function _bmAndAnnRenderHook() {
+  const bp = document.getElementById('bookPreview');
+  if (!bp) return;
+  const observer = new MutationObserver(() => {
+    cancelAnimationFrame(_bmAndAnnRenderHook._rAF || 0);
+    _bmAndAnnRenderHook._rAF = requestAnimationFrame(() => {
+      if (typeof _bmApplyMarks === 'function') _bmApplyMarks();
+      if (typeof _annApplyMarks === 'function') _annApplyMarks();
+    });
+  });
+  observer.observe(bp, { childList: true, subtree: false });
+})();
+
+// Re-render sidebar list when project changes.
+let _annLastProjId = _projId;
+setInterval(() => {
+  if (_annLastProjId !== _projId) {
+    _annLastProjId = _projId;
+    _annRender();
+  }
+}, 800);
+
+// Expose for inline onclick handlers
+window._annJumpTo      = _annJumpTo;
+window._annDelete      = _annDelete;
+window._annEditNote    = _annEditNote;
+window._annCloseNoteBox = _annCloseNoteBox;
+window._annSaveNote    = _annSaveNote;
+
+/* ═══════════════════════════════════════════════════════════════════
    BOOKMARKS — Phase 1 (localStorage only, scope-aware data shape)
    ═══════════════════════════════════════════════════════════════════ */
 
 function _bmFolioKey() {
-  return 'folio_bookmarks_' + (_projId || 'local');
+  // Reader mode isolates bookmarks into a separate namespace so a reader's
+  // personal marks never mix with the author's writing notes for the same folio.
+  const prefix = (typeof _readerMode !== 'undefined' && _readerMode)
+    ? 'folio_reader_bookmarks_'
+    : 'folio_bookmarks_';
+  return prefix + (_readerFolioId || _projId || 'local');
 }
 
 function _bmLoad() {
@@ -7058,27 +8102,27 @@ function _bmBindHoverHandlers() {
     _bmPositionFloat();
   });
 
+  let _bmHideTimer = 0;
+  const scheduleHide = () => {
+    clearTimeout(_bmHideTimer);
+    _bmHideTimer = setTimeout(() => {
+      // Bail if the button (or its invisible bridge) is currently hovered.
+      if (btn.matches(':hover')) return;
+      btn.classList.remove('show');
+      _bmHoverTarget = null;
+    }, 260);
+  };
+  const cancelHide = () => clearTimeout(_bmHideTimer);
+
   bp.addEventListener('mouseout', (e) => {
-    // Hide only when leaving both paragraph and button. If we're entering the
-    // button itself (related target), keep it visible.
     const rel = e.relatedTarget;
     if (rel === btn || (rel && rel.id === 'bmFloatBtn')) return;
     const leaving = e.target.closest('.preview-editable[data-chid][data-paraidx]');
-    if (leaving && leaving === _bmHoverTarget) {
-      // schedule hide — button's own listeners can cancel
-      setTimeout(() => {
-        if (!btn.matches(':hover')) {
-          btn.classList.remove('show');
-          _bmHoverTarget = null;
-        }
-      }, 80);
-    }
+    if (leaving && leaving === _bmHoverTarget) scheduleHide();
   });
 
-  btn.addEventListener('mouseleave', () => {
-    btn.classList.remove('show');
-    _bmHoverTarget = null;
-  });
+  btn.addEventListener('mouseenter', cancelHide);
+  btn.addEventListener('mouseleave', scheduleHide);
 
   btn.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -7400,1369 +8444,4 @@ function _id3TextFrame(id, text) {
 }
 
 function _id3CommFrame(text) {
-  // COMM: encoding + lang(3) + short desc +  + full text
-  const tb = _id3StrToUtf8(text);
-  const payload = new Uint8Array(1 + 3 + 1 + tb.length);
-  payload[0] = 0x03;                        // UTF-8
-  payload[1] = 0x65; payload[2] = 0x6E; payload[3] = 0x67; // "eng"
-  payload[4] = 0;                           // empty short description + 
-  payload.set(tb, 5);
-  return _id3Frame('COMM', payload);
-}
-
-function _id3ChapFrame(elementId, startMs, endMs, title) {
-  const idB = _id3StrToUtf8(elementId);
-  const sub = title ? _id3TextFrame('TIT2', title) : new Uint8Array(0);
-  const payload = new Uint8Array(idB.length + 1 + 16 + sub.length);
-  let pos = 0;
-  payload.set(idB, pos); pos += idB.length;
-  payload[pos++] = 0; // element ID 
-  const st = _id3U32BE(startMs | 0);
-  const et = _id3U32BE(endMs   | 0);
-  for (let i = 0; i < 4; i++) payload[pos++] = st[i];
-  for (let i = 0; i < 4; i++) payload[pos++] = et[i];
-  // start/end byte offsets = 0xFFFFFFFF (not specified — use times only)
-  for (let i = 0; i < 8; i++) payload[pos++] = 0xFF;
-  payload.set(sub, pos);
-  return _id3Frame('CHAP', payload);
-}
-
-function _id3TocFrame(elementIds) {
-  const idB = _id3StrToUtf8('toc');
-  // child element IDs, each null-terminated
-  let childLen = 0;
-  const childBytesList = elementIds.map(x => {
-    const b = _id3StrToUtf8(x);
-    childLen += b.length + 1;
-    return b;
-  });
-  const payload = new Uint8Array(idB.length + 1 + 1 + 1 + childLen);
-  let pos = 0;
-  payload.set(idB, pos); pos += idB.length;
-  payload[pos++] = 0;          // 
-  payload[pos++] = 0x03;       // flags: top-level + ordered
-  payload[pos++] = elementIds.length & 0xFF; // entry count
-  for (let i = 0; i < childBytesList.length; i++) {
-    const b = childBytesList[i];
-    payload.set(b, pos); pos += b.length;
-    payload[pos++] = 0;
-  }
-  return _id3Frame('CTOC', payload);
-}
-
-function _id3ApicFrame(mime, imgBytes) {
-  const mimeB = _id3StrToUtf8(mime);
-  // encoding + mime + pic type + desc + image
-  const payload = new Uint8Array(1 + mimeB.length + 1 + 1 + 1 + imgBytes.length);
-  let pos = 0;
-  payload[pos++] = 0x03;                 // UTF-8
-  payload.set(mimeB, pos); pos += mimeB.length; payload[pos++] = 0;
-  payload[pos++] = 0x03;                 // picture type: Cover (front)
-  payload[pos++] = 0;                    // empty description 
-  payload.set(imgBytes, pos);
-  return _id3Frame('APIC', payload);
-}
-
-function _buildId3v23Tag(frames) {
-  const framesTotal = frames.reduce((s, f) => s + f.length, 0);
-  const out = new Uint8Array(10 + framesTotal);
-  out[0] = 0x49; out[1] = 0x44; out[2] = 0x33;   // "ID3"
-  out[3] = 0x03; out[4] = 0x00;                  // version 2.3.0
-  out[5] = 0x00;                                 // flags
-  const sz = _id3Synchsafe(framesTotal);         // tag size IS synchsafe
-  for (let i = 0; i < 4; i++) out[6 + i] = sz[i];
-  let pos = 10;
-  for (let i = 0; i < frames.length; i++) {
-    out.set(frames[i], pos); pos += frames[i].length;
-  }
-  return out;
-}
-
-// Strip any leading ID3v2 tag from a blob so we don't embed
-// multiple tags in the merged file.
-async function _apStripLeadingId3(blob) {
-  const buf = await blob.arrayBuffer();
-  const arr = new Uint8Array(buf);
-  if (arr.length >= 10 && arr[0] === 0x49 && arr[1] === 0x44 && arr[2] === 0x33) {
-    const size = ((arr[6] & 0x7F) << 21) | ((arr[7] & 0x7F) << 14) |
-                 ((arr[8] & 0x7F) <<  7) | (arr[9] & 0x7F);
-    const total = 10 + size;
-    if (total < arr.length) return arr.subarray(total);
-  }
-  return arr;
-}
-
-// Decode a data: URL into { mime, bytes } for APIC
-function _dataUrlToBytes(dataUrl) {
-  if (!dataUrl || typeof dataUrl !== 'string') return null;
-  const m = /^data:([^;,]+)(;base64)?,(.*)$/.exec(dataUrl);
-  if (!m) return null;
-  const mime = m[1];
-  const b64 = !!m[2];
-  const payload = m[3];
-  if (b64) {
-    const bin = atob(payload);
-    const out = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-    return { mime, bytes: out };
-  }
-  return { mime, bytes: _id3StrToUtf8(decodeURIComponent(payload)) };
-}
-
-function _apGetBookMeta() {
-  const v = id => {
-    const el = document.getElementById(id);
-    return el ? (el.value || '').trim() : '';
-  };
-  const title = v('bookTitle') || v('projName') || 'Audiobook';
-  const author = v('bookAuthor') || '';
-  const subtitle = v('bookSubtitle') || '';
-  const publisher = v('publisher') || '';
-  const year = v('pubYear') || String(new Date().getFullYear());
-  const narrator = (_apProvider === 'google')
-    ? ('Google TTS · ' + (_apVoiceId || ''))
-    : ('ElevenLabs · ' + (_apVoiceId || ''));
-  const cover = (typeof S !== 'undefined' && S && S.coverImg) ? S.coverImg : null;
-  return { title, author, subtitle, publisher, year, narrator, cover };
-}
-
-async function _concatenateBlobs(blobs) {
-  const arrays = await Promise.all(blobs.map(b => b.arrayBuffer()));
-  const total = arrays.reduce((sum, a) => sum + a.byteLength, 0);
-  const result = new Uint8Array(total);
-  let offset = 0;
-  for (let i = 0; i < arrays.length; i++) {
-    result.set(new Uint8Array(arrays[i]), offset);
-    offset += arrays[i].byteLength;
-  }
-  return new Blob([result], { type: 'audio/mpeg' });
-}
-
-async function _getBlobDuration(blob) {
-  return new Promise(resolve => {
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    let done = false;
-    const finish = (val) => {
-      if (done) return;
-      done = true;
-      try { URL.revokeObjectURL(url); } catch(e){}
-      resolve(val);
-    };
-    audio.addEventListener('loadedmetadata', () => finish(audio.duration || 0));
-    audio.addEventListener('error', () => finish(0));
-    setTimeout(() => finish(0), 8000);
-  });
-}
-
-function _fmtDuration(secs) {
-  if (!secs || !isFinite(secs) || secs <= 0) return '—';
-  const s = Math.floor(secs);
-  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
-}
-
-async function _loadJSZip() {
-  if (window.JSZip) return window.JSZip;
-  await new Promise((res, rej) => {
-    const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
-    s.onload = res;
-    s.onerror = rej;
-    document.head.appendChild(s);
-  });
-  return window.JSZip;
-}
-
-/* ── TTS API calls (user key required, never stored server-side) ── */
-async function _apGoogleTTS(text, voice, speed, apiKey) {
-  const resp = await fetch(TTS_WORKER_URL + '/google', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      text: text,
-      voice: voice,
-      speakingRate: speed,
-      apiKey: apiKey,
-    }),
-  });
-  if (!resp.ok) {
-    const t = await resp.text();
-    throw new Error('Google TTS: ' + resp.status + ' ' + t.slice(0, 200));
-  }
-  const data = await resp.json();
-  if (!data.audioContent) throw new Error('Google TTS: empty audioContent');
-  return _b64ToBlob(data.audioContent, 'audio/mpeg');
-}
-
-async function _apElevenLabsTTS(text, voiceId, apiKey) {
-  // Direct browser call — ElevenLabs' free tier treats datacenter IPs
-  // (including Cloudflare Workers) as VPN/proxy traffic and auto-disables
-  // the account. The key is already client-side, so the worker hop adds
-  // no security and only triggers the abuse detector. The /v1/text-to-speech
-  // endpoint supports CORS explicitly for client-side use.
-  const modelId = _apElModelId || 'eleven_multilingual_v2';
-  const resp = await fetch(
-    'https://api.elevenlabs.io/v1/text-to-speech/' + encodeURIComponent(voiceId),
-    {
-      method: 'POST',
-      headers: {
-        'xi-api-key': apiKey,
-        'Content-Type': 'application/json',
-        'Accept': 'audio/mpeg',
-      },
-      body: JSON.stringify({
-        text: text,
-        model_id: modelId,
-        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
-      }),
-    }
-  );
-  if (!resp.ok) {
-    const body = await resp.text();
-    if (/detected_unusual_activity/i.test(body)) {
-      throw new Error(
-        'ElevenLabs flagged this account for "unusual activity" and disabled ' +
-        'the free tier. Sign in at elevenlabs.io and contact their support to ' +
-        're-enable it, or upgrade to Starter ($5/mo). ' + resp.status
-      );
-    }
-    throw new Error('ElevenLabs: ' + resp.status + ' ' + body.slice(0, 200));
-  }
-  return await resp.blob();
-}
-
-/* ── Voice list fetching ───────────────────────────────────── */
-async function _apFetchGoogleVoices(apiKey) {
-  try {
-    const url = TTS_WORKER_URL + '/voices/google' +
-      (apiKey ? '?apiKey=' + encodeURIComponent(apiKey) : '');
-    const resp = await fetch(url);
-    if (!resp.ok) return;
-    const data = await resp.json();
-    if (data && Array.isArray(data.voices) && data.voices.length) {
-      _apGoogleVoices = data.voices;
-    }
-  } catch (e) { /* silent — keep hardcoded list */ }
-}
-
-async function _apFetchElevenLabsVoices(key) {
-  if (!key) { _apElVoices = []; return; }
-  try {
-    // Direct browser call (see comment on _apElevenLabsTTS).
-    const resp = await fetch('https://api.elevenlabs.io/v1/voices', {
-      headers: { 'xi-api-key': key, 'Accept': 'application/json' },
-    });
-    if (!resp.ok) { _apElVoices = []; return; }
-    const data = await resp.json();
-    const raw = Array.isArray(data.voices) ? data.voices : [];
-    _apElVoices = raw.map(v => ({
-      id: v.voice_id,
-      label: v.name + (v.category ? ' · ' + v.category : ''),
-      category: v.category || '',
-      previewUrl: v.preview_url || '',
-    }));
-  } catch (e) { _apElVoices = []; }
-}
-
-/* ── Cloud settings sync (Firestore) ───────────────────────
-   Settings are mirrored to Firestore at folio_user_settings/{uid}
-   so they follow the user across devices. localStorage remains the
-   offline mirror; cloud wins when both are present.
-   Firestore security rules should restrict this doc to its owner:
-
-     match /folio_user_settings/{uid} {
-       allow read, write: if request.auth != null
-                          && request.auth.uid == uid;
-     }
-   ─────────────────────────────────────────────────────────── */
-
-let _apCloudLoaded      = false;
-let _apCloudSaveTimer   = null;
-let _apLastCloudPayload = '';
-
-function _apCanCloudSync() {
-  return !!(window._uid && window._fb && window._db);
-}
-
-function _apMirrorToLocalStorage() {
-  try {
-    localStorage.setItem('folio_audio_provider', _apProvider);
-    if (_apVoiceId)    localStorage.setItem('folio_audio_voice', _apVoiceId);
-    localStorage.setItem('folio_audio_speed', String(_apSpeed));
-    if (_apGoogleKey)  localStorage.setItem('folio_audio_google_key', _apGoogleKey);
-    if (_apElKey)      localStorage.setItem('folio_audio_el_key',     _apElKey);
-    if (_apElModelId)  localStorage.setItem('folio_audio_el_model',   _apElModelId);
-  } catch(e){}
-}
-
-async function _apLoadCloudSettings() {
-  if (!_apCanCloudSync()) return false;
-  try {
-    const ref = window._fb.doc(window._db, 'folio_user_settings', window._uid);
-    // Hard-bound the fetch: if the SDK wedges we fall back to localStorage
-    // so Folio never appears stuck.
-    const getP = window._fb.getDoc(ref);
-    const timeoutP = new Promise((_, rej) =>
-      setTimeout(() => rej(new Error('timeout')), 5000)
-    );
-    const snap = await Promise.race([getP, timeoutP]);
-    if (!snap.exists()) { _apCloudLoaded = true; return false; }
-    const d = snap.data() || {};
-    if (d.audioProvider)                    _apProvider  = d.audioProvider;
-    if (d.audioVoice)                       _apVoiceId   = d.audioVoice;
-    if (typeof d.audioSpeed === 'number')   _apSpeed     = d.audioSpeed;
-    if (typeof d.audioGoogleKey === 'string') _apGoogleKey = d.audioGoogleKey;
-    if (typeof d.audioElKey === 'string')     _apElKey     = d.audioElKey;
-    if (d.audioElModel)                     _apElModelId = d.audioElModel;
-    _apMirrorToLocalStorage();
-    _apCloudLoaded = true;
-    return true;
-  } catch (e) {
-    console.warn('[audio cloud load]', e);
-    return false;
-  }
-}
-
-async function _apSaveCloudSettings() {
-  if (!_apCanCloudSync()) return;
-  const payload = {
-    audioProvider:   _apProvider || 'google',
-    audioVoice:      _apVoiceId  || '',
-    audioSpeed:      _apSpeed    || 1.0,
-    audioGoogleKey:  _apGoogleKey || '',
-    audioElKey:      _apElKey     || '',
-    audioElModel:    _apElModelId || 'eleven_multilingual_v2',
-  };
-  // Skip no-op writes
-  const serialized = JSON.stringify(payload);
-  if (serialized === _apLastCloudPayload) return;
-  _apLastCloudPayload = serialized;
-  try {
-    const ref = window._fb.doc(window._db, 'folio_user_settings', window._uid);
-    payload.updatedAt = window._fb.serverTimestamp();
-    await window._fb.setDoc(ref, payload, { merge: true });
-  } catch (e) {
-    console.warn('[audio cloud save]', e);
-  }
-}
-
-function _apScheduleCloudSave() {
-  if (!_apCanCloudSync()) return;
-  clearTimeout(_apCloudSaveTimer);
-  _apCloudSaveTimer = setTimeout(_apSaveCloudSettings, 900);
-}
-
-// Re-sync when auth state changes (e.g. user links a Google account mid-session).
-// EVERYTHING in this handler is best-effort — failures must never block Folio boot
-// or any other auth-changed subscriber (e.g. _refreshAuthUI).
-window.addEventListener('auth-changed', (e) => {
-  (async () => {
-    try {
-      const user = e && e.detail && e.detail.user;
-      if (!user || !_apCanCloudSync()) return;
-      _apCloudLoaded = false;
-      // Race with a 4s timeout so a wedged network can never leave this pending.
-      const load = _apLoadCloudSettings();
-      const timeout = new Promise((res) => setTimeout(() => res(false), 4000));
-      await Promise.race([load, timeout]);
-      // Re-hydrate any open inputs (null-safe — panel may not be rendered yet)
-      const gInput = document.getElementById('apGoogleKey');
-      if (gInput) gInput.value = _apGoogleKey || '';
-      const elInput = document.getElementById('apElKey');
-      if (elInput) elInput.value = _apElKey || '';
-      const elModelSel = document.getElementById('apElModel');
-      if (elModelSel) elModelSel.value = _apElModelId || 'eleven_multilingual_v2';
-      const speedSel = document.getElementById('apSpeed');
-      if (speedSel) speedSel.value = String(_apSpeed);
-      _apUpdateProviderUI();
-      _apPopulateVoices();
-    } catch (err) {
-      console.warn('[audio auth-changed]', err);
-    }
-  })();
-});
-
-/* ── Settings persistence + provider switching ─────────────── */
-function _apSaveSettings() {
-  const voiceSel = document.getElementById('apVoice');
-  const speedSel = document.getElementById('apSpeed');
-  if (voiceSel) _apVoiceId = voiceSel.value;
-  if (speedSel) _apSpeed = parseFloat(speedSel.value) || 1.0;
-  try {
-    localStorage.setItem('folio_audio_provider', _apProvider);
-    localStorage.setItem('folio_audio_voice',    _apVoiceId);
-    localStorage.setItem('folio_audio_speed',    String(_apSpeed));
-  } catch(e){}
-  _apScheduleCloudSave();
-  // Pricing/rate may have changed with the voice → refresh estimate line
-  const panel = document.getElementById('audioPanel');
-  if (panel && panel.classList.contains('open')) _apRenderTracks();
-}
-
-async function _apSetProvider(p) {
-  _apProvider = (p === 'elevenlabs') ? 'elevenlabs' : 'google';
-  _apUpdateProviderUI();
-  if (_apProvider === 'google') {
-    // Refresh Google voices (dynamic if key present, static if not)
-    _apFetchGoogleVoices(_apGoogleKey).then(() => _apPopulateVoices());
-  } else if (_apProvider === 'elevenlabs' && _apElKey) {
-    await _apFetchElevenLabsVoices(_apElKey);
-  }
-  _apPopulateVoices();
-  _apSaveSettings();
-}
-
-function _apUpdateProviderUI() {
-  const g = document.getElementById('apProvGoogle');
-  const e = document.getElementById('apProvElevenlabs');
-  const gRow = document.getElementById('apGoogleRow');
-  const eRow = document.getElementById('apElRow');
-  if (g) g.classList.toggle('active', _apProvider === 'google');
-  if (e) e.classList.toggle('active', _apProvider === 'elevenlabs');
-  if (gRow) gRow.classList.toggle('show', _apProvider === 'google');
-  if (eRow) eRow.classList.toggle('show', _apProvider === 'elevenlabs');
-}
-
-let _apGoogleKeyDebounce = null;
-function _apOnGoogleKey() {
-  const el = document.getElementById('apGoogleKey');
-  if (!el) return;
-  _apGoogleKey = el.value.trim();
-  try { localStorage.setItem('folio_audio_google_key', _apGoogleKey); } catch(e){}
-  _apScheduleCloudSave();
-  clearTimeout(_apGoogleKeyDebounce);
-  _apGoogleKeyDebounce = setTimeout(async () => {
-    await _apFetchGoogleVoices(_apGoogleKey);
-    _apPopulateVoices();
-    _apRenderTracks();   // refresh footer (Generate All enabled state)
-  }, 600);
-}
-
-function _apOnElModel() {
-  const sel = document.getElementById('apElModel');
-  if (!sel) return;
-  _apElModelId = sel.value || 'eleven_multilingual_v2';
-  try { localStorage.setItem('folio_audio_el_model', _apElModelId); } catch(e){}
-  _apScheduleCloudSave();
-  const panel = document.getElementById('audioPanel');
-  if (panel && panel.classList.contains('open')) _apRenderTracks();
-}
-
-let _apElKeyDebounce = null;
-function _apOnElKey() {
-  const el = document.getElementById('apElKey');
-  if (!el) return;
-  _apElKey = el.value.trim();
-  try { localStorage.setItem('folio_audio_el_key', _apElKey); } catch(e){}
-  _apScheduleCloudSave();
-  clearTimeout(_apElKeyDebounce);
-  _apElKeyDebounce = setTimeout(async () => {
-    await _apFetchElevenLabsVoices(_apElKey);
-    _apPopulateVoices();
-    _apRenderTracks();
-  }, 600);
-}
-
-function _apPopulateVoices() {
-  const sel = document.getElementById('apVoice');
-  if (!sel) return;
-  sel.innerHTML = '';
-  const list = (_apProvider === 'google') ? _apGoogleVoices : _apElVoices;
-  if (!list.length) {
-    const opt = document.createElement('option');
-    opt.value = '';
-    opt.textContent = (_apProvider === 'elevenlabs')
-      ? (_apElKey ? 'No voices — check API key' : 'Enter ElevenLabs API key ↑')
-      : 'No voices available';
-    sel.appendChild(opt);
-    sel.disabled = true;
-    return;
-  }
-  sel.disabled = false;
-  for (let i = 0; i < list.length; i++) {
-    const v = list[i];
-    const opt = document.createElement('option');
-    opt.value = v.id;
-    opt.textContent = v.label || v.id;
-    sel.appendChild(opt);
-  }
-  const has = list.some(v => v.id === _apVoiceId);
-  sel.value = has ? _apVoiceId : list[0].id;
-  _apVoiceId = sel.value;
-}
-
-/* ── Pricing / estimation ──────────────────────────────────
-   All prices are "current as of 2026" list price in USD per 1M chars.
-   These are for preview/budgeting only — actual bills may vary with
-   promos, tier overage rules, or provider price changes. Edit the
-   numbers below to match whatever pricing applies to you.
-   ────────────────────────────────────────────────────────── */
-const TTS_PRICING = {
-  // Google Cloud TTS — billed per character by voice tier.
-  google: {
-    'Neural2':  16,  // $16 / 1M
-    'WaveNet':  16,  // same tier as Neural2
-    'Studio':  160,  // HD/Studio voices (premium)
-    'Standard':  4,  // non-neural
-  },
-  // ElevenLabs — using Creator plan effective rate ($22 / 100k = $220/M).
-  // Turbo/Flash are 50% of that.
-  elevenlabs: {
-    'eleven_multilingual_v2':  220,
-    'eleven_monolingual_v1':   220,
-    'eleven_turbo_v2_5':       110,
-    'eleven_flash_v2_5':       110,
-  },
-};
-
-function _apGoogleVoiceTier(voiceId) {
-  if (!voiceId) return 'Neural2';
-  if (/Studio/i.test(voiceId))  return 'Studio';
-  if (/Neural2/i.test(voiceId)) return 'Neural2';
-  if (/WaveNet/i.test(voiceId)) return 'WaveNet';
-  return 'Standard';
-}
-
-function _apPricePerMillion() {
-  if (_apProvider === 'google') {
-    const tier = _apGoogleVoiceTier(_apVoiceId);
-    return { rate: TTS_PRICING.google[tier] || 16, label: 'Google ' + tier };
-  }
-  const model = _apElModelId || 'eleven_multilingual_v2';
-  const rate = TTS_PRICING.elevenlabs[model] || 220;
-  // Short label for the model, e.g. 'Multilingual v2'
-  const pretty = model
-    .replace(/^eleven_/, '')
-    .replace(/_/g, ' ')
-    .replace(/\b(\w)/g, m => m.toUpperCase());
-  return { rate: rate, label: 'ElevenLabs ' + pretty };
-}
-
-function _apFmtChars(n) {
-  if (n < 1000) return n + ' ch';
-  return n.toLocaleString('en-US') + ' ch';
-}
-
-function _apFmtMoney(dollars) {
-  if (!isFinite(dollars) || dollars <= 0) return '$0.00';
-  if (dollars < 0.01) return '<$0.01';
-  if (dollars < 10)   return '$' + dollars.toFixed(2);
-  if (dollars < 1000) return '$' + dollars.toFixed(2);
-  return '$' + Math.round(dollars).toLocaleString('en-US');
-}
-
-function _apEstimateCost(chars) {
-  const { rate, label } = _apPricePerMillion();
-  return {
-    rate: rate,
-    label: label,
-    dollars: (chars / 1_000_000) * rate,
-  };
-}
-
-/* ── Track rendering ───────────────────────────────────────── */
-async function _apRenderTracks() {
-  const host = document.getElementById('apTracks');
-  if (!host) return;
-  const sections = _apSectionList();
-  if (!sections.length) {
-    host.innerHTML = '<div class="ap-empty">No chapters yet — add a chapter first.</div>';
-    return;
-  }
-  const projId = _projId || 'local';
-  const tracks = await _apDBGetAllForProject(projId);
-  const byKey = {};
-  for (let i = 0; i < tracks.length; i++) byKey[tracks[i].key] = tracks[i];
-
-  const rows = [];
-  for (let i = 0; i < sections.length; i++) {
-    const sec = sections[i];
-    const key = _apTrackKey(sec.sectionId);
-    const tr  = byKey[key];
-    const curHash = _textHash(_apGetSectionText(sec));
-
-    let icon = '⚪';
-    let durText = '—';
-    let stale = false;
-    if (tr && tr.blob) {
-      stale = (tr.textHash !== curHash);
-      icon = stale ? '🟡' : '✅';
-      durText = _fmtDuration(tr.durationSecs);
-    }
-
-    const titlePrefix = sec.sectionType === 'chapter'
-      ? ('Ch ' + sec.chapterNumber + ' · ')
-      : '';
-    const titleHtml = _apEsc(titlePrefix + sec.title);
-
-    // Character count — what we'd actually send to TTS
-    const secText = _apGetSectionText(sec);
-    const secChars = secText.length;
-
-    let actions = '';
-    const isPlaying = (_apPlayingKey === key);
-    const playIcon  = isPlaying ? '⏸' : '▶';
-    const playTitle = isPlaying ? 'Pause' : 'Play';
-    if (tr && tr.blob && !stale) {
-      actions =
-        '<button class="ap-mini" onclick="_apPlay(\'' + key + '\')" title="' + playTitle + '">' + playIcon + '</button>' +
-        '<button class="ap-mini" onclick="_apDownload(\'' + key + '\')" title="Download MP3">↓</button>' +
-        '<button class="ap-mini" onclick="_apDeleteTrack(\'' + key + '\')" title="Delete">✕</button>';
-    } else if (tr && tr.blob && stale) {
-      actions =
-        '<button class="ap-mini" onclick="_apGenerate(\'' + sec.sectionId + '\')" title="Regenerate (text changed)">Regenerate</button>' +
-        '<button class="ap-mini" onclick="_apPlay(\'' + key + '\')" title="' + playTitle + ' old version">' + playIcon + '</button>' +
-        '<button class="ap-mini" onclick="_apDeleteTrack(\'' + key + '\')" title="Delete">✕</button>';
-    } else {
-      actions =
-        '<button class="ap-mini" onclick="_apGenerate(\'' + sec.sectionId + '\')" title="Generate">Generate</button>';
-    }
-
-    const staleBits = stale ? ' <span class="ap-sub">(text changed)</span>' : '';
-    const charBits  = ' <span class="ap-sub">· ' + _apFmtChars(secChars) + '</span>';
-    const subNote = staleBits + charBits;
-
-    rows.push(
-      '<div class="ap-track" data-secid="' + _apEsc(sec.sectionId) + '">' +
-        '<div class="ap-icon">' + icon + '</div>' +
-        '<div class="ap-title">' + titleHtml + subNote + '</div>' +
-        '<div class="ap-dur">' + durText + '</div>' +
-        '<div class="ap-actions">' + actions + '</div>' +
-      '</div>'
-    );
-  }
-  host.innerHTML = rows.join('');
-  _apUpdateFooterState(sections, byKey);
-}
-
-function _apEsc(s) {
-  return String(s == null ? '' : s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function _apUpdateFooterState(sections, byKey) {
-  const genAll = document.getElementById('apGenAll');
-  const zipAll = document.getElementById('apZipAll');
-  const concat = document.getElementById('apConcat');
-  if (!genAll) return;
-  const anyGenerated = Object.keys(byKey).some(k => byKey[k] && byKey[k].blob);
-  const anyMissing = sections.some(s => {
-    const t = byKey[_apTrackKey(s.sectionId)];
-    if (!t || !t.blob) return true;
-    return t.textHash !== _textHash(_apGetSectionText(s));
-  });
-  genAll.disabled = _apBusy || !anyMissing;
-  zipAll.disabled = _apBusy || !anyGenerated;
-  concat.disabled = _apBusy || !anyGenerated;
-
-  // ── Estimate line ─────────────────────────────────────────
-  // Sum character counts for sections that still need work.
-  const estEl = document.getElementById('apEstimate');
-  if (!estEl) return;
-  let pendingChars = 0;
-  let pendingSections = 0;
-  for (let i = 0; i < sections.length; i++) {
-    const s = sections[i];
-    const tr = byKey[_apTrackKey(s.sectionId)];
-    const cur = _apGetSectionText(s);
-    if (!tr || !tr.blob || tr.textHash !== _textHash(cur)) {
-      pendingChars += cur.length;
-      pendingSections++;
-    }
-  }
-  if (pendingSections === 0) {
-    estEl.innerHTML = '<span style="color:var(--muted)">All sections up to date ✓</span>';
-    return;
-  }
-  const est = _apEstimateCost(pendingChars);
-  estEl.innerHTML =
-    pendingSections + ' section' + (pendingSections === 1 ? '' : 's') +
-    ' pending · <strong>' + _apFmtChars(pendingChars) + '</strong>' +
-    ' · est. <strong>' + _apFmtMoney(est.dollars) + '</strong> ' +
-    '<span style="color:var(--muted)">(' + _apEsc(est.label) +
-    ' at $' + est.rate + '/M)</span>';
-}
-
-/* ── Pre-flight checks for the active provider ─────────────── */
-function _apPreflight() {
-  if (_apProvider === 'google') {
-    if (!_apGoogleKey) {
-      toastWarning('Enter your Google Cloud TTS API key first', {icon:'🔑', duration:3200});
-      const i = document.getElementById('apGoogleKey');
-      if (i) i.focus();
-      return false;
-    }
-  } else if (_apProvider === 'elevenlabs') {
-    if (!_apElKey) {
-      toastWarning('Enter your ElevenLabs API key first', {icon:'🔑', duration:3200});
-      const i = document.getElementById('apElKey');
-      if (i) i.focus();
-      return false;
-    }
-  }
-  if (!_apVoiceId) {
-    toastWarning('Pick a voice first', {duration:2500});
-    return false;
-  }
-  return true;
-}
-
-/* ── Per-section generation pipeline ───────────────────────── */
-async function _apGenerate(sectionId) {
-  if (_apBusy) { toastWarning('Already generating — hold tight', {duration:2000}); return; }
-  const sections = _apSectionList();
-  const sec = sections.find(s => s.sectionId === sectionId);
-  if (!sec) { toastWarning('Section not found', {duration:2000}); return; }
-  if (!_apPreflight()) return;
-
-  _apBusy = true;
-  _apSetRowBusy(sectionId, true);
-  const progressEl = document.getElementById('apProgress');
-
-  try {
-    const rawText = _apGetSectionText(sec);
-    if (!rawText) throw new Error('Section is empty');
-    const hash = _textHash(rawText);
-    const chunks = _chunkText(rawText, 4500);
-    const blobs = [];
-    let totalDur = 0;
-
-    for (let i = 0; i < chunks.length; i++) {
-      if (progressEl) progressEl.textContent =
-        'Generating "' + sec.title + '" — chunk ' + (i + 1) + ' of ' + chunks.length + '…';
-      let blob;
-      if (_apProvider === 'google') {
-        blob = await _apGoogleTTS(chunks[i], _apVoiceId, _apSpeed, _apGoogleKey);
-      } else {
-        blob = await _apElevenLabsTTS(chunks[i], _apVoiceId, _apElKey);
-      }
-      blobs.push(blob);
-      const d = await _getBlobDuration(blob);
-      totalDur += d;
-    }
-
-    const finalBlob = blobs.length === 1 ? blobs[0] : await _concatenateBlobs(blobs);
-
-    const track = {
-      key: _apTrackKey(sec.sectionId),
-      projId: _projId || 'local',
-      sectionId: sec.sectionId,
-      sectionType: sec.sectionType,
-      title: sec.title,
-      blob: finalBlob,
-      durationSecs: totalDur || await _getBlobDuration(finalBlob),
-      provider: _apProvider,
-      voice: _apVoiceId,
-      generatedAt: Date.now(),
-      textHash: hash,
-    };
-    await _apDBPut(track);
-    if (progressEl) progressEl.textContent = '';
-    toastSuccess('"' + sec.title + '" ready (' + _fmtDuration(track.durationSecs) + ')',
-      { icon:'🎙', duration:2400 });
-  } catch (e) {
-    console.error('[audio]', e);
-    if (progressEl) progressEl.textContent = '';
-    toastWarning('Generation failed: ' + e.message, { duration: 5000 });
-  } finally {
-    _apBusy = false;
-    _apSetRowBusy(sectionId, false);
-    await _apRenderTracks();
-  }
-}
-
-function _apSetRowBusy(sectionId, busy) {
-  const row = document.querySelector('[data-secid="' + sectionId + '"]');
-  if (!row) return;
-  row.classList.toggle('ap-busy', busy);
-  if (busy) {
-    const ic = row.querySelector('.ap-icon');
-    if (ic) ic.textContent = '🔄';
-    const act = row.querySelector('.ap-actions');
-    if (act) act.innerHTML = '<span style="font-size:11px;color:var(--hint)">…</span>';
-  }
-}
-
-async function _apGenerateAllRemaining() {
-  if (_apBusy) return;
-  if (!_apPreflight()) return;
-  const sections = _apSectionList();
-  const projId = _projId || 'local';
-  const tracks = await _apDBGetAllForProject(projId);
-  const byKey = {};
-  for (let i = 0; i < tracks.length; i++) byKey[tracks[i].key] = tracks[i];
-
-  const todo = [];
-  for (let i = 0; i < sections.length; i++) {
-    const sec = sections[i];
-    const t = byKey[_apTrackKey(sec.sectionId)];
-    const curHash = _textHash(_apGetSectionText(sec));
-    if (!t || !t.blob || t.textHash !== curHash) todo.push(sec);
-  }
-  if (!todo.length) { toastInfo('All sections already up-to-date', {duration:2200}); return; }
-
-  for (let i = 0; i < todo.length; i++) {
-    await _apGenerate(todo[i].sectionId);
-  }
-  toastSuccess('All sections generated ✓', { icon:'🎙', duration:2800 });
-}
-
-/* ── Track actions ─────────────────────────────────────────── */
-async function _apPlay(key) {
-  // Toggle: clicking the currently-playing track pauses it; clicking a paused
-  // track resumes it; clicking any other track stops the current one and
-  // starts fresh. The ▶ / ⏸ icon in the track row reflects this state.
-  if (_apCurrentAudio && _apCurrentAudio._apKey === key) {
-    if (_apCurrentAudio.paused) {
-      try { await _apCurrentAudio.play(); } catch(e) {
-        toastWarning('Playback failed: ' + e.message, {duration:3000});
-      }
-    } else {
-      try { _apCurrentAudio.pause(); } catch(e){}
-    }
-    _apRenderTracks();
-    return;
-  }
-
-  // Stop any other playback first
-  if (_apCurrentAudio) {
-    try {
-      _apCurrentAudio.pause();
-      if (_apCurrentAudio._apUrl) URL.revokeObjectURL(_apCurrentAudio._apUrl);
-    } catch(e){}
-    _apCurrentAudio = null;
-    _apPlayingKey = null;
-  }
-
-  const tr = await _apDBGet(key);
-  if (!tr || !tr.blob) { toastWarning('Track not found', {duration:2000}); _apRenderTracks(); return; }
-
-  const url = URL.createObjectURL(tr.blob);
-  const audio = new Audio(url);
-  audio._apKey = key;
-  audio._apUrl = url;
-  _apCurrentAudio = audio;
-  _apPlayingKey = key;
-
-  audio.addEventListener('play', () => {
-    if (_apCurrentAudio === audio) {
-      _apPlayingKey = key;
-      _apRenderTracks();
-    }
-  });
-  audio.addEventListener('pause', () => {
-    // Fires for both user-pause and end-of-track (immediately before 'ended').
-    if (_apCurrentAudio === audio && !audio.ended) {
-      _apPlayingKey = null;
-      _apRenderTracks();
-    }
-  });
-  audio.addEventListener('ended', () => {
-    try { URL.revokeObjectURL(url); } catch(e){}
-    if (_apCurrentAudio === audio) {
-      _apCurrentAudio = null;
-      _apPlayingKey = null;
-    }
-    _apRenderTracks();
-  });
-
-  try {
-    await audio.play();
-    toastInfo('Playing "' + (tr.title || 'track') + '"', { icon:'▶', duration:1600 });
-  } catch (err) {
-    toastWarning('Playback failed: ' + err.message, {duration:3000});
-    if (_apCurrentAudio === audio) {
-      _apCurrentAudio = null;
-      _apPlayingKey = null;
-    }
-    _apRenderTracks();
-  }
-}
-
-async function _apDownload(key) {
-  const t = await _apDBGet(key);
-  if (!t || !t.blob) { toastWarning('Track not found', {duration:2000}); return; }
-  const fn = _apTrackFilename(t);
-  const url = URL.createObjectURL(t.blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fn;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 1000);
-}
-
-function _apTrackFilename(t) {
-  const base = safeName(t.title || 'track');
-  const prefix = (t.sectionType === 'chapter') ? 'ch-' : '';
-  return prefix + base + '.mp3';
-}
-
-async function _apDeleteTrack(key) {
-  if (!confirm('Delete this audio track? This only removes it from your browser — you can regenerate later.')) return;
-  await _apDBDelete(key);
-  toastInfo('Track deleted', {duration:1800});
-  await _apRenderTracks();
-}
-
-/* ── ZIP all tracks ────────────────────────────────────────── */
-async function _apDownloadZip() {
-  if (_apBusy) return;
-  const sections = _apSectionList();
-  const projId = _projId || 'local';
-  const tracks = await _apDBGetAllForProject(projId);
-  if (!tracks.length) { toastWarning('Nothing to zip — generate some tracks first', {duration:2800}); return; }
-
-  try {
-    const JSZip = await _loadJSZip();
-    const zip = new JSZip();
-    const byKey = {};
-    for (let i = 0; i < tracks.length; i++) byKey[tracks[i].key] = tracks[i];
-    let order = 1;
-    for (let i = 0; i < sections.length; i++) {
-      const sec = sections[i];
-      const t = byKey[_apTrackKey(sec.sectionId)];
-      if (!t || !t.blob) continue;
-      const num = String(order++).padStart(2, '0');
-      const fn = num + '-' + safeName(sec.title || 'track') + '.mp3';
-      zip.file(fn, t.blob);
-    }
-    const projNameEl = document.getElementById('projName');
-    const bookName = (projNameEl && projNameEl.value) || 'audiobook';
-    const out = await zip.generateAsync({ type: 'blob' });
-    const url = URL.createObjectURL(out);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = safeName(bookName) + '-audio.zip';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 1000);
-    toastSuccess('Audio ZIP downloaded ✓', { icon:'📦', duration:2500 });
-  } catch (e) {
-    console.error('[audio zip]', e);
-    toastWarning('ZIP failed: ' + e.message, { duration: 4000 });
-  }
-}
-
-/* ── Concatenate all to a single MP3 ───────────────────────── */
-async function _apConcatAll() {
-  if (_apBusy) return;
-  const sections = _apSectionList();
-  const projId = _projId || 'local';
-  const tracks = await _apDBGetAllForProject(projId);
-  if (!tracks.length) { toastWarning('Nothing to concatenate — generate some tracks first', {duration:2800}); return; }
-
-  const byKey = {};
-  for (let i = 0; i < tracks.length; i++) byKey[tracks[i].key] = tracks[i];
-
-  // Walk sections in book order and collect chapter rows.
-  const rows = [];   // { title, trackObj }
-  let missing = 0;
-  for (let i = 0; i < sections.length; i++) {
-    const sec = sections[i];
-    const tr = byKey[_apTrackKey(sec.sectionId)];
-    if (tr && tr.blob) rows.push({ section: sec, track: tr });
-    else missing++;
-  }
-  if (!rows.length) { toastWarning('No generated tracks to combine', {duration:2800}); return; }
-  if (missing) {
-    const ok = confirm(missing + ' section(s) have no audio yet — combine what you have?');
-    if (!ok) return;
-  }
-
-  const progressEl = document.getElementById('apProgress');
-  if (progressEl) progressEl.textContent = 'Building audiobook MP3…';
-
-  try {
-    // Strip leading ID3 from each source so we don't embed multiple tags.
-    const bodies = [];
-    const chapters = [];  // { id, startMs, endMs, title }
-    let cursorMs = 0;
-    for (let i = 0; i < rows.length; i++) {
-      const r = rows[i];
-      const bytes = await _apStripLeadingId3(r.track.blob);
-      bodies.push(bytes);
-      const durMs = Math.max(1, Math.round((r.track.durationSecs || 0) * 1000));
-      const chapId = 'ch' + String(i + 1).padStart(3, '0');
-      let title = r.track.title || r.section.title || ('Chapter ' + (i + 1));
-      if (r.section.sectionType === 'chapter' && r.section.chapterNumber) {
-        // Prefix with chapter number for cleaner listing in player UIs
-        title = 'Chapter ' + r.section.chapterNumber + ' — ' + title.replace(/^Ch\s*\d+\s*[·:\-]?\s*/, '');
-      }
-      chapters.push({
-        id: chapId,
-        startMs: cursorMs,
-        endMs: cursorMs + durMs,
-        title: title,
-      });
-      cursorMs += durMs;
-    }
-
-    // Gather book metadata from Folio inputs
-    const meta = _apGetBookMeta();
-
-    // Build ID3 frames
-    const frames = [];
-    frames.push(_id3TextFrame('TIT2', meta.title));
-    if (meta.author)   frames.push(_id3TextFrame('TPE1', meta.author));
-    if (meta.narrator) frames.push(_id3TextFrame('TPE2', meta.narrator));  // Album artist = narrator
-    frames.push(_id3TextFrame('TALB', meta.title));
-    frames.push(_id3TextFrame('TCON', 'Audiobook'));
-    frames.push(_id3TextFrame('TYER', meta.year));
-    if (meta.publisher) frames.push(_id3TextFrame('TPUB', meta.publisher));
-    if (meta.subtitle)  frames.push(_id3TextFrame('TIT3', meta.subtitle));
-    frames.push(_id3CommFrame(
-      'Audiobook generated by Folio using ' + (_apProvider === 'google' ? 'Google Cloud TTS' : 'ElevenLabs') +
-      '. ' + chapters.length + ' chapter' + (chapters.length === 1 ? '' : 's') + '.'
-    ));
-
-    // Cover art (if any)
-    if (meta.cover) {
-      const parsed = _dataUrlToBytes(meta.cover);
-      if (parsed && parsed.bytes && parsed.bytes.length) {
-        frames.push(_id3ApicFrame(parsed.mime || 'image/jpeg', parsed.bytes));
-      }
-    }
-
-    // Chapter frames + TOC
-    for (let i = 0; i < chapters.length; i++) {
-      const c = chapters[i];
-      frames.push(_id3ChapFrame(c.id, c.startMs, c.endMs, c.title));
-    }
-    frames.push(_id3TocFrame(chapters.map(c => c.id)));
-
-    const id3 = _buildId3v23Tag(frames);
-
-    // Concatenate: [ID3 tag] + [mp3 body 1] + [mp3 body 2] + ...
-    let total = id3.length;
-    for (let i = 0; i < bodies.length; i++) total += bodies[i].length;
-    const out = new Uint8Array(total);
-    let pos = 0;
-    out.set(id3, pos); pos += id3.length;
-    for (let i = 0; i < bodies.length; i++) {
-      out.set(bodies[i], pos); pos += bodies[i].length;
-    }
-    const final = new Blob([out], { type: 'audio/mpeg' });
-
-    const bookName = (document.getElementById('projName') && document.getElementById('projName').value) ||
-                     meta.title || 'audiobook';
-    const url = URL.createObjectURL(final);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = safeName(bookName) + '-audiobook.mp3';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => { try { URL.revokeObjectURL(url); } catch(e){} }, 1500);
-    if (progressEl) progressEl.textContent = '';
-    toastSuccess(
-      chapters.length + ' chapters · audiobook MP3 downloaded ✓',
-      { icon: '🎧', duration: 3000 }
-    );
-  } catch (e) {
-    console.error('[audio concat]', e);
-    if (progressEl) progressEl.textContent = '';
-    toastWarning('Audiobook export failed: ' + e.message, { duration: 4000 });
-  }
-}
-
-/* ── Panel open / close ────────────────────────────────────── */
-async function openAudioPanel() {
-  const panel = document.getElementById('audioPanel');
-  if (!panel) return;
-  if (typeof closeExportDrawer === 'function') closeExportDrawer();
-  panel.classList.add('open');
-  panel.setAttribute('aria-hidden', 'false');
-
-  // Pull any cloud-synced settings first — updates module-level state vars.
-  if (!_apCloudLoaded && _apCanCloudSync()) {
-    try { await _apLoadCloudSettings(); } catch(e) { /* silent */ }
-  }
-
-  // Hydrate inputs from stored settings
-  const speedSel = document.getElementById('apSpeed');
-  if (speedSel) speedSel.value = String(_apSpeed);
-  const gInput = document.getElementById('apGoogleKey');
-  if (gInput) gInput.value = _apGoogleKey || '';
-  const elInput = document.getElementById('apElKey');
-  if (elInput) elInput.value = _apElKey || '';
-  const elModelSel = document.getElementById('apElModel');
-  if (elModelSel) elModelSel.value = _apElModelId || 'eleven_multilingual_v2';
-
-  _apUpdateProviderUI();
-
-  // Fetch voices lazily — using user key where available
-  if (_apProvider === 'google') {
-    _apFetchGoogleVoices(_apGoogleKey).then(() => _apPopulateVoices());
-  }
-  if (_apProvider === 'elevenlabs' && _apElKey && !_apElVoices.length) {
-    await _apFetchElevenLabsVoices(_apElKey);
-  }
-  _apPopulateVoices();
-
-  await _apRenderTracks();
-}
-
-function closeAudioPanel() {
-  const panel = document.getElementById('audioPanel');
-  if (!panel) return;
-  panel.classList.remove('open');
-  panel.setAttribute('aria-hidden', 'true');
-  if (_apCurrentAudio) {
-    try {
-      _apCurrentAudio.pause();
-      if (_apCurrentAudio._apUrl) URL.revokeObjectURL(_apCurrentAudio._apUrl);
-    } catch(e){}
-    _apCurrentAudio = null;
-    _apPlayingKey = null;
-  }
-  const pe = document.getElementById('apProgress');
-  if (pe) pe.textContent = '';
-}
-
-/* ── Event hooks ───────────────────────────────────────────── */
-window.addEventListener('click', (e) => {
-  if (e.target && e.target.id === 'audioPanel') closeAudioPanel();
-});
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') {
-    const p = document.getElementById('audioPanel');
-    if (p && p.classList.contains('open')) closeAudioPanel();
-  }
-});
-
-// Expose to window for inline onclick handlers
-window.openAudioPanel          = openAudioPanel;
-window.closeAudioPanel         = closeAudioPanel;
-window._apSetProvider          = _apSetProvider;
-window._apOnGoogleKey          = _apOnGoogleKey;
-window._apOnElKey              = _apOnElKey;
-window._apOnElModel            = _apOnElModel;
-window._apSaveCloudSettings    = _apSaveCloudSettings;
-window._apLoadCloudSettings    = _apLoadCloudSettings;
-window._apSaveSettings         = _apSaveSettings;
-window._apGenerate             = _apGenerate;
-window._apGenerateAllRemaining = _apGenerateAllRemaining;
-window._apPlay                 = _apPlay;
-window._apDownload             = _apDownload;
-window._apDeleteTrack          = _apDeleteTrack;
-window._apDownloadZip          = _apDownloadZip;
-window._apConcatAll            = _apConcatAll;
-
-</script>
-<button id="bmFloatBtn" type="button" title="Toggle bookmark">🔖</button>
-<div id="toastContainer"></div>
-<div id="printBook"></div>
-
-
-<!-- Print & Publish panel -->
-<div id="podPanel" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);align-items:center;justify-content:center">
-  <div style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:540px;width:92%;max-height:88vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:28px 28px 24px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
-      <div style="font-family:var(--sans);font-size:16px;font-weight:600;color:var(--text)">📦 Print &amp; Publish</div>
-      <button onclick="closePOD()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint);padding:2px 6px;border-radius:4px" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--hint)'">×</button>
-    </div>
-    <div style="background:var(--bg);border-radius:9px;padding:14px 16px;margin-bottom:20px">
-      <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:10px">Interior spec check</div>
-      <div id="podChecklist" style="display:flex;flex-direction:column;gap:6px;font-family:var(--sans);font-size:12px"></div>
-    </div>
-    <button onclick="exportPDF();closePOD();" style="width:100%;padding:10px;border-radius:8px;border:none;background:var(--accent-ui);color:#fff;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer;margin-bottom:20px">⬇ Download Print-Ready PDF</button>
-    <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:10px">Upload to a provider</div>
-    <div style="display:flex;flex-direction:column;gap:10px" id="podProviders"></div>
-    <div style="margin-top:18px;padding:12px 14px;background:#fef9f0;border:.5px solid #f0d080;border-radius:8px;font-family:var(--sans);font-size:11.5px;color:#92400e;line-height:1.6">
-      <strong>Cover needed?</strong> Every provider requires a cover PDF. <a href="https://www.canva.com/create/book-covers/" target="_blank" style="color:#c9956a">Canva's free book cover maker</a> is the easiest starting point. KDP's free Cover Creator is at kdp.amazon.com.
-    </div>
-
-    <!-- Lulu jobs list -->
-    <div id="podJobsList" style="display:none;margin-top:18px">
-      <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:8px">Recent Lulu orders</div>
-      <div id="podJobsItems" style="display:flex;flex-direction:column;gap:6px"></div>
-    </div>
-  </div>
-</div>
-
-<!-- Audio / Audiobook export panel -->
-<div id="audioPanel" aria-hidden="true" role="dialog" aria-labelledby="apTitle">
-  <div class="ap-box">
-    <div class="ap-hd">
-      <h3 id="apTitle">🎙 Audio Export</h3>
-      <button class="ap-close" onclick="closeAudioPanel()" aria-label="Close">×</button>
-    </div>
-
-    <label>Provider</label>
-    <div class="ap-prov">
-      <button type="button" id="apProvGoogle"      onclick="_apSetProvider('google')">Google TTS</button>
-      <button type="button" id="apProvElevenlabs"  onclick="_apSetProvider('elevenlabs')">ElevenLabs</button>
-    </div>
-    <div id="apSyncHint" style="font-size:10.5px;color:var(--hint);margin:6px 0 2px">Settings (incl. API keys) sync to your Folio account when signed in.</div>
-
-    <div class="ap-row">
-      <div>
-        <label>Voice</label>
-        <select id="apVoice" onchange="_apSaveSettings()"></select>
-      </div>
-      <div>
-        <label>Speed</label>
-        <select id="apSpeed" onchange="_apSaveSettings()">
-          <option value="0.85">0.85×</option>
-          <option value="0.9">0.9×</option>
-          <option value="0.95">0.95×</option>
-          <option value="1.0" selected>1.0×</option>
-          <option value="1.05">1.05×</option>
-          <option value="1.1">1.1×</option>
-          <option value="1.2">1.2×</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="ap-key-row" id="apGoogleRow">
-      <label>Google Cloud TTS API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span></label>
-      <input type="password" id="apGoogleKey" placeholder="AIza…" oninput="_apOnGoogleKey()" autocomplete="off">
-      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Create a restricted key for <em>Cloud Text-to-Speech API</em> only in the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--accent-ui)">Google Cloud Console</a>. Keys are kept in your browser and sent per-request to the Folio TTS worker — never stored server-side.</div>
-    </div>
-    <div class="ap-key-row" id="apElRow">
-      <label>ElevenLabs API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span></label>
-      <input type="password" id="apElKey" placeholder="sk-…" oninput="_apOnElKey()" autocomplete="off">
-      <label style="margin-top:10px">Model</label>
-      <select id="apElModel" onchange="_apOnElModel()">
-        <option value="eleven_multilingual_v2">Multilingual v2 — highest quality (free tier ✓)</option>
-        <option value="eleven_turbo_v2_5">Turbo v2.5 — fast &amp; low-latency (free tier ✓)</option>
-        <option value="eleven_flash_v2_5">Flash v2.5 — cheapest / fastest (free tier ✓)</option>
-        <option value="eleven_monolingual_v1">Monolingual v1 — legacy (paid tier only)</option>
-      </select>
-      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Get your key at <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" style="color:var(--accent-ui)">elevenlabs.io</a>. It is sent per-request to the Folio TTS worker and never stored on the server.</div>
-    </div>
-
-    <div class="ap-tracks" id="apTracks">
-      <div class="ap-empty">Loading tracks…</div>
-    </div>
-
-    <div id="apEstimate" style="font-size:11.5px;color:var(--text);margin-top:10px;padding:8px 10px;background:var(--bg);border-radius:7px;line-height:1.5"></div>
-
-    <div class="ap-progress" id="apProgress"></div>
-
-    <div class="ap-footer">
-      <button type="button" class="ap-btn primary" id="apGenAll" onclick="_apGenerateAllRemaining()">▶▶ Generate All Remaining</button>
-      <button type="button" class="ap-btn"        id="apZipAll" onclick="_apDownloadZip()">↓ Download All as ZIP</button>
-    </div>
-    <div class="ap-concat">
-      <button type="button" class="ap-btn" id="apConcat" onclick="_apConcatAll()">🎧 Export Audiobook (MP3 with chapters)</button>
-    </div>
-  </div>
-</div>
-
-<!-- Custom context menu -->
-<div id="ctxMenu"><button class="ctx-item" id="ctxBold"    onclick="_ctxWrap('**')"><span>𝐁</span> Bold   <span class="ctx-kbd">Ctrl+B</span></button><button class="ctx-item" id="ctxItalic"  onclick="_ctxWrap('*')"><span>𝐼</span> Italic <span class="ctx-kbd">Ctrl+I</span></button><div class="ctx-sep"></div><button class="ctx-item" id="ctxScene"   onclick="_ctxScene()"><span>✦</span> Scene break</button><button class="ctx-item" id="ctxFind"    onclick="_ctxFind()"><span>⌕</span> Find selection <span class="ctx-kbd">Ctrl+F</span></button><div class="ctx-sep"></div><button class="ctx-item" id="ctxCopy"    onclick="_ctxCopy()"><span>⎘</span> Copy  <span class="ctx-kbd">Ctrl+C</span></button><button class="ctx-item" id="ctxCut"     onclick="_ctxCut()"><span>✂</span> Cut   <span class="ctx-kbd">Ctrl+X</span></button><div class="ctx-sep"></div><button class="ctx-item has-sub" id="ctxDingbat" onmouseenter="_ctxDingbatOpen(this)" onclick="_ctxDingbatOpen(this)">✦ Insert dingbat</button></div>
-<div id="ctxDingbatSub"><span class="sub-label">Ornaments</span><div class="dingbat-grid" id="ctxDingbatGrid"></div><div style="height:.5px;background:var(--border);margin:6px 0"></div><span class="sub-label">Scene break</span><div class="dingbat-grid"><button class="db-btn" onclick="_ctxInsertDingbat('__SCENE_BREAK__')" title="Scene break">— ✦ —</button></div></div>
-
-<!-- Lulu order modal -->
-<div id="luluModal">
-  <div class="lm-box">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <div style="font-family:var(--sans);font-size:15px;font-weight:600;color:var(--text)">🟠 Order via Lulu</div>
-      <button onclick="closeLuluModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint)" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--hint)'">×</button>
-    </div>
-
-    <!-- Paper & Quantity -->
-    <div class="lm-row">
-      <div>
-        <label>Paper</label>
-        <select id="lmPaper">
-          <option value="white">White 60lb (standard)</option>
-          <option value="cream">Cream 60lb</option>
-        </select>
-      </div>
-      <div>
-        <label>Copies</label>
-        <input id="lmQty" type="number" min="1" max="50" value="1">
-      </div>
-    </div>
-
-    <!-- Shipping address -->
-    <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--hint);margin:16px 0 6px">Shipping address</div>
-    <label>Full name</label>
-    <input id="lmName" placeholder="Jane Siler">
-    <label>Street address</label>
-    <input id="lmStreet" placeholder="12 Bridge Street">
-    <div class="lm-row">
-      <div><label>City</label><input id="lmCity" placeholder="Mullingar"></div>
-      <div><label>Postcode</label><input id="lmPost" placeholder="N91 XY12"></div>
-    </div>
-    <div class="lm-row">
-      <div>
-        <label>Country</label>
-        <select id="lmCountry" onchange="_lmBuildCoverLinks()">
-          <optgroup label="Common">
-            <option value="IE">Ireland</option>
-            <option value="GB">United Kingdom</option>
-            <option value="US">United States</option>
-            <option value="CA">Canada</option>
-            <option value="AU">Australia</option>
-          </optgroup>
-          <optgroup label="Europe">
-            <option value="DE">Germany</option>
-            <option value="FR">France</option>
-            <option value="NL">Netherlands</option>
-            <option value="ES">Spain</option>
-            <option value="IT">Italy</option>
-            <option value="BE">Belgium</option>
-            <option value="SE">Sweden</option>
-            <option value="NO">Norway</option>
-            <option value="DK">Denmark</option>
-            <option value="FI">Finland</option>
-            <option value="PT">Portugal</option>
-            <option value="AT">Austria</option>
-            <option value="CH">Switzerland</option>
-            <option value="PL">Poland</option>
-          </optgroup>
-          <optgroup label="Americas">
-            <option value="MX">Mexico</option>
-            <option value="BR">Brazil</option>
-            <option value="AR">Argentina</option>
-          </optgroup>
-          <optgroup label="Asia / Pacific">
-            <option value="JP">Japan</option>
-            <option value="KR">South Korea</option>
-            <option value="SG">Singapore</option>
-            <option value="IN">India</option>
-            <option value="NZ">New Zealand</option>
-          </optgroup>
-          <optgroup label="Middle East / Africa">
-            <option value="AE">United Arab Emirates</option>
-            <option value="ZA">South Africa</option>
-          </optgroup>
-        </select>
-      </div>
-      <div><label>Phone (optional)</label><input id="lmPhone" placeholder="+353 ..."></div>
-    </div>
-
-    <!-- Cost estimate -->
-    <button onclick="_lmGetCost()" style="margin-top:14px;padding:7px 16px;border-radius:7px;border:.5px solid var(--border-mid);background:var(--bg);font-family:var(--sans);font-size:12.5px;cursor:pointer;color:var(--text)">Get price estimate</button>
-    <div class="lm-cost" id="lmCost"></div>
-
-    <!-- Cover helper -->
-    <div style="margin-top:14px;border:.5px solid var(--border-mid);border-radius:9px;overflow:hidden">
-      <div style="padding:10px 14px;background:#fef9f0;border-bottom:.5px solid #f0d080;display:flex;align-items:center;justify-content:space-between;gap:8px">
-        <div style="font-family:var(--sans);font-size:12px;color:#92400e;line-height:1.5;flex:1">
-          <strong>Cover required</strong> — every provider needs a print-ready cover PDF.
-          Spine: <strong id="lmSpineDisplay">—</strong>.
-        </div>
-        <button onclick="_lmCopySpecs()" title="Copy cover dimensions to clipboard"
-          style="background:#f26522;border:none;color:#fff;font-family:var(--sans);font-size:11px;padding:4px 10px;border-radius:5px;cursor:pointer;white-space:nowrap;flex-shrink:0"
-          >⎘ Copy specs</button>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:0" id="lmCoverLinks"></div>
-    </div>
-
-    <button class="lm-submit" id="lmSubmitBtn" onclick="_lmConfirmSubmit()">Submit print order</button>
-    <div class="lm-status" id="lmStatus"></div>
-  </div>
-</div>
-</body>
-</html>
+  // COMM: encoding + lang(3) + short desc + 
