@@ -1526,7 +1526,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-20-reader-chapnav  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-20-reader-chapnav2  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -7719,20 +7719,39 @@ function _rdResumeProgress() {
 
 function _rdJumpToChapter(chid) {
   if (!chid) return;
-  // Use Folio's own scroller — it walks offsetTop within #previewArea, which
-  // scrollIntoView() mis-handles for the nested scroll container we use in
-  // reader mode. This is the same path the in-book TOC rows already use.
-  if (typeof scrollToChapter === 'function') {
-    scrollToChapter(chid);
+  const bp = document.getElementById('bookPreview');
+  const scroller = document.getElementById('previewArea');
+  if (!bp || !scroller) return;
+
+  // Target the chapter's FIRST paragraph directly. data-chid is stamped on
+  // every paragraph of every chapter and is unambiguous — unlike the page-
+  // wrapper id="chap-<id>", which is also set on the TOC's own page and can
+  // collide visually when offsetTop math lands near TOC rows.
+  const firstPara =
+    bp.querySelector('.preview-editable[data-chid="' + chid + '"][data-paraidx="0"]') ||
+    bp.querySelector('.preview-editable[data-chid="' + chid + '"]');
+
+  if (!firstPara) {
+    // Preview may still be rendering — retry briefly.
+    setTimeout(() => _rdJumpToChapter(chid), 150);
     return;
   }
-  // Fallback (should never hit in practice):
-  const bp = document.getElementById('bookPreview');
-  if (!bp) return;
-  const target = bp.querySelector('[id="chap-' + chid + '"]') ||
-                 bp.querySelector('[data-chapid="' + chid + '"]') ||
-                 bp.querySelector('[data-chid="' + chid + '"]');
-  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // Prefer the containing page wrapper so we land at the page top, not mid-
+  // chapter. Fall back to the paragraph itself.
+  const pageWrap = firstPara.closest('[data-chapid]') || firstPara;
+
+  // Walk offsetTop up to the scroller (same pattern as scrollToChapter).
+  let top = 0, node = pageWrap;
+  while (node && node !== scroller) {
+    top += node.offsetTop;
+    node = node.offsetParent;
+  }
+
+  // Reader-bar is 46px fixed at top when _readerMode is active. Subtract a bit
+  // extra so the chapter title isn't flush against the bar.
+  const headerClearance = (typeof _readerMode !== 'undefined' && _readerMode) ? 56 : 20;
+  scroller.scrollTo({ top: Math.max(0, top - headerClearance), behavior: 'smooth' });
 }
 
 function _rdToggleTypo() {
