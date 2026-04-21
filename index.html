@@ -1676,7 +1676,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-20-paywall-gate  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-20-paywall-gate-fix1  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -7437,11 +7437,7 @@ function _rlUrl(folioId) {
 }
 
 function _rlSetMode(mode) {
-  if (mode === 'paid') {
-    if (typeof toastInfo === 'function')
-      toastInfo('Paid releases arrive in Phase 4 (Gumroad integration).', { icon:'💳', duration: 3200 });
-    return;
-  }
+  if (mode !== 'free' && mode !== 'paid' && mode !== 'private') mode = 'free';
   _rlMode = mode;
   const f = document.getElementById('rlModeFree');
   const p = document.getElementById('rlModePaid');
@@ -7449,11 +7445,16 @@ function _rlSetMode(mode) {
   if (f) f.classList.toggle('active', mode === 'free');
   if (p) p.classList.toggle('active', mode === 'paid');
   if (r) r.classList.toggle('active', mode === 'private');
+  const paidBox = document.getElementById('rlPaidFields');
+  if (paidBox) paidBox.style.display = (mode === 'paid') ? 'block' : 'none';
   const hint = document.getElementById('rlModeHint');
   if (hint) {
-    hint.textContent = (mode === 'free')
-      ? 'Anyone with the link can read. Good for public releases, newsletter giveaways, and posting on social.'
-      : 'Only people you share the exact link with can open the book. Use this for editors or beta readers.';
+    hint.textContent =
+      (mode === 'paid')
+        ? 'Readers land on a gate screen and buy on Gumroad to unlock. Paste your Gumroad product id below.'
+      : (mode === 'free')
+        ? 'Anyone with the link can read. Good for public releases, newsletter giveaways, and posting on social.'
+        : 'Only people you share the exact link with can open the book. Use this for editors or beta readers.';
   }
 }
 
@@ -7486,6 +7487,14 @@ function openReleaseModal() {
     if (authorField) authorField.value = _rlCurrent.author      || bookAuthor || '';
     if (descField)   descField.value   = _rlCurrent.description || '';
     _rlSetMode(_rlCurrent.priceMode || 'free');
+    const prodField1  = document.getElementById('rlProductId');
+    const priceField1 = document.getElementById('rlPrice');
+    const currField1  = document.getElementById('rlCurrency');
+    const audioChk1   = document.getElementById('rlAudioBundle');
+    if (prodField1)  prodField1.value  = _rlCurrent.product  || '';
+    if (priceField1) priceField1.value = (_rlCurrent.price != null ? String(_rlCurrent.price) : '');
+    if (currField1)  currField1.value  = _rlCurrent.currency || 'USD';
+    if (audioChk1)   audioChk1.checked = !!_rlCurrent.audioBundle;
     if (btn)   btn.textContent = '💾 Update release';
     if (unpub) unpub.style.display = '';
   } else {
@@ -7493,6 +7502,14 @@ function openReleaseModal() {
     if (authorField) authorField.value = bookAuthor || '';
     if (descField)   descField.value   = '';
     _rlSetMode('free');
+    const prodField2  = document.getElementById('rlProductId');
+    const priceField2 = document.getElementById('rlPrice');
+    const currField2  = document.getElementById('rlCurrency');
+    const audioChk2   = document.getElementById('rlAudioBundle');
+    if (prodField2)  prodField2.value  = '';
+    if (priceField2) priceField2.value = '';
+    if (currField2)  currField2.value  = 'USD';
+    if (audioChk2)   audioChk2.checked = false;
     if (btn)   btn.textContent = '🔖 Publish';
     if (unpub) unpub.style.display = 'none';
   }
@@ -7527,6 +7544,18 @@ async function _rlPublish() {
   const author = (document.getElementById('rlAuthorField') && document.getElementById('rlAuthorField').value || '').trim();
   const desc   = (document.getElementById('rlDescField')   && document.getElementById('rlDescField').value   || '').trim();
 
+  // Paid-mode fields
+  const productId  = (document.getElementById('rlProductId') && document.getElementById('rlProductId').value || '').trim();
+  const priceRaw   = (document.getElementById('rlPrice')     && document.getElementById('rlPrice').value     || '').trim();
+  const currency   = (document.getElementById('rlCurrency')  && document.getElementById('rlCurrency').value) || 'USD';
+  const audioBundle = !!(document.getElementById('rlAudioBundle') && document.getElementById('rlAudioBundle').checked);
+  const priceNum   = priceRaw === '' ? 0 : Number(priceRaw);
+
+  if (_rlMode === 'paid') {
+    if (!productId) { _rlSetStatus('Please enter the Gumroad product id.', '#c04040'); return; }
+    if (!isFinite(priceNum) || priceNum < 0) { _rlSetStatus('Please enter a valid price.', '#c04040'); return; }
+  }
+
   const release = {
     published:   true,
     publishedAt: _rlCurrent && _rlCurrent.publishedAt ? _rlCurrent.publishedAt : Date.now(),
@@ -7536,8 +7565,10 @@ async function _rlPublish() {
     author:      author || null,
     description: desc || null,
     priceMode:   _rlMode,
-    price:       0,
-    currency:    'USD',
+    product:     _rlMode === 'paid' ? productId : null,
+    price:       _rlMode === 'paid' ? priceNum  : 0,
+    currency:    currency,
+    audioBundle: _rlMode === 'paid' ? audioBundle : false,
   };
 
   try {
