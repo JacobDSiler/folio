@@ -524,6 +524,156 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
   color: #fff;
 }
 
+/* ══════ Paywall gate (Phase 4) ══════ */
+#pwGate {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 85;
+  background: linear-gradient(180deg, var(--bg) 0%, #ebe6dc 100%);
+  overflow-y: auto;
+  padding: 80px 20px 40px;
+}
+html[data-dark] #pwGate {
+  background: linear-gradient(180deg, var(--bg) 0%, #1a1814 100%);
+}
+#pwGate.open { display: block; }
+
+#pwGate .pw-card {
+  max-width: 460px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: .5px solid var(--border-mid);
+  border-radius: 14px;
+  padding: 26px 28px;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+  font-family: var(--sans);
+}
+#pwGate .pw-cover {
+  width: 180px;
+  aspect-ratio: 2/3;
+  margin: 0 auto 18px;
+  background: #d4cfc4 center / cover no-repeat;
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.22);
+}
+#pwGate .pw-title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.15;
+  text-align: center;
+  margin: 0 0 6px;
+  color: var(--text);
+}
+#pwGate .pw-by {
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--muted);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  margin-bottom: 18px;
+}
+#pwGate .pw-blurb {
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+  padding: 12px 2px 16px;
+  border-top: .5px solid var(--border);
+  border-bottom: .5px solid var(--border);
+  margin: 0 0 20px;
+  font-style: italic;
+}
+#pwGate .pw-price {
+  text-align: center;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--accent-ui);
+  margin-bottom: 14px;
+}
+#pwGate .pw-buy {
+  display: block;
+  width: 100%;
+  padding: 13px 18px;
+  background: var(--accent-ui);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  transition: opacity .15s;
+}
+#pwGate .pw-buy:hover { opacity: .9; }
+#pwGate .pw-have {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: .5px solid var(--border);
+}
+#pwGate .pw-have-label {
+  font-size: 11.5px;
+  color: var(--hint);
+  margin-bottom: 6px;
+}
+#pwGate .pw-key-row {
+  display: flex;
+  gap: 6px;
+}
+#pwGate input.pw-key {
+  flex: 1;
+  font-family: monospace;
+  font-size: 13px;
+  padding: 9px 11px;
+  border: .5px solid var(--border-mid);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+  letter-spacing: .02em;
+}
+#pwGate input.pw-key:focus {
+  border-color: var(--accent-ui);
+}
+#pwGate .pw-unlock {
+  padding: 9px 16px;
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  color: var(--text);
+  border-radius: 7px;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#pwGate .pw-unlock:hover { border-color: var(--accent-ui); background: var(--bg); }
+#pwGate .pw-unlock:disabled { opacity: .5; cursor: not-allowed; }
+#pwGate .pw-status {
+  margin-top: 10px;
+  font-size: 11.5px;
+  min-height: 14px;
+  color: var(--hint);
+}
+#pwGate .pw-status.ok    { color: #065f46; }
+#pwGate .pw-status.error { color: #c04040; }
+
+/* Unlocked banner inside reader bar */
+#pwUnlockedBadge {
+  display: none;
+  font-size: 10px;
+  padding: 2px 8px;
+  background: rgba(6,95,70,0.18);
+  color: #a7f3d0;
+  border-radius: 10px;
+  letter-spacing: .03em;
+  margin-left: 8px;
+}
+html[data-reader][data-paid-unlocked] #pwUnlockedBadge { display: inline-block; }
+
+/* ══════ Reader mode (Phase 1: ?read=<folioId>) ══════ */
 /* ══════ Reader mode (Phase 1: ?read=<folioId>) ══════ */
 html[data-reader] .sidebar { display: none !important; }
 html[data-reader] .app { grid-template-columns: 1fr !important; }
@@ -1526,7 +1676,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-20-reader-drawer-lists  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-20-paywall-gate  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -7536,6 +7686,218 @@ window._rlCopyUrl        = _rlCopyUrl;
 window._rlOpenPreview    = _rlOpenPreview;
 
 /* ═══════════════════════════════════════════════════════════════════
+   PAYWALL — Phase 4 (Gumroad-backed)
+   - Worker: folio-paywall.jacobdsiler.workers.dev
+   - Tokens cached in localStorage under folio_paywall_<releaseId>
+   - Client does NOT verify HMAC (that needs the server secret). We
+     decode the payload and check exp locally for instant unlock;
+     revocation still works because refunds invalidate the Gumroad
+     license, and expired tokens force re-verification.
+   ═══════════════════════════════════════════════════════════════════ */
+
+const PAYWALL_WORKER_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
+
+function _pwTokenKey(releaseId) {
+  return 'folio_paywall_' + (releaseId || 'unknown');
+}
+
+function _pwGetToken(releaseId) {
+  try {
+    const raw = localStorage.getItem(_pwTokenKey(releaseId));
+    if (!raw) return null;
+    const t = JSON.parse(raw);
+    return t && t.token ? t : null;
+  } catch (e) { return null; }
+}
+
+function _pwStoreToken(releaseId, token, expiresAt, email) {
+  try {
+    localStorage.setItem(_pwTokenKey(releaseId), JSON.stringify({
+      token, expiresAt, email: email || null, savedAt: Date.now(),
+    }));
+  } catch (e) {}
+}
+
+function _pwClearToken(releaseId) {
+  try { localStorage.removeItem(_pwTokenKey(releaseId)); } catch(e){}
+}
+
+function _pwDecode(token) {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    let p = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (p.length % 4) p += '=';
+    return JSON.parse(atob(p));
+  } catch (e) { return null; }
+}
+
+function _pwIsValid(tokenObj) {
+  if (!tokenObj || !tokenObj.token) return false;
+  const payload = _pwDecode(tokenObj.token);
+  if (!payload) return false;
+  const now = Math.floor(Date.now() / 1000);
+  if (payload.exp && payload.exp < now) return false;
+  return true;
+}
+
+async function _pwFetchRelease(folioId) {
+  if (!folioId || !window._fb || !window._db) return null;
+  try {
+    const ref = window._fb.doc(window._db, 'folio_projects', folioId);
+    const snap = await window._fb.getDoc(ref);
+    if (!snap.exists()) return null;
+    const d = snap.data() || {};
+    if (!d.release || !d.release.published) return null;
+    return d.release;
+  } catch (e) {
+    console.warn('[pw] fetch release:', e);
+    return null;
+  }
+}
+
+async function _pwVerifyKey(releaseId, product, licenseKey) {
+  const resp = await fetch(PAYWALL_WORKER_URL + '/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ releaseId, product, licenseKey }),
+  });
+  let data = {};
+  try { data = await resp.json(); } catch (e) {}
+  if (!resp.ok || !data.ok) {
+    throw new Error((data && data.error) || 'Verification failed (' + resp.status + ')');
+  }
+  return data;
+}
+
+function _pwGumroadURL(product) {
+  if (!product) return 'https://gumroad.com/';
+  // Accept either raw short id or a full gumroad URL. If it looks like a URL, pass through.
+  if (/^https?:\/\//.test(product)) return product;
+  return 'https://gumroad.com/l/' + encodeURIComponent(product);
+}
+
+function _pwShowGate(releaseId, release) {
+  const gate = document.getElementById('pwGate');
+  if (!gate) return;
+
+  const title = (release && release.title) ||
+                (document.getElementById('bookTitle') && document.getElementById('bookTitle').value) ||
+                'Untitled';
+  const author = (release && release.author) ||
+                 (document.getElementById('bookAuthor') && document.getElementById('bookAuthor').value) ||
+                 '';
+  const blurb  = (release && release.description) || '';
+  const price  = release && release.price;
+  const curr   = release && release.currency || 'USD';
+  const cover  = (typeof S !== 'undefined' && S && S.coverImg) || '';
+
+  document.getElementById('pwTitle').textContent = title;
+  document.getElementById('pwBy').textContent    = author ? 'by ' + author : '';
+  const blurbEl = document.getElementById('pwBlurb');
+  if (blurb) { blurbEl.textContent = blurb; blurbEl.style.display = ''; }
+  else       { blurbEl.textContent = '';    blurbEl.style.display = 'none'; }
+
+  const symbols = { USD:'$', EUR:'€', GBP:'£', CAD:'$', AUD:'$' };
+  const priceEl = document.getElementById('pwPrice');
+  if (price != null && isFinite(price) && price > 0) {
+    priceEl.textContent = (symbols[curr] || '') + Number(price).toFixed(2);
+  } else {
+    priceEl.textContent = '';
+  }
+
+  const coverEl = document.getElementById('pwCover');
+  if (cover) coverEl.style.backgroundImage = 'url("' + cover + '")';
+  else       coverEl.style.backgroundImage = '';
+
+  const buy = document.getElementById('pwBuy');
+  buy.href = _pwGumroadURL(release && release.product);
+
+  // Stash releaseId + product on the form for _pwSubmitKey to read
+  gate.dataset.releaseId = releaseId;
+  gate.dataset.product   = (release && release.product) || '';
+
+  document.getElementById('pwStatus').textContent = '';
+  document.getElementById('pwKey').value = '';
+  gate.classList.add('open');
+  gate.setAttribute('aria-hidden', 'false');
+}
+
+function _pwHideGate() {
+  const gate = document.getElementById('pwGate');
+  if (!gate) return;
+  gate.classList.remove('open');
+  gate.setAttribute('aria-hidden', 'true');
+  document.documentElement.setAttribute('data-paid-unlocked', '1');
+}
+
+async function _pwSubmitKey() {
+  const gate   = document.getElementById('pwGate');
+  const input  = document.getElementById('pwKey');
+  const btn    = document.getElementById('pwUnlockBtn');
+  const status = document.getElementById('pwStatus');
+  if (!gate || !input || !status) return;
+
+  const releaseId = gate.dataset.releaseId || _readerFolioId || _projId;
+  const product   = gate.dataset.product;
+  const key       = (input.value || '').trim();
+
+  status.className = 'pw-status';
+  if (!key) {
+    status.textContent = 'Paste your Gumroad license key.';
+    status.classList.add('error');
+    return;
+  }
+  if (!product) {
+    status.textContent = 'Release is missing its Gumroad product id (author misconfig).';
+    status.classList.add('error');
+    return;
+  }
+
+  btn.disabled = true;
+  status.textContent = 'Verifying with Gumroad...';
+
+  try {
+    const result = await _pwVerifyKey(releaseId, product, key);
+    _pwStoreToken(releaseId, result.token, result.expiresAt, result.email);
+    status.classList.add('ok');
+    status.textContent = 'Unlocked! ' + (result.email ? '(' + result.email + ')' : '');
+    setTimeout(_pwHideGate, 600);
+  } catch (e) {
+    status.classList.add('error');
+    status.textContent = e.message || 'Unlock failed.';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// Check gating on reader-mode boot. Returns true when access is granted.
+async function _pwCheckAccess(folioId) {
+  const release = await _pwFetchRelease(folioId);
+  if (!release || release.priceMode !== 'paid') {
+    // Free or private — no gate. Ensure any stale unlocked flag is cleared.
+    document.documentElement.removeAttribute('data-paid-unlocked');
+    return true;
+  }
+
+  // Paid release. Check for a valid cached token.
+  const cached = _pwGetToken(folioId);
+  if (_pwIsValid(cached)) {
+    document.documentElement.setAttribute('data-paid-unlocked', '1');
+    return true;
+  }
+
+  // Expired or absent — gate up.
+  _pwShowGate(folioId, release);
+  return false;
+}
+
+// Expose for inline handlers
+window._pwSubmitKey = _pwSubmitKey;
+window._pwCheckAccess = _pwCheckAccess;
+window._pwClearToken  = _pwClearToken;
+
+/* ═══════════════════════════════════════════════════════════════════
    READER MODE — Phase 1 (?read=<folioId> URL param)
    - Full-width read-only view of an existing folio
    - Isolated bookmark/annotation namespace (folio_reader_*)
@@ -7575,7 +7937,12 @@ function _rdMaybeActivate() {
   // auth/network dance; we just need to call it after fb-ready.
   const startLoad = () => {
     if (typeof loadFolio === 'function') {
-      loadFolio(id).catch(err => {
+      loadFolio(id).then(() => {
+        // After the folio loads, check paywall gating.
+        if (typeof _pwCheckAccess === 'function') {
+          setTimeout(() => _pwCheckAccess(id), 150);
+        }
+      }).catch(err => {
         if (typeof toastWarning === 'function')
           toastWarning('Could not open this book: ' + (err.message || err), { duration: 5000 });
       });
@@ -10096,7 +10463,7 @@ window._apConcatAll            = _apConcatAll;
   <button id="rdBack" title="Back to editor" onclick="_rdExit()">← Editor</button>
   <div class="rd-titleWrap">
     <span class="rd-title" id="rdTitle">Loading…</span>
-    <span class="rd-sub" id="rdSub"></span>
+    <span class="rd-sub" id="rdSub"></span><span id="pwUnlockedBadge" title="License key accepted — book unlocked">✓ Unlocked</span>
   </div>
   <select id="rdChapSel" onchange="_rdJumpToChapter(this.value)" title="Jump to chapter"></select>
   <button id="rdTypoBtn" onclick="_rdToggleTypo()" title="Typography">Aa</button>
@@ -10113,6 +10480,25 @@ window._apConcatAll            = _apConcatAll;
 </div>
 
 <button id="readerContinue" onclick="_rdResumeProgress()" title="Jump to where you left off">▶ Continue reading</button>
+<div id="pwGate" aria-hidden="true" role="dialog" aria-label="Purchase required to read">
+  <div class="pw-card">
+    <div class="pw-cover" id="pwCover"></div>
+    <h2 class="pw-title" id="pwTitle">Loading&hellip;</h2>
+    <div class="pw-by" id="pwBy"></div>
+    <div class="pw-blurb" id="pwBlurb" style="display:none"></div>
+    <div class="pw-price" id="pwPrice"></div>
+    <a class="pw-buy" id="pwBuy" target="_blank" rel="noopener">Buy on Gumroad</a>
+    <div class="pw-have">
+      <div class="pw-have-label">Already bought it? Paste your license key:</div>
+      <div class="pw-key-row">
+        <input type="text" class="pw-key" id="pwKey" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false">
+        <button type="button" class="pw-unlock" id="pwUnlockBtn" onclick="_pwSubmitKey()">Unlock</button>
+      </div>
+      <div class="pw-status" id="pwStatus"></div>
+    </div>
+  </div>
+</div>
+
 <div id="collabBanner" role="status" aria-live="polite"
   style="display:none;position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:90;background:var(--surface);border:.5px solid var(--border-mid);border-radius:999px;padding:6px 14px;font-family:var(--sans);font-size:11.5px;color:var(--text);box-shadow:0 2px 10px rgba(0,0,0,0.12);align-items:center;gap:8px">
   <span id="collabBannerText">🛠 Opened as Collaborator</span>
@@ -10257,6 +10643,42 @@ window._apConcatAll            = _apConcatAll;
       Anyone with the link can read. No account required beyond Folio's auto sign-in.
     </p>
 
+    <!-- Paid-mode fields, shown only when priceMode === 'paid' -->
+    <div id="rlPaidFields" style="display:none;padding:12px;background:var(--bg);border-radius:8px;border:.5px solid var(--border-mid);margin-bottom:10px">
+      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Gumroad product id</label>
+      <input type="text" id="rlProductId" placeholder="short-product-id or permalink (e.g. embers-of-elekra)"
+        style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+      <div style="font-size:10.5px;color:var(--hint);margin-top:3px;line-height:1.4">Find it in Gumroad &rarr; Products &rarr; Edit. Either the short id (preferred) or the URL permalink works.</div>
+
+      <div style="display:grid;grid-template-columns:1fr 90px;gap:8px;margin-top:10px">
+        <div>
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Display price <span style="opacity:.6;font-weight:400">(UI only &mdash; actual price lives on Gumroad)</span></label>
+          <input type="text" id="rlPrice" placeholder="5"
+            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+        </div>
+        <div>
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Currency</label>
+          <select id="rlCurrency" style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+            <option value="USD">USD</option>
+            <option value="EUR">EUR</option>
+            <option value="GBP">GBP</option>
+            <option value="CAD">CAD</option>
+            <option value="AUD">AUD</option>
+          </select>
+        </div>
+      </div>
+
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin-top:12px;cursor:pointer">
+        <input type="checkbox" id="rlAudioBundle" style="margin:0;cursor:pointer">
+        <span>Include audiobook with purchase <span style="opacity:.6;font-size:11px">(buyers can play/download if audio is generated)</span></span>
+      </label>
+
+      <div style="font-size:10.5px;color:var(--hint);margin-top:10px;line-height:1.45">
+        Reader will see a gate screen with cover, blurb, price and a <strong>Buy on Gumroad</strong> button.
+        Gumroad&#39;s license key unlocks the book for 30 days per entry.
+      </div>
+    </div>
+
     <!-- URL preview -->
     <div id="rlUrlBox" style="background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;padding:10px 12px;margin:10px 0 6px;display:none">
       <div style="font-size:9.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Reader link</div>
@@ -10316,73 +10738,4 @@ window._apConcatAll            = _apConcatAll;
     </div>
     <div class="lm-row">
       <div>
-        <label>Country</label>
-        <select id="lmCountry" onchange="_lmBuildCoverLinks()">
-          <optgroup label="Common">
-            <option value="IE">Ireland</option>
-            <option value="GB">United Kingdom</option>
-            <option value="US">United States</option>
-            <option value="CA">Canada</option>
-            <option value="AU">Australia</option>
-          </optgroup>
-          <optgroup label="Europe">
-            <option value="DE">Germany</option>
-            <option value="FR">France</option>
-            <option value="NL">Netherlands</option>
-            <option value="ES">Spain</option>
-            <option value="IT">Italy</option>
-            <option value="BE">Belgium</option>
-            <option value="SE">Sweden</option>
-            <option value="NO">Norway</option>
-            <option value="DK">Denmark</option>
-            <option value="FI">Finland</option>
-            <option value="PT">Portugal</option>
-            <option value="AT">Austria</option>
-            <option value="CH">Switzerland</option>
-            <option value="PL">Poland</option>
-          </optgroup>
-          <optgroup label="Americas">
-            <option value="MX">Mexico</option>
-            <option value="BR">Brazil</option>
-            <option value="AR">Argentina</option>
-          </optgroup>
-          <optgroup label="Asia / Pacific">
-            <option value="JP">Japan</option>
-            <option value="KR">South Korea</option>
-            <option value="SG">Singapore</option>
-            <option value="IN">India</option>
-            <option value="NZ">New Zealand</option>
-          </optgroup>
-          <optgroup label="Middle East / Africa">
-            <option value="AE">United Arab Emirates</option>
-            <option value="ZA">South Africa</option>
-          </optgroup>
-        </select>
-      </div>
-      <div><label>Phone (optional)</label><input id="lmPhone" placeholder="+353 ..."></div>
-    </div>
-
-    <!-- Cost estimate -->
-    <button onclick="_lmGetCost()" style="margin-top:14px;padding:7px 16px;border-radius:7px;border:.5px solid var(--border-mid);background:var(--bg);font-family:var(--sans);font-size:12.5px;cursor:pointer;color:var(--text)">Get price estimate</button>
-    <div class="lm-cost" id="lmCost"></div>
-
-    <!-- Cover helper -->
-    <div style="margin-top:14px;border:.5px solid var(--border-mid);border-radius:9px;overflow:hidden">
-      <div style="padding:10px 14px;background:#fef9f0;border-bottom:.5px solid #f0d080;display:flex;align-items:center;justify-content:space-between;gap:8px">
-        <div style="font-family:var(--sans);font-size:12px;color:#92400e;line-height:1.5;flex:1">
-          <strong>Cover required</strong> — every provider needs a print-ready cover PDF.
-          Spine: <strong id="lmSpineDisplay">—</strong>.
-        </div>
-        <button onclick="_lmCopySpecs()" title="Copy cover dimensions to clipboard"
-          style="background:#f26522;border:none;color:#fff;font-family:var(--sans);font-size:11px;padding:4px 10px;border-radius:5px;cursor:pointer;white-space:nowrap;flex-shrink:0"
-          >⎘ Copy specs</button>
-      </div>
-      <div style="display:flex;flex-direction:column;gap:0" id="lmCoverLinks"></div>
-    </div>
-
-    <button class="lm-submit" id="lmSubmitBtn" onclick="_lmConfirmSubmit()">Submit print order</button>
-    <div class="lm-status" id="lmStatus"></div>
-  </div>
-</div>
-</body>
-</html>
+        <label>
