@@ -1676,7 +1676,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-20-paywall-gate-fix1  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-20-gumroad-links  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -10667,7 +10667,7 @@ window._apConcatAll            = _apConcatAll;
     <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:14px 0 6px">Access</label>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
       <button type="button" id="rlModeFree" onclick="_rlSetMode('free')" class="rl-mode" style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Public &amp; free</button>
-      <button type="button" id="rlModePaid" onclick="_rlSetMode('paid')" class="rl-mode" style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer;opacity:.55">💳 Paid <span style="font-size:10px;opacity:.7">(Phase 4)</span></button>
+      <button type="button" id="rlModePaid" onclick="_rlSetMode('paid')" class="rl-mode" style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">💳 Paid</button>
       <button type="button" id="rlModePriv" onclick="_rlSetMode('private')" class="rl-mode" style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Private link</button>
     </div>
     <p id="rlModeHint" style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:4px 0 12px">
@@ -10680,6 +10680,23 @@ window._apConcatAll            = _apConcatAll;
       <input type="text" id="rlProductId" placeholder="short-product-id or permalink (e.g. embers-of-elekra)"
         style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
       <div style="font-size:10.5px;color:var(--hint);margin-top:3px;line-height:1.4">Find it in Gumroad &rarr; Products &rarr; Edit. Either the short id (preferred) or the URL permalink works.</div>
+      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
+        <a href="https://gumroad.com/products/new" target="_blank" rel="noopener"
+           style="font-size:11px;padding:4px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--accent-ui);text-decoration:none;font-family:var(--sans);display:inline-flex;align-items:center;gap:4px"
+           title="Opens Gumroad's new-product form in a new tab">
+          &plus; New product on Gumroad
+        </a>
+        <a href="https://gumroad.com/products" target="_blank" rel="noopener"
+           style="font-size:11px;padding:4px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);text-decoration:none;font-family:var(--sans);display:inline-flex;align-items:center;gap:4px"
+           title="Opens your Gumroad product list in a new tab">
+          &#x2197; My products
+        </a>
+        <a href="https://gumroad.com/dashboard" target="_blank" rel="noopener"
+           style="font-size:11px;padding:4px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);text-decoration:none;font-family:var(--sans);display:inline-flex;align-items:center;gap:4px"
+           title="Opens your Gumroad dashboard in a new tab">
+          &#x2197; Gumroad dashboard
+        </a>
+      </div>
 
       <div style="display:grid;grid-template-columns:1fr 90px;gap:8px;margin-top:10px">
         <div>
