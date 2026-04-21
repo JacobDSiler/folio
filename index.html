@@ -1526,7 +1526,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-20-reader-chapnav2  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-20-reader-drawer-lists  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -7780,11 +7780,14 @@ function _rdOpenDrawer(which) {
   if (!d || !body || !title) return;
   if (which === 'bookmarks') {
     title.textContent = '🔖 Bookmarks';
-    body.innerHTML = '<div id="bmList" class="bm-list"></div><div id="bmEmpty" style="font-size:11.5px;color:var(--hint);padding:.35rem 0">No bookmarks yet — hover a paragraph to add one.</div>';
+    // NOTE: rdBmList / rdBmEmpty are drawer-specific ids so they don't
+    // collide with the sidebar's #bmList / #bmEmpty (which is
+    // display:none in reader mode but still first in DOM order).
+    body.innerHTML = '<div id="rdBmList" class="bm-list"></div><div id="rdBmEmpty" style="font-size:11.5px;color:var(--hint);padding:.35rem 0">No bookmarks yet — hover a paragraph to add one.</div>';
     if (typeof _bmRenderList === 'function') _bmRenderList();
   } else if (which === 'annotations') {
     title.textContent = '✍ Annotations';
-    body.innerHTML = '<div id="annList" class="ann-list"></div><div id="annEmpty" style="font-size:11.5px;color:var(--hint);padding:.35rem 0">No highlights or notes yet — select text to add one.</div>';
+    body.innerHTML = '<div id="rdAnnList" class="ann-list"></div><div id="rdAnnEmpty" style="font-size:11.5px;color:var(--hint);padding:.35rem 0">No highlights or notes yet — select text to add one.</div>';
     if (typeof _annRenderSidebarList === 'function') _annRenderSidebarList();
   }
   d.classList.add('open');
@@ -8162,17 +8165,24 @@ function _annRender() {
 
 function _annRenderSidebarList() {
   const list = _annLoad();
-  const host = document.getElementById('annList');
-  const empty = document.getElementById('annEmpty');
-  const count = document.getElementById('annCount');
-  if (!host) return;
-  if (count) count.textContent = String(list.length);
+  const targets = [
+    { host: document.getElementById('annList'),   empty: document.getElementById('annEmpty'),   count: document.getElementById('annCount') },
+    { host: document.getElementById('rdAnnList'), empty: document.getElementById('rdAnnEmpty'), count: null },
+  ].filter(tgt => tgt.host);
+  if (!targets.length) return;
+  for (const tgt of targets) {
+    if (tgt.count) tgt.count.textContent = String(list.length);
+  }
   if (!list.length) {
-    host.innerHTML = '';
-    if (empty) empty.style.display = '';
+    for (const tgt of targets) {
+      tgt.host.innerHTML = '';
+      if (tgt.empty) tgt.empty.style.display = '';
+    }
     return;
   }
-  if (empty) empty.style.display = 'none';
+  for (const tgt of targets) {
+    if (tgt.empty) tgt.empty.style.display = 'none';
+  }
 
   // Group by chapter, ordered by book flow
   const byCh = {};
@@ -8206,7 +8216,8 @@ function _annRenderSidebarList() {
       );
     }
   }
-  host.innerHTML = chunks.join('');
+  const html = chunks.join('');
+  for (const tgt of targets) tgt.host.innerHTML = html;
 }
 
 function _annEditNote(id) {
@@ -8461,17 +8472,26 @@ function _bmApplyMarks() {
 
 function _bmRenderList() {
   const list = _bmLoad();
-  const host = document.getElementById('bmList');
-  const empty = document.getElementById('bmEmpty');
-  const count = document.getElementById('bmCount');
-  if (!host) return;
-  if (count) count.textContent = String(list.length);
+  // Collect every host pair that currently exists in the DOM so we
+  // update the sidebar AND the reader drawer whenever they are open.
+  const targets = [
+    { host: document.getElementById('bmList'),   empty: document.getElementById('bmEmpty'),   count: document.getElementById('bmCount') },
+    { host: document.getElementById('rdBmList'), empty: document.getElementById('rdBmEmpty'), count: null },
+  ].filter(tgt => tgt.host);
+  if (!targets.length) return;
+  for (const tgt of targets) {
+    if (tgt.count) tgt.count.textContent = String(list.length);
+  }
   if (!list.length) {
-    host.innerHTML = '';
-    if (empty) empty.style.display = '';
+    for (const tgt of targets) {
+      tgt.host.innerHTML = '';
+      if (tgt.empty) tgt.empty.style.display = '';
+    }
     return;
   }
-  if (empty) empty.style.display = 'none';
+  for (const tgt of targets) {
+    if (tgt.empty) tgt.empty.style.display = 'none';
+  }
 
   // Group by chapter for readability, chronological within chapter.
   const byCh = {};
@@ -8500,7 +8520,8 @@ function _bmRenderList() {
       );
     }
   }
-  host.innerHTML = chunks.join('');
+  const html = chunks.join('');
+  for (const tgt of targets) tgt.host.innerHTML = html;
 }
 
 function _esc(s) {
