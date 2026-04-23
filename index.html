@@ -524,6 +524,128 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
   color: #fff;
 }
 
+/* Inline "continue reading" CTA shown at end of free preview */
+.pw-preview-cta {
+  max-width: 540px;
+  margin: 30px auto 60px;
+  background: var(--surface);
+  border: .5px solid var(--border-mid);
+  border-radius: 14px;
+  padding: 24px 28px 22px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.12);
+  font-family: var(--sans);
+  color: var(--text);
+  position: relative;
+  overflow: hidden;
+}
+.pw-preview-cta::before {
+  content: "";
+  position: absolute;
+  top: -60px; left: 0; right: 0; height: 60px;
+  background: linear-gradient(180deg, transparent 0%, var(--bg) 100%);
+  pointer-events: none;
+}
+.pw-preview-cta .pwpc-row {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+.pw-preview-cta .pwpc-cover {
+  width: 96px;
+  aspect-ratio: 2/3;
+  flex-shrink: 0;
+  background: #d4cfc4 center / cover no-repeat;
+  border-radius: 4px;
+  box-shadow: 0 3px 12px rgba(0,0,0,0.18);
+}
+.pw-preview-cta .pwpc-text {
+  flex: 1;
+  min-width: 0;
+}
+.pw-preview-cta .pwpc-kicker {
+  font-size: 10.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.pw-preview-cta .pwpc-title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 0 0 6px;
+  color: var(--text);
+}
+.pw-preview-cta .pwpc-price {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent-ui);
+  margin: 6px 0 10px;
+}
+.pw-preview-cta .pwpc-buy {
+  display: inline-block;
+  padding: 10px 18px;
+  background: var(--accent-ui);
+  color: #fff;
+  border: none;
+  border-radius: 7px;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: opacity .15s;
+}
+.pw-preview-cta .pwpc-buy:hover { opacity: .9; }
+.pw-preview-cta .pwpc-have {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: .5px solid var(--border);
+}
+.pw-preview-cta .pwpc-have-lbl {
+  font-size: 11px;
+  color: var(--hint);
+  margin-bottom: 6px;
+}
+.pw-preview-cta .pwpc-row2 { display: flex; gap: 6px; }
+.pw-preview-cta input.pwpc-key {
+  flex: 1;
+  font-family: monospace;
+  font-size: 13px;
+  padding: 8px 11px;
+  border: .5px solid var(--border-mid);
+  border-radius: 7px;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+}
+.pw-preview-cta input.pwpc-key:focus { border-color: var(--accent-ui); }
+.pw-preview-cta .pwpc-unlock {
+  padding: 8px 15px;
+  background: transparent;
+  border: 1px solid var(--border-mid);
+  color: var(--text);
+  border-radius: 7px;
+  font-family: var(--sans);
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.pw-preview-cta .pwpc-unlock:hover { border-color: var(--accent-ui); background: var(--bg); }
+.pw-preview-cta .pwpc-unlock:disabled { opacity: .5; cursor: not-allowed; }
+.pw-preview-cta .pwpc-status {
+  margin-top: 10px;
+  font-size: 11.5px;
+  min-height: 14px;
+  color: var(--hint);
+}
+.pw-preview-cta .pwpc-status.ok    { color: #065f46; }
+.pw-preview-cta .pwpc-status.error { color: #c04040; }
+
+/* Hidden-pages marker (sets the bottom edge where content cuts off) */
+.pw-hidden-page { display: none !important; }
+
 /* ══════ Paywall gate (Phase 4) ══════ */
 #pwGate {
   display: none;
@@ -1676,7 +1798,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-20-gumroad-links  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-22-preview  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -7495,6 +7617,8 @@ function openReleaseModal() {
     if (priceField1) priceField1.value = (_rlCurrent.price != null ? String(_rlCurrent.price) : '');
     if (currField1)  currField1.value  = _rlCurrent.currency || 'USD';
     if (audioChk1)   audioChk1.checked = !!_rlCurrent.audioBundle;
+    const previewField1 = document.getElementById('rlPreviewN');
+    if (previewField1) previewField1.value = String(_rlCurrent.previewSections != null ? _rlCurrent.previewSections : 1);
     if (btn)   btn.textContent = '💾 Update release';
     if (unpub) unpub.style.display = '';
   } else {
@@ -7510,6 +7634,8 @@ function openReleaseModal() {
     if (priceField2) priceField2.value = '';
     if (currField2)  currField2.value  = 'USD';
     if (audioChk2)   audioChk2.checked = false;
+    const previewField2 = document.getElementById('rlPreviewN');
+    if (previewField2) previewField2.value = '1';
     if (btn)   btn.textContent = '🔖 Publish';
     if (unpub) unpub.style.display = 'none';
   }
@@ -7549,6 +7675,8 @@ async function _rlPublish() {
   const priceRaw   = (document.getElementById('rlPrice')     && document.getElementById('rlPrice').value     || '').trim();
   const currency   = (document.getElementById('rlCurrency')  && document.getElementById('rlCurrency').value) || 'USD';
   const audioBundle = !!(document.getElementById('rlAudioBundle') && document.getElementById('rlAudioBundle').checked);
+  const previewRaw = (document.getElementById('rlPreviewN') && document.getElementById('rlPreviewN').value || '1').trim();
+  const previewN   = Math.max(0, Math.min(99, parseInt(previewRaw, 10) || 0));
   const priceNum   = priceRaw === '' ? 0 : Number(priceRaw);
 
   if (_rlMode === 'paid') {
@@ -7569,6 +7697,7 @@ async function _rlPublish() {
     price:       _rlMode === 'paid' ? priceNum  : 0,
     currency:    currency,
     audioBundle: _rlMode === 'paid' ? audioBundle : false,
+    previewSections: _rlMode === 'paid' ? previewN : 0,
   };
 
   try {
@@ -7918,10 +8047,159 @@ async function _pwCheckAccess(folioId) {
     return true;
   }
 
-  // Expired or absent — gate up.
-  _pwShowGate(folioId, release);
+  // Expired or absent. Branch on whether the release offers a free preview.
+  const previewN = Number((release && release.previewSections) || 0) || 0;
+  if (previewN > 0) {
+    _pwShowPreview(folioId, release, previewN);
+  } else {
+    _pwShowGate(folioId, release);
+  }
   return false;
 }
+
+/* ── Free preview mode ─────────────────────────────────────────── */
+
+function _pwShowPreview(releaseId, release, numChapters) {
+  const bp = document.getElementById('bookPreview');
+  if (!bp) return;
+
+  // Clean up any previous preview state
+  _pwHidePreview();
+
+  // Trim: hide all pages from the (N+1)th chapter onward
+  // We count pages whose data-chapid matches a chapter-type section id.
+  const chapterIds = new Set(
+    (typeof getChapters === 'function' ? getChapters() : []).map(c => c.id)
+  );
+  const pages = Array.from(bp.children);
+  let seenChapters = 0;
+  let cutoff = -1;
+  for (let i = 0; i < pages.length; i++) {
+    const chid = pages[i].getAttribute && pages[i].getAttribute('data-chapid');
+    if (chid && chapterIds.has(chid)) {
+      if (seenChapters >= numChapters) { cutoff = i; break; }
+      seenChapters++;
+    }
+  }
+
+  // Hide everything from cutoff onward
+  if (cutoff !== -1) {
+    for (let i = cutoff; i < pages.length; i++) {
+      pages[i].classList.add('pw-hidden-page');
+    }
+  }
+
+  // Insert the CTA card after the last visible page
+  const cta = _pwBuildPreviewCta(releaseId, release);
+  if (cutoff !== -1 && pages[cutoff]) {
+    bp.insertBefore(cta, pages[cutoff]);
+  } else {
+    bp.appendChild(cta);
+  }
+}
+
+function _pwHidePreview() {
+  const bp = document.getElementById('bookPreview');
+  if (!bp) return;
+  const cta = bp.querySelector('.pw-preview-cta');
+  if (cta) cta.remove();
+  bp.querySelectorAll('.pw-hidden-page').forEach(el => el.classList.remove('pw-hidden-page'));
+}
+
+function _pwBuildPreviewCta(releaseId, release) {
+  const title  = (release && release.title)  ||
+                 (document.getElementById('bookTitle') && document.getElementById('bookTitle').value) ||
+                 'Untitled';
+  const author = (release && release.author) ||
+                 (document.getElementById('bookAuthor') && document.getElementById('bookAuthor').value) ||
+                 '';
+  const price  = release && release.price;
+  const curr   = (release && release.currency) || 'USD';
+  const cover  = (typeof S !== 'undefined' && S && S.coverImg) || '';
+  const symbols = { USD:'$', EUR:'€', GBP:'£', CAD:'$', AUD:'$' };
+  const priceStr = (price != null && isFinite(price) && price > 0)
+    ? (symbols[curr] || '') + Number(price).toFixed(2)
+    : '';
+
+  const wrap = document.createElement('div');
+  wrap.className = 'pw-preview-cta';
+  wrap.dataset.releaseId = releaseId;
+  wrap.dataset.product   = (release && release.product) || '';
+
+  const coverHtml = cover
+    ? '<div class="pwpc-cover" style="background-image:url(&quot;' + _pwEscAttr(cover) + '&quot;)"></div>'
+    : '<div class="pwpc-cover"></div>';
+
+  wrap.innerHTML =
+    '<div class="pwpc-row">' +
+      coverHtml +
+      '<div class="pwpc-text">' +
+        '<div class="pwpc-kicker">Enjoying the preview?</div>' +
+        '<div class="pwpc-title">' + _pwEsc(title) + '</div>' +
+        (author ? '<div style="font-size:11.5px;color:var(--muted);margin-bottom:6px">by ' + _pwEsc(author) + '</div>' : '') +
+        (priceStr ? '<div class="pwpc-price">' + priceStr + '</div>' : '') +
+        '<a class="pwpc-buy" href="' + _pwEscAttr(_pwGumroadURL(release && release.product)) + '" target="_blank" rel="noopener">Buy on Gumroad &rarr;</a>' +
+      '</div>' +
+    '</div>' +
+    '<div class="pwpc-have">' +
+      '<div class="pwpc-have-lbl">Already bought? Paste your license key:</div>' +
+      '<div class="pwpc-row2">' +
+        '<input type="text" class="pwpc-key" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false">' +
+        '<button type="button" class="pwpc-unlock">Unlock</button>' +
+      '</div>' +
+      '<div class="pwpc-status"></div>' +
+    '</div>';
+
+  // Wire up the unlock button
+  const btn = wrap.querySelector('.pwpc-unlock');
+  btn.addEventListener('click', async () => {
+    const input  = wrap.querySelector('.pwpc-key');
+    const status = wrap.querySelector('.pwpc-status');
+    const key = (input.value || '').trim();
+    status.className = 'pwpc-status';
+    if (!key) {
+      status.textContent = 'Paste your Gumroad license key.';
+      status.classList.add('error');
+      return;
+    }
+    if (!wrap.dataset.product) {
+      status.textContent = 'Release is missing its Gumroad product id (author misconfig).';
+      status.classList.add('error');
+      return;
+    }
+    btn.disabled = true;
+    status.textContent = 'Verifying with Gumroad...';
+    try {
+      const result = await _pwVerifyKey(wrap.dataset.releaseId, wrap.dataset.product, key);
+      _pwStoreToken(wrap.dataset.releaseId, result.token, result.expiresAt, result.email);
+      status.classList.add('ok');
+      status.textContent = 'Unlocked! Loading the rest of the book...';
+      setTimeout(() => {
+        _pwHidePreview();
+        document.documentElement.setAttribute('data-paid-unlocked', '1');
+      }, 600);
+    } catch (e) {
+      status.classList.add('error');
+      status.textContent = e.message || 'Unlock failed.';
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  return wrap;
+}
+
+function _pwEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+function _pwEscAttr(s) { return _pwEsc(s); }
+
+
 
 // Expose for inline handlers
 window._pwSubmitKey = _pwSubmitKey;
@@ -10721,8 +10999,17 @@ window._apConcatAll            = _apConcatAll;
         <span>Include audiobook with purchase <span style="opacity:.6;font-size:11px">(buyers can play/download if audio is generated)</span></span>
       </label>
 
+      <div style="display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:end;margin-top:12px">
+        <div>
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Free preview</label>
+          <div style="font-size:10.5px;color:var(--hint);line-height:1.4">How many chapters readers can sample before the gate. 0 = full gate (no preview). 1 is the typical sales-page default.</div>
+        </div>
+        <input type="number" id="rlPreviewN" value="1" min="0" max="99" step="1"
+          style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;text-align:center">
+      </div>
+
       <div style="font-size:10.5px;color:var(--hint);margin-top:10px;line-height:1.45">
-        Reader will see a gate screen with cover, blurb, price and a <strong>Buy on Gumroad</strong> button.
+        Readers see the preview chapters inline, then hit a "Continue reading" card with cover, blurb, price and a <strong>Buy on Gumroad</strong> button.
         Gumroad&#39;s license key unlocks the book for 30 days per entry.
       </div>
     </div>
