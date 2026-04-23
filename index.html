@@ -1908,7 +1908,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-22-segments-and-import  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-23-import-fixes  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -3267,13 +3267,23 @@ function removeImportedFile(i){
 ═══════════════════════════════════════════════ */
 
 // Patterns that mark the start of a new section in a plain-text manuscript
+// Whole-line anchors that identify a heading by its leading keyword.
+// The line must start with the anchor and be at most ~80 chars long;
+// see detectChapterLine() for the length guard. This stops a mid-
+// paragraph sentence starting with "introduction" from being promoted
+// to an H2 when that word happens to begin a wrapped prose line.
 const CHAPTER_PATTERNS = [
-  // "Chapter 1", "Chapter One", "CHAPTER 1" etc
-  /^chapter\s+[\divxlcdmIVXLCDM]+[\s:.\-—]*(.*)$/i,
-  // "Prologue", "Epilogue", "Preface", "Introduction", "Afterword" etc
-  /^(prologue|epilogue|preface|foreword|introduction|afterword|interlude|part\s+\w+|book\s+\w+|author'?s?\s+note)[\s:.\-—]*(.*)$/i,
-  // Markdown headings # or ##
+  // Markdown headings # or ## (explicit — always win over heuristics).
   /^#{1,2}\s+(.+)$/,
+  // Numbered chapter: "Chapter 1", "Chapter One", "CHAPTER I." — the
+  // separator class now includes '.' and ',' so "CHAPTER I." doesn't
+  // leave a dangling period in the title (fixes Bug 3).
+  /^chapter\s+[\divxlcdmIVXLCDM]+[\s:.,\-—]*(.*)$/i,
+  // Named front/back matter & divisions. Kept narrow on purpose —
+  // these must be the WHOLE line (the ^...$ anchors plus the 80-char
+  // length guard in detectChapterLine enforce "not a wrapped prose
+  // line"). This is Jacob's requested anchor list.
+  /^(prologue|epilogue|preface|foreword|afterword|introduction|dedication|acknowledg(?:e?)ments?|appendix|interlude|colophon|author'?s?\s+note|part\s+[\divxlcdmIVXLCDM\w]+|book\s+[\divxlcdmIVXLCDM\w]+|section\s+[\divxlcdmIVXLCDM\w]+|act\s+[\divxlcdmIVXLCDM\w]+|scene\s+[\divxlcdmIVXLCDM\w]+|volume\s+[\divxlcdmIVXLCDM\w]+|letter\s+[\divxlcdmIVXLCDM\w]+|canto\s+[\divxlcdmIVXLCDM\w]+|stave\s+[\divxlcdmIVXLCDM\w]+)[\s:.,\-—]*(.*)$/i,
 ];
 
 // Test if a line is a chapter heading — returns {match:true, title} or {match:false}
@@ -3286,16 +3296,164 @@ function detectChapterLine(line) {
     const m = t.match(pat);
     if (m) {
       // Title is the full line for named sections, captured group otherwise
-      const title = t.replace(/^#+\s*/, '').replace(/^(chapter\s+[\divxlcdmIVXLCDM]+)\s*[:\-—]?\s*/i, '$1 ').trim();
+      // Normalise '# CHAPTER I. Title' / 'CHAPTER I - Title' / 'CHAPTER I: Title'
+      // into 'CHAPTER I Title'. Adding '.' and ',' to the separator class
+      // stops 'CHAPTER I.' coming back as 'CHAPTER I .' (Bug 3).
+      const title = t.replace(/^#+\s*/, '')
+        .replace(/^(chapter\s+[\divxlcdmIVXLCDM]+)[\s:.,\-—]*/i, '$1 ')
+        .replace(/\s+/g, ' ')
+        .trim();
       return {match:true, title};
     }
   }
   return {match:false};
 }
 
+// --------------------------------------------------------------
+// Markdown paragraph reflow — fixes Bug 1 (soft-wraps treated as
+// hard paragraph breaks). Per CommonMark: a blank line separates
+// paragraphs, a lone \n inside a block is a soft break and is
+// joined into the paragraph. Folio's storage convention is one
+// paragraph per \n-delimited line, so we collapse soft wraps with
+// a space and treat every blank line as a paragraph boundary.
+//
+// Structural lines (headings, lists, blockquotes, tables, code,
+// thematic breaks) are preserved verbatim so import doesn't wreck
+// non-prose blocks.
+function _normalizeMdBody(raw) {
+  if (!raw) return '';
+  // Normalise CRLF / CR -> LF first so the split logic is uniform.
+  const text = String(raw).replace(/\r\n?/g, '\n');
+  // A blank line (optionally containing whitespace) separates blocks.
+  const blocks = text.split(/\n[ \t]*\n+/);
+  const out = [];
+  for (let i = 0; i < blocks.length; i++) {
+    const block = blocks[i];
+    if (!block.trim()) continue;
+    const lines = block.split('\n');
+    // Treat block as structural if ANY line looks like a Markdown
+    // heading / list / blockquote / table / code-fence / indented
+    // code / thematic break.
+    const structural = lines.some(ln =>
+      /^\s{0,3}(#{1,6}\s|[-*+]\s|\d+[.)]\s|>\s?|\|)/.test(ln) ||
+      /^\s{4,}\S/.test(ln) ||
+      /^\s*```/.test(ln) ||
+      /^[-*_]{3,}\s*$/.test(ln)
+    );
+    if (structural) {
+      for (let j = 0; j < lines.length; j++) {
+        const ln = lines[j];
+        if (ln.trim() || j === 0) out.push(ln);
+      }
+    } else {
+      // Prose: soft-wraps -> single spaces.
+      const joined = lines.map(ln => ln.trim()).filter(Boolean).join(' ');
+      if (joined) out.push(joined);
+    }
+  }
+  return out.join('\n');
+}
+
+// --------------------------------------------------------------
+// Markdown-importer smoke test. Run in DevTools:
+//     window._folioImportSmokeTest()
+// Exercises Bugs 1/2/3 together. Prints per-assertion results.
+function _folioImportSmokeTest() {
+  const results = [];
+  const expect = (name, cond, detail) => {
+    results.push({ name, pass: !!cond, detail: cond ? '' : (detail || '(failed)') });
+  };
+
+  // Bug 1 + Bug 2a + Bug 3: one explicit heading, soft-wrapped body.
+  const src1 =
+    '# CHAPTER I. THE RIVER BANK\n' +
+    '\n' +
+    'The Mole had been working very hard all the\n' +
+    'morning, spring-cleaning his little home. First\n' +
+    'with brooms, then with dusters.\n';
+  const secs1 = smartSplit(src1);
+  expect('smoke-1: exactly 1 section', secs1.length === 1,
+         'got ' + secs1.length + ': ' + JSON.stringify(secs1.map(s=>s.title)));
+  expect('smoke-1: title is "CHAPTER I THE RIVER BANK" (no "I .")',
+         secs1[0] && secs1[0].title === 'CHAPTER I THE RIVER BANK',
+         'got title: ' + (secs1[0] && JSON.stringify(secs1[0].title)));
+  expect('smoke-1: body is ONE paragraph (single \\n-delimited line)',
+         secs1[0] && secs1[0].content.split('\n').length === 1,
+         'got ' + (secs1[0] && secs1[0].content.split('\n').length) + ' lines');
+  expect('smoke-1: soft-wraps joined with single spaces',
+         secs1[0] && secs1[0].content ===
+           'The Mole had been working very hard all the morning, ' +
+           'spring-cleaning his little home. First with brooms, then with dusters.',
+         'got: ' + JSON.stringify(secs1[0] && secs1[0].content));
+
+  // Bug 2: "introduction" mid-prose must NOT become a heading when
+  // explicit # headings are present.
+  const src2 =
+    '# CHAPTER II. THE OPEN ROAD\n' +
+    '\n' +
+    'introduction to the Mole. "How kind of you!"\n' +
+    'answered the Mole, blinking away a tear.\n';
+  const secs2 = smartSplit(src2);
+  expect('smoke-2: explicit # headings win — 1 section (not 2)',
+         secs2.length === 1, 'got ' + secs2.length + ' sections');
+  expect('smoke-2: title is CHAPTER II, not "introduction to the Mole"',
+         secs2[0] && /^chapter\s+ii\b/i.test(secs2[0].title),
+         'got title: ' + (secs2[0] && JSON.stringify(secs2[0].title)));
+
+  // Bug 2b: keyword heuristic still works when NO # headings present.
+  const src3 =
+    'PROLOGUE\n' +
+    '\n' +
+    'Once upon a time, there was a mole.\n' +
+    '\n' +
+    'CHAPTER I\n' +
+    '\n' +
+    'The Mole lived underground.\n';
+  const secs3 = smartSplit(src3);
+  expect('smoke-3: heuristic still fires with no # headings (2 sections)',
+         secs3.length === 2, 'got ' + secs3.length + ' sections: ' +
+         JSON.stringify(secs3.map(s => s.title)));
+  expect('smoke-3: first section typed as pre (PROLOGUE)',
+         secs3[0] && secs3[0].type === 'pre',
+         'got type: ' + (secs3[0] && secs3[0].type));
+
+  // Bug 3: plain "CHAPTER I." — no dangling space before the period.
+  const secs4 = smartSplit('# CHAPTER I.\n\nBody.\n');
+  expect('smoke-4: "# CHAPTER I." title has no "I ." artefact',
+         secs4[0] && !/I\s+\./.test(secs4[0].title),
+         'got title: ' + (secs4[0] && JSON.stringify(secs4[0].title)));
+
+  const passed = results.filter(r => r.pass).length;
+  const total = results.length;
+  const failed = results.filter(r => !r.pass);
+  if (failed.length) {
+    console.group('%c[folio import smoke] ' + passed + '/' + total + ' passed',
+                  'color:#c04040;font-weight:600');
+    failed.forEach(r => console.log('%c✗ ' + r.name, 'color:#c04040', r.detail));
+    console.groupEnd();
+  } else {
+    console.log('%c[folio import smoke] ✓ ' + total + '/' + total + ' passed',
+                'color:#2d8a43;font-weight:600');
+  }
+  return { passed, total, results };
+}
+window._folioImportSmokeTest = _folioImportSmokeTest;
+
 // Smart split — detects chapters by content patterns, not just # headings
 function smartSplit(text) {
-  const lines = text.split('\n');
+  // Bug 1 fix: normalise paragraphs FIRST so a prose paragraph is a
+  // single line — also prevents Bug 2 (a wrapped prose line that
+  // starts with "introduction" being read as an H2 heading).
+  const normalised = _normalizeMdBody(text);
+  const lines = normalised.split('\n');
+
+  // Bug 2 fix (defence-in-depth): if the author used explicit #/##
+  // headings, defer to them entirely. Keyword detection is a best-
+  // effort fallback for plain-text manuscripts with no explicit
+  // structure; if the author told us the boundaries, don't second-
+  // guess them.
+  const hasExplicitHeadings = /^#{1,3}\s+\S/m.test(normalised);
+
   const sections = [];
   let curTitle = null;
   let curContent = [];
@@ -3310,15 +3468,29 @@ function smartSplit(text) {
     }
   };
 
+  const isHeadingLine = (line) => {
+    if (hasExplicitHeadings) {
+      // Only explicit # / ## headings count as section breaks.
+      const m = line.match(/^#{1,2}\s+(.+)$/);
+      if (!m) return { match: false };
+      const title = m[1]
+        .replace(/^(chapter\s+[\divxlcdmIVXLCDM]+)[\s:.,\-\u2014]*/i, '$1 ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return { match: true, title };
+    }
+    return detectChapterLine(line);
+  };
+
   lines.forEach(line => {
-    const det = detectChapterLine(line);
+    const det = isHeadingLine(line);
     if (det.match) {
       flush();
       curTitle = det.title;
       curContent = [];
       const tl = det.title.toLowerCase();
-      if (/^(prologue|preface|foreword|introduction|dedication|copyright)/.test(tl)) curType = 'pre';
-      else if (/^(epilogue|afterword|appendix|author'?s?\s+note)/.test(tl)) curType = 'post';
+      if (/^(prologue|preface|foreword|introduction|dedication|copyright|acknowledg)/.test(tl)) curType = 'pre';
+      else if (/^(epilogue|afterword|appendix|author'?s?\s+note|colophon)/.test(tl)) curType = 'post';
       else curType = 'chapter';
     } else if (/^[-*_]{3,}$/.test(line.trim())) {
       curContent.push('__SCENE_BREAK__');
@@ -3378,11 +3550,13 @@ function applyImportToChapters() {
     if (!text) return;
 
     if (mode === 'none') {
-      // Import whole file as a single chapter — no splitting at all
+      // Import whole file as a single chapter — no splitting at all.
+      // Still normalise paragraphs so soft-wraps don't explode into
+      // one paragraph per wrapped line (Bug 1).
       newChapters.push({
         id: uid(), type: f.type, src: f.name, expanded: false,
         title: titleFromFilename(f.name),
-        content: text
+        content: _normalizeMdBody(text)
       });
       return;
     }
@@ -3681,17 +3855,26 @@ function applyImportToChapters_legacy(){
 }
 
 function splitOnH1(text){
-  const lines=text.split('\n');
+  // Normalise paragraphs first so each chapter body is one line per
+  // paragraph — matches Folio's storage convention and fixes Bug 1.
+  const normalised=_normalizeMdBody(text);
+  const lines=normalised.split('\n');
   const parts=[];
   let cur=null,content=[];
   lines.forEach(line=>{
     if(/^#{1,2}\s/.test(line)){
       if(cur!==null) parts.push({title:cur,content:content.join('\n').trim()});
-      cur=line.replace(/^#+\s+/,'').trim(); content=[];
+      // Same title normalisation as detectChapterLine so "# CHAPTER I."
+      // doesn't come back as "CHAPTER I ." (Bug 3).
+      cur=line.replace(/^#+\s+/,'')
+              .replace(/^(chapter\s+[\divxlcdmIVXLCDM]+)[\s:.,\-\u2014]*/i,'$1 ')
+              .replace(/\s+/g,' ')
+              .trim();
+      content=[];
     } else { content.push(line); }
   });
   if(cur!==null) parts.push({title:cur,content:content.join('\n').trim()});
-  if(!parts.length) parts.push({title:'',content:text});
+  if(!parts.length) parts.push({title:'',content:normalised});
   return parts;
 }
 
@@ -3716,7 +3899,9 @@ function parseManuscriptToChapters(){
 }
 
 function buildChaptersFromRaw(raw){
-  const lines=raw.split('\n');
+  // Normalise soft-wraps -> prose paragraphs (Bug 1 applies to pastes too).
+  const normalised=_normalizeMdBody(raw);
+  const lines=normalised.split('\n');
   const result=[];
   let cur=null,content=[],num=0;
   lines.forEach(line=>{
