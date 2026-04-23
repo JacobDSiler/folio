@@ -1908,7 +1908,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-23-import-fixes  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-23-split-long-paras  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -4895,8 +4895,33 @@ function renderPreview(){
         return lines;
       }
 
-      // Safety factor 0.88: never fill more than 88% of a page — prevents overflow
-      // No safety factor — overflow:hidden clips any overflow visually
+      // Slice a paragraph so its head fits in exactly `maxLines` lines
+      // and its tail is whatever's left. Splits on word boundaries only
+      // (never mid-word). Returns {head:null,tail:text} if maxLines<=0,
+      // or {head:text,tail:null} if the whole paragraph already fits.
+      function sliceParaAtLines(text, maxLines) {
+        if (!text || maxLines <= 0) return {head:null, tail:text};
+        const words = text.split(/\s+/);
+        let lines = 1, lineW = 0, cutIdx = words.length;
+        for (let i = 0; i < words.length; i++) {
+          const word = words[i];
+          const ww = (word.length + 1) * avgCharPx;
+          if (lineW + ww > lineWidthPx && lineW > 0) {
+            lines++;
+            if (lines > maxLines) { cutIdx = i; break; }
+            lineW = ww;
+          } else {
+            lineW += ww;
+          }
+        }
+        if (cutIdx >= words.length) return {head:text, tail:null};
+        return {
+          head: words.slice(0, cutIdx).join(' '),
+          tail: words.slice(cutIdx).join(' '),
+        };
+      }
+
+      // No safety factor — overflow was clipped before; now we split.
       const linesPerPage=Math.max(1,Math.floor(contentH / lineH));
 
       // Normalise markdown horizontal rules to scene breaks
@@ -4925,16 +4950,81 @@ function renderPreview(){
       const pages=[];
       let currentPage=[];
       let usedLines=titleLineEstimate;
+      const flushPage = () => {
+        if (currentPage.length > 0) pages.push(currentPage);
+        currentPage = [];
+        usedLines = 0;
+      };
 
-      normParas.forEach((p,i)=>{
-        const needed=paraLines[i];
-        if(usedLines+needed>linesPerPage && currentPage.length>0){
-          pages.push(currentPage);
-          currentPage=[p];
-          usedLines=needed;
-        } else {
+      // Pack paragraphs into pages, splitting long ones across page
+      // boundaries. A split paragraph leaves a head on the current
+      // page and a tail that starts the next page. Tail slices are
+      // pushed as objects { text, paraIdx, isCont:true } so the
+      // renderer can suppress indent/drop-cap and disable editing.
+      normParas.forEach((p, origIdx) => {
+        if (p === '__SCENE_BREAK__') {
+          const needed = paraLines[origIdx];
+          if (usedLines + needed > linesPerPage && currentPage.length > 0) flushPage();
           currentPage.push(p);
-          usedLines+=needed;
+          usedLines += needed;
+          return;
+        }
+
+        let remaining = p;
+        let isFirstSlice = true;
+        // Loop guard — never spin forever on a pathological paragraph.
+        let safety = 1000;
+        while (remaining && safety-- > 0) {
+          const avail = linesPerPage - usedLines;
+          const lines = isFirstSlice ? paraLines[origIdx] : estimateLines(remaining);
+
+          if (lines <= avail) {
+            currentPage.push(
+              isFirstSlice
+                ? remaining
+                : { text: remaining, paraIdx: origIdx, isCont: true }
+            );
+            usedLines += lines;
+            remaining = null;
+          } else if (avail < 4) {
+            // Too little room to bother splitting — flush and retry
+            // on a fresh page. If we're already on a fresh page and
+            // STILL can't fit 4 lines (linesPerPage < 4), push as-is
+            // so we don't spin.
+            if (currentPage.length === 0) {
+              currentPage.push(
+                isFirstSlice
+                  ? remaining
+                  : { text: remaining, paraIdx: origIdx, isCont: true }
+              );
+              flushPage();
+              remaining = null;
+            } else {
+              flushPage();
+            }
+          } else {
+            const { head, tail } = sliceParaAtLines(remaining, avail);
+            if (!head || !tail) {
+              // Couldn't split (single word > one line, or empty).
+              // Push as-is and move on to avoid infinite loop.
+              currentPage.push(
+                isFirstSlice
+                  ? remaining
+                  : { text: remaining, paraIdx: origIdx, isCont: true }
+              );
+              flushPage();
+              remaining = null;
+            } else {
+              currentPage.push(
+                isFirstSlice
+                  ? head
+                  : { text: head, paraIdx: origIdx, isCont: true }
+              );
+              flushPage();
+              remaining = tail;
+              isFirstSlice = false;
+            }
+          }
         }
       });
       if(currentPage.length>0) pages.push(currentPage);
@@ -4944,17 +5034,27 @@ function renderPreview(){
         const slice=pages[pg];
         const parasHTML=slice.map((p,pi)=>{
           if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${pt(H_SCENE_BREAK)};color:${accent};margin:${Math.round(8*MM)}px 0;opacity:0.65">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
-          const isFirst=pg===0&&pi===0&&(ch.title||chNum);
-          const noInd=(pg===0&&pi===0)||(pi>0&&slice[pi-1]==='__SCENE_BREAK__');
-          const dc=dropCap&&isFirst&&p.length>1
-            ?`<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${pt(fsize*3.6)};line-height:0.76;margin:${pt(fsize*0.08)} ${mm(1)} 0 0;color:${accent};font-weight:700">${esc(p[0])}</span>${md(esc(p.slice(1)))}`
-            :md(esc(p));
+          // Slice item is either a plain string (full paragraph that fit
+          // whole on this page) or a continuation object (tail of a
+          // paragraph that started on the previous page). Continuations
+          // suppress indent + drop cap and are not directly editable —
+          // editing their head propagates via the sidebar textarea.
+          const isContObj = (p && typeof p === 'object' && p.isCont);
+          const text      = isContObj ? p.text : p;
+          const paraIdx   = isContObj ? p.paraIdx : paras.indexOf(p);
+          const isFirst   = !isContObj && pg===0 && pi===0 && (ch.title||chNum);
+          const noInd     = isContObj || (pg===0&&pi===0) || (pi>0 && slice[pi-1]==='__SCENE_BREAK__');
+          const dc = dropCap && isFirst && text.length>1
+            ? `<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${pt(fsize*3.6)};line-height:0.76;margin:${pt(fsize*0.08)} ${mm(1)} 0 0;color:${accent};font-weight:700">${esc(text[0])}</span>${md(esc(text.slice(1)))}`
+            : md(esc(text));
           const paraStyle=`font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0;text-align:${justify};text-indent:${noInd?'0':indentPx};margin-bottom:${indent==='0'?mm(1.3):'0'}`;
-          return `<p class="preview-editable" data-chid="${ch.id}" data-paraidx="${paras.indexOf(p)}"
-            contenteditable="${_editMode}" spellcheck="true"
-            onblur="if(_editMode)_onParaBlur(this)"
-            oncontextmenu="if(_editMode){_ctxOpen(event,this)}"
-            onkeydown="if(_editMode&&event.key==='Tab'){event.preventDefault();const s=this.selectionStart??0,e=this.selectionEnd??0,t=this.innerText;document.execCommand('insertText',false,event.shiftKey?'':' '.repeat(4));}else if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
+          const editable = isContObj ? 'false' : String(_editMode);
+          const contCls  = isContObj ? ' para-cont' : '';
+          return `<p class="preview-editable${contCls}" data-chid="${ch.id}" data-paraidx="${paraIdx}"
+            contenteditable="${editable}" spellcheck="true"
+            onblur="if(_editMode && !this.classList.contains('para-cont'))_onParaBlur(this)"
+            oncontextmenu="if(_editMode && !this.classList.contains('para-cont')){_ctxOpen(event,this)}"
+            onkeydown="if(_editMode&&!this.classList.contains('para-cont')&&event.key==='Tab'){event.preventDefault();const s=this.selectionStart??0,e=this.selectionEnd??0,t=this.innerText;document.execCommand('insertText',false,event.shiftKey?'':' '.repeat(4));}else if(_editMode&&!this.classList.contains('para-cont')&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
             style="${paraStyle}">${dc}</p>`;
         }).join('');
         pagesHTML+=pageWrap((pg===0?titleBlock:'')+parasHTML,pageNum,false,pg===0?ch.id:null);
