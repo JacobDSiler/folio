@@ -1908,7 +1908,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-22-homepage-links  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-22-segments-and-import  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -9880,6 +9880,10 @@ function _apSectionList() {
 }
 
 function _apGetSectionText(section) {
+  // Segments carry their text directly — no sources[] to walk.
+  if (section && section.kind === 'segment') {
+    return _audioCleanText(section.text || '');
+  }
   let text = '';
   for (let i = 0; i < section.sources.length; i++) {
     const src = section.sources[i];
@@ -9897,6 +9901,111 @@ function _apGetSectionText(section) {
 
 function _apTrackKey(sectionId) {
   return (_projId || 'local') + '_' + sectionId;
+}
+
+
+/* ── Custom audio segments (intros, intermissions, outros…) ──
+   Persisted in localStorage keyed by folio id. Each segment is
+   a free-form block of text placed at a user-chosen position
+   in the audiobook timeline (start / end / before-section /
+   after-section). Segment ids always start with "seg_" so they
+   cannot collide with chapter ids in the IndexedDB track cache.
+   ─────────────────────────────────────────────────────────── */
+function _apSegStorageKey() {
+  return 'folio_audio_segments_' + (_projId || 'local');
+}
+function _apLoadSegments() {
+  try {
+    const raw = localStorage.getItem(_apSegStorageKey());
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.warn('[audio seg] load failed', e);
+    return [];
+  }
+}
+function _apSaveSegments(list) {
+  try {
+    localStorage.setItem(_apSegStorageKey(), JSON.stringify(list || []));
+  } catch (e) {
+    console.warn('[audio seg] save failed', e);
+    if (typeof toastWarning === 'function')
+      toastWarning('Failed to save segment — storage quota hit?', {duration:3000});
+  }
+}
+function _apGetSegment(id) {
+  const list = _apLoadSegments();
+  for (let i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
+  return null;
+}
+function _apNewSegId() {
+  return 'seg_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+}
+
+/* Build the audiobook timeline: sections interleaved with
+   user-defined segments. Returns a flat list of items shaped
+   so each entry can be consumed by _apGetSectionText /
+   _apRenderTracks / _apGenerate etc. without per-call-site
+   branching. */
+function _apBuildTimeline() {
+  const sections = _apSectionList();
+  const segments = _apLoadSegments();
+
+  const sectionItems = sections.map(sec => Object.assign(
+    { kind: 'section', itemId: sec.sectionId }, sec
+  ));
+  if (!segments.length) return sectionItems;
+
+  const atStart = [];
+  const atEnd   = [];
+  const beforeMap = {};
+  const afterMap  = {};
+  for (let i = 0; i < segments.length; i++) {
+    const s = segments[i];
+    const pos = s.position || { mode: 'end', targetId: null };
+    if (pos.mode === 'start') atStart.push(s);
+    else if (pos.mode === 'before' && pos.targetId) {
+      (beforeMap[pos.targetId] = beforeMap[pos.targetId] || []).push(s);
+    } else if (pos.mode === 'after' && pos.targetId) {
+      (afterMap[pos.targetId] = afterMap[pos.targetId] || []).push(s);
+    } else {
+      atEnd.push(s);
+    }
+  }
+
+  const segAsItem = (seg) => ({
+    kind: 'segment',
+    segId: seg.id,
+    itemId: seg.id,
+    // sectionId / sectionType kept so _apTrackKey() and the
+    // stored track record stay shape-compatible with DB entries.
+    sectionId: seg.id,
+    sectionType: 'segment',
+    title: seg.name || 'Segment',
+    text: seg.text || '',
+    position: seg.position || null,
+  });
+
+  const out = [];
+  for (let i = 0; i < atStart.length; i++) out.push(segAsItem(atStart[i]));
+  for (let i = 0; i < sectionItems.length; i++) {
+    const sec = sectionItems[i];
+    const b = beforeMap[sec.sectionId] || [];
+    for (let j = 0; j < b.length; j++) out.push(segAsItem(b[j]));
+    out.push(sec);
+    const a = afterMap[sec.sectionId] || [];
+    for (let j = 0; j < a.length; j++) out.push(segAsItem(a[j]));
+  }
+  for (let i = 0; i < atEnd.length; i++) out.push(segAsItem(atEnd[i]));
+
+  // Orphan recovery: segment's target was deleted — surface at end.
+  const placed = {};
+  for (let i = 0; i < out.length; i++) if (out[i].kind === 'segment') placed[out[i].segId] = true;
+  for (let i = 0; i < segments.length; i++) {
+    if (!placed[segments[i].id]) out.push(segAsItem(segments[i]));
+  }
+  return out;
 }
 
 /* ── Blob helpers ──────────────────────────────────────────── */
@@ -10516,9 +10625,10 @@ function _apEstimateCost(chars) {
 async function _apRenderTracks() {
   const host = document.getElementById('apTracks');
   if (!host) return;
-  const sections = _apSectionList();
-  if (!sections.length) {
+  const timeline = _apBuildTimeline();
+  if (!timeline.length) {
     host.innerHTML = '<div class="ap-empty">No chapters yet — add a chapter first.</div>';
+    _apUpdateFooterState(timeline, {});
     return;
   }
   const projId = _projId || 'local';
@@ -10527,55 +10637,72 @@ async function _apRenderTracks() {
   for (let i = 0; i < tracks.length; i++) byKey[tracks[i].key] = tracks[i];
 
   const rows = [];
-  for (let i = 0; i < sections.length; i++) {
-    const sec = sections[i];
-    const key = _apTrackKey(sec.sectionId);
-    const tr  = byKey[key];
-    const curHash = _textHash(_apGetSectionText(sec));
+  for (let i = 0; i < timeline.length; i++) {
+    const item  = timeline[i];
+    const isSeg = (item.kind === 'segment');
+    const id    = item.sectionId;
+    const key   = _apTrackKey(id);
+    const tr    = byKey[key];
+    const itemText = _apGetSectionText(item);
+    const curHash  = _textHash(itemText);
 
-    let icon = '⚪';
+    let icon = isSeg ? '🎵' : '⚪';
     let durText = '—';
     let stale = false;
+    const isImported = !!(tr && tr.source === 'imported');
     if (tr && tr.blob) {
-      stale = (tr.textHash !== curHash);
-      icon = stale ? '🟡' : '✅';
+      // Imported tracks are text-independent — never stale.
+      stale = !isImported && (tr.textHash !== curHash);
+      icon  = stale ? '🟡' : '✅';
       durText = _fmtDuration(tr.durationSecs);
     }
 
-    const titlePrefix = sec.sectionType === 'chapter'
-      ? ('Ch ' + sec.chapterNumber + ' · ')
-      : '';
-    const titleHtml = _apEsc(titlePrefix + sec.title);
+    let titlePrefix = '';
+    if (isSeg) titlePrefix = 'Segment · ';
+    else if (item.sectionType === 'chapter') titlePrefix = 'Ch ' + item.chapterNumber + ' · ';
+    const titleHtml = _apEsc(titlePrefix + item.title);
 
-    // Character count — what we'd actually send to TTS
-    const secText = _apGetSectionText(sec);
-    const secChars = secText.length;
+    const secChars = itemText.length;
 
-    let actions = '';
     const isPlaying = (_apPlayingKey === key);
     const playIcon  = isPlaying ? '⏸' : '▶';
     const playTitle = isPlaying ? 'Pause' : 'Play';
+    const editBtn = isSeg
+      ? '<button class="ap-mini" onclick="_apOpenSegModal(\'' + _apEsc(item.segId) + '\')" title="Edit segment">✎</button>'
+      : '';
+    const importTitle = (tr && tr.blob) ? 'Replace with your own MP3 file…' : 'Import your own MP3 file…';
+    const importBtn =
+      '<button class="ap-mini" onclick="_apImportTrack(\'' + id + '\')" title="' + importTitle + '">📎</button>';
+
+    let actions = '';
     if (tr && tr.blob && !stale) {
       actions =
         '<button class="ap-mini" onclick="_apPlay(\'' + key + '\')" title="' + playTitle + '">' + playIcon + '</button>' +
         '<button class="ap-mini" onclick="_apDownload(\'' + key + '\')" title="Download MP3">↓</button>' +
-        '<button class="ap-mini" onclick="_apDeleteTrack(\'' + key + '\')" title="Delete">✕</button>';
+        importBtn + editBtn +
+        '<button class="ap-mini" onclick="_apDeleteTrack(\'' + key + '\')" title="Delete track">✕</button>';
     } else if (tr && tr.blob && stale) {
       actions =
-        '<button class="ap-mini" onclick="_apGenerate(\'' + sec.sectionId + '\')" title="Regenerate (text changed)">Regenerate</button>' +
+        '<button class="ap-mini" onclick="_apGenerate(\'' + id + '\')" title="Regenerate (text changed)">Regenerate</button>' +
         '<button class="ap-mini" onclick="_apPlay(\'' + key + '\')" title="' + playTitle + ' old version">' + playIcon + '</button>' +
+        importBtn + editBtn +
         '<button class="ap-mini" onclick="_apDeleteTrack(\'' + key + '\')" title="Delete">✕</button>';
     } else {
       actions =
-        '<button class="ap-mini" onclick="_apGenerate(\'' + sec.sectionId + '\')" title="Generate">Generate</button>';
+        '<button class="ap-mini" onclick="_apGenerate(\'' + id + '\')" title="Generate">Generate</button>' +
+        importBtn + editBtn;
     }
 
     const staleBits = stale ? ' <span class="ap-sub">(text changed)</span>' : '';
+    const importedBits = isImported
+      ? ' <span class="ap-sub" title="Imported from: ' + _apEsc(tr.importedName || 'uploaded.mp3') + '">📎 imported</span>'
+      : '';
     const charBits  = ' <span class="ap-sub">· ' + _apFmtChars(secChars) + '</span>';
-    const subNote = staleBits + charBits;
+    const subNote = staleBits + importedBits + charBits;
 
+    const cls = isSeg ? 'ap-track ap-seg' : 'ap-track';
     rows.push(
-      '<div class="ap-track" data-secid="' + _apEsc(sec.sectionId) + '">' +
+      '<div class="' + cls + '" data-secid="' + _apEsc(id) + '">' +
         '<div class="ap-icon">' + icon + '</div>' +
         '<div class="ap-title">' + titleHtml + subNote + '</div>' +
         '<div class="ap-dur">' + durText + '</div>' +
@@ -10584,7 +10711,7 @@ async function _apRenderTracks() {
     );
   }
   host.innerHTML = rows.join('');
-  _apUpdateFooterState(sections, byKey);
+  _apUpdateFooterState(timeline, byKey);
 }
 
 function _apEsc(s) {
@@ -10605,6 +10732,7 @@ function _apUpdateFooterState(sections, byKey) {
   const anyMissing = sections.some(s => {
     const t = byKey[_apTrackKey(s.sectionId)];
     if (!t || !t.blob) return true;
+    if (t.source === 'imported') return false;   // user-supplied audio — never stale
     return t.textHash !== _textHash(_apGetSectionText(s));
   });
   genAll.disabled = _apBusy || !anyMissing;
@@ -10621,6 +10749,7 @@ function _apUpdateFooterState(sections, byKey) {
     const s = sections[i];
     const tr = byKey[_apTrackKey(s.sectionId)];
     const cur = _apGetSectionText(s);
+    if (tr && tr.blob && tr.source === 'imported') continue;   // imported is user-supplied — no TTS cost
     if (!tr || !tr.blob || tr.textHash !== _textHash(cur)) {
       pendingChars += cur.length;
       pendingSections++;
@@ -10666,8 +10795,9 @@ function _apPreflight() {
 /* ── Per-section generation pipeline ───────────────────────── */
 async function _apGenerate(sectionId) {
   if (_apBusy) { toastWarning('Already generating — hold tight', {duration:2000}); return; }
-  const sections = _apSectionList();
-  const sec = sections.find(s => s.sectionId === sectionId);
+  // Look up in the combined timeline so segments are generable too.
+  const timeline = _apBuildTimeline();
+  const sec = timeline.find(s => s.sectionId === sectionId);
   if (!sec) { toastWarning('Section not found', {duration:2000}); return; }
   if (!_apPreflight()) return;
 
@@ -10742,18 +10872,19 @@ function _apSetRowBusy(sectionId, busy) {
 async function _apGenerateAllRemaining() {
   if (_apBusy) return;
   if (!_apPreflight()) return;
-  const sections = _apSectionList();
+  const timeline = _apBuildTimeline();
   const projId = _projId || 'local';
   const tracks = await _apDBGetAllForProject(projId);
   const byKey = {};
   for (let i = 0; i < tracks.length; i++) byKey[tracks[i].key] = tracks[i];
 
   const todo = [];
-  for (let i = 0; i < sections.length; i++) {
-    const sec = sections[i];
-    const t = byKey[_apTrackKey(sec.sectionId)];
-    const curHash = _textHash(_apGetSectionText(sec));
-    if (!t || !t.blob || t.textHash !== curHash) todo.push(sec);
+  for (let i = 0; i < timeline.length; i++) {
+    const item = timeline[i];
+    const t = byKey[_apTrackKey(item.sectionId)];
+    if (t && t.blob && t.source === 'imported') continue;   // user-supplied — skip
+    const curHash = _textHash(_apGetSectionText(item));
+    if (!t || !t.blob || t.textHash !== curHash) todo.push(item);
   }
   if (!todo.length) { toastInfo('All sections already up-to-date', {duration:2200}); return; }
 
@@ -10865,7 +10996,7 @@ async function _apDeleteTrack(key) {
 /* ── ZIP all tracks ────────────────────────────────────────── */
 async function _apDownloadZip() {
   if (_apBusy) return;
-  const sections = _apSectionList();
+  const timeline = _apBuildTimeline();
   const projId = _projId || 'local';
   const tracks = await _apDBGetAllForProject(projId);
   if (!tracks.length) { toastWarning('Nothing to zip — generate some tracks first', {duration:2800}); return; }
@@ -10876,12 +11007,13 @@ async function _apDownloadZip() {
     const byKey = {};
     for (let i = 0; i < tracks.length; i++) byKey[tracks[i].key] = tracks[i];
     let order = 1;
-    for (let i = 0; i < sections.length; i++) {
-      const sec = sections[i];
-      const t = byKey[_apTrackKey(sec.sectionId)];
+    for (let i = 0; i < timeline.length; i++) {
+      const item = timeline[i];
+      const t = byKey[_apTrackKey(item.sectionId)];
       if (!t || !t.blob) continue;
       const num = String(order++).padStart(2, '0');
-      const fn = num + '-' + safeName(sec.title || 'track') + '.mp3';
+      const segTag = item.kind === 'segment' ? 'seg-' : '';
+      const fn = num + '-' + segTag + safeName(item.title || 'track') + '.mp3';
       zip.file(fn, t.blob);
     }
     const projNameEl = document.getElementById('projName');
@@ -10905,7 +11037,7 @@ async function _apDownloadZip() {
 /* ── Concatenate all to a single MP3 ───────────────────────── */
 async function _apConcatAll() {
   if (_apBusy) return;
-  const sections = _apSectionList();
+  const timeline = _apBuildTimeline();
   const projId = _projId || 'local';
   const tracks = await _apDBGetAllForProject(projId);
   if (!tracks.length) { toastWarning('Nothing to concatenate — generate some tracks first', {duration:2800}); return; }
@@ -10913,13 +11045,13 @@ async function _apConcatAll() {
   const byKey = {};
   for (let i = 0; i < tracks.length; i++) byKey[tracks[i].key] = tracks[i];
 
-  // Walk sections in book order and collect chapter rows.
-  const rows = [];   // { title, trackObj }
+  // Walk the timeline in book order and collect rows (sections + segments).
+  const rows = [];
   let missing = 0;
-  for (let i = 0; i < sections.length; i++) {
-    const sec = sections[i];
-    const tr = byKey[_apTrackKey(sec.sectionId)];
-    if (tr && tr.blob) rows.push({ section: sec, track: tr });
+  for (let i = 0; i < timeline.length; i++) {
+    const item = timeline[i];
+    const tr = byKey[_apTrackKey(item.sectionId)];
+    if (tr && tr.blob) rows.push({ section: item, track: tr });
     else missing++;
   }
   if (!rows.length) { toastWarning('No generated tracks to combine', {duration:2800}); return; }
@@ -11106,6 +11238,228 @@ window._apDownload             = _apDownload;
 window._apDeleteTrack          = _apDeleteTrack;
 window._apDownloadZip          = _apDownloadZip;
 window._apConcatAll            = _apConcatAll;
+
+/* ══════ Segment modal handlers ══════ */
+let _apSegEditId = null;
+
+function _apOpenSegModal(editId) {
+  _apSegEditId = editId || null;
+  const m = document.getElementById('audioSegModal');
+  if (!m) return;
+
+  // Populate target dropdown with current sections so users can pick
+  // a "before"/"after" anchor from the live book contents.
+  const target = document.getElementById('segPosTarget');
+  if (target) {
+    const sections = _apSectionList();
+    let opts = '<option value="">Select a section…</option>';
+    for (let i = 0; i < sections.length; i++) {
+      const s = sections[i];
+      const prefix = s.sectionType === 'chapter' ? 'Ch ' + s.chapterNumber + ' · ' : '';
+      opts += '<option value="' + _apEsc(s.sectionId) + '">' + _apEsc(prefix + s.title) + '</option>';
+    }
+    target.innerHTML = opts;
+  }
+
+  const name    = document.getElementById('segNameInput');
+  const mode    = document.getElementById('segPosMode');
+  const textEl  = document.getElementById('segTextInput');
+  const delBtn  = document.getElementById('segDeleteBtn');
+  const titleEl = document.getElementById('segTitle');
+
+  if (editId) {
+    const seg = _apGetSegment(editId);
+    if (!seg) { toastWarning('Segment not found', {duration:2000}); _apSegEditId = null; return; }
+    if (name)    name.value = seg.name || '';
+    if (textEl)  textEl.value = seg.text || '';
+    if (mode)    mode.value = (seg.position && seg.position.mode) || 'start';
+    if (target && seg.position && seg.position.targetId) target.value = seg.position.targetId;
+    if (delBtn)  delBtn.style.display = '';
+    if (titleEl) titleEl.textContent = 'Edit segment';
+  } else {
+    if (name)    name.value = '';
+    if (textEl)  textEl.value = '';
+    if (mode)    mode.value = 'start';
+    if (delBtn)  delBtn.style.display = 'none';
+    if (titleEl) titleEl.textContent = 'Add audio segment';
+  }
+
+  if (textEl && !textEl._apInputBound) {
+    textEl.addEventListener('input', _apSegUpdateCharCount);
+    textEl._apInputBound = true;
+  }
+
+  _apSegOnPosMode();
+  _apSegUpdateCharCount();
+  m.classList.add('open');
+  m.setAttribute('aria-hidden', 'false');
+  setTimeout(() => { if (name) name.focus(); }, 50);
+}
+
+function _apSegOnPosMode() {
+  const mode = document.getElementById('segPosMode');
+  const target = document.getElementById('segPosTarget');
+  if (!mode || !target) return;
+  const needsTarget = (mode.value === 'before' || mode.value === 'after');
+  target.style.visibility = needsTarget ? 'visible' : 'hidden';
+  target.disabled = !needsTarget;
+}
+
+function _apSegCancel() {
+  const m = document.getElementById('audioSegModal');
+  if (m) { m.classList.remove('open'); m.setAttribute('aria-hidden', 'true'); }
+  _apSegEditId = null;
+}
+
+async function _apSegSave() {
+  const name   = ((document.getElementById('segNameInput')   || {}).value || '').trim();
+  const text   = ((document.getElementById('segTextInput')   || {}).value || '').trim();
+  const mode   =  (document.getElementById('segPosMode')     || {}).value || 'start';
+  const target =  (document.getElementById('segPosTarget')   || {}).value || '';
+
+  if (!name) { toastWarning('Please give the segment a name', {duration:2200}); return; }
+  if (!text) { toastWarning('Please write the segment text',   {duration:2200}); return; }
+
+  const position = { mode: mode, targetId: null };
+  if (mode === 'before' || mode === 'after') {
+    if (!target) { toastWarning('Pick a section for the segment to attach to', {duration:2500}); return; }
+    position.targetId = target;
+  }
+
+  const list = _apLoadSegments();
+  if (_apSegEditId) {
+    let hit = false;
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].id === _apSegEditId) {
+        list[i] = { id: _apSegEditId, name: name, text: text, position: position };
+        hit = true; break;
+      }
+    }
+    if (!hit) list.push({ id: _apSegEditId, name: name, text: text, position: position });
+    toastSuccess('Segment updated', {duration:1800});
+  } else {
+    list.push({ id: _apNewSegId(), name: name, text: text, position: position });
+    toastSuccess('Segment added ✓', {duration:1800});
+  }
+  _apSaveSegments(list);
+  _apSegCancel();
+  await _apRenderTracks();
+}
+
+async function _apSegDelete() {
+  if (!_apSegEditId) return;
+  if (!confirm('Delete this segment? Its generated audio track will also be removed from this browser.')) return;
+  const delId = _apSegEditId;
+  const list = _apLoadSegments().filter(s => s.id !== delId);
+  _apSaveSegments(list);
+  try { await _apDBDelete(_apTrackKey(delId)); } catch (e) { /* no track yet, fine */ }
+  toastInfo('Segment deleted', {duration:1800});
+  _apSegCancel();
+  await _apRenderTracks();
+}
+
+function _apSegUpdateCharCount() {
+  const ta = document.getElementById('segTextInput');
+  const el = document.getElementById('segCharCount');
+  if (el && ta) el.textContent = ((ta.value || '').length).toLocaleString();
+}
+
+/* ══════ Per-track audio import ══════
+   Lets users drop their own recorded narration in for any chapter
+   or segment — useful when they've self-recorded, hired a VO artist,
+   or exported from an external editor. Imported tracks live in the
+   same IndexedDB store as TTS tracks so they Just Work in the ZIP /
+   audiobook-MP3 exports. Imported rows are flagged (source:'imported')
+   so they're never marked stale when the underlying text changes.
+*/
+function _apImportTrack(sectionId) {
+  const input = document.getElementById('apImportFile');
+  if (!input) { toastWarning('Import picker not found', {duration:2000}); return; }
+  input._apPendingSecId = sectionId;
+  input.value = '';     // allow re-selecting the same file
+  input.click();
+}
+
+async function _apOnImportFile(evt) {
+  const input = evt.target;
+  const file = input && input.files && input.files[0];
+  const sectionId = input && input._apPendingSecId;
+  if (input) input._apPendingSecId = null;
+  if (!file || !sectionId) return;
+
+  // Validate MP3 — the audiobook concat pipeline only handles MP3 streams.
+  const name = (file.name || '').toLowerCase();
+  const isMp3 = file.type === 'audio/mpeg' || file.type === 'audio/mp3' || name.endsWith('.mp3');
+  if (!isMp3) {
+    toastWarning('Only MP3 files can be imported (got ' + (file.type || name || 'unknown') +
+                 '). Convert to MP3 first — ffmpeg / Audacity / Online-Audio-Convert all work.',
+                 { duration: 6000 });
+    return;
+  }
+
+  const timeline = _apBuildTimeline();
+  const item = timeline.find(s => s.sectionId === sectionId);
+  if (!item) { toastWarning('Section not found', {duration:2000}); return; }
+
+  // Warn before overwriting an existing track.
+  const existing = await _apDBGet(_apTrackKey(sectionId));
+  if (existing && existing.blob) {
+    const label = existing.source === 'imported' ? 'imported audio' : 'generated audio';
+    if (!confirm('This will replace the current ' + label + ' for "' + item.title + '".\n\nContinue?')) return;
+  }
+
+  const progressEl = document.getElementById('apProgress');
+  if (progressEl) progressEl.textContent = 'Importing "' + file.name + '"…';
+
+  _apSetRowBusy(sectionId, true);
+
+  try {
+    // Normalize MIME to audio/mpeg for consistent playback / download.
+    const bytes = await file.arrayBuffer();
+    const blob  = new Blob([bytes], { type: 'audio/mpeg' });
+    const dur   = await _getBlobDuration(blob);
+
+    const track = {
+      key: _apTrackKey(sectionId),
+      projId: _projId || 'local',
+      sectionId: sectionId,
+      sectionType: item.sectionType,
+      title: item.title,
+      blob: blob,
+      durationSecs: dur || 0,
+      provider: 'imported',
+      voice: '',
+      generatedAt: Date.now(),
+      // Stamp current text hash so if the user later re-enables TTS
+      // for this row, staleness is computed against the text at
+      // import time rather than whatever random hash was there.
+      textHash: _textHash(_apGetSectionText(item)),
+      source: 'imported',
+      importedName: file.name,
+      importedAt: Date.now(),
+    };
+    await _apDBPut(track);
+    if (progressEl) progressEl.textContent = '';
+    toastSuccess('"' + item.title + '" imported (' + _fmtDuration(track.durationSecs) + ')',
+      { icon:'📎', duration:2800 });
+  } catch (e) {
+    console.error('[audio import]', e);
+    if (progressEl) progressEl.textContent = '';
+    toastWarning('Import failed: ' + e.message, { duration: 5000 });
+  } finally {
+    _apSetRowBusy(sectionId, false);
+    await _apRenderTracks();
+  }
+}
+
+window._apOpenSegModal       = _apOpenSegModal;
+window._apSegOnPosMode       = _apSegOnPosMode;
+window._apSegCancel          = _apSegCancel;
+window._apSegSave            = _apSegSave;
+window._apSegDelete          = _apSegDelete;
+window._apSegUpdateCharCount = _apSegUpdateCharCount;
+window._apImportTrack        = _apImportTrack;
+window._apOnImportFile       = _apOnImportFile;
 
 </script>
 <button id="bmFloatBtn" type="button" title="Toggle bookmark">🔖</button>
@@ -11340,117 +11694,4 @@ window._apConcatAll            = _apConcatAll;
       <div style="font-size:10.5px;color:var(--hint);margin-top:3px;line-height:1.4">Find it in Gumroad &rarr; Products &rarr; Edit. Either the short id (preferred) or the URL permalink works.</div>
       <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
         <a href="https://gumroad.com/products/new" target="_blank" rel="noopener"
-           style="font-size:11px;padding:4px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--accent-ui);text-decoration:none;font-family:var(--sans);display:inline-flex;align-items:center;gap:4px"
-           title="Opens Gumroad's new-product form in a new tab">
-          &plus; New product on Gumroad
-        </a>
-        <a href="https://gumroad.com/products" target="_blank" rel="noopener"
-           style="font-size:11px;padding:4px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);text-decoration:none;font-family:var(--sans);display:inline-flex;align-items:center;gap:4px"
-           title="Opens your Gumroad product list in a new tab">
-          &#x2197; My products
-        </a>
-        <a href="https://gumroad.com/dashboard" target="_blank" rel="noopener"
-           style="font-size:11px;padding:4px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);text-decoration:none;font-family:var(--sans);display:inline-flex;align-items:center;gap:4px"
-           title="Opens your Gumroad dashboard in a new tab">
-          &#x2197; Gumroad dashboard
-        </a>
-      </div>
-
-      <div style="display:grid;grid-template-columns:1fr 90px;gap:8px;margin-top:10px">
-        <div>
-          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Display price <span style="opacity:.6;font-weight:400">(UI only &mdash; actual price lives on Gumroad)</span></label>
-          <input type="text" id="rlPrice" placeholder="5"
-            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
-        </div>
-        <div>
-          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Currency</label>
-          <select id="rlCurrency" style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
-            <option value="USD">USD</option>
-            <option value="EUR">EUR</option>
-            <option value="GBP">GBP</option>
-            <option value="CAD">CAD</option>
-            <option value="AUD">AUD</option>
-          </select>
-        </div>
-      </div>
-
-      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin-top:12px;cursor:pointer">
-        <input type="checkbox" id="rlAudioBundle" style="margin:0;cursor:pointer">
-        <span>Include audiobook with purchase <span style="opacity:.6;font-size:11px">(buyers can play/download if audio is generated)</span></span>
-      </label>
-
-      <div style="display:grid;grid-template-columns:1fr 70px;gap:8px;align-items:end;margin-top:12px">
-        <div>
-          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Free preview</label>
-          <div style="font-size:10.5px;color:var(--hint);line-height:1.4">How many chapters readers can sample before the gate. 0 = full gate (no preview). 1 is the typical sales-page default.</div>
-        </div>
-        <input type="number" id="rlPreviewN" value="1" min="0" max="99" step="1"
-          style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;text-align:center">
-      </div>
-
-      <div style="font-size:10.5px;color:var(--hint);margin-top:10px;line-height:1.45">
-        Readers see the preview chapters inline, then hit a "Continue reading" card with cover, blurb, price and a <strong>Buy on Gumroad</strong> button.
-        Gumroad&#39;s license key unlocks the book for 30 days per entry.
-      </div>
-    </div>
-
-    <!-- URL preview -->
-    <div id="rlUrlBox" style="background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;padding:10px 12px;margin:10px 0 6px;display:none">
-      <div style="font-size:9.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Reader link</div>
-      <div id="rlUrlText" style="font-family:monospace;font-size:11.5px;color:var(--text);word-break:break-all;cursor:pointer" onclick="_rlCopyUrl()" title="Click to copy"></div>
-      <div style="display:flex;gap:6px;margin-top:8px">
-        <button type="button" onclick="_rlCopyUrl()" style="font-size:11px;padding:5px 10px;border-radius:6px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);cursor:pointer">📋 Copy link</button>
-        <button type="button" onclick="_rlOpenPreview()" style="font-size:11px;padding:5px 10px;border-radius:6px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);cursor:pointer">👁 Preview in reader</button>
-      </div>
-    </div>
-
-    <div id="rlStatus" style="font-size:11px;color:var(--hint);margin:10px 0;min-height:14px"></div>
-
-    <div id="rlFooter" style="display:flex;gap:7px;justify-content:flex-end;margin-top:14px">
-      <button type="button" onclick="closeReleaseModal()" style="padding:9px 15px;border-radius:7px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Close</button>
-      <button type="button" id="rlUnpublishBtn" onclick="_rlUnpublish()" style="display:none;padding:9px 15px;border-radius:7px;border:.5px solid var(--border-mid);background:transparent;color:#c04040;font-family:var(--sans);font-size:12px;cursor:pointer">Unpublish</button>
-      <button type="button" id="rlPublishBtn" onclick="_rlPublish()" style="padding:9px 18px;border-radius:7px;border:none;background:var(--accent-ui);color:#fff;font-family:var(--sans);font-size:12px;cursor:pointer;font-weight:500">🔖 Publish</button>
-    </div>
-  </div>
-</div>
-
-<!-- Custom context menu -->
-<div id="ctxMenu"><button class="ctx-item" id="ctxBold"    onclick="_ctxWrap('**')"><span>𝐁</span> Bold   <span class="ctx-kbd">Ctrl+B</span></button><button class="ctx-item" id="ctxItalic"  onclick="_ctxWrap('*')"><span>𝐼</span> Italic <span class="ctx-kbd">Ctrl+I</span></button><div class="ctx-sep"></div><button class="ctx-item" id="ctxScene"   onclick="_ctxScene()"><span>✦</span> Scene break</button><button class="ctx-item" id="ctxFind"    onclick="_ctxFind()"><span>⌕</span> Find selection <span class="ctx-kbd">Ctrl+F</span></button><div class="ctx-sep"></div><button class="ctx-item" id="ctxCopy"    onclick="_ctxCopy()"><span>⎘</span> Copy  <span class="ctx-kbd">Ctrl+C</span></button><button class="ctx-item" id="ctxCut"     onclick="_ctxCut()"><span>✂</span> Cut   <span class="ctx-kbd">Ctrl+X</span></button><div class="ctx-sep"></div><button class="ctx-item has-sub" id="ctxDingbat" onmouseenter="_ctxDingbatOpen(this)" onclick="_ctxDingbatOpen(this)">✦ Insert dingbat</button></div>
-<div id="ctxDingbatSub"><span class="sub-label">Ornaments</span><div class="dingbat-grid" id="ctxDingbatGrid"></div><div style="height:.5px;background:var(--border);margin:6px 0"></div><span class="sub-label">Scene break</span><div class="dingbat-grid"><button class="db-btn" onclick="_ctxInsertDingbat('__SCENE_BREAK__')" title="Scene break">— ✦ —</button></div></div>
-
-<!-- Lulu order modal -->
-<div id="luluModal">
-  <div class="lm-box">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
-      <div style="font-family:var(--sans);font-size:15px;font-weight:600;color:var(--text)">🟠 Order via Lulu</div>
-      <button onclick="closeLuluModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint)" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--hint)'">×</button>
-    </div>
-
-    <!-- Paper & Quantity -->
-    <div class="lm-row">
-      <div>
-        <label>Paper</label>
-        <select id="lmPaper">
-          <option value="white">White 60lb (standard)</option>
-          <option value="cream">Cream 60lb</option>
-        </select>
-      </div>
-      <div>
-        <label>Copies</label>
-        <input id="lmQty" type="number" min="1" max="50" value="1">
-      </div>
-    </div>
-
-    <!-- Shipping address -->
-    <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--hint);margin:16px 0 6px">Shipping address</div>
-    <label>Full name</label>
-    <input id="lmName" placeholder="Jane Siler">
-    <label>Street address</label>
-    <input id="lmStreet" placeholder="12 Bridge Street">
-    <div class="lm-row">
-      <div><label>City</label><input id="lmCity" placeholder="Mullingar"></div>
-      <div><label>Postcode</label><input id="lmPost" placeholder="N91 XY12"></div>
-    </div>
-    <div class="lm-row">
-      <div>
-        <label>
+           style="font-size:11px;padding:4px 9
