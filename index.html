@@ -1798,7 +1798,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-22-signin-fix  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-22-signin-stuck  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -2119,9 +2119,17 @@ async function signInGoogle() {
   const isFile = location.protocol === 'file:';
   const isAnon = user && user.isAnonymous;
 
-  // Helper: run redirect flow (navigates away then returns)
+  // Helper: run redirect flow (navigates away then returns).  We mark the
+  // attempt in sessionStorage so on page load we can detect a silent failure
+  // (common cause: Chrome profile signed into a different Google account than
+  // the one picked in Firebase's consent screen — the redirect resolves but
+  // the auth token never persists back into the page's origin).
   const doRedirect = async () => {
     try {
+      try {
+        sessionStorage.setItem('folio_signin_pending',
+          JSON.stringify({ at: Date.now(), anon: !!isAnon }));
+      } catch(e) {}
       setStatus('Redirecting to Google sign-in…');
       if (isAnon) {
         await window._fbAuth.linkWithRedirect(user, window._googleProvider);
@@ -2197,6 +2205,10 @@ async function signInGoogle() {
       try {
         setStatus('Switching to your existing Folio account...');
         try { await window._fbAuth.signOut(window._auth); } catch(e0) {}
+        try {
+          sessionStorage.setItem('folio_signin_pending',
+            JSON.stringify({ at: Date.now(), anon: false, caiu: true }));
+        } catch(e0) {}
         // Redirect avoids the popup-blocker; page reloads with the user
         // already signed in via getRedirectResult() in the module script.
         await window._fbAuth.signInWithRedirect(window._auth, window._googleProvider);
@@ -7552,6 +7564,119 @@ document.getElementById('bookPreview').addEventListener('mouseover', e => {
   } else {
     start();
   }
+})();
+
+/* ═══════════════════════════════════════════════════════════════════
+   SIGN-IN STUCK DETECTOR — shows a human-readable modal when the
+   user initiates a Google sign-in but the page finishes loading
+   without them actually being signed in. Most common cause: the
+   Chrome profile is signed into a different Google account than the
+   one they picked in Firebase's consent screen; Google's redirect
+   resolves but the session never materialises back in Folio's origin.
+   ═══════════════════════════════════════════════════════════════════ */
+
+function _showSigninStuckModal(reason) {
+  // Build once, reuse.
+  let modal = document.getElementById('signinStuckModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'signinStuckModal';
+    modal.style.cssText =
+      'position:fixed;top:0;left:0;right:0;bottom:0;z-index:500;' +
+      'background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);' +
+      'display:flex;align-items:center;justify-content:center;' +
+      'padding:20px;font-family:var(--sans);color:var(--text)';
+    modal.innerHTML =
+      '<div style="background:var(--surface);border:.5px solid var(--border-mid);' +
+             'border-radius:14px;max-width:520px;width:100%;padding:28px 30px 22px;' +
+             'box-shadow:0 10px 40px rgba(0,0,0,0.35)">' +
+        '<h3 style="font-size:16px;font-weight:600;margin:0 0 6px;letter-spacing:-0.01em">' +
+          'Google sign-in didn\'t complete' +
+        '</h3>' +
+        '<p id="signinStuckReason" style="font-size:12.5px;color:var(--muted);line-height:1.55;margin:0 0 16px"></p>' +
+        '<div style="font-size:13px;line-height:1.6;color:var(--text);margin-bottom:16px">' +
+          'The most common cause is <strong>your browser profile is signed into a different Google account</strong> than the one you just picked. Google\'s sign-in completes on their end, but the token can\'t land back in Folio cross-account.' +
+        '</div>' +
+        '<div style="background:var(--bg);border-radius:8px;padding:12px 14px;font-size:12.5px;line-height:1.65">' +
+          '<strong style="display:block;margin-bottom:6px">Three ways to get around it:</strong>' +
+          '1. Open this page in an <strong>incognito / private window</strong> — cleanest fix.<br>' +
+          '2. Switch Chrome profile to the one matching the Google account you want to use.<br>' +
+          '3. Use a different browser that\'s already signed into that account.' +
+        '</div>' +
+        '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">' +
+          '<button type="button" id="signinStuckClose" ' +
+            'style="padding:8px 14px;border-radius:7px;border:.5px solid var(--border-mid);' +
+                   'background:transparent;color:var(--text);font-family:var(--sans);font-size:12.5px;cursor:pointer">' +
+            'Close' +
+          '</button>' +
+          '<button type="button" id="signinStuckRetry" ' +
+            'style="padding:8px 14px;border-radius:7px;border:none;' +
+                   'background:var(--accent-ui);color:#fff;font-family:var(--sans);font-size:12.5px;cursor:pointer">' +
+            'Try sign-in again' +
+          '</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) _dismissSigninStuckModal();
+    });
+    modal.querySelector('#signinStuckClose').addEventListener('click', _dismissSigninStuckModal);
+    modal.querySelector('#signinStuckRetry').addEventListener('click', () => {
+      _dismissSigninStuckModal();
+      if (typeof signInGoogle === 'function') signInGoogle();
+    });
+  }
+  const reasonEl = modal.querySelector('#signinStuckReason');
+  if (reasonEl) reasonEl.textContent = reason || '';
+  modal.style.display = 'flex';
+}
+
+function _dismissSigninStuckModal() {
+  const m = document.getElementById('signinStuckModal');
+  if (m) m.style.display = 'none';
+  try { sessionStorage.removeItem('folio_signin_pending'); } catch(e){}
+}
+
+(function _signinStuckWatcher() {
+  // Wait until Firebase's auth state has had a chance to settle, then check.
+  // We give it 6 seconds — generous; signed-in users resolve in well under 2.
+  const GRACE_MS = 6000;
+  let checked = false;
+
+  const check = () => {
+    if (checked) return;
+    let pending = null;
+    try { pending = JSON.parse(sessionStorage.getItem('folio_signin_pending') || 'null'); } catch(e){}
+    if (!pending) return;
+    // Ignore very old attempts (user opened a new tab much later)
+    if (Date.now() - (pending.at || 0) > 10 * 60 * 1000) {
+      try { sessionStorage.removeItem('folio_signin_pending'); } catch(e){}
+      return;
+    }
+    const u = window._user;
+    // If we're signed in as a non-anonymous user, the sign-in worked. Clear.
+    if (u && !u.isAnonymous) {
+      try { sessionStorage.removeItem('folio_signin_pending'); } catch(e){}
+      return;
+    }
+    // Stuck. Surface the modal.
+    checked = true;
+    _showSigninStuckModal('Your sign-in attempt completed at Google, but Folio never received the session. This is almost always a browser-profile or cookie issue, not a Folio bug.');
+  };
+
+  // Run twice: once after auth has a chance to fire, and once more a bit later
+  // in case Firebase is slow to resolve the redirect result.
+  setTimeout(check, GRACE_MS);
+  setTimeout(check, GRACE_MS * 2);
+
+  // Also clear the pending flag on successful sign-in via auth-changed event.
+  window.addEventListener('auth-changed', (e) => {
+    const u = e && e.detail && e.detail.user;
+    if (u && !u.isAnonymous) {
+      try { sessionStorage.removeItem('folio_signin_pending'); } catch(e){}
+      _dismissSigninStuckModal();
+    }
+  });
 })();
 
 /* ═══════════════════════════════════════════════════════════════════
