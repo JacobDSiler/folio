@@ -1798,7 +1798,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-22-preview  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-22-signin-fix  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -2188,14 +2188,33 @@ async function signInGoogle() {
       return;
     }
 
-    // This Google account already has a Firebase account — sign in directly
+    // This Google account is already linked to a different Firebase user
+    // (the user signed in before on a previous session). Sign out the current
+    // anonymous session and kick off a REDIRECT flow instead of a popup —
+    // because browsers block a second popup in the same click chain, so
+    // signInWithPopup here would fail with auth/popup-blocked 100% of the time.
     if (e.code === 'auth/credential-already-in-use') {
       try {
-        const r2 = await window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
-        setStatus('Signed in as ' + (r2.user.displayName || r2.user.email) + ' ✓');
-        await loadFolioList();
-      } catch(e2) {
-        _showAuthError(`Sign-in failed (${e2.code}): ${e2.message}`);
+        setStatus('Switching to your existing Folio account...');
+        try { await window._fbAuth.signOut(window._auth); } catch(e0) {}
+        // Redirect avoids the popup-blocker; page reloads with the user
+        // already signed in via getRedirectResult() in the module script.
+        await window._fbAuth.signInWithRedirect(window._auth, window._googleProvider);
+      } catch (e2) {
+        // If the redirect itself fails for some reason (rare), try the popup
+        // one more time — if the user is still on the page and nothing
+        // grabbed focus, it might work.
+        try {
+          const r2 = await window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
+          setStatus('Signed in as ' + (r2.user.displayName || r2.user.email) + ' ✓');
+          await loadFolioList();
+        } catch(e3) {
+          _showAuthError(
+            '<strong>Could not switch to your existing account.</strong><br>' +
+            '<span style="font-size:10.5px">' + (e3.message || e2.message) + '</span><br><br>' +
+            '<span style="font-size:10.5px;opacity:.8">Try reloading the page, then click Sign In again.</span>'
+          );
+        }
       }
       return;
     }
