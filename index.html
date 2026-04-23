@@ -1908,7 +1908,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-23-split-long-paras  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-23-pdf-polish  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -4873,7 +4873,7 @@ function renderPreview(){
       _chCounter++;
       const chNum=chapterNumber(_chCounter);
       const chImg=(chImgs&&S.images.length>1)?S.images[_chCounter%S.images.length].data:(chImgs&&S.images.length===1)?S.images[0].data:null;
-      const titleBlock=(ch.title||chNum)?`<div style="text-align:center;padding-top:${Math.round(8*MM)}px;margin-bottom:${Math.round(10*MM)}px">${chNum?`<div style="font-family:${font};font-size:${pt(H_CHNUM)};letter-spacing:0.18em;text-transform:uppercase;color:${accent};margin-bottom:${mm(1.6)}">Chapter ${esc(String(chNum))}</div>`:''} ${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(H_CHAPTER)};font-weight:700;color:${T.text};line-height:1.3">${esc(ch.title)}</div>`:''} ${chImg?`<div style="margin:${mm(2)} auto;max-height:${mm(15.9)};text-align:center"><img src="${chImg}" style="max-height:${mm(15.9)};max-width:70%;object-fit:contain;opacity:0.8"></div>`:''}<div style="font-size:${pt(H_ORN)};color:${accent};margin-top:${mm(1.6)};opacity:0.65">${esc(orn)}</div></div>`:'';
+      const titleBlock=(ch.title||chNum)?`<div style="text-align:center;padding-top:${Math.round(8*MM)}px;margin-bottom:${Math.round(10*MM)}px">${chNum?`<div style="font-family:${font};font-size:${pt(H_CHNUM)};letter-spacing:0.18em;text-transform:uppercase;color:${accent};margin-bottom:${mm(1.6)}">Chapter ${esc(String(chNum))}</div>`:''} ${ch.title?`<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(H_CHAPTER)};font-weight:700;color:${T.text};line-height:1.3">${esc(_bindShortConnectors(ch.title))}</div>`:''} ${chImg?`<div style="margin:${mm(2)} auto;max-height:${mm(15.9)};text-align:center"><img src="${chImg}" style="max-height:${mm(15.9)};max-width:70%;object-fit:contain;opacity:0.8"></div>`:''}<div style="font-size:${pt(H_ORN)};color:${accent};margin-top:${mm(1.6)};opacity:0.65">${esc(orn)}</div></div>`:'';
       const paras=ch.content.split('\n').filter(p=>p.trim());
       const contentW=pw-mg*2;
       const contentH=ph-contentT-contentB;
@@ -5175,22 +5175,61 @@ function showChapterExportMenu(chId, anchorEl) {
   }, 10);
 }
 
-// Draw text with *italic* and **bold** inline markdown via jsPDF font switching
+// Draw text with inline markdown via jsPDF font switching.
+// Handles both asterisk and underscore markers the same way as md():
+//   **bold** / __bold__   →  doc.setFont(..., 'bold')
+//   *italic* / _italic_   →  doc.setFont(..., 'italic')
+// Underscore markers require a word boundary on either side so that
+// filenames / identifiers like foo_bar_baz don't get accidentally
+// italicised. Gutenberg's source uses underscores for italics
+// (e.g. "_very_ fine!") so this is what unblocks Bug #3.
 function _pdfTextMd(doc, text, x, y) {
-  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/g);
+  const MD_RE = /(\*\*[^*\n]+\*\*|\*[^*\n]+\*|(?:^|[^\w])__[^_\n]+__(?=[^\w]|$)|(?:^|[^\w])_[^_\n]+_(?=[^\w]|$))/g;
+  const parts = text.split(MD_RE);
   if (parts.length === 1) { doc.text(text, x, y); return; }
   let cx = x;
   const bf = doc.getFont();
   parts.forEach(pt => {
     if (!pt) return;
+    // For underscore-anchored spans, the regex captures the boundary
+    // char (or empty) before the marker — peel it off if present.
+    let style = null;
     let inner = pt;
-    if (pt.startsWith('**') && pt.endsWith('**')) { doc.setFont(bf.fontName,'bold');       inner = pt.slice(2,-2); }
-    else if (pt.startsWith('*') && pt.endsWith('*')) { doc.setFont(bf.fontName,'italic');  inner = pt.slice(1,-1); }
-    else doc.setFont(bf.fontName, bf.fontStyle);
+    if (pt.startsWith('**') && pt.endsWith('**')) {
+      style = 'bold'; inner = pt.slice(2, -2);
+    } else if (pt.startsWith('*') && pt.endsWith('*')) {
+      style = 'italic'; inner = pt.slice(1, -1);
+    } else {
+      // Possible leading boundary char before underscore run.
+      const m = pt.match(/^([^_]?)(__[^_\n]+__|_[^_\n]+_)$/);
+      if (m) {
+        const lead = m[1];
+        const span = m[2];
+        if (lead) { doc.setFont(bf.fontName, bf.fontStyle); doc.text(lead, cx, y); cx += doc.getTextWidth(lead); }
+        if (span.startsWith('__')) { style = 'bold';   inner = span.slice(2, -2); }
+        else                       { style = 'italic'; inner = span.slice(1, -1); }
+      }
+    }
+    if (style) doc.setFont(bf.fontName, style);
+    else       doc.setFont(bf.fontName, bf.fontStyle);
     doc.text(inner, cx, y);
     cx += doc.getTextWidth(inner);
   });
   doc.setFont(bf.fontName, bf.fontStyle);
+}
+
+// Bind short connector words to the following word with a NBSP so they
+// don't end up dangling at the end of a wrapped line (fixes Bug #5:
+// "THE PIPER AT\nTHE GATES OF DAWN" → "THE PIPER\nAT THE GATES\nOF DAWN",
+// and "THE RETURN OF\nULYSSES" → "THE RETURN\nOF ULYSSES"). Used for
+// chapter titles only — binding every occurrence in prose would
+// interact badly with justified text spacing.
+function _bindShortConnectors(s) {
+  if (!s) return '';
+  return String(s).replace(
+    /(^|\s)(A|AN|AT|BY|FOR|FROM|IN|INTO|OF|ON|ONTO|OR|THE|TO|UP|WITH|AND)\s+(?=\S)/gi,
+    (_, lead, w) => lead + w + '\u00a0'
+  );
 }
 
 async function exportPDF(returnBlob=false){
@@ -5326,8 +5365,8 @@ async function exportPDF(returnBlob=false){
       if(subtitle){doc.setFont(PDF_FONT,'italic');doc.setFontSize(13);doc.setTextColor(...acR);doc.text(subtitle,pw/2,ph*0.4+titleLines.length*12+6,{align:'center'})}
       doc.setDrawColor(...dvR);doc.line(pw/2-16,ph*0.52,pw/2+16,ph*0.52);
       doc.setFont(PDF_FONT,'normal');doc.setFontSize(11);doc.setTextColor(...txR);doc.text(author,pw/2,ph*0.52+8,{align:'center'});
-      if(copy){newPage();doc.setFont(PDF_FONT,'normal');doc.setFontSize(8);doc.setTextColor(...txR);const cl=doc.splitTextToSize(copy,tw*0.85);doc.text(cl,mg,ph-mg-cl.length*4);addPageNum()}
-      if(dedic){newPage();doc.setFont(PDF_FONT,'italic');doc.setFontSize(11.5);doc.setTextColor(...txR);const dl=doc.splitTextToSize(dedic,tw*0.7);doc.text(dl,pw/2,ph/2,{align:'center'});addPageNum()}
+      if(copy){newPage();doc.setFont(PDF_FONT,'normal');doc.setFontSize(8);doc.setTextColor(...txR);const cl=doc.splitTextToSize(copy,tw*0.85);doc.text(cl,mg,ph-mg-cl.length*4);markUsed();addPageNum()}
+      if(dedic){newPage();doc.setFont(PDF_FONT,'italic');doc.setFontSize(11.5);doc.setTextColor(...txR);const dl=doc.splitTextToSize(dedic,tw*0.7);doc.text(dl,pw/2,ph/2,{align:'center'});markUsed();addPageNum()}
 
       // Front matter
       frontMatter.forEach(fm=>{
@@ -5422,7 +5461,9 @@ async function exportPDF(returnBlob=false){
         }
         if(ch.title){
           doc.setFont(PDF_FONT,'bold');doc.setFontSize(18);doc.setTextColor(...txR);
-          const tl=doc.splitTextToSize(ch.title,tw*0.85);
+          // Bind short connectors so chapter titles don't wrap with a
+          // dangling "AT" / "OF" at the end of a line (fixes Bug #5).
+          const tl=doc.splitTextToSize(_bindShortConnectors(ch.title),tw*0.85);
           doc.text(tl,pw/2,y,{align:'center'});
           y+=tl.length*9+3;
         }
