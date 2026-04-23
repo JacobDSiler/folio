@@ -1746,7 +1746,8 @@ html[data-reader] #readerBar { display: flex; }
         <span>Embed fonts in PDF <span style="opacity:.6">(slower · required for POD)</span></span>
       </div>
       <div class="exp-grid">
-        <button class="exp-btn" id="btnPDF" onclick="pickExport('PDF','Print-ready',exportPDF)"><span class="fmt">PDF</span><span class="lbl">Print</span></button>
+        <button class="exp-btn" id="btnPDF" onclick="pickExport('PDF','Print-ready',exportPDF)" title="Print-shop PDF with embedded fonts — for Lulu / IngramSpark / KDP"><span class="fmt">PDF</span><span class="lbl">Print</span></button>
+        <button class="exp-btn" id="btnPRINT" onclick="pickExport('PRINT','Match preview',exportBrowserPrint)" title="Opens the browser print dialog — pick 'Save as PDF' for a pixel-perfect match to the preview"><span class="fmt">PRINT</span><span class="lbl">WYSIWYG</span></button>
         <button class="exp-btn" id="btnEPUB" onclick="pickExport('EPUB','E-readers',exportEPUB)"><span class="fmt">EPUB</span><span class="lbl">E-reader</span></button>
         <button class="exp-btn" id="btnMOBI" onclick="pickExport('MOBI','Kindle-ready',exportMOBI)"><span class="fmt">MOBI</span><span class="lbl">Kindle</span></button>
         <button class="exp-btn" id="btnDOCX" onclick="pickExport('DOCX','Word / edit',exportDOCX)"><span class="fmt">DOCX</span><span class="lbl">Word</span></button>
@@ -1908,7 +1909,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-23-pdf-polish  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-23-audio-ui-restore  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -4513,14 +4514,15 @@ function downloadBlob(blob,filename){const a=document.createElement('a');a.href=
 function setStatus(msg){document.getElementById('statusBar').textContent=msg}
 /* Export format metadata */
 const FMT_META={
-  PDF: {lbl:'Print-ready',  fn:'exportPDF'},
-  EPUB:{lbl:'E-readers',    fn:'exportEPUB'},
-  MOBI:{lbl:'Kindle-ready', fn:'exportMOBI'},
-  DOCX:{lbl:'Word / edit',  fn:'exportDOCX'},
-  RTF: {lbl:'Universal doc',fn:'exportRTF'},
-  MD:  {lbl:'Markdown',     fn:'exportMarkdown'},
-  HTML:{lbl:'Web / ebook',  fn:'exportHTML'},
-  TXT: {lbl:'Plain text',   fn:'exportTXT'},
+  PDF:  {lbl:'Print-ready',  fn:'exportPDF'},
+  PRINT:{lbl:'Match preview',fn:'exportBrowserPrint'},
+  EPUB: {lbl:'E-readers',    fn:'exportEPUB'},
+  MOBI: {lbl:'Kindle-ready', fn:'exportMOBI'},
+  DOCX: {lbl:'Word / edit',  fn:'exportDOCX'},
+  RTF:  {lbl:'Universal doc',fn:'exportRTF'},
+  MD:   {lbl:'Markdown',     fn:'exportMarkdown'},
+  HTML: {lbl:'Web / ebook',  fn:'exportHTML'},
+  TXT:  {lbl:'Plain text',   fn:'exportTXT'},
 };
 let _lastFmt = localStorage.getItem('folio_last_fmt') || 'PDF';
 
@@ -5231,6 +5233,46 @@ function _bindShortConnectors(s) {
     (_, lead, w) => lead + w + '\u00a0'
   );
 }
+
+// ─── WYSIWYG print export (browser print → "Save as PDF") ───
+//
+// The browser's print pipeline gives us true WYSIWYG because it
+// uses the same font metrics and line-breaking as the on-screen
+// preview. The existing `beforeprint` handler builds the
+// `#printBook` HTML with the current chapters, headers, drop
+// caps, ornament dividers, page numbers, and footer, and the
+// @media print CSS (line 296) hides everything else. All this
+// function does is (a) set an @page rule so the paper matches
+// the chosen trim size, (b) toast a one-line hint about picking
+// "Save as PDF" in the print dialog, and (c) call window.print().
+function exportBrowserPrint() {
+  try {
+    const [pwMM, phMM] = getPageDims();
+    const id = 'folio_print_pagesize';
+    let st = document.getElementById(id);
+    if (!st) {
+      st = document.createElement('style');
+      st.id = id;
+      document.head.appendChild(st);
+    }
+    // margin:0 strips the browser's own margins — the inner
+    // page padding is supplied by #printBook .pb { padding: ... }.
+    st.textContent = '@page { size: ' + pwMM + 'mm ' + phMM + 'mm; margin: 0; }';
+
+    if (typeof toastInfo === 'function') {
+      toastInfo('Tip: in the print dialog, pick destination "Save as PDF" for a match to the preview.',
+                { icon: '🖨', duration: 5000 });
+    }
+    // Small delay so the toast has time to paint before the
+    // print dialog steals focus.
+    setTimeout(() => { window.print(); }, 80);
+  } catch (e) {
+    console.error('[print]', e);
+    if (typeof toastWarning === 'function')
+      toastWarning('Browser print failed: ' + e.message, { duration: 4000 });
+  }
+}
+window.exportBrowserPrint = exportBrowserPrint;
 
 async function exportPDF(returnBlob=false){
   setExportState(true,'PDF');
@@ -7922,11 +7964,28 @@ window.addEventListener('beforeprint', () => {
     html+=wrapPage(`${sec.title?`<h2 class="st">${esc(sec.title)}</h2>`:''}<div style="margin-top:1em">${renderParas(paras,sec.title,true)}</div>`,sec.title);
   });
 
-  document.getElementById('printBook').innerHTML=html;
-  document.getElementById('printBook').style.fontFamily=font;
+  const _pb = document.getElementById('printBook');
+  _pb.innerHTML = html;
+  // Inherit the user's live preview settings so browser-print
+  // output visually matches the preview: body font, size, line-
+  // height, and justification all come from the sidebar.
+  _pb.style.fontFamily = font;
+  const _fs = parseFloat(getV('fontSize')) || 13;
+  const _lh = parseFloat(getV('lineSpacing')) || 1.7;
+  const _ta = getC('justifyText') ? 'justify' : 'left';
+  _pb.style.fontSize   = _fs + 'pt';
+  _pb.style.lineHeight = String(_lh);
+  _pb.style.textAlign  = _ta;
 });
-window.addEventListener('afterprint', ()=>{
-  document.getElementById('printBook').innerHTML='';
+window.addEventListener('afterprint', () => {
+  const pb = document.getElementById('printBook');
+  if (pb) pb.innerHTML = '';
+  // Clear the @page size override too, so a subsequent Ctrl+P
+  // directly from the browser gets the browser's default paper
+  // back. (If the user triggered us through the PRINT button
+  // again we'll reapply it fresh.)
+  const st = document.getElementById('folio_print_pagesize');
+  if (st) st.remove();
 });
 
 // Start blank — show loading state until Firebase resolves.
@@ -11924,6 +11983,14 @@ window._apOnImportFile       = _apOnImportFile;
       <div class="ap-empty">Loading tracks…</div>
     </div>
 
+    <!-- Hidden file picker — each row's 📎 button triggers this. -->
+    <input type="file" id="apImportFile" accept=".mp3,audio/mpeg,audio/mp3" style="display:none" onchange="_apOnImportFile(event)">
+
+    <!-- Create a new custom audio segment (intro / intermission / outro / etc.) -->
+    <button type="button" class="ap-add-seg-btn" onclick="_apOpenSegModal()">
+      + Add audio segment (intro, intermission, outro…)
+    </button>
+
     <div id="apEstimate" style="font-size:11.5px;color:var(--text);margin-top:10px;padding:8px 10px;background:var(--bg);border-radius:7px;line-height:1.5"></div>
 
     <div class="ap-progress" id="apProgress"></div>
@@ -12016,8 +12083,4 @@ window._apOnImportFile       = _apOnImportFile;
     <div id="rlPaidFields" style="display:none;padding:12px;background:var(--bg);border-radius:8px;border:.5px solid var(--border-mid);margin-bottom:10px">
       <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Gumroad product id</label>
       <input type="text" id="rlProductId" placeholder="short-product-id or permalink (e.g. embers-of-elekra)"
-        style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
-      <div style="font-size:10.5px;color:var(--hint);margin-top:3px;line-height:1.4">Find it in Gumroad &rarr; Products &rarr; Edit. Either the short id (preferred) or the URL permalink works.</div>
-      <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap">
-        <a href="https://gumroad.com/products/new" target="_blank" rel="noopener"
-           style="font-size:11px;padding:4px 9
+        style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var
