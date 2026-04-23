@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Privacy Policy — Folio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Crimson+Pro:wght@400;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f0ede6;
+    --surface: #ffffff;
+    --border: rgba(0,0,0,0.1);
+    --border-mid: rgba(0,0,0,0.2);
+    --text: #1a1a1a;
+    --muted: #6b6b6b;
+    --accent: #8B4513;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Crimson Pro', Georgia, serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 40px 20px 80px;
+  }
+  .page {
+    max-width: 680px;
+    margin: 0 auto;
+    background: var(--surface);
+    border: .5px solid var(--border);
+    border-radius: 14px;
+    padding: 56px 56px 48px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+  }
+  h1 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    letter-spacing: -0.01em;
+  }
+  .sub {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    margin-bottom: 32px;
+  }
+  h2 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 20px;
+    font-weight: 700;
+    margin-top: 28px;
+    margin-bottom: 10px;
+    color: var(--accent);
+  }
+  p { margin-bottom: 14px; font-size: 17px; }
+  ul { margin: 0 0 14px 22px; }
+  li { margin-bottom: 6px; font-size: 17px; }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent); }
+  a:hover { opacity: .7; }
+  code {
+    background: var(--bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 14px;
+  }
+  .footer {
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: .5px solid var(--border);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  @media (max-width: 600px) {
+    .page { padding: 36px 24px; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 18px; }
+    p, li { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+  <main class="page">
+    <h1>Privacy Policy</h1>
+    <div class="sub">Folio &nbsp;·&nbsp; last updated April 2026</div>
+
+    <p>
+      Folio is a personal book-formatting and reader tool built by Jacob Siler.
+      This page explains, in plain English, what data Folio handles and what happens to it.
+      No legalese, no dark patterns.
+    </p>
+
+    <h2>What Folio stores</h2>
+    <p>When you use Folio signed in with a Google account, the following is stored in Google Firebase (operated by Google LLC under Google&#39;s privacy policy):</p>
+    <ul>
+      <li>Your manuscript content — chapter text, titles, and formatting settings you&#39;ve chosen.</li>
+      <li>Your Firebase user id and the email address associated with your Google sign-in.</li>
+      <li>Audio files you&#39;ve generated via the TTS feature, cached in your own browser&#39;s IndexedDB (never uploaded to Folio&#39;s servers).</li>
+      <li>If you enable a paid release, your Gumroad product id is stored as part of the release metadata. Buyer license keys are <strong>never</strong> stored on Folio&#39;s side — each reader&#39;s key stays in their own browser.</li>
+    </ul>
+
+    <h2>What Folio does not do</h2>
+    <ul>
+      <li>No analytics. No tracking pixels. No behavioural profiling.</li>
+      <li>No advertising. Folio will never serve ads and will never let third parties do so on its behalf.</li>
+      <li>No selling of data. Ever. Your manuscript is your manuscript.</li>
+      <li>No email marketing or newsletter lists built from your account. If Folio ever needs to email you, it&#39;ll be because you asked it to.</li>
+    </ul>
+
+    <h2>Third-party services Folio relies on</h2>
+    <p>
+      Folio is a thin client built on top of a few well-known platforms. Each has its own privacy policy, linked below:
+    </p>
+    <ul>
+      <li><strong>Google Firebase</strong> — authentication and Firestore storage for your account and manuscripts.
+        <a href="https://firebase.google.com/support/privacy" target="_blank" rel="noopener">Firebase privacy</a>.</li>
+      <li><strong>Google Cloud Text-to-Speech</strong> — optional, opt-in. Only used if you generate audio and supply your own API key. Text you submit is sent to Google under their standard terms.
+        <a href="https://cloud.google.com/terms/data-processing-addendum" target="_blank" rel="noopener">Google Cloud DPA</a>.</li>
+      <li><strong>ElevenLabs</strong> — optional, opt-in. Same deal: only used if you turn it on and supply your own API key.
+        <a href="https://elevenlabs.io/privacy" target="_blank" rel="noopener">ElevenLabs privacy</a>.</li>
+      <li><strong>Gumroad</strong> — only if you publish a paid release. Readers pay on Gumroad; Folio never sees card details or full contact info.
+        <a href="https://gumroad.com/privacy" target="_blank" rel="noopener">Gumroad privacy</a>.</li>
+      <li><strong>Cloudflare Workers</strong> — used as a stateless proxy for the TTS and paywall APIs. Folio&#39;s workers do not log or persist request bodies.</li>
+    </ul>
+
+    <h2>Your rights</h2>
+    <ul>
+      <li>Delete any folio at any time from the sidebar &mdash; the Firestore document is removed immediately.</li>
+      <li>Sign out to return to a guest/anonymous state.</li>
+      <li>Request full account deletion by emailing the address below. All your Firestore data will be deleted within 14 days.</li>
+      <li>Request a copy of your data in JSON. Same email, same timeline.</li>
+    </ul>
+
+    <h2>Cookies and local storage</h2>
+    <p>
+      Folio uses your browser&#39;s <code>localStorage</code> and <code>IndexedDB</code> for app settings,
+      bookmarks, annotations, and cached audio. These stay in your browser and are not transmitted to Folio.
+      Firebase uses cookies for authentication state; that&#39;s a Google-managed concern and you can clear them
+      at any time via your browser settings.
+    </p>
+
+    <h2>Children</h2>
+    <p>
+      Folio isn&#39;t intended for children under 13. If you&#39;re younger than that, please don&#39;t create an
+      account. If you&#39;re a parent or guardian and believe a child has set up an account, contact me and
+      I&#39;ll delete it promptly.
+    </p>
+
+    <h2>Changes to this policy</h2>
+    <p>
+      If any of the above changes materially, this page will be updated and the &ldquo;last updated&rdquo;
+      date above will reflect the change. For significant changes that affect existing users, I&#39;ll email the
+      address on your Google account.
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+      Questions, requests, or concerns: <a href="mailto:folio@jacobsiler.com">folio@jacobsiler.com</a>.
+      I read every message personally.
+    </p>
+
+    <div class="footer">
+      <div>&copy; Jacob Siler &nbsp;·&nbsp; Mullingar, Ireland</div>
+      <div><a href="/">Back to Folio</a> &nbsp;·&nbsp; <a href="/terms.html">Terms of Service</a></div>
+    </div>
+  </main>
+</body>
+</html>

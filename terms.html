@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terms of Service — Folio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Crimson+Pro:wght@400;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f0ede6;
+    --surface: #ffffff;
+    --border: rgba(0,0,0,0.1);
+    --border-mid: rgba(0,0,0,0.2);
+    --text: #1a1a1a;
+    --muted: #6b6b6b;
+    --accent: #8B4513;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Crimson Pro', Georgia, serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 40px 20px 80px;
+  }
+  .page {
+    max-width: 680px;
+    margin: 0 auto;
+    background: var(--surface);
+    border: .5px solid var(--border);
+    border-radius: 14px;
+    padding: 56px 56px 48px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+  }
+  h1 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    letter-spacing: -0.01em;
+  }
+  .sub {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    margin-bottom: 32px;
+  }
+  h2 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 20px;
+    font-weight: 700;
+    margin-top: 28px;
+    margin-bottom: 10px;
+    color: var(--accent);
+  }
+  p { margin-bottom: 14px; font-size: 17px; }
+  ul { margin: 0 0 14px 22px; }
+  li { margin-bottom: 6px; font-size: 17px; }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent); }
+  a:hover { opacity: .7; }
+  .footer {
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: .5px solid var(--border);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  @media (max-width: 600px) {
+    .page { padding: 36px 24px; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 18px; }
+    p, li { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+  <main class="page">
+    <h1>Terms of Service</h1>
+    <div class="sub">Folio &nbsp;·&nbsp; last updated April 2026</div>
+
+    <p>
+      Folio is a personal book-formatting and reader tool built by Jacob Siler.
+      These terms govern your use of the site at <strong>folio.jacobsiler.com</strong> and any
+      companion services operated under that domain. Using Folio means you agree to the below.
+    </p>
+
+    <h2>What Folio is and isn&#39;t</h2>
+    <p>
+      Folio is a free-to-use writing and formatting tool provided as-is, without any warranty.
+      It&#39;s built by one person, runs on best-effort infrastructure, and can change, break, or
+      go away without notice. Treat it accordingly: keep your own local backups of important
+      manuscripts, and don&#39;t rely on Folio as the sole copy of work you can&#39;t afford to lose.
+    </p>
+
+    <h2>Your content</h2>
+    <p>
+      You own everything you write. Folio claims no rights to your manuscripts, cover art, audio,
+      annotations, or anything else you create inside it. Folio stores your content in Google
+      Firebase to sync it across your devices. See the
+      <a href="/privacy.html">Privacy Policy</a> for exactly what&#39;s stored and where.
+    </p>
+
+    <h2>Acceptable use</h2>
+    <p>Using Folio, you agree not to:</p>
+    <ul>
+      <li>Upload or distribute content that is illegal, infringes someone else&#39;s copyright,
+        or harasses, threatens, or endangers others.</li>
+      <li>Use Folio to build tools, train models, or scrape data in a way that burdens the
+        service or works around rate limits.</li>
+      <li>Attempt to compromise Folio&#39;s infrastructure, or access accounts that aren&#39;t yours.</li>
+      <li>Misuse the paywall / release system to distribute content you don&#39;t have the rights to.</li>
+    </ul>
+    <p>
+      If any of the above happens, I reserve the right to revoke access, remove content, and/or
+      cooperate with lawful requests from authorities.
+    </p>
+
+    <h2>Third-party services</h2>
+    <p>
+      Folio relies on Google Firebase, Google Cloud Text-to-Speech (opt-in), ElevenLabs (opt-in),
+      Gumroad (for paid releases), and Cloudflare Workers. Using the corresponding Folio features
+      means you also accept those providers&#39; terms:
+    </p>
+    <ul>
+      <li><a href="https://policies.google.com/terms" target="_blank" rel="noopener">Google Terms of Service</a></li>
+      <li><a href="https://cloud.google.com/terms" target="_blank" rel="noopener">Google Cloud Terms</a></li>
+      <li><a href="https://elevenlabs.io/terms-of-use" target="_blank" rel="noopener">ElevenLabs Terms of Use</a></li>
+      <li><a href="https://gumroad.com/terms" target="_blank" rel="noopener">Gumroad Terms</a></li>
+    </ul>
+
+    <h2>Paid releases</h2>
+    <p>
+      If you publish a paid release on Folio, payments are processed entirely by Gumroad.
+      Folio takes no cut and never handles card data. Refunds, chargebacks, and tax obligations
+      are governed by Gumroad&#39;s own terms and your own agreement with buyers.
+      Licence-key verification happens via a stateless Cloudflare Worker that does not log or
+      persist buyer identity.
+    </p>
+
+    <h2>Availability and changes</h2>
+    <p>
+      Folio may be updated, paused, or discontinued at any time. If discontinuation ever happens,
+      I&#39;ll give at least 30 days&#39; notice to active users via the email on their Google account and
+      provide a one-click export of their manuscripts as standard formats (MD, DOCX, EPUB).
+    </p>
+
+    <h2>Limitation of liability</h2>
+    <p>
+      Folio is provided &ldquo;as is&rdquo; with no warranties. To the maximum extent permitted by law,
+      Jacob Siler is not liable for any indirect, incidental, special, consequential, or punitive damages
+      arising out of your use of Folio, including lost profits, lost data, or lost manuscripts.
+      This clause exists because Folio is a labour of love, not a commercial platform with an SLA —
+      please act accordingly and keep backups of anything you care about.
+    </p>
+
+    <h2>Governing law</h2>
+    <p>
+      These terms are governed by the laws of Ireland. Any dispute will be resolved in Irish courts
+      unless both parties agree otherwise.
+    </p>
+
+    <h2>Contact</h2>
+    <p>
+      Questions, concerns, or reports of misuse: <a href="mailto:folio@jacobsiler.com">folio@jacobsiler.com</a>.
+    </p>
+
+    <div class="footer">
+      <div>&copy; Jacob Siler &nbsp;·&nbsp; Mullingar, Ireland</div>
+      <div><a href="/">Back to Folio</a> &nbsp;·&nbsp; <a href="/privacy.html">Privacy Policy</a></div>
+    </div>
+  </main>
+</body>
+</html>
