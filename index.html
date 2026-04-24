@@ -1938,7 +1938,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-23-sc-code-installed  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-24-import-bridge  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -8016,6 +8016,236 @@ window.addEventListener('afterprint', () => {
   const st = document.getElementById('folio_print_pagesize');
   if (st) st.remove();
 });
+
+
+/* ══════════════════════════════════════════════════════════════
+   Cross-app import bridge — companion tools (e.g. Gutenberg
+   Cleaner) can hand off a manuscript to a fresh Folio via
+   postMessage.  Contract lives in docs/ (and the Cleaner source).
+
+   Security model:
+     - ORIGIN ALLOW-LIST ONLY. postMessage back + message filter
+       both check against FOLIO_IMPORT_TRUSTED_ORIGINS. Never '*'.
+     - Payload size capped at 10MB.
+     - Required string fields trimmed and length-capped so a
+       hostile payload can't fill the DOM.
+     - Query param stripped after apply so a reload can't re-
+       trigger the handshake.
+   ════════════════════════════════════════════════════════════ */
+
+const FOLIO_IMPORT_TRUSTED_ORIGINS = [
+  'https://gutenbergcleaner.jacobsiler.com',
+  // Additional companion apps go here. Each MUST be an HTTPS
+  // origin you control — never a wildcard.
+];
+
+let _folioImportState = null;          // 'waiting' | 'received' | null
+let _folioImportMsgHandler = null;
+
+function _folioImportShowOverlay(msg) {
+  if (document.getElementById('folioImportOverlay')) { _folioImportSetMsg(msg); return; }
+  const el = document.createElement('div');
+  el.id = 'folioImportOverlay';
+  el.style.cssText =
+    'position:fixed;top:0;left:0;right:0;bottom:0;z-index:500;' +
+    'background:rgba(240,237,230,0.94);backdrop-filter:blur(6px);' +
+    'display:flex;flex-direction:column;align-items:center;justify-content:center;' +
+    'gap:18px;font-family:system-ui,sans-serif;color:#1a1a1a';
+  el.innerHTML =
+    '<div style="width:44px;height:44px;border-radius:50%;border:3px solid rgba(0,0,0,0.1);border-top-color:#8B4513;animation:folio-spin .8s linear infinite"></div>' +
+    '<div id="folioImportMsg" style="font-size:14px;text-align:center;max-width:320px;line-height:1.5">' +
+      (msg || 'Importing…') +
+    '</div>' +
+    '<button id="folioImportCancel" onclick="_folioImportCancel()" style="margin-top:6px;padding:6px 14px;border-radius:6px;border:.5px solid rgba(0,0,0,0.2);background:transparent;color:#1a1a1a;font-family:system-ui,sans-serif;font-size:12px;cursor:pointer">Cancel</button>';
+  document.body.appendChild(el);
+}
+function _folioImportSetMsg(msg) {
+  const el = document.getElementById('folioImportMsg');
+  if (el) el.textContent = msg;
+}
+function _folioImportHideOverlay() {
+  const el = document.getElementById('folioImportOverlay');
+  if (el) el.remove();
+}
+function _folioImportCancel() {
+  _folioImportState = null;
+  if (_folioImportMsgHandler) {
+    window.removeEventListener('message', _folioImportMsgHandler);
+    _folioImportMsgHandler = null;
+  }
+  _folioImportHideOverlay();
+  try { window.history.replaceState(null, '', window.location.pathname); } catch (e) {}
+}
+window._folioImportCancel = _folioImportCancel;
+
+(function initFolioImportBridge() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('import') !== 'pending') return;
+  if (!window.opener) {
+    console.warn('[folio-import] ?import=pending but no window.opener');
+    toastWarning && toastWarning('Import link opened directly — use the "Open in Folio" button on the companion app.', {duration:5000});
+    return;
+  }
+  _folioImportState = 'waiting';
+  _folioImportShowOverlay('Waiting for manuscript from companion app…');
+
+  // Ready-ping each trusted origin. We don't know which one opened us,
+  // and postMessage requires a specific targetOrigin to avoid leaking
+  // the ready signal to unrelated origins.
+  FOLIO_IMPORT_TRUSTED_ORIGINS.forEach(origin => {
+    try { window.opener.postMessage({ type: 'folio-import-ready', version: 1 }, origin); }
+    catch (e) { console.warn('[folio-import] ready-ping failed', origin, e); }
+  });
+
+  _folioImportMsgHandler = (ev) => {
+    if (!FOLIO_IMPORT_TRUSTED_ORIGINS.includes(ev.origin)) return;
+    const d = ev.data;
+    if (!d || typeof d !== 'object' || d.type !== 'folio-import-payload') return;
+
+    const title  = typeof d.title === 'string' ? d.title.slice(0, 200).trim() : '';
+    const author = typeof d.author === 'string' ? d.author.slice(0, 200).trim() : '';
+    const md     = typeof d.manuscriptMd === 'string' ? d.manuscriptMd : '';
+    if (!md) {
+      _folioImportState = null;
+      _folioImportHideOverlay();
+      toastWarning && toastWarning('Import rejected: payload missing manuscriptMd', {duration:5000});
+      return;
+    }
+    if (md.length > 10 * 1024 * 1024) {
+      _folioImportState = null;
+      _folioImportHideOverlay();
+      toastWarning && toastWarning('Import rejected: manuscript exceeds 10 MB', {duration:5000});
+      return;
+    }
+
+    _folioImportState = 'received';
+    window.removeEventListener('message', _folioImportMsgHandler);
+    _folioImportMsgHandler = null;
+
+    _folioImportApply({
+      title, author, manuscriptMd: md,
+      source: typeof d.source === 'string' ? d.source.slice(0, 80) : 'unknown',
+      metadata: (d.metadata && typeof d.metadata === 'object') ? d.metadata : {},
+    });
+  };
+  window.addEventListener('message', _folioImportMsgHandler);
+
+  // Timeout so a stale tab doesn't wait forever.
+  setTimeout(() => {
+    if (_folioImportState === 'waiting') {
+      if (_folioImportMsgHandler) {
+        window.removeEventListener('message', _folioImportMsgHandler);
+        _folioImportMsgHandler = null;
+      }
+      _folioImportState = null;
+      _folioImportHideOverlay();
+      toastWarning && toastWarning('Import timed out — companion app did not respond.', {duration:5000});
+    }
+  }, 30000);
+})();
+
+async function _folioImportApply(payload) {
+  // Wait for Firestore/Auth before we try to persist — otherwise the
+  // auto-save path silently no-ops and the user's fresh folio only
+  // exists in memory until they touch something that triggers save.
+  _folioImportSetMsg('Connecting to your account…');
+  await new Promise(res => {
+    if (_fbReady) return res();
+    let done = false;
+    const t = setInterval(() => {
+      if (_fbReady && !done) { done = true; clearInterval(t); res(); }
+    }, 100);
+    setTimeout(() => { if (!done) { done = true; clearInterval(t); res(); } }, 15000);
+  });
+
+  _folioImportSetMsg('Parsing "' + (payload.title || 'manuscript') + '"…');
+  // Brief defer so the overlay repaints before we do blocking work.
+  await new Promise(r => setTimeout(r, 30));
+
+  // Reset to a fresh folio (no confirm dialog — we're in a tab that
+  // was opened specifically for this handoff, so there's nothing to
+  // lose). Mirrors newFolio() but skips the prompt.
+  _projId = null;
+  try { localStorage.removeItem('folio_last_open'); } catch (e) {}
+  if (typeof _presenceUnsub !== 'undefined' && _presenceUnsub) {
+    try { _presenceUnsub(); } catch (e) {}
+    _presenceUnsub = null;
+  }
+  chapters = [];
+
+  const setField = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+  setField('bookTitle',    payload.title);
+  setField('bookAuthor',   payload.author);
+  setField('bookSubtitle', '');
+  setField('dedication',   '');
+  // Auto-fill copyright from year + author if currently empty.
+  const cpEl = document.getElementById('copyright');
+  if (cpEl && !cpEl.value) {
+    const yr = new Date().getFullYear();
+    cpEl.value = payload.author
+      ? '© ' + yr + ' ' + payload.author + '. All rights reserved.'
+      : '© ' + yr;
+  }
+  const projName = document.getElementById('projName');
+  if (projName) projName.value = payload.title || '';
+
+  // Feed the manuscript through the existing smartSplit pipeline —
+  // identical to what the manual .md import uses, so all the 2026-
+  // 04-23-import-fixes benefits (reflow, heading-gating, CHAPTER I
+  // normalisation) apply automatically.
+  const sections = (typeof smartSplit === 'function')
+    ? smartSplit(payload.manuscriptMd)
+    : [];
+  if (sections.length) {
+    chapters = sections.map(s => ({
+      id: (typeof uid === 'function') ? uid() : ('ch_' + Date.now() + '_' + Math.random().toString(36).slice(2,7)),
+      type: s.type || 'chapter',
+      src: payload.source || 'import-bridge',
+      expanded: false,
+      title: s.title || '',
+      content: s.content || '',
+    }));
+    if (typeof _insertTOCIfNeeded === 'function') _insertTOCIfNeeded();
+  } else {
+    // Fallback — single-chapter folio from the whole body.
+    chapters = [{
+      id: (typeof uid === 'function') ? uid() : ('ch_' + Date.now()),
+      type: 'chapter', src: payload.source || 'import-bridge',
+      expanded: false, title: payload.title || 'Untitled',
+      content: payload.manuscriptMd,
+    }];
+  }
+
+  if (typeof renderChapterList === 'function') renderChapterList();
+  if (typeof renderPreview === 'function') renderPreview();
+  if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+
+  _folioImportHideOverlay();
+
+  const chCount = chapters.filter(c => c.type === 'chapter').length;
+  const preCount = chapters.filter(c => c.type === 'pre').length;
+  const postCount = chapters.filter(c => c.type === 'post').length;
+  const srcLabel = (payload.source || 'companion app').replace(/-/g, ' ');
+  const bits = [];
+  if (preCount) bits.push(preCount + ' front matter');
+  bits.push(chCount + ' chapter' + (chCount === 1 ? '' : 's'));
+  if (postCount) bits.push(postCount + ' back matter');
+  if (typeof toastSuccess === 'function') {
+    toastSuccess(
+      'Imported "' + (payload.title || 'Untitled') + '" (' + bits.join(', ') + ') from ' + srcLabel,
+      { icon: '📖', duration: 4500 }
+    );
+  }
+
+  // Strip the ?import=pending param so reloads don't re-handshake.
+  try { window.history.replaceState(null, '', window.location.pathname); } catch (e) {}
+
+  // Jump to the Chapters tab so users land on their new content.
+  if (typeof switchTab === 'function') {
+    try { switchTab('chapters', document.querySelector('.tab-btn:nth-child(2)')); } catch (e) {}
+  }
+}
+window._folioImportApply = _folioImportApply;
 
 // Start blank — show loading state until Firebase resolves.
 // renderPreview() is NOT called here — we wait for Firebase so users
