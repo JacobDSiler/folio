@@ -1938,7 +1938,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-24-import-bridge-fixes  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-24-dropcap-emphasis  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -3519,7 +3519,7 @@ function smartSplit(text) {
       curTitle = det.title;
       curContent = [];
       const tl = det.title.toLowerCase();
-      if (/^(prologue|preface|foreword|introduction|dedication|copyright|acknowledg)/.test(tl)) curType = 'pre';
+      if (/^(prologue|preface|foreword|introduction|dedication|copyright|acknowledg|preamble|epigraph|half[\s\-]?title|frontispiece)/.test(tl)) curType = 'pre';
       else if (/^(epilogue|afterword|appendix|author'?s?\s+note|colophon)/.test(tl)) curType = 'post';
       else curType = 'chapter';
     } else if (/^[-*_]{3,}$/.test(line.trim())) {
@@ -5075,9 +5075,14 @@ function renderPreview(){
           const paraIdx   = isContObj ? p.paraIdx : paras.indexOf(p);
           const isFirst   = !isContObj && pg===0 && pi===0 && (ch.title||chNum);
           const noInd     = isContObj || (pg===0&&pi===0) || (pi>0 && slice[pi-1]==='__SCENE_BREAK__');
-          const dc = dropCap && isFirst && text.length>1
-            ? `<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${pt(fsize*3.6)};line-height:0.76;margin:${pt(fsize*0.08)} ${mm(1)} 0 0;color:${accent};font-weight:700">${esc(text[0])}</span>${md(esc(text.slice(1)))}`
-            : md(esc(text));
+          // Peel outer emphasis so drop cap picks a real letter.
+          const _pe = _peelOuterEmphasis(text);
+          const dcBody = _pe.text;
+          const wrapOpen = _pe.tag ? '<' + _pe.tag + '>' : '';
+          const wrapClose = _pe.tag ? '</' + _pe.tag + '>' : '';
+          const dc = dropCap && isFirst && dcBody.length > 1
+            ? wrapOpen + `<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${pt(fsize*3.6)};line-height:0.76;margin:${pt(fsize*0.08)} ${mm(1)} 0 0;color:${accent};font-weight:700">${esc(dcBody[0])}</span>${md(esc(dcBody.slice(1)))}` + wrapClose
+            : wrapOpen + md(esc(dcBody)) + wrapClose;
           const paraStyle=`font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${T.text};margin:0;text-align:${justify};text-indent:${noInd?'0':indentPx};margin-bottom:${indent==='0'?mm(1.3):'0'}`;
           const editable = isContObj ? 'false' : String(_editMode);
           const contCls  = isContObj ? ' para-cont' : '';
@@ -5546,7 +5551,11 @@ async function exportPDF(returnBlob=false){
         const paras=ch.content.split('\n').filter(p=>p.trim());
         // Drop cap on first paragraph of chapters that have a title
         if(dropCap&&paras.length&&paras[0]!=='__SCENE_BREAK__'&&(ch.title||cn)){
-          const firstPara=paras[0];
+          // Peel outer Gutenberg-style _..._ / *...* so the drop
+          // cap picks a real letter rather than the markdown
+          // marker (same fix as the preview paginator).
+          const _pe=_peelOuterEmphasis(paras[0]);
+          const firstPara=_pe.text;
           const dropLetter=firstPara[0];
           const rest=firstPara.slice(1);
           const lh=fsize*lspace*0.352;        // line height in mm
@@ -7964,8 +7973,16 @@ window.addEventListener('beforeprint', () => {
     return paras.map((p,pi)=>{
       if(p==='__SCENE_BREAK__') return `<p class="sb">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`;
       const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
-      const dc=dropCapOn&&pi===0&&isFirst?' dc':'';
-      return `<p class="${noInd?'ni':''}${dc}">${md(esc(p))}</p>`;
+      const dcOn=dropCapOn&&pi===0&&isFirst;
+      // Peel outer emphasis for the same reason as the other
+      // paths: the ::first-letter CSS would otherwise render a
+      // markdown marker as the drop cap.
+      const _pe=dcOn?_peelOuterEmphasis(p):{text:p,tag:null};
+      const body=_pe.text;
+      const open=_pe.tag?'<'+_pe.tag+'>':'';
+      const close=_pe.tag?'</'+_pe.tag+'>':'';
+      const cls=(noInd?'ni':'')+(dcOn?' dc':'');
+      return `<p class="${cls}">${open}${md(esc(body))}${close}</p>`;
     }).join('');
   }
 
@@ -11277,6 +11294,23 @@ function _apEstimateCost(chars) {
     label: label,
     dollars: (chars / 1_000_000) * rate,
   };
+}
+
+
+// Peel outer *..* / _.._ / **..** / __..__ emphasis off a paragraph
+// so drop-cap logic and other first-letter-sensitive paths see a
+// real letter rather than the markdown marker (fixes the "thick
+// horizontal bar at the start of a chapter" bug: Gutenberg's
+// _To Mrs. Saville, England._ was rendering the underscore as a
+// 3.6x-sized drop cap). Returns { text, tag } where tag is 'em'
+// or 'strong' for outer wrap, or null if none.
+function _peelOuterEmphasis(p) {
+  if (!p) return { text: p, tag: null };
+  let m = p.match(/^(\*\*|__)([\s\S]+?)\1$/);
+  if (m) return { text: m[2], tag: 'strong' };
+  m = p.match(/^([*_])([\s\S]+?)\1$/);
+  if (m) return { text: m[2], tag: 'em' };
+  return { text: p, tag: null };
 }
 
 /* ── Track rendering ───────────────────────────────────────── */
