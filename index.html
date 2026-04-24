@@ -1938,7 +1938,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-24-import-bridge  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-24-import-bridge-fixes  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -7594,13 +7594,17 @@ function _ctxOpen(e, el) {
 }
 
 function _ctxClose() {
-  document.getElementById('ctxMenu').classList.remove('open');
+  // Null-safe: the #ctxMenu element is a lazily-created context menu
+  // that may not exist yet (see the identical ?. pattern used elsewhere
+  // in this file). Without the guard, every document click crashes.
+  document.getElementById('ctxMenu')?.classList.remove('open');
   _ctxTarget = null;
 }
 
 // Close on any click elsewhere or Escape
 document.addEventListener('click', e => {
-  if (!document.getElementById('ctxMenu').contains(e.target)) _ctxClose();
+  const menu = document.getElementById('ctxMenu');
+  if (menu && !menu.contains(e.target)) _ctxClose();
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') _ctxClose(); });
 
@@ -8087,6 +8091,11 @@ window._folioImportCancel = _folioImportCancel;
     return;
   }
   _folioImportState = 'waiting';
+  // Suppress the normal "open last folio" boot path. Without this,
+  // the onAuthStateChanged handler races us — it reads folio_last_open
+  // and starts loading the previous folio just as our payload arrives,
+  // and the two state resets step on each other.
+  try { localStorage.removeItem('folio_last_open'); } catch (e) {}
   _folioImportShowOverlay('Waiting for manuscript from companion app…');
 
   // Ready-ping each trusted origin. We don't know which one opened us,
@@ -8215,6 +8224,11 @@ async function _folioImportApply(payload) {
       content: payload.manuscriptMd,
     }];
   }
+
+  // Clear the "Loading your folios…" spinner that's shown on page
+  // boot — renderPreview() early-returns if it's still present
+  // (and the normal folio-load path also removes it manually).
+  document.getElementById('folioLoadingState')?.remove();
 
   if (typeof renderChapterList === 'function') renderChapterList();
   if (typeof renderPreview === 'function') renderPreview();
@@ -12307,15 +12321,4 @@ window._apOnImportFile       = _apOnImportFile;
   <div style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:560px;width:94%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:26px 28px 22px;font-family:var(--sans);color:var(--text)">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
       <h3 id="rlTitle" style="font-size:15px;font-weight:600;margin:0;letter-spacing:-0.01em">🔖 Release this Folio</h3>
-      <button onclick="closeReleaseModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint);padding:2px 6px;border-radius:4px">×</button>
-    </div>
-
-    <p id="rlIntro" style="font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:16px">
-      Publish a read-only copy of your folio that readers can open in their browser.
-      Your folio stays editable — readers always see the latest version. Perfect for
-      sharing with editors, beta readers, or customers.
-    </p>
-
-    <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:12px 0 4px">Title shown to readers</label>
-    <input type="text" id="rlTitleField" placeholder="Use book title or folio name…"
-      style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--bg);color:var(--text);outline:none"
+      <button onclick="closeReleaseModal()" style="background:none;border:
