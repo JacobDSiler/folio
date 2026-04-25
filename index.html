@@ -1938,7 +1938,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-24-dropcap-emphasis  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-24-import-trace  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -8171,6 +8171,19 @@ window._folioImportCancel = _folioImportCancel;
 })();
 
 async function _folioImportApply(payload) {
+  // ─── Diagnostic trace (per Cleaner-chat request) ────────────
+  // Logs at each end-to-end boundary so we can pinpoint where
+  // title/author drop-off happens. Three checkpoints:
+  //   IN     — what arrived in the payload
+  //   FIELDS — what landed in the DOM after setField calls
+  //   POST   — what's in the DOM after renderPreview / save
+  console.log('[FOLIO IMPORT IN]', {
+    title: payload.title,
+    author: payload.author,
+    mdLen: payload.manuscriptMd ? payload.manuscriptMd.length : 0,
+    metaKeys: Object.keys(payload.metadata || {}),
+  });
+
   // Wait for Firestore/Auth before we try to persist — otherwise the
   // auto-save path silently no-ops and the user's fresh folio only
   // exists in memory until they touch something that triggers save.
@@ -8215,6 +8228,13 @@ async function _folioImportApply(payload) {
   const projName = document.getElementById('projName');
   if (projName) projName.value = payload.title || '';
 
+  // Checkpoint 2: did setField actually land?
+  console.log('[FOLIO IMPORT FIELDS]', {
+    bookTitle:  document.getElementById('bookTitle')  ? document.getElementById('bookTitle').value  : '(elem missing)',
+    bookAuthor: document.getElementById('bookAuthor') ? document.getElementById('bookAuthor').value : '(elem missing)',
+    projName:   document.getElementById('projName')   ? document.getElementById('projName').value   : '(elem missing)',
+  });
+
   // Feed the manuscript through the existing smartSplit pipeline —
   // identical to what the manual .md import uses, so all the 2026-
   // 04-23-import-fixes benefits (reflow, heading-gating, CHAPTER I
@@ -8250,6 +8270,18 @@ async function _folioImportApply(payload) {
   if (typeof renderChapterList === 'function') renderChapterList();
   if (typeof renderPreview === 'function') renderPreview();
   if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+
+  // Checkpoint 3: are the fields still populated AFTER render+save?
+  // If they're empty here but were populated at checkpoint 2, something
+  // in renderPreview or the auto-save path is wiping them.
+  setTimeout(() => {
+    console.log('[FOLIO IMPORT POST]', {
+      bookTitle:  document.getElementById('bookTitle')  ? document.getElementById('bookTitle').value  : '(elem missing)',
+      bookAuthor: document.getElementById('bookAuthor') ? document.getElementById('bookAuthor').value : '(elem missing)',
+      projName:   document.getElementById('projName')   ? document.getElementById('projName').value   : '(elem missing)',
+      _projId:    typeof _projId !== 'undefined' ? _projId : '(undefined)',
+    });
+  }, 500);
 
   _folioImportHideOverlay();
 
@@ -12329,30 +12361,4 @@ window._apOnImportFile       = _apOnImportFile;
       <select id="segPosMode" onchange="_apSegOnPosMode()">
         <option value="start">At the start of the book</option>
         <option value="end">At the end of the book</option>
-        <option value="before">Before a specific section</option>
-        <option value="after">After a specific section</option>
-      </select>
-      <select id="segPosTarget">
-        <option value="">Select a section…</option>
-      </select>
-    </div>
-
-    <label>Text (will be spoken via the active TTS voice)</label>
-    <textarea id="segTextInput" placeholder="Welcome to Embers of Elekra. A novel by J.D. Siler. Chapter one, The Marmalade Problem, begins now."></textarea>
-    <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Character count: <span id="segCharCount">0</span></div>
-
-    <div class="seg-footer">
-      <button type="button" class="danger" id="segDeleteBtn" onclick="_apSegDelete()" style="display:none">Delete segment</button>
-      <button type="button" onclick="_apSegCancel()">Cancel</button>
-      <button type="button" class="primary" onclick="_apSegSave()">Save segment</button>
-    </div>
-  </div>
-</div>
-
-<!-- Release / publish panel -->
-<div id="releasePanel" aria-hidden="true" role="dialog" aria-labelledby="rlTitle"
-  style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);align-items:center;justify-content:center">
-  <div style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:560px;width:94%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:26px 28px 22px;font-family:var(--sans);color:var(--text)">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-      <h3 id="rlTitle" style="font-size:15px;font-weight:600;margin:0;letter-spacing:-0.01em">🔖 Release this Folio</h3>
-      <button onclick="closeReleaseModal()" style="background:none;border:
+        <option valu
