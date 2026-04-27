@@ -2089,6 +2089,10 @@ window.addEventListener('fb-ready', async () => {
   _updateLoadingMsg('Loading your folio…');
   await loadFolioList();
 
+  // ADD THESE TWO LINES: Abort auto-restore if we are waiting for a companion app handshake
+  const isImportPending = new URLSearchParams(window.location.search).get('import') === 'pending';
+  if (isImportPending) return;
+     
   // Priority 1: URL param (shared link or direct open)
   const pid = new URLSearchParams(window.location.search).get('folio')
            || new URLSearchParams(window.location.search).get('project');
