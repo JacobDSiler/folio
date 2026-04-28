@@ -313,7 +313,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 html[data-reader] #siteFooter{display:none!important}
 /* Print book container — hidden normally, shown only on print */
 #printBook{display:none;font-family:'Crimson Pro',Georgia,serif;font-size:13pt;line-height:1.7;background:#fff;color:#1a1504}
-#printBook .pb{page-break-after:always;break-after:page;padding:2cm 2.5cm;min-height:100vh;box-sizing:border-box;position:relative}
+#printBook .pb{page-break-after:always;break-after:page;box-sizing:border-box;position:relative}
 #printBook .pb:last-child{page-break-after:avoid;break-after:avoid}
 #printBook .pb-hdr{position:absolute;top:1cm;left:2.5cm;right:2.5cm;display:flex;justify-content:space-between;font-size:7.5pt;letter-spacing:.1em;text-transform:uppercase;opacity:.55;border-bottom:.5px solid #c9a86c;padding-bottom:2mm}
 #printBook .pb-ftr{position:absolute;bottom:1cm;left:0;right:0;text-align:center;font-size:8pt;opacity:.5}
@@ -4755,8 +4755,8 @@ function renderPreview(){
   const mg = Math.round(mgMM * MM);
   const hdrH = Math.round(14 * MM);   // header area
   const ftrH = Math.round(12 * MM);   // footer area
-  const contentT = Math.round(28 * MM);
-  const contentB = Math.round(21 * MM); // 21mm bottom margin
+  const contentT = Math.round(Math.max(mgMM + (showHdr ? 8 : 4), 18) * MM);
+  const contentB = Math.round(Math.max(mgMM + (showNums ? 6 : 4), 18) * MM);
 
   const accent=S.accent;
   const orn=S.ornament;
@@ -5312,9 +5312,9 @@ function exportBrowserPrint() {
       st.id = id;
       document.head.appendChild(st);
     }
-    // margin:0 strips the browser's own margins — the inner
-    // page padding is supplied by #printBook .pb { padding: ... }.
-    st.textContent = '@page { size: ' + pwMM + 'mm ' + phMM + 'mm; margin: 0; }';
+    // margin:0 stripped the browser's own margins but we need the user's setting so text isn't at the edge
+    const mgMM = parseFloat(document.getElementById('pageMargin')?.value || 18);
+    st.textContent = '@page { size: ' + pwMM + 'mm ' + phMM + 'mm; margin: ' + mgMM + 'mm; }';
 
     if (typeof toastInfo === 'function') {
       toastInfo('Tip: in the print dialog, pick destination "Save as PDF" for a match to the preview.',
@@ -5405,13 +5405,13 @@ async function exportPDF(returnBlob=false){
 
       // yStart: first usable y on a fresh page (clear of running header)
       const hdrMode=getV('runningHeader')||'both'; const hdrOn=hdrMode!=='off';
-      const yStart=hdrOn?21:mg;
+      const yStart = Math.max(mg + (hdrOn ? 8 : 4), 18);
       // Bottom threshold — leave room for page number
-      const yBottom=ph-mg-14;
+      const yBottom = ph - Math.max(mg + (showNums ? 6 : 4), 18);
 
       const setBody=()=>{doc.setFont(PDF_FONT,'normal');doc.setFontSize(fsize);doc.setTextColor(...txR);};
-      const addPageNum=()=>{if(!showNums||pageNum<=2)return;doc.setFont(PDF_FONT,'normal');doc.setFontSize(7.5);doc.setTextColor(...txR);doc.text(String(pageNum),pw/2,ph-8,{align:'center'})};
-      const addHeader=()=>{if(!hdrOn||pageNum<=1)return;doc.setFont(PDF_FONT,'normal');doc.setFontSize(6.5);doc.setTextColor(...txR);const _hl=hdrMode==='title'?'':author.toUpperCase();const _hr=hdrMode==='author'?'':title.toUpperCase();if(_hl)doc.text(_hl,mg,13);if(_hr)doc.text(_hr,pw-mg,13,{align:'right'});doc.setDrawColor(...dvR);doc.line(mg,14.5,pw-mg,14.5)};
+      const addPageNum=()=>{if(!showNums||pageNum<=2)return;doc.setFont(PDF_FONT,'normal');doc.setFontSize(7.5);doc.setTextColor(...txR);doc.text(String(pageNum),pw/2,ph-Math.max(8, mg-4),{align:'center'})};
+      const addHeader=()=>{if(!hdrOn||pageNum<=1)return;doc.setFont(PDF_FONT,'normal');doc.setFontSize(6.5);doc.setTextColor(...txR);const _hl=hdrMode==='title'?'':author.toUpperCase();const _hr=hdrMode==='author'?'':title.toUpperCase();if(_hl)doc.text(_hl,mg,Math.max(13, mg+1));if(_hr)doc.text(_hr,pw-mg,Math.max(13, mg+1),{align:'right'});doc.setDrawColor(...dvR);doc.line(mg,Math.max(14.5, mg+2.5),pw-mg,Math.max(14.5, mg+2.5))};
       let _pageBlank = false; // true when current page has no content yet
       const newPage=()=>{doc.addPage();addBg();pageNum++;addHeader();_pageBlank=true;};
       const markUsed=()=>{_pageBlank=false;};
@@ -5998,6 +5998,8 @@ function exportHTML(){
     const hasTOC=chapters.some(c=>c.type==='toc');
     const tocSections=sections.filter(s=>s.title||(s.chNum));
 
+    // Read margin from settings for print output
+    const mgMM = parseFloat(document.getElementById('pageMargin')?.value || 18);
     const css=[
       "@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap');",
       '*{box-sizing:border-box;margin:0;padding:0}',
@@ -6025,7 +6027,7 @@ function exportHTML(){
       '.ded{font-style:italic;text-align:center;max-width:24em;margin:3em auto;line-height:1.8;opacity:.7}',
       '.cpr{font-size:.75em;line-height:1.8;opacity:.55;margin:1em 0}',
       '.sec{margin-bottom:4em;padding-top:1em}',
-      '@media print{body{max-width:none;padding:1.5cm}.sec{page-break-before:always}.sec:first-child{page-break-before:avoid}}'
+      '@media print{body{max-width:none;padding:0}@page{margin:'+mgMM+'mm}.sec{page-break-before:always}.sec:first-child{page-break-before:avoid}}'
     ].join('\n');
 
     let h='<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n<title>'+esc(title)+'</title>\n<style>\n'+css+'\n</style>\n</head>\n<body>\n';
@@ -8236,7 +8238,9 @@ async function _folioImportApply(payload) {
   chapters = [];
 
   const setField = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
-  setField('bookTitle',    payload.title === 'Untitled' ? '' : payload.title);
+  const lowerT = (payload.title || '').toLowerCase();
+  const isGenericInit = !lowerT || lowerT === 'untitled' || lowerT === 'unknown title' || lowerT === 'preamble';
+  setField('bookTitle',    isGenericInit ? '' : payload.title);
   setField('bookAuthor',   payload.author);
   setField('bookSubtitle', '');
   setField('dedication',   '');
@@ -8248,7 +8252,9 @@ async function _folioImportApply(payload) {
   }
 
   // Fallback for title extraction in case Gutenberg missed it
-  if (!payload.title || payload.title.toLowerCase() === 'untitled' || payload.title.toLowerCase() === 'unknown title') {
+  const lowerTitle = (payload.title || '').toLowerCase();
+  const isGeneric = !lowerTitle || lowerTitle === 'untitled' || lowerTitle === 'unknown title' || lowerTitle === 'preamble';
+  if (isGeneric) {
      if (payload.metadata && payload.metadata.title) {
        setField('bookTitle', payload.metadata.title);
        setField('projName', payload.metadata.title);
