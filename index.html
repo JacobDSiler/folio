@@ -85,20 +85,14 @@ onAuthStateChanged(auth, async user => {
   --border:rgba(0,0,0,0.1);--border-mid:rgba(0,0,0,0.2);
   --text:#1a1a1a;--muted:#6b6b6b;--hint:#aaa;
   --accent-ui:#2a1f0e;
-    --radius:8px;--radius-lg:12px;
+  --radius:8px;--radius-lg:12px;
   --sans:'Inter',system-ui,sans-serif;
-  --accent-text:#fff;
-  --base-hlt:#faf8f3;
-  --base-bar:#faf9f7;
 }
 [data-dark]{
   --bg:#1c1a17;--surface:#252320;
   --border:rgba(255,255,255,0.08);--border-mid:rgba(255,255,255,0.15);
-    --text:#e8dece;--muted:#8a8070;--hint:#5a5448;
+  --text:#e8dece;--muted:#8a8070;--hint:#5a5448;
   --accent-ui:#e8dece;
-  --accent-text:#1c1a17;
-  --base-hlt:#2f2c27;
-  --base-bar:#211f1c;
 }
 html,body{height:100%}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex;flex-direction:column;height:100vh;overflow:hidden}
@@ -121,7 +115,7 @@ textarea{resize:vertical;font-family:'Crimson Pro',Georgia,serif;font-size:13px;
 .theme-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .theme-card{border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;cursor:pointer;transition:all 0.15s;background:var(--surface)}
 .theme-card:hover{border-color:#888}
-.theme-card.active{border-color:var(--accent-ui);background:var(--base-hlt)}
+.theme-card.active{border-color:var(--accent-ui);background:#faf8f3}
 .theme-card .t-name{font-size:12px;font-weight:500}
 .theme-card .t-desc{font-size:10px;color:var(--hint);margin-top:1px}
 .theme-preview{height:18px;border-radius:3px;margin-bottom:6px;display:flex;gap:3px}
@@ -145,7 +139,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .orn-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}
 .orn-btn{border:0.5px solid var(--border-mid);border-radius:6px;padding:6px;cursor:pointer;background:transparent;font-size:15px;text-align:center;transition:all 0.15s;line-height:1}
 .orn-btn:hover{background:var(--bg)}
-.orn-btn.active{background:var(--accent-ui);color:var(--accent-text);border-color:var(--accent-ui)}
+.orn-btn.active{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
 .file-drop{border:1.5px dashed var(--border-mid);border-radius:8px;padding:14px;text-align:center;cursor:pointer;font-size:12px;color:var(--muted);transition:all 0.15s;margin-top:4px;position:relative}
 .file-drop:hover,.file-drop.dragover{background:var(--bg);border-color:#888}
 .file-drop .drop-icon{font-size:22px;display:block;margin-bottom:5px}
@@ -153,32 +147,32 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .img-chip,.file-chip{background:var(--bg);border-radius:6px;font-size:11px;padding:3px 7px;display:flex;align-items:center;gap:4px;border:0.5px solid var(--border)}
 .img-chip img{width:16px;height:16px;object-fit:cover;border-radius:2px}
 .chip-type{font-size:9px;padding:1px 5px;border-radius:3px;font-weight:500;text-transform:uppercase;letter-spacing:0.04em;cursor:pointer;user-select:none}
-.chip-pre{background:rgba(30, 64, 175, 0.2);color:#1e40af}
-.chip-toc{background:rgba(91, 33, 182, 0.2);color:#5b21b6}
-.chip-ch{background:rgba(22, 101, 52, 0.2);color:#166534}
-.chip-post{background:var(--base-hlt);color:#92400e}
+.chip-pre{background:#dbeafe;color:#1e40af}
+.chip-toc{background:#ede9fe;color:#5b21b6}
+.chip-ch{background:#dcfce7;color:#166534}
+.chip-post{background:#fef3c7;color:#92400e}
 .chip-rm{color:#c44;font-weight:700;font-size:13px;cursor:pointer;line-height:1;margin-left:2px}
 .export-section{padding:0.75rem 1.25rem 0.85rem;flex-shrink:0}
 /* Primary export button — big, centred, shows last-used format */
 .exp-primary-wrap{display:flex;gap:6px;margin-bottom:7px}
-.exp-primary{flex:1;padding:10px 8px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:var(--accent-ui);color:var(--accent-text);font-family:var(--sans);display:flex;align-items:center;justify-content:center;gap:8px;transition:opacity .15s;letter-spacing:-.01em}
+.exp-primary{flex:1;padding:10px 8px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:var(--accent-ui);color:#fff;font-family:var(--sans);display:flex;align-items:center;justify-content:center;gap:8px;transition:opacity .15s;letter-spacing:-.01em}
 .exp-primary:hover{opacity:.88}
 .exp-primary:disabled{opacity:.4;cursor:not-allowed}
 .exp-primary .ep-fmt{font-size:15px;font-weight:700}
 .exp-primary .ep-lbl{font-size:10px;opacity:.75;font-weight:400;margin-left:2px}
 .exp-toggle{width:36px;border-radius:8px;border:1px solid var(--accent-ui);background:transparent;color:var(--accent-ui);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
-.exp-toggle:hover{background:var(--base-hlt)}
-.exp-toggle.open{background:var(--accent-ui);color:var(--accent-text)}
+.exp-toggle:hover{background:#faf8f3}
+.exp-toggle.open{background:var(--accent-ui);color:#fff}
 /* Slide-up drawer */
 .exp-drawer{overflow:hidden;max-height:0;transition:max-height .28s cubic-bezier(.4,0,.2,1),opacity .2s;opacity:0;pointer-events:none}
 .exp-drawer.open{max-height:260px;opacity:1;pointer-events:all}
 .exp-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding-bottom:2px}
 .exp-btn{padding:7px 4px;border-radius:7px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid var(--border-mid);background:transparent;color:var(--accent-ui);font-family:var(--sans);display:flex;flex-direction:column;align-items:center;gap:1px;transition:all .15s}
-.exp-btn:hover{background:var(--base-hlt);border-color:var(--accent-ui)}
+.exp-btn:hover{background:#faf8f3;border-color:var(--accent-ui)}
 .exp-btn:disabled{opacity:.4;cursor:not-allowed}
 .exp-btn .fmt{font-size:13px;font-weight:600}
 .exp-btn .lbl{font-size:9px;opacity:.7;font-weight:400}
-.status-bar{padding:6px 1.25rem;font-size:11px;color:var(--hint);background:var(--base-bar);border-top:0.5px solid var(--border);flex-shrink:0}
+.status-bar{padding:6px 1.25rem;font-size:11px;color:var(--hint);background:#faf9f7;border-top:0.5px solid var(--border);flex-shrink:0}
 .preview-area{overflow:auto;background:#c8c4bc;display:flex;flex-direction:column;align-items:center;position:relative;height:100%;min-height:0}
 /* Chunky preview scrollbar — easy to grab on large screens */
 .preview-area::-webkit-scrollbar{width:14px;height:14px}
@@ -219,7 +213,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .writing-nav-btn:hover{background:rgba(255,255,255,0.12);color:#fff}
 
 /* ── Split editor ── */
-.split-editor{display:none;flex-direction:column;height:100%;background:var(--bg);font-family:'Crimson Pro',Georgia,serif}
+.split-editor{display:none;flex-direction:column;height:100%;background:#f5f3ee;font-family:'Crimson Pro',Georgia,serif}
 .split-editor.active{display:flex}
 .split-toolbar{display:flex;align-items:center;gap:8px;padding:9px 16px;background:#2a2520;flex-shrink:0;flex-wrap:wrap}
 .split-toolbar-title{font-size:12px;color:#f0ebe0;font-weight:500;font-family:var(--sans)}
@@ -230,9 +224,9 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .split-body{overflow-y:auto;flex:1;padding:32px max(32px,calc(50% - 340px))}
 .split-para{position:relative;padding:2px 0 2px 32px;line-height:1.7;font-size:14.5px;color:#1a1504;cursor:default}
 .split-para:hover .split-add-btn{opacity:1}
-.split-add-btn{position:absolute;left:0;top:3px;width:22px;height:22px;border-radius:50%;border:1.5px dashed #c9a86c;background:var(--surface);color:#8B4513;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;line-height:1;padding:0}
+.split-add-btn{position:absolute;left:0;top:3px;width:22px;height:22px;border-radius:50%;border:1.5px dashed #c9a86c;background:#faf8f4;color:#8B4513;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .15s;line-height:1;padding:0}
 .split-add-btn:hover{background:#8B4513;color:#fff;border-color:#8B4513;opacity:1}
-.split-break{background:var(--surface);border-top:2px solid #c9956a;border-bottom:1px solid #e8d4a0;margin:4px -32px 4px -32px;padding:8px 32px;display:flex;align-items:center;gap:8px}
+.split-break{background:#fff8f0;border-top:2px solid #c9956a;border-bottom:1px solid #e8d4a0;margin:4px -32px 4px -32px;padding:8px 32px;display:flex;align-items:center;gap:8px}
 .split-break-label{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#8B4513;font-family:var(--sans);white-space:nowrap;flex-shrink:0}
 .split-break-title{flex:1;border:none;background:transparent;font-family:'Playfair Display',Georgia,serif;font-size:15px;font-weight:700;color:#1a1504;outline:none;padding:2px 4px;border-radius:4px}
 .split-break-title:focus{background:#fff;box-shadow:0 0 0 2px #c9956a44}
@@ -292,7 +286,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .fr-close:hover{color:#fff}
 .tabs{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:0.5px solid var(--border);flex-shrink:0}
 .tab-btn{padding:7px 3px;font-size:10.5px;font-family:var(--sans);border:none;background:transparent;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.15s;white-space:nowrap;text-align:center;letter-spacing:-0.01em;width:100%}
-.tab-btn.active{color:var(--text);border-bottom-color:var(--accent-ui);background:var(--base-bar)}
+.tab-btn.active{color:var(--text);border-bottom-color:var(--accent-ui);background:#faf9f7}
 .tab-btn:hover:not(.active){color:var(--text);background:var(--bg)}
 @media(max-width:768px){
   .app{grid-template-columns:1fr;grid-template-rows:auto 1fr}
@@ -313,7 +307,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 html[data-reader] #siteFooter{display:none!important}
 /* Print book container — hidden normally, shown only on print */
 #printBook{display:none;font-family:'Crimson Pro',Georgia,serif;font-size:13pt;line-height:1.7;background:#fff;color:#1a1504}
-#printBook .pb{page-break-after:always;break-after:page;box-sizing:border-box;position:relative}
+#printBook .pb{page-break-after:always;break-after:page;padding:2cm 2.5cm;min-height:100vh;box-sizing:border-box;position:relative}
 #printBook .pb:last-child{page-break-after:avoid;break-after:avoid}
 #printBook .pb-hdr{position:absolute;top:1cm;left:2.5cm;right:2.5cm;display:flex;justify-content:space-between;font-size:7.5pt;letter-spacing:.1em;text-transform:uppercase;opacity:.55;border-bottom:.5px solid #c9a86c;padding-bottom:2mm}
 #printBook .pb-ftr{position:absolute;bottom:1cm;left:0;right:0;text-align:center;font-size:8pt;opacity:.5}
@@ -341,7 +335,7 @@ html[data-reader] #siteFooter{display:none!important}
 .ch-item-head{display:flex;align-items:center;gap:6px;padding:7px 10px}
 .ch-drag-handle{color:var(--hint);font-size:13px;cursor:grab;flex-shrink:0;user-select:none}
 .ch-title-input{flex:1;font-size:12.5px;font-family:var(--sans);border:none;background:transparent;color:var(--text);padding:0;outline:none;min-width:0}
-.ch-title-input:focus{background:var(--base-hlt);border-radius:3px;padding:1px 4px}
+.ch-title-input:focus{background:#faf8f3;border-radius:3px;padding:1px 4px}
 .ch-expand-btn{background:none;border:none;cursor:pointer;color:var(--hint);font-size:11px;padding:2px 4px;border-radius:3px;transition:all 0.15s;flex-shrink:0}
 .ch-expand-btn:hover{background:var(--bg);color:var(--text)}
 .ch-item-body{padding:0 10px 10px;display:none}
@@ -351,7 +345,7 @@ html[data-reader] #siteFooter{display:none!important}
 .ch-content-area:focus{border-color:#888}
 .dingbat-bar{display:flex;flex-wrap:wrap;gap:3px;padding:4px 0 2px;align-items:center}
 .db-btn{background:none;border:.5px solid var(--border-mid);border-radius:4px;font-size:13px;padding:2px 5px;cursor:pointer;line-height:1.3;color:var(--text);transition:all .12s;font-family:serif}
-.db-btn:hover{background:var(--accent-ui);color:var(--accent-text);border-color:var(--accent-ui)}
+.db-btn:hover{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
 .db-btn.db-active{background:var(--accent-ui)22;border-color:var(--accent-ui);color:var(--accent-ui)}
 .db-scene{font-size:10px;padding:2px 7px;letter-spacing:.04em;font-family:var(--sans);color:var(--hint);border-color:var(--border-mid)}
 .db-scene:hover{background:var(--bg);color:var(--text);border-color:#888}
@@ -362,9 +356,9 @@ html[data-reader] #siteFooter{display:none!important}
 .ch-rm-btn:hover{background:#ffeaea}
 .stats-bar{display:flex;gap:8px;font-size:10.5px;padding:5px 0;margin-bottom:4px;color:var(--muted)}
 .stat-pill{padding:2px 7px;border-radius:10px;font-size:10px;font-weight:500}
-.stat-pre{background:rgba(30, 64, 175, 0.2);color:#1e40af}
-.stat-ch{background:rgba(22, 101, 52, 0.2);color:#166534}
-.stat-post{background:var(--base-hlt);color:#92400e}
+.stat-pre{background:#dbeafe;color:#1e40af}
+.stat-ch{background:#dcfce7;color:#166534}
+.stat-post{background:#fef3c7;color:#92400e}
 .ch-add-btn{width:100%;padding:7px;border:1.5px dashed var(--border-mid);border-radius:7px;background:transparent;font-size:11.5px;color:var(--muted);cursor:pointer;font-family:var(--sans);transition:all 0.15s;margin-top:4px}
 .ch-add-btn:hover{border-color:#888;color:var(--text);background:var(--bg)}
 
@@ -373,14 +367,14 @@ html[data-reader] #siteFooter{display:none!important}
 .modal-box{background:var(--surface);border-radius:12px;padding:1.5rem;width:100%;max-width:520px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3)}
 .modal-title{font-size:15px;font-weight:500;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center}
 .modal-close{background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);line-height:1}
-.schema-json{width:100%;font-family:'Courier New',monospace;font-size:11.5px;line-height:1.6;border:0.5px solid var(--border-mid);border-radius:6px;padding:10px;background:var(--base-hlt);resize:vertical;min-height:220px;outline:none;color:var(--text)}
+.schema-json{width:100%;font-family:'Courier New',monospace;font-size:11.5px;line-height:1.6;border:0.5px solid var(--border-mid);border-radius:6px;padding:10px;background:#fafaf8;resize:vertical;min-height:220px;outline:none;color:var(--text)}
 .schema-json:focus{border-color:#888}
 .schema-presets{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px}
 .preset-btn{font-size:11px;padding:4px 10px;border:0.5px solid var(--border-mid);border-radius:5px;cursor:pointer;background:var(--surface);font-family:var(--sans);transition:all 0.15s;color:var(--muted)}
 .preset-btn:hover{border-color:#888;color:var(--text)}
 .modal-actions{display:flex;gap:8px;margin-top:1rem;justify-content:flex-end}
 .btn-sm{padding:7px 14px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;font-family:var(--sans);transition:all 0.15s;border:1px solid}
-.btn-primary{background:var(--accent-ui);color:var(--accent-text);border-color:var(--accent-ui)}
+.btn-primary{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
 .btn-primary:hover{opacity:0.85}
 .btn-ghost{background:transparent;color:var(--muted);border-color:var(--border-mid)}
 .btn-ghost:hover{color:var(--text);border-color:#888}
@@ -393,8 +387,8 @@ html[data-reader] #siteFooter{display:none!important}
 .collab-you{font-size:9.5px;color:var(--hint);background:var(--surface);padding:1px 5px;border-radius:4px;border:.5px solid var(--border)}
 .collab-time{font-size:9.5px;color:var(--hint)}
 .proj-card{border:.5px solid var(--border-mid);border-radius:8px;padding:9px 11px;cursor:pointer;transition:all .15s;background:var(--surface);margin-bottom:5px}
-.proj-card:hover{border-color:#888;background:var(--base-hlt)}
-.proj-card.proj-active{border-color:var(--accent-ui);background:var(--base-hlt)}
+.proj-card:hover{border-color:#888;background:#faf8f3}
+.proj-card.proj-active{border-color:var(--accent-ui);background:#faf8f3}
 .proj-card-name{font-size:12.5px;font-weight:500}
 .proj-card-meta{font-size:10px;color:var(--hint);margin-top:2px;display:flex;gap:8px}
 .proj-card-acts{display:flex;gap:5px;margin-top:7px}
@@ -1192,7 +1186,7 @@ html[data-reader] #readerBar { display: flex; }
 #audioPanel input:focus,#audioPanel select:focus{border-color:var(--accent-ui)}
 .ap-prov{display:flex;gap:6px;margin-bottom:4px}
 .ap-prov button{flex:1;padding:8px 10px;border-radius:8px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);font-family:var(--sans);font-size:12.5px;cursor:pointer;transition:all .15s}
-.ap-prov button.active{background:var(--accent-ui);color:var(--accent-text);border-color:var(--accent-ui)}
+.ap-prov button.active{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
 .ap-row{display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-bottom:4px}
 .ap-tracks{margin-top:16px;border-top:.5px solid var(--border);padding-top:12px}
 .ap-track{display:grid;grid-template-columns:22px 1fr auto auto;gap:8px;align-items:center;padding:8px 6px;border-bottom:.5px solid var(--border);font-size:12.5px}
@@ -1211,7 +1205,7 @@ html[data-reader] #readerBar { display: flex; }
 .ap-footer{margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .ap-footer .ap-btn{padding:9px;border-radius:8px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);font-family:var(--sans);font-size:12.5px;cursor:pointer;transition:all .15s}
 .ap-footer .ap-btn:hover{background:var(--bg);border-color:var(--accent-ui)}
-.ap-footer .ap-btn.primary{background:var(--accent-ui);color:var(--accent-text);border-color:var(--accent-ui)}
+.ap-footer .ap-btn.primary{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
 .ap-footer .ap-btn.primary:hover{opacity:.9}
 .ap-footer .ap-btn:disabled{opacity:.4;cursor:not-allowed}
 .ap-concat{margin-top:8px}
@@ -1232,7 +1226,7 @@ html[data-reader] #readerBar { display: flex; }
 .lm-cover-tool-name{font-family:var(--sans);font-size:12.5px;font-weight:600;color:var(--text)}
 .lm-cover-tool-desc{font-family:var(--sans);font-size:11px;color:var(--hint);margin-top:1px}
 .lm-cover-tool-badge{font-family:var(--sans);font-size:10px;padding:2px 7px;border-radius:4px;font-weight:500;flex-shrink:0}
-.lm-submit{width:100%;padding:11px;border-radius:8px;border:none;background:var(--accent-ui);color:var(--accent-text);font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer;margin-top:12px}
+.lm-submit{width:100%;padding:11px;border-radius:8px;border:none;background:var(--accent-ui);color:#fff;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer;margin-top:12px}
 .lm-submit:disabled{opacity:.5;cursor:not-allowed}
 .lm-status{margin-top:14px;padding:12px 14px;border-radius:8px;font-family:var(--sans);font-size:12.5px;display:none;line-height:1.6}
 .lm-status.show{display:block}
@@ -1399,19 +1393,6 @@ html[data-reader] #readerBar { display: flex; }
         </div>
         <label style="margin-top:8px">ISBN <span style="font-weight:400;opacity:.6">optional</span></label>
         <input type="text" id="bookISBN" placeholder="978-0-000-00000-0">
-        
-        <label style="margin-top:8px">Source URL <span style="font-weight:400;opacity:.6">from Gutenberg</span></label>
-        <input type="text" id="sourceUrl" placeholder="https://..." oninput="renderPreview()">
-        <div style="display:flex;gap:6px;margin-top:8px;">
-          <div style="flex:1">
-            <label style="margin-top:0">Gutenberg ID</label>
-            <input type="text" id="gutenbergId" placeholder="e.g. 11" oninput="renderPreview()">
-          </div>
-          <div style="flex:1">
-            <label style="margin-top:0">License</label>
-            <input type="text" id="license" placeholder="Public Domain" oninput="renderPreview()">
-          </div>
-        </div>
         <label style="margin-top:8px">Language</label>
         <select id="bookLang">
           <option value="en">English</option>
@@ -1614,7 +1595,7 @@ html[data-reader] #readerBar { display: flex; }
             <div id="fbDot" style="width:8px;height:8px;border-radius:50%;background:#ccc;flex-shrink:0;transition:background .3s"></div>
             <span id="fbStatusText" style="font-size:11px;color:var(--hint)">Connecting…</span>
           </div>
-          <span id="fbStatusBadge" style="font-size:10px;padding:2px 7px;border-radius:10px;background:var(--bg);color:#aaa">—</span>
+          <span id="fbStatusBadge" style="font-size:10px;padding:2px 7px;border-radius:10px;background:#f0ede6;color:#aaa">—</span>
         </div>
 
         <!-- Signed-out state -->
@@ -1631,7 +1612,7 @@ html[data-reader] #readerBar { display: flex; }
         <div id="authSignedIn" style="display:none">
           <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;background:var(--bg);border-radius:8px;margin-bottom:8px">
             <img id="authAvatar" src="" alt="" width="28" height="28" style="border-radius:50%;display:none">
-            <div id="authAvatarFallback" style="width:28px;height:28px;border-radius:50%;background:var(--accent-ui);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:var(--accent-text);flex-shrink:0"></div>
+            <div id="authAvatarFallback" style="width:28px;height:28px;border-radius:50%;background:var(--accent-ui);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;color:#fff;flex-shrink:0"></div>
             <div style="flex:1;min-width:0">
               <div id="authName" style="font-size:12.5px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
               <div id="authEmail" style="font-size:10.5px;color:var(--hint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></div>
@@ -1640,7 +1621,7 @@ html[data-reader] #readerBar { display: flex; }
           </div>
 
           <!-- Link Google prompt — shown to anonymous users only -->
-          <div id="authLinkPrompt" style="display:none;background:var(--base-hlt);border:.5px solid #f0d080;border-radius:8px;padding:9px 11px;margin-bottom:8px">
+          <div id="authLinkPrompt" style="display:none;background:#fef9f0;border:.5px solid #f0d080;border-radius:8px;padding:9px 11px;margin-bottom:8px">
             <div style="font-size:11.5px;font-weight:500;color:#92400e;margin-bottom:4px">You're browsing as a guest</div>
             <div style="font-size:10.5px;color:#a16207;margin-bottom:8px;line-height:1.5">Sign in with Google to keep your folios permanently and access them from any device.</div>
             <button onclick="signInGoogle()" style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;padding:7px 10px;border-radius:7px;border:1px solid #d97706;background:#fff;cursor:pointer;font-family:var(--sans);font-size:12px;font-weight:500;color:#92400e;transition:all .15s" onmouseover="this.style.background='#fef3c7'" onmouseout="this.style.background='#fff'">
@@ -1786,7 +1767,7 @@ html[data-reader] #readerBar { display: flex; }
   </div>
 
   <div class="status-bar" id="statusBar">Ready — import files or paste your manuscript</div>
-  <div class="sidebar-footer" style="padding:6px 1.25rem 8px;font-size:10.5px;color:var(--hint);background:var(--base-bar);border-top:0.5px solid var(--border);display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex-shrink:0">
+  <div class="sidebar-footer" style="padding:6px 1.25rem 8px;font-size:10.5px;color:var(--hint);background:#faf9f7;border-top:0.5px solid var(--border);display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex-shrink:0">
     <a href="/privacy.html" style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Privacy</a>
     <a href="/terms.html"   style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Terms</a>
     <a href="mailto:folio@jacobsiler.com" style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Contact</a>
@@ -2108,10 +2089,6 @@ window.addEventListener('fb-ready', async () => {
   _updateLoadingMsg('Loading your folio…');
   await loadFolioList();
 
-  // ADD THESE TWO LINES: Abort auto-restore if we are waiting for a companion app handshake
-  const isImportPending = new URLSearchParams(window.location.search).get('import') === 'pending';
-  if (isImportPending) return;
-     
   // Priority 1: URL param (shared link or direct open)
   const pid = new URLSearchParams(window.location.search).get('folio')
            || new URLSearchParams(window.location.search).get('project');
@@ -2520,7 +2497,7 @@ function _serialise() {
       dedication: getV('dedication'),
       copyright:  getV('copyright'),
       series: getV('bookSeries'), seriesNum: getV('seriesNum'),
-      isbn: getV('bookISBN'), lang: getV('bookLang'), sourceUrl: getV('sourceUrl'), gutenbergId: getV('gutenbergId'), license: getV('license'),
+      isbn: getV('bookISBN'), lang: getV('bookLang'),
     },
     toggles: {
       pageNums:      getC('pageNums'),
@@ -2558,7 +2535,7 @@ function _deserialise(state) {
   if (!state) return;
   const META_MAP = {title:'bookTitle',author:'bookAuthor',subtitle:'bookSubtitle',
     publisher:'publisher',year:'pubYear',dedication:'dedication',copyright:'copyright',
-    series:'bookSeries',seriesNum:'seriesNum',isbn:'bookISBN',lang:'bookLang', sourceUrl:'sourceUrl', gutenbergId:'gutenbergId', license:'license'};
+    series:'bookSeries',seriesNum:'seriesNum',isbn:'bookISBN',lang:'bookLang'};
   if (state.meta)    Object.entries(state.meta).forEach(([k,v])=>{ const el=document.getElementById(META_MAP[k]); if(el) el.value=v||''; });
   if (state.toggles) Object.entries(state.toggles).forEach(([k,v])=>{
     const el=document.getElementById(k);
@@ -4755,8 +4732,8 @@ function renderPreview(){
   const mg = Math.round(mgMM * MM);
   const hdrH = Math.round(14 * MM);   // header area
   const ftrH = Math.round(12 * MM);   // footer area
-  const contentT = Math.round(Math.max(mgMM + (showHdr ? 8 : 4), 18) * MM);
-  const contentB = Math.round(Math.max(mgMM + (showNums ? 6 : 4), 18) * MM);
+  const contentT = Math.round(28 * MM);
+  const contentB = Math.round(21 * MM); // 21mm bottom margin
 
   const accent=S.accent;
   const orn=S.ornament;
@@ -5312,9 +5289,9 @@ function exportBrowserPrint() {
       st.id = id;
       document.head.appendChild(st);
     }
-    // margin:0 stripped the browser's own margins but we need the user's setting so text isn't at the edge
-    const mgMM = parseFloat(document.getElementById('pageMargin')?.value || 18);
-    st.textContent = '@page { size: ' + pwMM + 'mm ' + phMM + 'mm; margin: ' + mgMM + 'mm; }';
+    // margin:0 strips the browser's own margins — the inner
+    // page padding is supplied by #printBook .pb { padding: ... }.
+    st.textContent = '@page { size: ' + pwMM + 'mm ' + phMM + 'mm; margin: 0; }';
 
     if (typeof toastInfo === 'function') {
       toastInfo('Tip: in the print dialog, pick destination "Save as PDF" for a match to the preview.',
@@ -5405,13 +5382,13 @@ async function exportPDF(returnBlob=false){
 
       // yStart: first usable y on a fresh page (clear of running header)
       const hdrMode=getV('runningHeader')||'both'; const hdrOn=hdrMode!=='off';
-      const yStart = Math.max(mg + (hdrOn ? 8 : 4), 18);
+      const yStart=hdrOn?21:mg;
       // Bottom threshold — leave room for page number
-      const yBottom = ph - Math.max(mg + (showNums ? 6 : 4), 18);
+      const yBottom=ph-mg-14;
 
       const setBody=()=>{doc.setFont(PDF_FONT,'normal');doc.setFontSize(fsize);doc.setTextColor(...txR);};
-      const addPageNum=()=>{if(!showNums||pageNum<=2)return;doc.setFont(PDF_FONT,'normal');doc.setFontSize(7.5);doc.setTextColor(...txR);doc.text(String(pageNum),pw/2,ph-Math.max(8, mg-4),{align:'center'})};
-      const addHeader=()=>{if(!hdrOn||pageNum<=1)return;doc.setFont(PDF_FONT,'normal');doc.setFontSize(6.5);doc.setTextColor(...txR);const _hl=hdrMode==='title'?'':author.toUpperCase();const _hr=hdrMode==='author'?'':title.toUpperCase();if(_hl)doc.text(_hl,mg,Math.max(13, mg+1));if(_hr)doc.text(_hr,pw-mg,Math.max(13, mg+1),{align:'right'});doc.setDrawColor(...dvR);doc.line(mg,Math.max(14.5, mg+2.5),pw-mg,Math.max(14.5, mg+2.5))};
+      const addPageNum=()=>{if(!showNums||pageNum<=2)return;doc.setFont(PDF_FONT,'normal');doc.setFontSize(7.5);doc.setTextColor(...txR);doc.text(String(pageNum),pw/2,ph-8,{align:'center'})};
+      const addHeader=()=>{if(!hdrOn||pageNum<=1)return;doc.setFont(PDF_FONT,'normal');doc.setFontSize(6.5);doc.setTextColor(...txR);const _hl=hdrMode==='title'?'':author.toUpperCase();const _hr=hdrMode==='author'?'':title.toUpperCase();if(_hl)doc.text(_hl,mg,13);if(_hr)doc.text(_hr,pw-mg,13,{align:'right'});doc.setDrawColor(...dvR);doc.line(mg,14.5,pw-mg,14.5)};
       let _pageBlank = false; // true when current page has no content yet
       const newPage=()=>{doc.addPage();addBg();pageNum++;addHeader();_pageBlank=true;};
       const markUsed=()=>{_pageBlank=false;};
@@ -5998,8 +5975,6 @@ function exportHTML(){
     const hasTOC=chapters.some(c=>c.type==='toc');
     const tocSections=sections.filter(s=>s.title||(s.chNum));
 
-    // Read margin from settings for print output
-    const mgMM = parseFloat(document.getElementById('pageMargin')?.value || 18);
     const css=[
       "@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,400&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap');",
       '*{box-sizing:border-box;margin:0;padding:0}',
@@ -6027,7 +6002,7 @@ function exportHTML(){
       '.ded{font-style:italic;text-align:center;max-width:24em;margin:3em auto;line-height:1.8;opacity:.7}',
       '.cpr{font-size:.75em;line-height:1.8;opacity:.55;margin:1em 0}',
       '.sec{margin-bottom:4em;padding-top:1em}',
-      '@media print{body{max-width:none;padding:0}@page{margin:'+mgMM+'mm}.sec{page-break-before:always}.sec:first-child{page-break-before:avoid}}'
+      '@media print{body{max-width:none;padding:1.5cm}.sec{page-break-before:always}.sec:first-child{page-break-before:avoid}}'
     ].join('\n');
 
     let h='<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n<title>'+esc(title)+'</title>\n<style>\n'+css+'\n</style>\n</head>\n<body>\n';
@@ -8149,7 +8124,7 @@ window._folioImportCancel = _folioImportCancel;
   });
 
   _folioImportMsgHandler = (ev) => {
-    if (!FOLIO_IMPORT_TRUSTED_ORIGINS.includes(ev.origin) && !ev.origin.includes(".run.app")) return;
+    if (!FOLIO_IMPORT_TRUSTED_ORIGINS.includes(ev.origin)) return;
     const d = ev.data;
     if (!d || typeof d !== 'object' || d.type !== 'folio-import-payload') return;
 
@@ -8238,42 +8213,10 @@ async function _folioImportApply(payload) {
   chapters = [];
 
   const setField = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
-  const lowerT = (payload.title || '').toLowerCase();
-  const isGenericInit = !lowerT || lowerT === 'untitled' || lowerT === 'unknown title' || lowerT === 'preamble';
-  setField('bookTitle',    isGenericInit ? '' : payload.title);
+  setField('bookTitle',    payload.title);
   setField('bookAuthor',   payload.author);
   setField('bookSubtitle', '');
   setField('dedication',   '');
-  
-  if (payload.metadata) {
-    setField('sourceUrl', payload.metadata.sourceUrl);
-    setField('gutenbergId', payload.metadata.gutenbergId);
-    setField('license', payload.metadata.license);
-  }
-
-  // Fallback for title extraction in case Gutenberg missed it
-  const lowerTitle = (payload.title || '').toLowerCase();
-  const isGeneric = !lowerTitle || lowerTitle === 'untitled' || lowerTitle === 'unknown title' || lowerTitle === 'preamble';
-  if (isGeneric) {
-     if (payload.metadata && payload.metadata.title) {
-       setField('bookTitle', payload.metadata.title);
-       setField('projName', payload.metadata.title);
-     } else if (payload.manuscriptMd) {
-       const tMatch = payload.manuscriptMd.match(/^(?:#\s*)?Title:\s*(.+)$/im);
-       if (tMatch) {
-         setField('bookTitle', tMatch[1].trim());
-         setField('projName', tMatch[1].trim());
-       } else {
-         setField('bookTitle', 'Untitled');
-         setField('projName', 'Untitled');
-       }
-     }
-  }
-  
-  if (!payload.author && payload.metadata && payload.metadata.author) {
-      setField('bookAuthor', payload.metadata.author);
-  }
-
   // Auto-fill copyright from year + author if currently empty.
   const cpEl = document.getElementById('copyright');
   if (cpEl && !cpEl.value) {
@@ -8283,9 +8226,7 @@ async function _folioImportApply(payload) {
       : '© ' + yr;
   }
   const projName = document.getElementById('projName');
-  if (projName && (!projName.value || projName.value === 'Untitled' || projName.value === 'Preamble')) {
-    projName.value = document.getElementById('bookTitle').value || payload.title || '';
-  }
+  if (projName) projName.value = payload.title || '';
 
   // Checkpoint 2: did setField actually land?
   console.log('[FOLIO IMPORT FIELDS]', {
@@ -8472,7 +8413,7 @@ function _showCredInUseModal(email) {
           '</button>' +
           '<button type="button" id="credInUseProceed" ' +
             'style="padding:8px 14px;border-radius:7px;border:none;' +
-                   'background:var(--accent-ui);color:var(--accent-text);font-family:var(--sans);font-size:12.5px;cursor:pointer">' +
+                   'background:var(--accent-ui);color:#fff;font-family:var(--sans);font-size:12.5px;cursor:pointer">' +
             'Continue to Google' +
           '</button>' +
         '</div>' +
@@ -8576,7 +8517,7 @@ function _showSigninStuckModal(reason) {
           '</button>' +
           '<button type="button" id="signinStuckRetry" ' +
             'style="padding:8px 14px;border-radius:7px;border:none;' +
-                   'background:var(--accent-ui);color:var(--accent-text);font-family:var(--sans);font-size:12.5px;cursor:pointer">' +
+                   'background:var(--accent-ui);color:#fff;font-family:var(--sans);font-size:12.5px;cursor:pointer">' +
             'Try sign-in again' +
           '</button>' +
         '</div>' +
@@ -9808,7 +9749,7 @@ function _annOpenNoteBox() {
     '<textarea id="annNoteInput" placeholder="Thoughts, revision notes, questions…"></textarea>' +
     '<div class="ann-note-actions">' +
       '<button type="button" class="ann-btn" onclick="_annCloseNoteBox()">Cancel</button>' +
-      '<button type="button" class="ann-btn" style="background:var(--accent-ui);color:var(--accent-text)" onclick="_annSaveNote()">Save</button>' +
+      '<button type="button" class="ann-btn" style="background:var(--accent-ui);color:#fff" onclick="_annSaveNote()">Save</button>' +
     '</div>';
   const ta = document.getElementById('annNoteInput');
   if (ta) { ta.value = current.note; ta.focus(); }
@@ -10827,12 +10768,12 @@ function _id3TextFrame(id, text) {
 }
 
 function _id3CommFrame(text) {
-  // COMM: encoding + lang(3) + short desc + \0 + full text
+  // COMM: encoding + lang(3) + short desc +   + full text
   const tb = _id3StrToUtf8(text);
   const payload = new Uint8Array(1 + 3 + 1 + tb.length);
   payload[0] = 0x03;                        // UTF-8
   payload[1] = 0x65; payload[2] = 0x6E; payload[3] = 0x67; // "eng"
-  payload[4] = 0;                           // empty short description + \0
+  payload[4] = 0;                           // empty short description +  
   payload.set(tb, 5);
   return _id3Frame('COMM', payload);
 }
@@ -10843,7 +10784,7 @@ function _id3ChapFrame(elementId, startMs, endMs, title) {
   const payload = new Uint8Array(idB.length + 1 + 16 + sub.length);
   let pos = 0;
   payload.set(idB, pos); pos += idB.length;
-  payload[pos++] = 0; // element ID \0
+  payload[pos++] = 0; // element ID  
   const st = _id3U32BE(startMs | 0);
   const et = _id3U32BE(endMs   | 0);
   for (let i = 0; i < 4; i++) payload[pos++] = st[i];
@@ -10866,7 +10807,7 @@ function _id3TocFrame(elementIds) {
   const payload = new Uint8Array(idB.length + 1 + 1 + 1 + childLen);
   let pos = 0;
   payload.set(idB, pos); pos += idB.length;
-  payload[pos++] = 0;          // \0
+  payload[pos++] = 0;          //  
   payload[pos++] = 0x03;       // flags: top-level + ordered
   payload[pos++] = elementIds.length & 0xFF; // entry count
   for (let i = 0; i < childBytesList.length; i++) {
@@ -10879,13 +10820,13 @@ function _id3TocFrame(elementIds) {
 
 function _id3ApicFrame(mime, imgBytes) {
   const mimeB = _id3StrToUtf8(mime);
-  // encoding + mime\0 + pic type + desc\0 + image
+  // encoding + mime  + pic type + desc  + image
   const payload = new Uint8Array(1 + mimeB.length + 1 + 1 + 1 + imgBytes.length);
   let pos = 0;
   payload[pos++] = 0x03;                 // UTF-8
   payload.set(mimeB, pos); pos += mimeB.length; payload[pos++] = 0;
   payload[pos++] = 0x03;                 // picture type: Cover (front)
-  payload[pos++] = 0;                    // empty description \0
+  payload[pos++] = 0;                    // empty description  
   payload.set(imgBytes, pos);
   return _id3Frame('APIC', payload);
 }
@@ -12310,10 +12251,10 @@ window._apOnImportFile       = _apOnImportFile;
       <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:10px">Interior spec check</div>
       <div id="podChecklist" style="display:flex;flex-direction:column;gap:6px;font-family:var(--sans);font-size:12px"></div>
     </div>
-    <button onclick="exportPDF();closePOD();" style="width:100%;padding:10px;border-radius:8px;border:none;background:var(--accent-ui);color:var(--accent-text);font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer;margin-bottom:20px">⬇ Download Print-Ready PDF</button>
+    <button onclick="exportPDF();closePOD();" style="width:100%;padding:10px;border-radius:8px;border:none;background:var(--accent-ui);color:#fff;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer;margin-bottom:20px">⬇ Download Print-Ready PDF</button>
     <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:10px">Upload to a provider</div>
     <div style="display:flex;flex-direction:column;gap:10px" id="podProviders"></div>
-    <div style="margin-top:18px;padding:12px 14px;background:var(--base-hlt);border:.5px solid #f0d080;border-radius:8px;font-family:var(--sans);font-size:11.5px;color:#92400e;line-height:1.6">
+    <div style="margin-top:18px;padding:12px 14px;background:#fef9f0;border:.5px solid #f0d080;border-radius:8px;font-family:var(--sans);font-size:11.5px;color:#92400e;line-height:1.6">
       <strong>Cover needed?</strong> Every provider requires a cover PDF. <a href="https://www.canva.com/create/book-covers/" target="_blank" style="color:#c9956a">Canva's free book cover maker</a> is the easiest starting point. KDP's free Cover Creator is at kdp.amazon.com.
     </div>
 
@@ -12420,10 +12361,4 @@ window._apOnImportFile       = _apOnImportFile;
       <select id="segPosMode" onchange="_apSegOnPosMode()">
         <option value="start">At the start of the book</option>
         <option value="end">At the end of the book</option>
-        
-      </select>
-    </div>
-  </div>
-</div>
-</body>
-</html>
+        <option valu
