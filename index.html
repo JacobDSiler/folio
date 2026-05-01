@@ -2143,36 +2143,34 @@ let _autoSaveDirty = false; // true when unsaved changes exist
         const q = query(collection(window._db, 'folio_projects'), where('uid', '==', window._uid));
         const snap = await getDocs(q);
 
-        ```
-  if (!snap.empty) {
-    let newest = null;
-    snap.forEach(d => {
-      const data = d.data();
-      if (!newest || (data.updatedAt?.seconds || 0) > (newest.updatedAt?.seconds || 0)) {
-        newest = {id: d.id, ...data};
-      }
-    });
+        if (!snap.empty) {
+          let newest = null;
+          snap.forEach(d => {
+            const data = d.data();
+            if (!newest || (data.updatedAt?.seconds || 0) > (newest.updatedAt?.seconds || 0)) {
+              newest = { id: d.id, ...data };
+            }
+          });
 
-    if (newest) {
-      await loadFolioById(newest.id);
-      return;
+          if (newest) {
+            await loadFolioById(newest.id);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn('Auto-restore failed:', e);
+      }
+
     }
-  }
-} catch(e) {
-  console.warn('Auto-restore failed:', e);
-}
-```
 
-      }
-
-// ─────────────────────────────────────────────
-// Priority 4: Demo fallback
-// ─────────────────────────────────────────────
-if (!isImport) {
-        _loadDemo();
-      }
-    });
-
+    // ─────────────────────────────────────────────
+    // Priority 4: Demo fallback
+    // ─────────────────────────────────────────────
+    if (!isImport) {
+      _loadDemo();
+    }
+  });
+  
 function _loadDemo() {
   // Don't load demo if chapters already exist
   if (chapters.length) return;
