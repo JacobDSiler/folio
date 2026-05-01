@@ -8102,7 +8102,6 @@ window._folioImportCancel = _folioImportCancel;
 (function initFolioImportBridge() {
   const params = new URLSearchParams(window.location.search);
   if (params.get('import') !== 'pending') return;
-  window._fromExternalImport = true;
   if (!window.opener) {
     console.warn('[folio-import] ?import=pending but no window.opener');
     toastWarning && toastWarning('Import link opened directly — use the "Open in Folio" button on the companion app.', {duration:5000});
@@ -8171,140 +8170,162 @@ window._folioImportCancel = _folioImportCancel;
   }, 30000);
 })();
 
-  async function _folioImportApply(payload) {
-    console.log('[FOLIO IMPORT IN]', {
-      title: payload.title,
-      author: payload.author,
-      mdLen: payload.manuscriptMd ? payload.manuscriptMd.length : 0,
-      metaKeys: Object.keys(payload.metadata || {}),
-    });
+async function _folioImportApply(payload) {
+  // ─── Diagnostic trace (per Cleaner-chat request) ────────────
+  // Logs at each end-to-end boundary so we can pinpoint where
+  // title/author drop-off happens. Three checkpoints:
+  //   IN     — what arrived in the payload
+  //   FIELDS — what landed in the DOM after setField calls
+  //   POST   — what's in the DOM after renderPreview / save
+  console.log('[FOLIO IMPORT IN]', {
+    title: payload.title,
+    author: payload.author,
+    mdLen: payload.manuscriptMd ? payload.manuscriptMd.length : 0,
+    metaKeys: Object.keys(payload.metadata || {}),
+  });
 
-    // 🚫 TEMP: suppress autosave during import
-    window._suspendAutoSave = true;
+  // Wait for Firestore/Auth before we try to persist — otherwise the
+  // auto-save path silently no-ops and the user's fresh folio only
+  // exists in memory until they touch something that triggers save.
+  _folioImportSetMsg('Connecting to your account…');
+  await new Promise(res => {
+    if (_fbReady) return res();
+    let done = false;
+    const t = setInterval(() => {
+      if (_fbReady && !done) { done = true; clearInterval(t); res(); }
+    }, 100);
+    setTimeout(() => { if (!done) { done = true; clearInterval(t); res(); } }, 15000);
+  });
 
-    _folioImportSetMsg('Connecting to your account…');
-    await new Promise(res => {
-      if (_fbReady) return res();
-      let done = false;
-      const t = setInterval(() => {
-        if (_fbReady && !done) { done = true; clearInterval(t); res(); }
-      }, 100);
-      setTimeout(() => { if (!done) { done = true; clearInterval(t); res(); } }, 15000);
-    });
+  _folioImportSetMsg('Parsing "' + (payload.title || 'manuscript') + '"…');
+  // Brief defer so the overlay repaints before we do blocking work.
+  await new Promise(r => setTimeout(r, 30));
 
-    _folioImportSetMsg('Parsing "' + (payload.title || 'manuscript') + '"…');
-    await new Promise(r => setTimeout(r, 30));
+  // Reset to a fresh folio (no confirm dialog — we're in a tab that
+  // was opened specifically for this handoff, so there's nothing to
+  // lose). Mirrors newFolio() but skips the prompt.
+  _projId = null;
+  try { localStorage.removeItem('folio_last_open'); } catch (e) {}
+  if (typeof _presenceUnsub !== 'undefined' && _presenceUnsub) {
+    try { _presenceUnsub(); } catch (e) {}
+    _presenceUnsub = null;
+  }
+  chapters = [];
 
-    _projId = null;
-    try { localStorage.removeItem('folio_last_open'); } catch (e) { }
-    if (typeof _presenceUnsub !== 'undefined' && _presenceUnsub) {
-      try { _presenceUnsub(); } catch (e) { }
-      _presenceUnsub = null;
-    }
-    chapters = [];
+  const setField = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
+  setField('bookTitle',    payload.title);
+  setField('bookAuthor',   payload.author);
+  setField('bookSubtitle', '');
+  setField('dedication',   '');
+  // Auto-fill copyright from year + author if currently empty.
+  const cpEl = document.getElementById('copyright');
+  if (cpEl && !cpEl.value) {
+    const yr = new Date().getFullYear();
+    cpEl.value = payload.author
+      ? '© ' + yr + ' ' + payload.author + '. All rights reserved.'
+      : '© ' + yr;
+  }
+  const projName = document.getElementById('projName');
+  if (projName) projName.value = payload.title || '';
 
-    const setField = (id, v) => {
-      const el = document.getElementById(id);
-      if (el) el.value = v || '';
-    };
+  // Checkpoint 2: did setField actually land?
+  console.log('[FOLIO IMPORT FIELDS]', {
+    bookTitle:  document.getElementById('bookTitle')  ? document.getElementById('bookTitle').value  : '(elem missing)',
+    bookAuthor: document.getElementById('bookAuthor') ? document.getElementById('bookAuthor').value : '(elem missing)',
+    projName:   document.getElementById('projName')   ? document.getElementById('projName').value   : '(elem missing)',
+  });
 
-    setField('bookTitle', payload.title);
-    setField('bookAuthor', payload.author);
-    setField('bookSubtitle', '');
-    setField('dedication', '');
-
-    const cpEl = document.getElementById('copyright');
-    if (cpEl && !cpEl.value) {
-      const yr = new Date().getFullYear();
-      cpEl.value = payload.author
-        ? '© ' + yr + ' ' + payload.author + '. All rights reserved.'
-        : '© ' + yr;
-    }
-
-    const projName = document.getElementById('projName');
-    if (projName) projName.value = payload.title || '';
-
-    console.log('[FOLIO IMPORT FIELDS]', {
-      bookTitle: document.getElementById('bookTitle')?.value,
-      bookAuthor: document.getElementById('bookAuthor')?.value,
-      projName: document.getElementById('projName')?.value,
-    });
-
-    const sections = (typeof smartSplit === 'function')
-      ? smartSplit(payload.manuscriptMd)
-      : [];
-
-    if (sections.length) {
-      chapters = sections.map(s => ({
-        id: (typeof uid === 'function') ? uid() : ('ch_' + Date.now()),
-        type: s.type || 'chapter',
-        src: payload.source || 'import-bridge',
-        expanded: false,
-        title: s.title || '',
-        content: s.content || '',
-      }));
-      if (typeof _insertTOCIfNeeded === 'function') * insertTOCIfNeeded();
-    } else {
-      chapters = [{
-        id: (typeof uid === 'function') ? uid() : ('ch*' + Date.now()),
-        type: 'chapter',
-        src: payload.source || 'import-bridge',
-        expanded: false,
-        title: payload.title || 'Untitled',
-        content: payload.manuscriptMd,
-      }];
-    }
-
-    document.getElementById('folioLoadingState')?.remove();
-
-    if (typeof renderChapterList === 'function') renderChapterList();
-    if (typeof renderPreview === 'function') renderPreview();
-
-    // ❌ DO NOT autosave immediately — this was the wipe trigger
-    // if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
-
-    // ✅ Re-enable autosave AFTER state stabilises
-    setTimeout(() => {
-      window._suspendAutoSave = false;
-      if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
-    }, 1200);
-
-    // Optional: keep diagnostic but safe
-    setTimeout(() => {
-      console.log('[FOLIO IMPORT POST]', {
-        bookTitle: document.getElementById('bookTitle')?.value,
-        bookAuthor: document.getElementById('bookAuthor')?.value,
-        projName: document.getElementById('projName')?.value,
-        _projId: typeof _projId !== 'undefined' ? _projId : '(undefined)',
-      });
-    }, 500);
-
-    _folioImportHideOverlay();
-
-    const chCount = chapters.filter(c => c.type === 'chapter').length;
-    const preCount = chapters.filter(c => c.type === 'pre').length;
-    const postCount = chapters.filter(c => c.type === 'post').length;
-
-    const srcLabel = (payload.source || 'companion app').replace(/-/g, ' ');
-    const bits = [];
-    if (preCount) bits.push(preCount + ' front matter');
-    bits.push(chCount + ' chapter' + (chCount === 1 ? '' : 's'));
-    if (postCount) bits.push(postCount + ' back matter');
-
-    if (typeof toastSuccess === 'function') {
-      toastSuccess(
-        'Imported "' + (payload.title || 'Untitled') + '" (' + bits.join(', ') + ') from ' + srcLabel,
-        { icon: '📖', duration: 4500 }
-      );
-    }
-
-    try { window.history.replaceState(null, '', window.location.pathname); } catch (e) { }
-
-    if (typeof switchTab === 'function') {
-      try { switchTab('chapters', document.querySelector('.tab-btn:nth-child(2)')); } catch (e) { }
-    }
+  // Feed the manuscript through the existing smartSplit pipeline —
+  // identical to what the manual .md import uses, so all the 2026-
+  // 04-23-import-fixes benefits (reflow, heading-gating, CHAPTER I
+  // normalisation) apply automatically.
+  const sections = (typeof smartSplit === 'function')
+    ? smartSplit(payload.manuscriptMd)
+    : [];
+  if (sections.length) {
+    chapters = sections.map(s => ({
+      id: (typeof uid === 'function') ? uid() : ('ch_' + Date.now() + '_' + Math.random().toString(36).slice(2,7)),
+      type: s.type || 'chapter',
+      src: payload.source || 'import-bridge',
+      expanded: false,
+      title: s.title || '',
+      content: s.content || '',
+    }));
+    if (typeof _insertTOCIfNeeded === 'function') _insertTOCIfNeeded();
+  } else {
+    // Fallback — single-chapter folio from the whole body.
+    chapters = [{
+      id: (typeof uid === 'function') ? uid() : ('ch_' + Date.now()),
+      type: 'chapter', src: payload.source || 'import-bridge',
+      expanded: false, title: payload.title || 'Untitled',
+      content: payload.manuscriptMd,
+    }];
   }
 
+  // Clear the "Loading your folios…" spinner that's shown on page
+  // boot — renderPreview() early-returns if it's still present
+  // (and the normal folio-load path also removes it manually).
+  document.getElementById('folioLoadingState')?.remove();
+
+  if (typeof renderChapterList === 'function') renderChapterList();
+  if (typeof renderPreview === 'function') renderPreview();
+  if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+
+  // Checkpoint 3: are the fields still populated AFTER render+save?
+  // If they're empty here but were populated at checkpoint 2, something
+  // in renderPreview or the auto-save path is wiping them.
+  setTimeout(() => {
+    console.log('[FOLIO IMPORT POST]', {
+      bookTitle:  document.getElementById('bookTitle')  ? document.getElementById('bookTitle').value  : '(elem missing)',
+      bookAuthor: document.getElementById('bookAuthor') ? document.getElementById('bookAuthor').value : '(elem missing)',
+      projName:   document.getElementById('projName')   ? document.getElementById('projName').value   : '(elem missing)',
+      _projId:    typeof _projId !== 'undefined' ? _projId : '(undefined)',
+    });
+  }, 500);
+
+  _folioImportHideOverlay();
+
+  const chCount = chapters.filter(c => c.type === 'chapter').length;
+  const preCount = chapters.filter(c => c.type === 'pre').length;
+  const postCount = chapters.filter(c => c.type === 'post').length;
+  const srcLabel = (payload.source || 'companion app').replace(/-/g, ' ');
+  const bits = [];
+  if (preCount) bits.push(preCount + ' front matter');
+  bits.push(chCount + ' chapter' + (chCount === 1 ? '' : 's'));
+  if (postCount) bits.push(postCount + ' back matter');
+  if (typeof toastSuccess === 'function') {
+    toastSuccess(
+      'Imported "' + (payload.title || 'Untitled') + '" (' + bits.join(', ') + ') from ' + srcLabel,
+      { icon: '📖', duration: 4500 }
+    );
+  }
+
+  // Strip the ?import=pending param so reloads don't re-handshake.
+  try { window.history.replaceState(null, '', window.location.pathname); } catch (e) {}
+
+  // Jump to the Chapters tab so users land on their new content.
+  if (typeof switchTab === 'function') {
+    try { switchTab('chapters', document.querySelector('.tab-btn:nth-child(2)')); } catch (e) {}
+  }
+}
+window._folioImportApply = _folioImportApply;
+
+// Start blank — show loading state until Firebase resolves.
+// renderPreview() is NOT called here — we wait for Firebase so users
+// never see the demo title page flash on load.
+chapters = [];
+_showLoadingPreview('Loading your folios…');
+// Close export drawer on outside click
+document.addEventListener('click', e => {
+  const sec = document.querySelector('.export-section');
+  if (sec && !sec.contains(e.target)) closeExportDrawer();
+});
+
+// Delegated contextmenu for dynamically created .ch-content-area textareas
+document.addEventListener('contextmenu', e => {
+  const ta = e.target.closest('.ch-content-area');
+  if (ta) _ctxOpen(e, ta);
+});
 
 // Delegated click handler for TOC navigation rows
 document.getElementById('bookPreview').addEventListener('click', e => {
