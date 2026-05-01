@@ -2081,76 +2081,97 @@ let _autoSaveTimer = null;  // debounce timer for auto-save
 let _autoSaveDirty = false; // true when unsaved changes exist
 
 /* ── Firebase ready ── */
-window.addEventListener('fb-ready', async () => {
-  
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('import') === 'pending') {
-    console.log('[FOLIO] Skipping auto-restore (import in progress)');
-    return;
-  }
+  window.addEventListener('fb-ready', async () => {
 
-  _fbReady = true;
-  _setFbStatus(true);
-  document.getElementById('btnSaveProj').disabled = false;
-  document.getElementById('btnSaveVer').disabled  = false;
-  _updateLoadingMsg('Loading your folio…');
-  await loadFolioList();
+    const params = new URLSearchParams(window.location.search);
+    const isImport = params.get('import') === 'pending';
 
-  // Priority 1: URL param (shared link or direct open)
-  const pid = new URLSearchParams(window.location.search).get('folio')
-           || new URLSearchParams(window.location.search).get('project');
-  if (pid) { await loadFolioById(pid); return; }
+    // ✅ Always run Firebase init (DO NOT early return)
+    _fbReady = true;
+    _setFbStatus(true);
+    document.getElementById('btnSaveProj').disabled = false;
+    document.getElementById('btnSaveVer').disabled = false;
+    _updateLoadingMsg('Loading your folio…');
+    await loadFolioList();
 
-  // Priority 2: Last open folio saved in localStorage
-  const lastId = localStorage.getItem('folio_last_open');
-  if (lastId) {
-    try {
-      await loadFolioById(lastId);
+    if (isImport) {
+      console.log('[FOLIO] Import mode — skipping auto-restore');
+    }
+
+    // ─────────────────────────────────────────────
+    // Priority 1: URL param (shared link or direct open)
+    // ─────────────────────────────────────────────
+    const pid = params.get('folio') || params.get('project');
+    if (pid && !isImport) {
+      await loadFolioById(pid);
       return;
-    } catch(e) {
-      // Firebase failed — try local backup before giving up
-      const backup = localStorage.getItem('folio_local_backup');
-      if (backup) {
-        try {
-          const b = JSON.parse(backup);
-          if (b.id === lastId && b.state) {
-            _projId = b.id;
-            document.getElementById('projName').value = b.name || '';
-            _deserialise(b.state);
-            _updateInviteUI();
-            setStatus('Loaded from local backup — cloud sync will resume when connected');
-            return;
-          }
-        } catch(be) {}
+    }
+
+    // ─────────────────────────────────────────────
+    // Priority 2: Last open folio
+    // ─────────────────────────────────────────────
+    const lastId = localStorage.getItem('folio_last_open');
+    if (lastId && !isImport) {
+      try {
+        await loadFolioById(lastId);
+        return;
+      } catch (e) {
+        const backup = localStorage.getItem('folio_local_backup');
+        if (backup) {
+          try {
+            const b = JSON.parse(backup);
+            if (b.id === lastId && b.state) {
+              _projId = b.id;
+              document.getElementById('projName').value = b.name || '';
+              _deserialise(b.state);
+              _updateInviteUI();
+              setStatus('Loaded from local backup — cloud sync will resume when connected');
+              return;
+            }
+          } catch (be) { }
+        }
+        localStorage.removeItem('folio_last_open');
       }
-      localStorage.removeItem('folio_last_open');
+    }
+
+    // ─────────────────────────────────────────────
+    // Priority 3: Most recently updated folio
+    // ─────────────────────────────────────────────
+    if (!isImport) {
+      try {
+        const { collection, query, where, getDocs } = window._fb;
+        const q = query(collection(window._db, 'folio_projects'), where('uid', '==', window._uid));
+        const snap = await getDocs(q);
+
+        ```
+  if (!snap.empty) {
+    let newest = null;
+    snap.forEach(d => {
+      const data = d.data();
+      if (!newest || (data.updatedAt?.seconds || 0) > (newest.updatedAt?.seconds || 0)) {
+        newest = {id: d.id, ...data};
+      }
+    });
+
+    if (newest) {
+      await loadFolioById(newest.id);
+      return;
     }
   }
+} catch(e) {
+  console.warn('Auto-restore failed:', e);
+}
+```
 
-  // Priority 3: Most recently updated folio in the user's list
-  try {
-    const {collection, query, where, getDocs} = window._fb;
-    const q = query(collection(window._db,'folio_projects'), where('uid','==',window._uid));
-    const snap = await getDocs(q);
-    if (!snap.empty) {
-      // Sort by updatedAt descending, load the newest
-      let newest = null;
-      snap.forEach(d => {
-        const data = d.data();
-        if (!newest || (data.updatedAt?.seconds || 0) > (newest.updatedAt?.seconds || 0)) {
-          newest = {id: d.id, ...data};
-        }
-      });
-      if (newest) {
-        await loadFolioById(newest.id);
-        return;
       }
-    }
-  } catch(e) { console.warn('Auto-restore failed:', e); }
 
-  // Priority 4: No folios exist — show the demo so the canvas isn't blank
-  _loadDemo();
-});
+// ─────────────────────────────────────────────
+// Priority 4: Demo fallback
+// ─────────────────────────────────────────────
+if (!isImport) {
+        _loadDemo();
+      }
+    });
 
 function _loadDemo() {
   // Don't load demo if chapters already exist
