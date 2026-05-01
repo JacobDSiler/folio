@@ -2082,6 +2082,13 @@ let _autoSaveDirty = false; // true when unsaved changes exist
 
 /* ── Firebase ready ── */
 window.addEventListener('fb-ready', async () => {
+  
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('import') === 'pending') {
+    console.log('[FOLIO] Skipping auto-restore (import in progress)');
+    return;
+  }
+
   _fbReady = true;
   _setFbStatus(true);
   document.getElementById('btnSaveProj').disabled = false;
