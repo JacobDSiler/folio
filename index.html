@@ -50,23 +50,9 @@ window._fbAuth={signInWithPopup,signInWithRedirect,linkWithPopup,linkWithRedirec
     console.warn('redirect result:', e);
   });
 
-  function backupFolio() {
-    try {
-      if (!chapters?.length && !document.getElementById('bookTitle')?.value) return;
-
-      localStorage.setItem('folio_local_backup', JSON.stringify({
-        id: _projId,
-        name: document.getElementById('projName')?.value || '',
-        state: typeof _serialise === 'function' ? _serialise() : null,
-        ts: Date.now()
-      }));
-
-      console.log('[FOLIO] Backup saved');
-    } catch (e) {
-      console.warn('[FOLIO] Backup failed:', e);
-    }
-  }
-
+  // backupFolio() lives in the main classic <script> below — it
+  // needs to see top-level `let chapters` and `let _projId` which
+  // are invisible from this module's separate scope.
 
 // fb-ready should only fire ONCE per page load, not on every token refresh
 let _fbReadyFired = false;
@@ -85,29 +71,12 @@ const upgraded = wasAnonymous && !user.isAnonymous && prevUid && prevUid !== use
 
 if (upgraded) {
   console.log('[AUTH] Anonymous → Google upgrade detected');
-
-  // 🛟 Attempt recovery of local folio if present
+  // Restore body lives in the main <script> below — it needs to
+  // assign to top-level `let _projId` which is invisible from
+  // here. window._restoreFolioBackupAfterUpgrade does the work.
   try {
-    const backup = localStorage.getItem('folio_local_backup');
-    if (backup) {
-      const b = JSON.parse(backup);
-      if (b?.state) {
-        console.log('[AUTH] Restoring local backup after upgrade');
-
-        _projId = b.id || null;
-        const projName = document.getElementById('projName');
-        if (projName) projName.value = b.name || '';
-
-        if (typeof _deserialise === 'function') {
-          _deserialise(b.state);
-        }
-
-        if (typeof renderChapterList === 'function') renderChapterList();
-        if (typeof renderPreview === 'function') renderPreview();
-        if (typeof _updateInviteUI === 'function') _updateInviteUI();
-
-        setStatus?.('Recovered your folio after sign-in ✓');
-      }
+    if (typeof window._restoreFolioBackupAfterUpgrade === 'function') {
+      window._restoreFolioBackupAfterUpgrade();
     }
   } catch (e) {
     console.warn('[AUTH] Backup recovery failed:', e);
@@ -2004,7 +1973,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-25-suspend-autosave  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-25-modulescope-fix  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -2421,6 +2390,59 @@ function _setFbStatus(online, userName) {
   document.getElementById('fbStatusBadge').style.color = online ? (userName ? '#1a56db' : '#065f46') : '#aaa';
 }
 
+
+/* ── Local-storage backup helpers (kept in the main classic
+   <script> block so they can access `let chapters`, `let _projId`,
+   `_serialise`, `_deserialise`, etc. — these are NOT visible from
+   the auth-handling ES module above. Both functions are top-level
+   declarations in a classic script, which means they're also
+   exposed as window.X properties automatically — that's how the
+   module reaches window._restoreFolioBackupAfterUpgrade and how
+   inline onclick="backupFolio(); …" can find them.) ── */
+function backupFolio() {
+  try {
+    // Skip if there's nothing meaningful to back up.
+    if (!chapters?.length && !document.getElementById('bookTitle')?.value) return;
+    localStorage.setItem('folio_local_backup', JSON.stringify({
+      id:    _projId,
+      name:  document.getElementById('projName')?.value || '',
+      state: typeof _serialise === 'function' ? _serialise() : null,
+      ts:    Date.now(),
+    }));
+  } catch (e) {
+    console.warn('[FOLIO] Backup failed:', e);
+  }
+}
+
+function _restoreFolioBackupAfterUpgrade() {
+  // Called from the module's onAuthStateChanged handler when an
+  // anonymous user signs in with Google (uid changes). Restores
+  // whatever was last in localStorage so the user doesn't lose
+  // the folio they were working on.
+  const raw = localStorage.getItem('folio_local_backup');
+  if (!raw) return;
+  let b;
+  try { b = JSON.parse(raw); } catch (e) { return; }
+  if (!b || !b.state) return;
+  console.log('[AUTH] Restoring local backup after upgrade');
+
+  _projId = b.id || null;
+  const projName = document.getElementById('projName');
+  if (projName) projName.value = b.name || '';
+
+  if (typeof _deserialise === 'function') _deserialise(b.state);
+  if (typeof renderChapterList === 'function') renderChapterList();
+  if (typeof renderPreview === 'function') renderPreview();
+  if (typeof _updateInviteUI === 'function') _updateInviteUI();
+
+  // Mark dirty + force a Firestore save so the restored folio
+  // gets re-persisted under the user's NEW (Google) uid.
+  _autoSaveDirty = true;
+  if (typeof _doAutoSave === 'function') {
+    setTimeout(() => { try { _doAutoSave(); } catch (e) { console.warn(e); } }, 200);
+  }
+  if (typeof setStatus === 'function') setStatus('Recovered your folio after sign-in ✓');
+}
 
 /* ── Auto-save ── */
 function _scheduleAutoSave() {
