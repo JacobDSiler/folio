@@ -393,6 +393,23 @@ html[data-reader] #siteFooter{display:none!important}
 [data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:110%;left:50%;transform:translateX(-50%);background:#333;color:#fff;font-size:10px;padding:3px 7px;border-radius:4px;white-space:nowrap;pointer-events:none;z-index:10}
 .small-note{font-size:10.5px;color:var(--hint);margin-top:5px;line-height:1.5}
 
+/* ── Shelves (folio folders) ─────────────────────────────── */
+.shelf-block{margin-bottom:7px}
+.shelf-hdr{display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--bg);border:.5px solid var(--border);border-radius:7px;cursor:pointer;font-family:var(--sans);font-size:11.5px;font-weight:500;color:var(--text);user-select:none;transition:background .12s}
+.shelf-hdr:hover{background:#ece8df}
+.shelf-hdr-arrow{font-size:10px;color:var(--hint);width:12px;flex-shrink:0;transition:transform .12s}
+.shelf-hdr-arrow.collapsed{transform:rotate(-90deg)}
+.shelf-hdr-icon{font-size:13px;flex-shrink:0}
+.shelf-hdr-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shelf-hdr-count{font-size:10.5px;color:var(--hint);font-variant-numeric:tabular-nums;background:var(--surface);padding:1px 6px;border-radius:8px;border:.5px solid var(--border)}
+.shelf-hdr-menu{padding:1px 5px;border-radius:4px;color:var(--hint);font-size:13px;line-height:1;cursor:pointer;background:transparent;border:none}
+.shelf-hdr-menu:hover{background:var(--surface);color:var(--text)}
+.shelf-body{padding:5px 0 0 16px;display:flex;flex-direction:column;gap:5px}
+.shelf-body.collapsed{display:none}
+.shelf-add-btn{display:flex;align-items:center;justify-content:center;gap:5px;width:100%;padding:5px 8px;margin-bottom:7px;border:.5px dashed var(--border-mid);border-radius:7px;background:transparent;color:var(--hint);font-family:var(--sans);font-size:11px;cursor:pointer;transition:all .12s}
+.shelf-add-btn:hover{border-color:var(--accent-ui);color:var(--text);background:var(--bg)}
+.proj-card-shelf{display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--hint);margin-top:3px}
+.proj-card-shelf select{flex:1;padding:2px 5px;font-size:10.5px;border:.5px solid var(--border);border-radius:4px;background:var(--surface);color:var(--muted);font-family:var(--sans);max-width:160px}
 /* ── Chapter Manager ── */
 .ch-list{display:flex;flex-direction:column;gap:4px;margin-top:6px}
 .ch-item{border:0.5px solid var(--border-mid);border-radius:8px;background:var(--surface);transition:all 0.15s;cursor:grab;box-sizing:border-box}
@@ -2005,7 +2022,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-25-save-as-my-copy  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-25-shelves  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -3037,6 +3054,163 @@ window._updateSaveCopyVisibility = _updateSaveCopyVisibility;
 // Refresh visibility on every auth state change.
 window.addEventListener('auth-changed', _updateSaveCopyVisibility);
 
+
+/* ────────────────────────────────────────────────────────────────
+   Shelves — collapsible folder groups for the folio list.
+   Stored in folio_user_settings/<uid>.shelves (Firestore) +
+   mirrored to localStorage.folio_shelves for offline.
+   Per-folio shelf membership lives on the folio doc as `shelfId`.
+   ──────────────────────────────────────────────────────────── */
+let _shelves = [];                  // [{id, name}]
+let _shelvesCloudSaveTimer = null;
+let _lastFolioList = null;          // cached so collapse-toggle can re-render without a refetch
+
+function _loadShelvesLocal() {
+  try {
+    const raw = localStorage.getItem('folio_shelves');
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) { return []; }
+}
+
+function _saveShelvesLocal() {
+  try { localStorage.setItem('folio_shelves', JSON.stringify(_shelves)); } catch (e) {}
+}
+
+async function _loadShelvesFromCloud() {
+  if (!window._uid || !window._fb || !window._db) return;
+  try {
+    const ref = window._fb.doc(window._db, 'folio_user_settings', window._uid);
+    const snap = await window._fb.getDoc(ref);
+    if (snap.exists()) {
+      const d = snap.data() || {};
+      if (Array.isArray(d.shelves)) {
+        _shelves = d.shelves.filter(s => s && s.id && s.name);
+        _saveShelvesLocal();
+      }
+    }
+  } catch (e) { console.warn('[shelves] cloud load:', e); }
+}
+
+async function _saveShelvesToCloud() {
+  if (!window._uid || !window._fb || !window._db) return;
+  try {
+    const ref = window._fb.doc(window._db, 'folio_user_settings', window._uid);
+    await window._fb.setDoc(ref,
+      { shelves: _shelves, updatedAt: window._fb.serverTimestamp() },
+      { merge: true });
+  } catch (e) { console.warn('[shelves] cloud save:', e); }
+}
+
+function _scheduleShelvesSave() {
+  _saveShelvesLocal();
+  clearTimeout(_shelvesCloudSaveTimer);
+  _shelvesCloudSaveTimer = setTimeout(_saveShelvesToCloud, 900);
+}
+
+function _newShelfId() {
+  return 'shelf_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+}
+
+async function _createShelf() {
+  const name = (prompt('Name for the new shelf:', '') || '').trim();
+  if (!name) return;
+  if (name.length > 60) {
+    if (typeof toastWarning === 'function')
+      toastWarning('Shelf name too long (60 char max)', { duration: 3000 });
+    return;
+  }
+  _shelves.push({ id: _newShelfId(), name: name });
+  _scheduleShelvesSave();
+  if (typeof toastSuccess === 'function')
+    toastSuccess('Shelf "' + name + '" created', { icon: '📁', duration: 2000 });
+  if (typeof loadFolioList === 'function') await loadFolioList();
+}
+window._createShelf = _createShelf;
+
+async function _renameShelf(shelfId) {
+  const sh = _shelves.find(s => s.id === shelfId);
+  if (!sh) return;
+  const next = (prompt('Rename shelf:', sh.name) || '').trim();
+  if (!next || next === sh.name) return;
+  sh.name = next.slice(0, 60);
+  _scheduleShelvesSave();
+  if (typeof loadFolioList === 'function') await loadFolioList();
+}
+window._renameShelf = _renameShelf;
+
+async function _deleteShelf(shelfId) {
+  const sh = _shelves.find(s => s.id === shelfId);
+  if (!sh) return;
+  if (!confirm('Delete shelf "' + sh.name + '"? Folios on it will move to Unshelved (their content stays safe).')) return;
+  _shelves = _shelves.filter(s => s.id !== shelfId);
+  _scheduleShelvesSave();
+  if (typeof toastInfo === 'function')
+    toastInfo('Shelf deleted', { duration: 1800 });
+  if (typeof loadFolioList === 'function') await loadFolioList();
+}
+window._deleteShelf = _deleteShelf;
+
+async function _setFolioShelf(folioId, shelfId) {
+  if (!_fbReady) return;
+  try {
+    const ref = window._fb.doc(window._db, 'folio_projects', folioId);
+    await window._fb.setDoc(ref, { shelfId: shelfId || null }, { merge: true });
+    if (typeof loadFolioList === 'function') await loadFolioList();
+  } catch (e) {
+    console.warn('[shelves] setFolioShelf', e);
+    if (typeof toastWarning === 'function')
+      toastWarning('Move failed: ' + (e.message || e.code), { duration: 4000 });
+  }
+}
+window._setFolioShelf = _setFolioShelf;
+
+function _isShelfCollapsed(shelfId) {
+  try {
+    const raw = localStorage.getItem('folio_shelf_collapsed') || '[]';
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) && arr.includes(shelfId);
+  } catch (e) { return false; }
+}
+
+function _toggleShelfCollapsed(shelfId) {
+  let arr = [];
+  try {
+    arr = JSON.parse(localStorage.getItem('folio_shelf_collapsed') || '[]');
+    if (!Array.isArray(arr)) arr = [];
+  } catch (e) {}
+  if (arr.includes(shelfId)) arr = arr.filter(x => x !== shelfId);
+  else arr.push(shelfId);
+  try { localStorage.setItem('folio_shelf_collapsed', JSON.stringify(arr)); } catch (e) {}
+  if (_lastFolioList) _renderFolioList(_lastFolioList);
+}
+window._toggleShelfCollapsed = _toggleShelfCollapsed;
+
+function _shelfMenu(ev, shelfId) {
+  ev.stopPropagation();
+  const sh = _shelves.find(s => s.id === shelfId);
+  if (!sh) return;
+  const action = prompt(
+    'Type "rename" to rename "' + sh.name + '", or "delete" to remove the shelf:',
+    'rename'
+  );
+  if (!action) return;
+  const a = action.trim().toLowerCase();
+  if (a === 'rename') _renameShelf(shelfId);
+  else if (a === 'delete') _deleteShelf(shelfId);
+}
+window._shelfMenu = _shelfMenu;
+
+// Boot: load from localStorage immediately, then upgrade from cloud
+// once auth resolves.
+_shelves = _loadShelvesLocal();
+window.addEventListener('auth-changed', async (ev) => {
+  if (ev?.detail?.user && !ev.detail.user.isAnonymous) {
+    await _loadShelvesFromCloud();
+    if (typeof loadFolioList === 'function') loadFolioList();
+  }
+});
+
 /* ── Save named version ── */
 async function saveVersion() {
   if (!_fbReady || !_projId) { setStatus('Save a folio first'); return; }
@@ -3069,21 +3243,89 @@ async function loadFolioList() {
 }
 
 function _renderFolioList(list) {
+  _lastFolioList = list;
   const el = document.getElementById('projList');
-  if (!list.length) { el.innerHTML='<p class="small-note">No saved projects yet.</p>'; return; }
-  el.innerHTML = list.map(p => {
-    const d = p.updatedAt ? new Date(p.updatedAt.seconds*1000).toLocaleDateString() : '—';
-    const n = p.state?.chapters?.length || 0;
-    return `<div class="proj-card${p.id===_projId?' proj-active':''}">
-      <div class="proj-card-name">${esc(p.name)}</div>
-      <div class="proj-card-meta"><span>${n} chapter${n!==1?'s':''}</span><span>${d}</span></div>
-      <div class="proj-card-acts">
-        <button class="btn-sm btn-ghost" style="padding:3px 9px;font-size:10.5px" onclick="loadFolioById('${p.id}')">Open</button>
-        <button class="btn-sm btn-ghost" style="padding:3px 9px;font-size:10.5px" onclick="_quickInvite('${p.id}')">Invite</button>
-        <button class="btn-sm" style="padding:3px 9px;font-size:10.5px;color:#c44;border-color:#c4444450;background:transparent;cursor:pointer;font-family:var(--sans);border-radius:6px" onclick="_deleteProject('${p.id}','${esc(p.name).replace(/'/g,"\\'")}')">Delete</button>
-      </div>
-    </div>`;
-  }).join('');
+  if (!list.length) {
+    el.innerHTML = '<p class="small-note">No saved projects yet.</p>'
+                 + '<button class="shelf-add-btn" onclick="_createShelf()">+ New shelf</button>';
+    return;
+  }
+
+  // Bucket folios by shelfId. Anything without a known shelf → Unshelved.
+  const knownIds = new Set(_shelves.map(s => s.id));
+  const buckets = new Map();          // shelfId → folio[]
+  const unshelved = [];
+  for (const p of list) {
+    const sid = (p.shelfId && knownIds.has(p.shelfId)) ? p.shelfId : null;
+    if (sid) {
+      if (!buckets.has(sid)) buckets.set(sid, []);
+      buckets.get(sid).push(p);
+    } else {
+      unshelved.push(p);
+    }
+  }
+
+  // Render order: shelves in user-defined order, then Unshelved at the end.
+  const blocks = [];
+  for (const sh of _shelves) {
+    const items = buckets.get(sh.id) || [];
+    blocks.push(_renderShelfBlock(sh.id, sh.name, items));
+  }
+  if (unshelved.length || _shelves.length === 0) {
+    blocks.push(_renderShelfBlock(null, 'Unshelved', unshelved));
+  }
+
+  el.innerHTML =
+    '<button class="shelf-add-btn" onclick="_createShelf()">+ New shelf</button>'
+    + blocks.join('');
+}
+
+function _renderShelfBlock(shelfId, label, items) {
+  const collapsed = shelfId ? _isShelfCollapsed(shelfId) : _isShelfCollapsed('__unshelved__');
+  const arrowCls = collapsed ? 'shelf-hdr-arrow collapsed' : 'shelf-hdr-arrow';
+  const bodyCls  = collapsed ? 'shelf-body collapsed' : 'shelf-body';
+  const cToggle  = shelfId || '__unshelved__';
+  const menu = shelfId
+    ? '<button class="shelf-hdr-menu" title="Rename / delete" onclick="_shelfMenu(event,\'' + shelfId + '\')">⋮</button>'
+    : '';
+
+  const cards = items.map(p => _renderFolioCard(p)).join('') ||
+                '<p class="small-note" style="opacity:.7;margin:4px 4px 0">— empty —</p>';
+
+  return '<div class="shelf-block">' +
+    '<div class="shelf-hdr" onclick="_toggleShelfCollapsed(\'' + cToggle + '\')">' +
+      '<span class="' + arrowCls + '">▼</span>' +
+      '<span class="shelf-hdr-icon">📁</span>' +
+      '<span class="shelf-hdr-name">' + esc(label) + '</span>' +
+      '<span class="shelf-hdr-count">' + items.length + '</span>' +
+      menu +
+    '</div>' +
+    '<div class="' + bodyCls + '">' + cards + '</div>' +
+  '</div>';
+}
+
+function _renderFolioCard(p) {
+  const d = p.updatedAt ? new Date(p.updatedAt.seconds * 1000).toLocaleDateString() : '—';
+  const n = p.state?.chapters?.length || 0;
+  const shelfOpts = '<option value="">— Unshelved —</option>'
+    + _shelves.map(s =>
+        '<option value="' + s.id + '"' + (p.shelfId === s.id ? ' selected' : '') + '>' +
+          esc(s.name) +
+        '</option>'
+      ).join('');
+  return '<div class="proj-card' + (p.id === _projId ? ' proj-active' : '') + '">' +
+    '<div class="proj-card-name">' + esc(p.name) + '</div>' +
+    '<div class="proj-card-meta"><span>' + n + ' chapter' + (n !== 1 ? 's' : '') + '</span><span>' + d + '</span></div>' +
+    '<div class="proj-card-acts">' +
+      '<button class="btn-sm btn-ghost" style="padding:3px 9px;font-size:10.5px" onclick="loadFolioById(\'' + p.id + '\')">Open</button>' +
+      '<button class="btn-sm btn-ghost" style="padding:3px 9px;font-size:10.5px" onclick="_quickInvite(\'' + p.id + '\')">Invite</button>' +
+      '<button class="btn-sm" style="padding:3px 9px;font-size:10.5px;color:#c44;border-color:#c4444450;background:transparent;cursor:pointer;font-family:var(--sans);border-radius:6px" onclick="_deleteProject(\'' + p.id + '\',\'' + esc(p.name).replace(/'/g, "\\'") + '\')">Delete</button>' +
+    '</div>' +
+    '<div class="proj-card-shelf">' +
+      '<span>📁</span>' +
+      '<select onchange="_setFolioShelf(\'' + p.id + '\', this.value || null)" onclick="event.stopPropagation()">' + shelfOpts + '</select>' +
+    '</div>' +
+  '</div>';
 }
 
 /* ── Load a project ── */
