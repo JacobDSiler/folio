@@ -17,6 +17,7 @@
 <meta name="google-site-verification" content="Nsi78kND02eKT2xVzNBZrGBuv2-COLJIrrLvXomKVG4">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Crimson+Pro:ital,wght@0,400;0,600;1,400&family=IM+Fell+English:ital@0;1&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
@@ -25,7 +26,7 @@
 import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
 import{getFirestore,doc,getDoc,setDoc,collection,query,where,getDocs,deleteDoc,addDoc,onSnapshot,serverTimestamp,orderBy,limit}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import{getStorage,ref,uploadBytes,getDownloadURL,deleteObject}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js';
-import{getAuth,signInAnonymously,signInWithPopup,signInWithRedirect,linkWithPopup,linkWithRedirect,getRedirectResult,GoogleAuthProvider,onAuthStateChanged,signOut}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import{getAuth,signInAnonymously,signInWithPopup,signInWithRedirect,linkWithPopup,linkWithRedirect,getRedirectResult,signInWithCredential,linkWithCredential,GoogleAuthProvider,onAuthStateChanged,signOut}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 const FC={apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",authDomain:"auth.jacobsiler.com",projectId:"miscellaneous-117e9",storageBucket:"miscellaneous-117e9.firebasestorage.app",messagingSenderId:"514858431339",appId:"1:514858431339:web:8b3acbe89966b45fe3922e"};
 const app=initializeApp(FC);
 const db=getFirestore(app);const auth=getAuth(app);
@@ -37,7 +38,7 @@ window._googleProvider=new GoogleAuthProvider();
 window._googleProvider.setCustomParameters({prompt:'select_account'});
 // Track if popup has failed this session so we can switch to redirect-first
 window._googlePopupFailed = false;
-window._fbAuth={signInWithPopup,signInWithRedirect,linkWithPopup,linkWithRedirect,getRedirectResult,signOut};
+window._fbAuth={signInWithPopup,signInWithRedirect,linkWithPopup,linkWithRedirect,getRedirectResult,signInWithCredential,linkWithCredential,GoogleAuthProvider,signOut};
 // Check for redirect result (Google redirect sign-in returns here)
   getRedirectResult(auth).then(result => {
     console.log('[AUTH] getRedirectResult resolved',
@@ -89,26 +90,12 @@ try {
 } catch (e) {}
 const upgraded = inMemoryUpgrade || flaggedUpgrade;
 
+// Redirect-flow diagnostic was removed — GIS doesn't use the
+// folio_pending_upgrade flag. Clean up any stale flag from a
+// pre-GIS deploy so subsequent boots don't see false positives.
 if (failedRedirect) {
-  console.warn('[AUTH] Pending-upgrade flag was set but user came back ANONYMOUS.',
-               'Redirect did not complete. Likely causes:',
-               '1) folio.jacobsiler.com missing from Firebase Authorized domains',
-               '2) OAuth consent screen in Testing mode (only test users can auth)',
-               '3) Third-party cookies blocked by the browser',
-               '4) OAuth client redirect URI not configured');
+  console.log('[AUTH] Stale folio_pending_upgrade flag from pre-GIS deploy — clearing');
   try { localStorage.removeItem('folio_pending_upgrade'); } catch (e) {}
-  // Defer the toast so toastWarning is defined by the time we call it.
-  setTimeout(() => {
-    if (typeof window.toastWarning === 'function') {
-      window.toastWarning(
-        'Sign-in didn’t complete — see console for diagnostics. ' +
-        'Your imported folio is safe in local backup.',
-        { icon: '⚠', duration: 7000 }
-      );
-    } else if (typeof window.setStatus === 'function') {
-      window.setStatus('Sign-in didn’t complete — see console.');
-    }
-  }, 800);
 }
 
 if (upgraded) {
@@ -2017,7 +2004,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-25-custom-auth-domain
+// FOLIO_AUDIO_BUILD=2026-04-25-gis-signin  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -2385,80 +2372,224 @@ function _clearAuthError() {
   if (el) el.style.display = 'none';
 }
 
-async function signInGoogle() {
-  // signInGoogle lives in the main classic <script> — `auth` and the
-  // *Redirect functions are imports inside the ES module, so they're
-  // invisible here. The module exposes them as window._auth and
-  // window._fbAuth.X (see top of file). Use those.
-  const fbAuth = window._fbAuth || {};
-  const _auth  = window._auth;
-  const _prov  = window._googleProvider;
-  if (!_auth || !_prov || !fbAuth.signInWithRedirect) {
-    console.warn('[AUTH] signInGoogle: Firebase auth not ready yet');
-    if (typeof setStatus === 'function') setStatus('Sign-in not ready — try again in a moment');
+// ════════════════════════════════════════════════════════════════
+// Google Identity Services (GIS) sign-in.
+// ────────────────────────────────────────────────────────────────
+// Replaces signInWithRedirect, which on modern Chrome can't
+// reliably round-trip credentials back to Folio because Chrome
+// partitions sessionStorage by origin (folio. ≠ auth. even on
+// the same parent domain). GIS doesn't redirect at all — it
+// fetches a Google ID token via an embedded picker and hands it
+// to a JavaScript callback. We then trade that token for a
+// Firebase auth state via signInWithCredential / linkWithCredential
+// (no cross-origin storage involved).
+// ════════════════════════════════════════════════════════════════
+
+const GIS_CLIENT_ID = '514858431339-4vb3aed6lmsm6jb6qdglh94n6ntcme0p.apps.googleusercontent.com';
+let _gisInitialized = false;
+let _gisInitTries  = 0;
+
+function _initGIS() {
+  if (_gisInitialized) return;
+  if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+    if (++_gisInitTries < 50) {  // 10 seconds total
+      setTimeout(_initGIS, 200);
+    } else {
+      console.warn('[GIS] gsi/client never loaded — sign-in will be unavailable');
+    }
     return;
   }
-
-  // Skip popup entirely. Strict Cross-Origin-Opener-Policy (which
-  // GitHub Pages now sends) breaks Firebase's popup.closed polling
-  // — the popup either fails immediately (before the user can
-  // complete Google sign-in) or succeeds-but-can't-tell-the-parent.
-  // Either way it cascades into a redirect anyway. Going straight
-  // to redirect = one auth attempt instead of popup-fail + redirect,
-  // and matches Firebase's own recommendation for COOP-strict
-  // environments. Side benefit: the COOP console warnings disappear
-  // because nothing is polling popup.closed anymore.
-
-  // Backup before any auth state change so the upgrade-restore path
-  // has something to recover from when we land back here after the
-  // redirect.
-  if (typeof backupFolio === 'function') backupFolio();
-
-  // Set the pending-upgrade flag so the post-redirect page load
-  // (which has no in-memory wasAnonymous state) can still trigger
-  // the backup-restore branch in onAuthStateChanged.
-  try { localStorage.setItem('folio_pending_upgrade', '1'); } catch (e) {}
-
-  const user = _auth.currentUser;
-  const isAnon = !!(user && user.isAnonymous);
-  console.log('[AUTH] signInGoogle: ENTERED',
-    { isAnon, currentUid: user?.uid, mode: isAnon ? 'linkWithRedirect' : 'signInWithRedirect' });
-  if (typeof setStatus === 'function') setStatus('Redirecting to Google to sign in…');
-
   try {
-    console.log('[AUTH] signInGoogle: about to call', isAnon ? 'linkWithRedirect' : 'signInWithRedirect');
-    let result;
-    if (isAnon) {
-      result = await fbAuth.linkWithRedirect(user, _prov);
-    } else {
-      result = await fbAuth.signInWithRedirect(_auth, _prov);
-    }
-    // signInWithRedirect / linkWithRedirect normally never resolve —
-    // the page navigates away before the promise can settle. If we
-    // get here, the navigation didn't happen, which is highly
-    // unusual and worth logging loudly.
-    console.warn('[AUTH] signInGoogle: redirect call RETURNED WITHOUT NAVIGATING — this is unusual', { result });
-    if (typeof setStatus === 'function') setStatus('Sign-in didn’t navigate — check browser console + extensions');
-    try { localStorage.removeItem('folio_pending_upgrade'); } catch (e2) {}
+    window.google.accounts.id.initialize({
+      client_id: GIS_CLIENT_ID,
+      callback: _onGISCredential,
+      auto_select: false,
+      cancel_on_tap_outside: true,
+      use_fedcm_for_prompt: true,   // modern FedCM API on supporting browsers
+    });
+    _gisInitialized = true;
+    console.log('[GIS] initialized');
   } catch (e) {
-    console.warn('[AUTH] signInGoogle: redirect call THREW', { code: e?.code, message: e?.message });
-    if (typeof setStatus === 'function') setStatus('Sign-in error — see console: ' + (e?.code || e?.message));
-    try { localStorage.removeItem('folio_pending_upgrade'); } catch (e2) {}
+    console.warn('[GIS] initialize failed:', e);
   }
 }
 
-// One-time boot diagnostic: if a sign-in flag is sitting in
-// localStorage but we just loaded the page anonymously, log it.
-// Helps tell "redirect never started" from "redirect started but
-// didn't complete the round-trip."
-(function _logPendingUpgradeAtBoot() {
+async function _onGISCredential(response) {
+  console.log('[GIS] credential callback fired',
+    { hasCredential: !!response?.credential, select_by: response?.select_by });
+  const idToken = response && response.credential;
+  if (!idToken) {
+    console.warn('[GIS] response missing credential');
+    return;
+  }
+
+  const fbAuth = window._fbAuth || {};
+  if (!fbAuth.GoogleAuthProvider || !fbAuth.signInWithCredential || !fbAuth.linkWithCredential) {
+    console.warn('[GIS] Firebase Credential APIs not on window._fbAuth — module imports may be wrong');
+    if (typeof setStatus === 'function') setStatus('Sign-in error — Firebase auth not ready');
+    return;
+  }
+
+  // Backup before any auth state change so the upgrade-restore
+  // path can recover the user's current folio if anything goes wrong.
+  if (typeof backupFolio === 'function') backupFolio();
+
+  // Build the Firebase credential from the Google ID token.
+  const credential = fbAuth.GoogleAuthProvider.credential(idToken);
+
+  const currentUser = window._auth ? window._auth.currentUser : null;
+  const isAnon = !!(currentUser && currentUser.isAnonymous);
+  console.log('[GIS] proceeding with', isAnon ? 'linkWithCredential' : 'signInWithCredential',
+    { currentUid: currentUser?.uid });
+
   try {
-    const flag = localStorage.getItem('folio_pending_upgrade');
-    if (flag === '1') {
-      console.log('[AUTH] BOOT: folio_pending_upgrade flag is set on load — last sign-in attempt was started but not yet resolved');
+    let result;
+    if (isAnon) {
+      // Link the Google account to the existing anon uid. This
+      // preserves the anon user's Firestore folios — they stay
+      // accessible under the same uid which now also has Google
+      // as a provider.
+      result = await fbAuth.linkWithCredential(currentUser, credential);
+    } else {
+      // Already signed in (Google) or completely signed out — just
+      // sign in with the Google credential.
+      result = await fbAuth.signInWithCredential(window._auth, credential);
     }
-  } catch (e) {}
-})();
+    console.log('[GIS] sign-in OK',
+      { uid: result?.user?.uid, email: result?.user?.email });
+    if (typeof setStatus === 'function') setStatus('Signed in as ' + (result?.user?.email || 'Google user'));
+    // onAuthStateChanged fires next and the existing UI/upgrade-restore wiring takes over.
+    _hideGISFallback();
+  } catch (e) {
+    console.warn('[GIS] sign-in error', e?.code, e?.message);
+    if (e?.code === 'auth/credential-already-in-use'
+        || e?.code === 'auth/email-already-in-use'
+        || e?.code === 'auth/account-exists-with-different-credential') {
+      // The Google account is already linked to a different Firebase
+      // user. Sign in as that existing user instead — we'll use the
+      // localStorage backup to restore the anon's current folio onto
+      // their existing account via _restoreFolioBackupAfterUpgrade.
+      console.log('[GIS] credential-in-use — switching to existing Google user via signInWithCredential');
+      try {
+        const result2 = await fbAuth.signInWithCredential(window._auth, credential);
+        console.log('[GIS] fallback sign-in OK',
+          { uid: result2?.user?.uid, email: result2?.user?.email });
+        if (typeof setStatus === 'function') setStatus('Signed in as ' + (result2?.user?.email || 'Google user'));
+        // Defer the restore so onAuthStateChanged has a chance to settle.
+        setTimeout(() => {
+          if (typeof window._restoreFolioBackupAfterUpgrade === 'function') {
+            try { window._restoreFolioBackupAfterUpgrade(); } catch (e3) { console.warn(e3); }
+          }
+        }, 400);
+        _hideGISFallback();
+      } catch (e2) {
+        console.warn('[GIS] fallback sign-in also failed', e2?.code, e2?.message);
+        if (typeof setStatus === 'function') setStatus('Sign-in failed: ' + (e2?.code || e2?.message));
+      }
+    } else {
+      if (typeof setStatus === 'function') setStatus('Sign-in failed: ' + (e?.code || e?.message));
+    }
+  }
+}
+
+function signInGoogle() {
+  // Replaces the old redirect-based path. Triggers the Google
+  // Identity Services prompt; if the prompt can't be shown
+  // (rate-limited, FedCM blocked, etc.), shows the official
+  // Google sign-in button as a fallback.
+  if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+    console.warn('[GIS] not loaded yet');
+    if (typeof setStatus === 'function') setStatus('Google sign-in is still loading — try again in a moment');
+    _initGIS();   // kick init in case window.load hasn't fired
+    return;
+  }
+  if (!_gisInitialized) _initGIS();
+  if (typeof backupFolio === 'function') backupFolio();
+  console.log('[GIS] prompting');
+  if (typeof setStatus === 'function') setStatus('Opening Google sign-in…');
+  try {
+    window.google.accounts.id.prompt((notification) => {
+      // FedCM API and legacy API have different shapes — handle both.
+      const skippedLegacy = notification && (
+        (typeof notification.isNotDisplayed === 'function' && notification.isNotDisplayed()) ||
+        (typeof notification.isSkippedMoment === 'function' && notification.isSkippedMoment())
+      );
+      const dismissedLegacy = notification && (
+        typeof notification.isDismissedMoment === 'function' && notification.isDismissedMoment()
+      );
+      if (skippedLegacy || dismissedLegacy) {
+        const reason =
+          (typeof notification.getNotDisplayedReason === 'function' && notification.getNotDisplayedReason()) ||
+          (typeof notification.getSkippedReason === 'function' && notification.getSkippedReason()) ||
+          (typeof notification.getDismissedReason === 'function' && notification.getDismissedReason()) ||
+          'unknown';
+        console.log('[GIS] prompt not shown — reason:', reason, '— rendering fallback button');
+        _showGISButtonFallback();
+      }
+    });
+  } catch (e) {
+    console.warn('[GIS] prompt threw', e);
+    _showGISButtonFallback();
+  }
+}
+
+function _showGISButtonFallback() {
+  let modal = document.getElementById('gisFallbackModal');
+  if (modal) {
+    modal.style.display = 'flex';
+  } else {
+    modal = document.createElement('div');
+    modal.id = 'gisFallbackModal';
+    modal.style.cssText =
+      'position:fixed;inset:0;z-index:1000;background:rgba(10,8,5,0.55);' +
+      'backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center';
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) _hideGISFallback();
+    });
+    const inner = document.createElement('div');
+    inner.style.cssText =
+      'background:var(--surface,#fff);padding:28px 32px;border-radius:14px;' +
+      'box-shadow:0 8px 40px rgba(0,0,0,0.35);min-width:320px;max-width:380px;' +
+      'text-align:center;font-family:system-ui,sans-serif';
+    inner.innerHTML =
+      '<div style="font-family:\'Playfair Display\',Georgia,serif;font-size:18px;font-weight:700;margin-bottom:8px">Sign in with Google</div>' +
+      '<div style="font-size:12.5px;color:#6b6b6b;line-height:1.55;margin-bottom:18px">Save your folios to your Google account so you can access them from any device.</div>' +
+      '<div id="gisButtonHost" style="display:flex;justify-content:center;margin-bottom:14px"></div>' +
+      '<button id="gisFallbackCancel" style="padding:6px 16px;border:.5px solid rgba(0,0,0,.18);background:transparent;border-radius:7px;font-family:system-ui,sans-serif;font-size:12px;cursor:pointer;color:#6b6b6b">Not now</button>';
+    modal.appendChild(inner);
+    document.body.appendChild(modal);
+    document.getElementById('gisFallbackCancel').addEventListener('click', _hideGISFallback);
+  }
+  // Render the official Google button into the host.
+  const host = document.getElementById('gisButtonHost');
+  if (host && window.google && window.google.accounts && window.google.accounts.id) {
+    host.innerHTML = '';
+    try {
+      window.google.accounts.id.renderButton(host, {
+        theme: 'filled_blue',
+        size: 'large',
+        type: 'standard',
+        text: 'signin_with',
+        shape: 'pill',
+      });
+    } catch (e) {
+      console.warn('[GIS] renderButton failed', e);
+    }
+  }
+}
+
+function _hideGISFallback() {
+  const modal = document.getElementById('gisFallbackModal');
+  if (modal) modal.remove();
+}
+window._hideGISFallback = _hideGISFallback;
+
+// Kick off GIS init once the page (and probably the gsi/client
+// script) is loaded. Multiple-fire safe via the _gisInitialized
+// flag and the retry counter inside _initGIS.
+window.addEventListener('load', _initGIS);
+// Also try immediately, in case the script is already loaded.
+setTimeout(_initGIS, 50);
 
 // Global redirect helper for the fallback button in error messages
 async function doRedirect_global() {
