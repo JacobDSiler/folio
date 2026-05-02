@@ -1711,6 +1711,7 @@ html[data-reader] #readerBar { display: flex; }
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           <button class="btn-sm btn-ghost" onclick="saveVersion()" id="btnSaveVer" disabled style="font-size:11px;padding:5px 10px">📌 Save version</button>
           <button class="btn-sm btn-ghost" onclick="newFolio()" style="font-size:11px;padding:5px 10px">＋ New folio</button>
+          <button class="btn-sm btn-ghost" id="btnSaveAsCopy" onclick="saveFolioAsCopy()" style="display:none;font-size:11px;padding:5px 10px;background:#fef3c7;border-color:#d97706;color:#92400e" title="This folio is owned by someone else. Save a copy under your own account so you can edit it freely.">📋 Save as my copy</button>
         </div>
         <button class="btn-sm" id="btnRelease" onclick="openReleaseModal()" disabled
           style="width:100%;margin-top:7px;padding:8px;font-size:12px;border-radius:7px;border:1px solid var(--border-mid);background:transparent;color:var(--accent-ui);cursor:pointer;font-family:var(--sans);transition:all .15s;display:flex;align-items:center;justify-content:center;gap:6px">
@@ -2004,7 +2005,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-25-gis-signin  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-25-save-as-my-copy  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -2144,6 +2145,7 @@ let _fbReady = false;
 let _presenceUnsub = null;  // unsubscribe fn for presence listener
 let _AVATAR_COLORS = ['#8B4513','#2c4a7c','#4a7c59','#9c3d4a','#6b4c8a','#c9956a','#2a6a5a','#3a6070'];
 let _autoSaveTimer = null;  // debounce timer for auto-save
+let _loadedFolioOwnerUid = null; // uid of whoever owns the currently-loaded folio (for "save as my copy" gating)
 let _autoSaveDirty = false; // true when unsaved changes exist
 
 /* ── Firebase ready ── */
@@ -2916,8 +2918,124 @@ async function saveFolio() {
     localStorage.setItem('folio_last_open', _projId);
     setStatus(`Folio "${name}" saved to cloud ✓`);
     toastSuccess(`"${name}" saved ✓`, { icon: '☁', duration: 2500, id: 'manualsave' });
+    _loadedFolioOwnerUid = window._uid;
+    _updateSaveCopyVisibility();
   } catch(e) { _hideSaving(); setStatus('Save failed: ' + e.message); console.error(e); }
 }
+
+
+/* ────────────────────────────────────────────────────────────────
+   Save as my own copy.
+   Forks the in-memory state into a brand-new folio under the
+   current user's uid. Works regardless of who owns the source —
+   we never touch the source doc. Useful when:
+     - viewing a shared folio (collaborator share link) and
+       wanting to keep a personal copy
+     - duplicating one of your own folios
+     - signed in anonymously and wanting to fork someone's
+       open-share folio (still works, saved under anon uid)
+   ──────────────────────────────────────────────────────────── */
+async function saveFolioAsCopy() {
+  if (!_fbReady) {
+    setStatus('Not connected to cloud yet');
+    toastWarning('Not connected to cloud yet — try again in a moment',
+      { icon: '☁', duration: 3000 });
+    return;
+  }
+  if (!window._uid) {
+    setStatus('Sign-in not ready — try again in a moment');
+    return;
+  }
+
+  // Suggest a name based on the current folio's title.
+  const sourceName = (document.getElementById('projName')?.value
+                  || document.getElementById('bookTitle')?.value
+                  || 'Untitled folio').trim() || 'Untitled folio';
+  // If the source isn't ours, append " (my copy)" so it doesn't
+  // collide visually in the folio list. If it IS ours, append a
+  // numeric suffix.
+  const ownByMe = (_loadedFolioOwnerUid === window._uid);
+  const baseName = sourceName.replace(/\s*\(my copy\)\s*$/, '');
+  const suggested = ownByMe
+    ? baseName + ' (copy)'
+    : baseName + ' (my copy)';
+  const name = (prompt('Name for your copy:', suggested) || '').trim();
+  if (!name) return;
+
+  const newId = 'proj_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  _showSaving('Saving as your copy…');
+
+  try {
+    const { setDoc, serverTimestamp } = window._fb;
+    const _state = _serialise();
+    await setDoc(
+      window._fb.doc(window._db, 'folio_projects', newId),
+      {
+        uid: window._uid,
+        name: name,
+        state: _state,
+        updatedAt: serverTimestamp(),
+        createdAt: serverTimestamp(),
+        copiedFrom: _projId || null,  // provenance — not enforced anywhere
+      }
+    );
+
+    // Switch to the new folio.
+    _projId = newId;
+    _loadedFolioOwnerUid = window._uid;
+    _autoSaveDirty = false;
+    localStorage.setItem('folio_last_open', newId);
+    // Stash a fresh local backup under the new id so the
+    // upgrade-restore path picks the right one if anything
+    // goes sideways before the next auto-save.
+    try {
+      localStorage.setItem('folio_local_backup', JSON.stringify({
+        id: newId, name: name, state: _state, savedAt: Date.now(),
+      }));
+    } catch (e) {}
+
+    const projNameEl = document.getElementById('projName');
+    if (projNameEl) projNameEl.value = name;
+
+    if (typeof _updateInviteUI === 'function') _updateInviteUI();
+    _updateSaveCopyVisibility();
+    if (typeof loadFolioList === 'function') await loadFolioList();
+    _hideSaving();
+
+    setStatus('Saved as your copy: ' + name);
+    if (typeof toastSuccess === 'function') {
+      toastSuccess('Saved to your account: "' + name + '"',
+        { icon: '📋', duration: 3500 });
+    }
+  } catch (e) {
+    _hideSaving();
+    setStatus('Copy failed: ' + (e?.message || 'unknown'));
+    if (typeof toastWarning === 'function') {
+      toastWarning('Copy failed: ' + (e?.code || e?.message),
+        { icon: '⚠', duration: 5000 });
+    }
+    console.error('[saveFolioAsCopy]', e);
+  }
+}
+window.saveFolioAsCopy = saveFolioAsCopy;
+
+// Show the "Save as my copy" button only when the loaded folio
+// isn't owned by the current user (or when there's no _projId
+// yet at all — in that case Save / Save-as-copy are equivalent
+// and we hide the duplicate to keep the UI quiet).
+function _updateSaveCopyVisibility() {
+  const btn = document.getElementById('btnSaveAsCopy');
+  if (!btn) return;
+  // Visible only when we've actually loaded a folio AND it isn't
+  // ours. For a brand-new in-memory folio (_projId null) the
+  // existing Save button covers everything.
+  const show = _projId && _loadedFolioOwnerUid && _loadedFolioOwnerUid !== window._uid;
+  btn.style.display = show ? '' : 'none';
+}
+window._updateSaveCopyVisibility = _updateSaveCopyVisibility;
+
+// Refresh visibility on every auth state change.
+window.addEventListener('auth-changed', _updateSaveCopyVisibility);
 
 /* ── Save named version ── */
 async function saveVersion() {
@@ -2977,6 +3095,7 @@ async function loadFolioById(id) {
     const snap = await getDoc(window._fb.doc(window._db,'folio_projects',id));
     if (!snap.exists()) { _hideSaving(); setStatus('Folio not found'); return; }
     const data = snap.data();
+    _loadedFolioOwnerUid = data.uid || null;
 
     // Close writing mode / manuscript view before switching folios
     if (document.getElementById('writingMode')?.classList.contains('active')) {
@@ -3012,6 +3131,7 @@ async function loadFolioById(id) {
     _hideSaving();
     setStatus(`Folio "${data.name}" loaded ✓`);
     toastInfo(`Opened: ${data.name}`, { icon: '📖', duration: 2500, id: 'loaded' });
+    if (typeof _updateSaveCopyVisibility === 'function') _updateSaveCopyVisibility();
 
     // Background tasks — don't block the UI
     loadFolioList();
@@ -3105,6 +3225,7 @@ async function _deleteProject(id, name) {
 function newFolio() {
   if (chapters.length && !confirm('Start a new folio? Unsaved changes will be lost.')) return;
   _projId = null;
+  _loadedFolioOwnerUid = null;
   localStorage.removeItem('folio_last_open');
   if (_presenceUnsub) { _presenceUnsub(); _presenceUnsub = null; }
   document.getElementById('projName').value = '';
