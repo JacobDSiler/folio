@@ -40,14 +40,14 @@ window._googlePopupFailed = false;
 window._fbAuth={signInWithPopup,signInWithRedirect,linkWithPopup,linkWithRedirect,getRedirectResult,signOut};
 // Check for redirect result (Google redirect sign-in returns here)
   getRedirectResult(auth).then(result => {
+    console.log('[AUTH] getRedirectResult resolved',
+      { hasResult: !!result, hasUser: !!result?.user, email: result?.user?.email, uid: result?.user?.uid });
     if (result?.user) {
-      console.log('Redirect sign-in complete:', result.user.email);
-
       // 🔑 IMPORTANT: ensure auth state updates properly
       window.dispatchEvent(new Event('auth-changed'));
     }
   }).catch(e => {
-    console.warn('redirect result:', e);
+    console.warn('[AUTH] getRedirectResult error:', e?.code, e?.message);
   });
 
   // backupFolio() lives in the main classic <script> below — it
@@ -60,6 +60,9 @@ let _fbReadyFired = false;
   onAuthStateChanged(auth, async user => {
     const prevUid = window._uid;
     const wasAnonymous = window._user?.isAnonymous;
+    console.log('[AUTH] onAuthStateChanged fired',
+      { hasUser: !!user, uid: user?.uid, email: user?.email,
+        isAnonymous: user?.isAnonymous, prevUid, wasAnonymous });
 
     if (user) {
       window._uid = user.uid;
@@ -1985,7 +1988,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-25-coop-redirect-fix  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-25-redirect-only  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -2325,57 +2328,55 @@ function _clearAuthError() {
 
 async function signInGoogle() {
   // signInGoogle lives in the main classic <script> — `auth` and the
-  // *Popup / *Redirect functions are imports inside the ES module,
-  // so they're invisible here. The module exposes them as
-  // window._auth and window._fbAuth.X (see top of file). Use those.
+  // *Redirect functions are imports inside the ES module, so they're
+  // invisible here. The module exposes them as window._auth and
+  // window._fbAuth.X (see top of file). Use those.
   const fbAuth = window._fbAuth || {};
   const _auth  = window._auth;
   const _prov  = window._googleProvider;
-  if (!_auth || !_prov || !fbAuth.signInWithPopup) {
-    console.warn('signInGoogle: Firebase auth not ready yet');
+  if (!_auth || !_prov || !fbAuth.signInWithRedirect) {
+    console.warn('[AUTH] signInGoogle: Firebase auth not ready yet');
     if (typeof setStatus === 'function') setStatus('Sign-in not ready — try again in a moment');
     return;
   }
-  // Backup before any auth state change so the upgrade-restore
-  // path has something to recover from.
+
+  // Skip popup entirely. Strict Cross-Origin-Opener-Policy (which
+  // GitHub Pages now sends) breaks Firebase's popup.closed polling
+  // — the popup either fails immediately (before the user can
+  // complete Google sign-in) or succeeds-but-can't-tell-the-parent.
+  // Either way it cascades into a redirect anyway. Going straight
+  // to redirect = one auth attempt instead of popup-fail + redirect,
+  // and matches Firebase's own recommendation for COOP-strict
+  // environments. Side benefit: the COOP console warnings disappear
+  // because nothing is polling popup.closed anymore.
+
+  // Backup before any auth state change so the upgrade-restore path
+  // has something to recover from when we land back here after the
+  // redirect.
   if (typeof backupFolio === 'function') backupFolio();
 
+  // Set the pending-upgrade flag so the post-redirect page load
+  // (which has no in-memory wasAnonymous state) can still trigger
+  // the backup-restore branch in onAuthStateChanged.
+  try { localStorage.setItem('folio_pending_upgrade', '1'); } catch (e) {}
+
   const user = _auth.currentUser;
+  const isAnon = !!(user && user.isAnonymous);
+  console.log('[AUTH] signInGoogle: redirecting to Google',
+    { isAnon, currentUid: user?.uid, mode: isAnon ? 'linkWithRedirect' : 'signInWithRedirect' });
+  if (typeof setStatus === 'function') setStatus('Redirecting to Google to sign in…');
 
-  // Try popup first. With strict Cross-Origin-Opener-Policy headers
-  // (which GitHub Pages now sends), Firebase's popup.closed polling
-  // can fail and surface as an error EVEN AFTER the user has fully
-  // authenticated. The recovery below handles that case so we don't
-  // cascade into a needless second fullscreen redirect.
   try {
-    if (user && user.isAnonymous) {
-      return await fbAuth.linkWithPopup(user, _prov);
-    } else {
-      return await fbAuth.signInWithPopup(_auth, _prov);
-    }
-  } catch (e) {
-    // Did the popup actually succeed despite the error? Wait for
-    // the auth state to settle (onAuthStateChanged is async) and
-    // re-check currentUser. If it's now non-anonymous, the auth
-    // landed and we should NOT redirect.
-    await new Promise(r => setTimeout(r, 600));
-    const cu = _auth.currentUser;
-    if (cu && !cu.isAnonymous) {
-      console.log('[AUTH] Popup completed despite error:', e && e.code);
-      return cu;
-    }
-
-    // Genuine failure — fall through to redirect. Set the
-    // pending-upgrade flag first so the post-redirect page load
-    // (which has no in-memory wasAnonymous state) still triggers
-    // the backup-restore branch.
-    console.warn('Popup failed, falling back to redirect:', e);
-    try { localStorage.setItem('folio_pending_upgrade', '1'); } catch (e2) {}
-    if (user && user.isAnonymous) {
+    if (isAnon) {
       return await fbAuth.linkWithRedirect(user, _prov);
     } else {
       return await fbAuth.signInWithRedirect(_auth, _prov);
     }
+  } catch (e) {
+    console.warn('[AUTH] signInGoogle: redirect call failed', { code: e?.code, message: e?.message });
+    if (typeof setStatus === 'function') setStatus('Sign-in error — see console: ' + (e?.code || e?.message));
+    // Clear the flag so the next attempt doesn't get a stale one.
+    try { localStorage.removeItem('folio_pending_upgrade'); } catch (e2) {}
   }
 }
 
@@ -12437,17 +12438,4 @@ window._apOnImportFile       = _apOnImportFile;
     <div class="ap-progress" id="apProgress"></div>
 
     <div class="ap-footer">
-      <button type="button" class="ap-btn primary" id="apGenAll" onclick="_apGenerateAllRemaining()">▶▶ Generate All Remaining</button>
-      <button type="button" class="ap-btn"        id="apZipAll" onclick="_apDownloadZip()">↓ Download All as ZIP</button>
-    </div>
-    <div class="ap-concat">
-      <button type="button" class="ap-btn" id="apConcat" onclick="_apConcatAll()">🎧 Export Audiobook (MP3 with chapters)</button>
-    </div>
-  </div>
-</div>
-
-<!-- Custom audio segment editor -->
-<div id="audioSegModal" role="dialog" aria-hidden="true" aria-labelledby="segTitle">
-  <div class="seg-box">
-    <h3 id="segTitle">Audio segment</h3>
-    <div class="s
+      <button type="button" class="ap-btn primar                                                                                              
