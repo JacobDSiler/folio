@@ -1973,7 +1973,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-25-modulescope-fix  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-25-signin-scope-fix  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -2312,23 +2312,36 @@ function _clearAuthError() {
 }
 
 async function signInGoogle() {
-   const user = auth.currentUser;
+  // signInGoogle lives in the main classic <script> — `auth` and the
+  // *Popup / *Redirect functions are imports inside the ES module,
+  // so they're invisible here. The module exposes them as
+  // window._auth and window._fbAuth.X (see top of file). Use those.
+  const fbAuth = window._fbAuth || {};
+  const _auth  = window._auth;
+  const _prov  = window._googleProvider;
+  if (!_auth || !_prov || !fbAuth.signInWithPopup) {
+    console.warn('signInGoogle: Firebase auth not ready yet');
+    if (typeof setStatus === 'function') setStatus('Sign-in not ready — try again in a moment');
+    return;
+  }
+  // Backup before any auth state change so the upgrade-restore
+  // path has something to recover from.
+  if (typeof backupFolio === 'function') backupFolio();
 
+  const user = _auth.currentUser;
   try {
     if (user && user.isAnonymous) {
-      // 🔑 IMPORTANT: link anonymous → Google
-      return await linkWithPopup(user, window._googleProvider);
+      // Link anonymous account → Google so existing folios survive.
+      return await fbAuth.linkWithPopup(user, _prov);
     } else {
-      return await signInWithPopup(auth, window._googleProvider);
+      return await fbAuth.signInWithPopup(_auth, _prov);
     }
   } catch (e) {
     console.warn('Popup failed, falling back to redirect:', e);
-
-    // Fallback (required after Google Console approval sometimes)
     if (user && user.isAnonymous) {
-      return await linkWithRedirect(user, window._googleProvider);
+      return await fbAuth.linkWithRedirect(user, _prov);
     } else {
-      return await signInWithRedirect(auth, window._googleProvider);
+      return await fbAuth.signInWithRedirect(_auth, _prov);
     }
   }
 }
@@ -12402,17 +12415,4 @@ window._apOnImportFile       = _apOnImportFile;
 <div id="audioSegModal" role="dialog" aria-hidden="true" aria-labelledby="segTitle">
   <div class="seg-box">
     <h3 id="segTitle">Audio segment</h3>
-    <div class="seg-hint">
-      Use for intros, outros, intermissions, chapter teasers, anything you want spoken <em>between</em> the written chapters.
-      Segments are generated with the same voice and speed as the main book (panel defaults) and included in the audiobook exports at the position you choose.
-    </div>
-
-    <label>Name</label>
-    <input type="text" id="segNameInput" placeholder="Intro / Intermission 1 / Afterword">
-
-    <label>Position</label>
-    <div class="seg-pos-row">
-      <select id="segPosMode" onchange="_apSegOnPosMode()">
-        <option value="start">At the start of the book</option>
-        <option value="end">At the end of the book</option>
-        <option valu
+    <div class="s
