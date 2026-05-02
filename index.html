@@ -75,12 +75,41 @@ let _fbReadyFired = false;
 //   Flagged case    : a redirect was just kicked off; the page
 //                     reloaded and lost the in-memory state, so we
 //                     consult localStorage.folio_pending_upgrade.
+//   Failed-redirect : flag was set BUT user came back anonymous —
+//                     means Google/Firebase round-trip failed
+//                     (authorized domain, OAuth consent, cookies,
+//                     etc.). Surface a diagnostic toast.
 const inMemoryUpgrade = wasAnonymous && !user.isAnonymous && prevUid && prevUid !== user.uid;
 let flaggedUpgrade = false;
+let failedRedirect = false;
 try {
-  flaggedUpgrade = !user.isAnonymous && localStorage.getItem('folio_pending_upgrade') === '1';
+  const flag = localStorage.getItem('folio_pending_upgrade') === '1';
+  flaggedUpgrade = flag && !user.isAnonymous;
+  failedRedirect = flag &&  user.isAnonymous;
 } catch (e) {}
 const upgraded = inMemoryUpgrade || flaggedUpgrade;
+
+if (failedRedirect) {
+  console.warn('[AUTH] Pending-upgrade flag was set but user came back ANONYMOUS.',
+               'Redirect did not complete. Likely causes:',
+               '1) folio.jacobsiler.com missing from Firebase Authorized domains',
+               '2) OAuth consent screen in Testing mode (only test users can auth)',
+               '3) Third-party cookies blocked by the browser',
+               '4) OAuth client redirect URI not configured');
+  try { localStorage.removeItem('folio_pending_upgrade'); } catch (e) {}
+  // Defer the toast so toastWarning is defined by the time we call it.
+  setTimeout(() => {
+    if (typeof window.toastWarning === 'function') {
+      window.toastWarning(
+        'Sign-in didn’t complete — see console for diagnostics. ' +
+        'Your imported folio is safe in local backup.',
+        { icon: '⚠', duration: 7000 }
+      );
+    } else if (typeof window.setStatus === 'function') {
+      window.setStatus('Sign-in didn’t complete — see console.');
+    }
+  }, 800);
+}
 
 if (upgraded) {
   console.log('[AUTH] Anonymous → Google upgrade detected', { inMemoryUpgrade, flaggedUpgrade });
@@ -1988,7 +2017,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-25-redirect-only  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-25-loading-spinner-fix  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -2136,13 +2165,30 @@ let _autoSaveDirty = false; // true when unsaved changes exist
     const params = new URLSearchParams(window.location.search);
     const isImport = params.get('import') === 'pending';
 
+    // Belt-and-braces: no matter which priority path runs (or which
+    // one errors), make sure the "Loading your folios…" spinner is
+    // gone within 12 seconds, so the user is never stranded on an
+    // endless spinner.
+    setTimeout(() => {
+      const _stranded = document.getElementById('folioLoadingState');
+      if (_stranded) {
+        console.warn('[FOLIO] Loading spinner still present after 12s — force-clearing');
+        _stranded.remove();
+        try { if (typeof renderPreview === 'function') renderPreview(); } catch (e) {}
+      }
+    }, 12000);
+
     // ✅ Always run Firebase init (DO NOT early return)
     _fbReady = true;
     _setFbStatus(true);
     document.getElementById('btnSaveProj').disabled = false;
     document.getElementById('btnSaveVer').disabled = false;
     _updateLoadingMsg('Loading your folio…');
-    await loadFolioList();
+    try {
+      await loadFolioList();
+    } catch (e) {
+      console.warn('[FOLIO] loadFolioList failed:', e?.code || e?.message);
+    }
 
     if (isImport) {
       console.log('[FOLIO] Import mode — skipping auto-restore');
@@ -2214,10 +2260,23 @@ let _autoSaveDirty = false; // true when unsaved changes exist
     }
 
     // ─────────────────────────────────────────────
-    // Priority 4: Demo fallback
+    // Priority 4: Demo fallback (or empty state for signed-in users)
     // ─────────────────────────────────────────────
     if (!isImport) {
+      // Clear the spinner BEFORE _loadDemo because renderPreview()
+      // has an early-return guard that fires while #folioLoadingState
+      // is still present — without this, the demo loads in memory
+      // but the screen stays on the spinner forever.
+      document.getElementById('folioLoadingState')?.remove();
       _loadDemo();
+    } else {
+      // Import-mode + no priority hit: still clear the spinner so
+      // the import overlay (or a freshly-rendered blank folio) can
+      // take over cleanly.
+      document.getElementById('folioLoadingState')?.remove();
+      if (typeof renderPreview === 'function') {
+        try { renderPreview(); } catch (e) {}
+      }
     }
   });
 
@@ -12398,44 +12457,4 @@ window._apOnImportFile       = _apOnImportFile;
           <option value="1.0" selected>1.0×</option>
           <option value="1.05">1.05×</option>
           <option value="1.1">1.1×</option>
-          <option value="1.2">1.2×</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="ap-key-row" id="apGoogleRow">
-      <label>Google Cloud TTS API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span></label>
-      <input type="password" id="apGoogleKey" placeholder="AIza…" oninput="_apOnGoogleKey()" autocomplete="off">
-      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Create a restricted key for <em>Cloud Text-to-Speech API</em> only in the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--accent-ui)">Google Cloud Console</a>. Keys are kept in your browser and sent per-request to the Folio TTS worker — never stored server-side.</div>
-    </div>
-    <div class="ap-key-row" id="apElRow">
-      <label>ElevenLabs API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span></label>
-      <input type="password" id="apElKey" placeholder="sk-…" oninput="_apOnElKey()" autocomplete="off">
-      <label style="margin-top:10px">Model</label>
-      <select id="apElModel" onchange="_apOnElModel()">
-        <option value="eleven_multilingual_v2">Multilingual v2 — highest quality (free tier ✓)</option>
-        <option value="eleven_turbo_v2_5">Turbo v2.5 — fast &amp; low-latency (free tier ✓)</option>
-        <option value="eleven_flash_v2_5">Flash v2.5 — cheapest / fastest (free tier ✓)</option>
-        <option value="eleven_monolingual_v1">Monolingual v1 — legacy (paid tier only)</option>
-      </select>
-      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Get your key at <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" style="color:var(--accent-ui)">elevenlabs.io</a>. It is sent per-request to the Folio TTS worker and never stored on the server.</div>
-    </div>
-
-    <div class="ap-tracks" id="apTracks">
-      <div class="ap-empty">Loading tracks…</div>
-    </div>
-
-    <!-- Hidden file picker — each row's 📎 button triggers this. -->
-    <input type="file" id="apImportFile" accept=".mp3,audio/mpeg,audio/mp3" style="display:none" onchange="_apOnImportFile(event)">
-
-    <!-- Create a new custom audio segment (intro / intermission / outro / etc.) -->
-    <button type="button" class="ap-add-seg-btn" onclick="_apOpenSegModal()">
-      + Add audio segment (intro, intermission, outro…)
-    </button>
-
-    <div id="apEstimate" style="font-size:11.5px;color:var(--text);margin-top:10px;padding:8px 10px;background:var(--bg);border-radius:7px;line-height:1.5"></div>
-
-    <div class="ap-progress" id="apProgress"></div>
-
-    <div class="ap-footer">
-      <button type="button" class="ap-btn primar                                                                                              
+          <option va
