@@ -26,7 +26,7 @@ import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-ap
 import{getFirestore,doc,getDoc,setDoc,collection,query,where,getDocs,deleteDoc,addDoc,onSnapshot,serverTimestamp,orderBy,limit}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import{getStorage,ref,uploadBytes,getDownloadURL,deleteObject}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js';
 import{getAuth,signInAnonymously,signInWithPopup,signInWithRedirect,linkWithPopup,linkWithRedirect,getRedirectResult,GoogleAuthProvider,onAuthStateChanged,signOut}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
-const FC={apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",authDomain:"miscellaneous-117e9.firebaseapp.com",projectId:"miscellaneous-117e9",storageBucket:"miscellaneous-117e9.firebasestorage.app",messagingSenderId:"514858431339",appId:"1:514858431339:web:8b3acbe89966b45fe3922e"};
+const FC={apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",authDomain:"auth.jacobsiler.com",projectId:"miscellaneous-117e9",storageBucket:"miscellaneous-117e9.firebasestorage.app",messagingSenderId:"514858431339",appId:"1:514858431339:web:8b3acbe89966b45fe3922e"};
 const app=initializeApp(FC);
 const db=getFirestore(app);const auth=getAuth(app);
 window._db=db;window._auth=auth;
@@ -2017,7 +2017,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-25-loading-spinner-fix  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-25-custom-auth-domain
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -2421,23 +2421,44 @@ async function signInGoogle() {
 
   const user = _auth.currentUser;
   const isAnon = !!(user && user.isAnonymous);
-  console.log('[AUTH] signInGoogle: redirecting to Google',
+  console.log('[AUTH] signInGoogle: ENTERED',
     { isAnon, currentUid: user?.uid, mode: isAnon ? 'linkWithRedirect' : 'signInWithRedirect' });
   if (typeof setStatus === 'function') setStatus('Redirecting to Google to sign in…');
 
   try {
+    console.log('[AUTH] signInGoogle: about to call', isAnon ? 'linkWithRedirect' : 'signInWithRedirect');
+    let result;
     if (isAnon) {
-      return await fbAuth.linkWithRedirect(user, _prov);
+      result = await fbAuth.linkWithRedirect(user, _prov);
     } else {
-      return await fbAuth.signInWithRedirect(_auth, _prov);
+      result = await fbAuth.signInWithRedirect(_auth, _prov);
     }
+    // signInWithRedirect / linkWithRedirect normally never resolve —
+    // the page navigates away before the promise can settle. If we
+    // get here, the navigation didn't happen, which is highly
+    // unusual and worth logging loudly.
+    console.warn('[AUTH] signInGoogle: redirect call RETURNED WITHOUT NAVIGATING — this is unusual', { result });
+    if (typeof setStatus === 'function') setStatus('Sign-in didn’t navigate — check browser console + extensions');
+    try { localStorage.removeItem('folio_pending_upgrade'); } catch (e2) {}
   } catch (e) {
-    console.warn('[AUTH] signInGoogle: redirect call failed', { code: e?.code, message: e?.message });
+    console.warn('[AUTH] signInGoogle: redirect call THREW', { code: e?.code, message: e?.message });
     if (typeof setStatus === 'function') setStatus('Sign-in error — see console: ' + (e?.code || e?.message));
-    // Clear the flag so the next attempt doesn't get a stale one.
     try { localStorage.removeItem('folio_pending_upgrade'); } catch (e2) {}
   }
 }
+
+// One-time boot diagnostic: if a sign-in flag is sitting in
+// localStorage but we just loaded the page anonymously, log it.
+// Helps tell "redirect never started" from "redirect started but
+// didn't complete the round-trip."
+(function _logPendingUpgradeAtBoot() {
+  try {
+    const flag = localStorage.getItem('folio_pending_upgrade');
+    if (flag === '1') {
+      console.log('[AUTH] BOOT: folio_pending_upgrade flag is set on load — last sign-in attempt was started but not yet resolved');
+    }
+  } catch (e) {}
+})();
 
 // Global redirect helper for the fallback button in error messages
 async function doRedirect_global() {
@@ -12432,29 +12453,4 @@ window._apOnImportFile       = _apOnImportFile;
 <div id="audioPanel" aria-hidden="true" role="dialog" aria-labelledby="apTitle">
   <div class="ap-box">
     <div class="ap-hd">
-      <h3 id="apTitle">🎙 Audio Export</h3>
-      <button class="ap-close" onclick="closeAudioPanel()" aria-label="Close">×</button>
-    </div>
-
-    <label>Provider</label>
-    <div class="ap-prov">
-      <button type="button" id="apProvGoogle"      onclick="_apSetProvider('google')">Google TTS</button>
-      <button type="button" id="apProvElevenlabs"  onclick="_apSetProvider('elevenlabs')">ElevenLabs</button>
-    </div>
-    <div id="apSyncHint" style="font-size:10.5px;color:var(--hint);margin:6px 0 2px">Settings (incl. API keys) sync to your Folio account when signed in.</div>
-
-    <div class="ap-row">
-      <div>
-        <label>Voice</label>
-        <select id="apVoice" onchange="_apSaveSettings()"></select>
-      </div>
-      <div>
-        <label>Speed</label>
-        <select id="apSpeed" onchange="_apSaveSettings()">
-          <option value="0.85">0.85×</option>
-          <option value="0.9">0.9×</option>
-          <option value="0.95">0.95×</option>
-          <option value="1.0" selected>1.0×</option>
-          <option value="1.05">1.05×</option>
-          <option value="1.1">1.1×</option>
-          <option va
+      <h3 id=                
