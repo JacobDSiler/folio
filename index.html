@@ -66,14 +66,23 @@ let _fbReadyFired = false;
       window._user = user;
 
       
-// 🔍 Detect anonymous → Google upgrade
-const upgraded = wasAnonymous && !user.isAnonymous && prevUid && prevUid !== user.uid;
+// 🔍 Detect anonymous → Google upgrade.
+//   In-memory case  : we held an anon user, now have a google user
+//                     with a different uid (popup or in-tab swap).
+//   Flagged case    : a redirect was just kicked off; the page
+//                     reloaded and lost the in-memory state, so we
+//                     consult localStorage.folio_pending_upgrade.
+const inMemoryUpgrade = wasAnonymous && !user.isAnonymous && prevUid && prevUid !== user.uid;
+let flaggedUpgrade = false;
+try {
+  flaggedUpgrade = !user.isAnonymous && localStorage.getItem('folio_pending_upgrade') === '1';
+} catch (e) {}
+const upgraded = inMemoryUpgrade || flaggedUpgrade;
 
 if (upgraded) {
-  console.log('[AUTH] Anonymous → Google upgrade detected');
-  // Restore body lives in the main <script> below — it needs to
-  // assign to top-level `let _projId` which is invisible from
-  // here. window._restoreFolioBackupAfterUpgrade does the work.
+  console.log('[AUTH] Anonymous → Google upgrade detected', { inMemoryUpgrade, flaggedUpgrade });
+  // Restore body lives in the main <script> — it needs to assign
+  // to top-level `let _projId` which is invisible from here.
   try {
     if (typeof window._restoreFolioBackupAfterUpgrade === 'function') {
       window._restoreFolioBackupAfterUpgrade();
@@ -81,6 +90,9 @@ if (upgraded) {
   } catch (e) {
     console.warn('[AUTH] Backup recovery failed:', e);
   }
+  // Clear the pending-upgrade flag so a subsequent page load
+  // doesn't re-trigger the restore.
+  try { localStorage.removeItem('folio_pending_upgrade'); } catch (e) {}
 }
 
 // 🔔 Always notify UI
@@ -1973,7 +1985,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-25-signin-scope-fix  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-25-coop-redirect-fix  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -2329,15 +2341,36 @@ async function signInGoogle() {
   if (typeof backupFolio === 'function') backupFolio();
 
   const user = _auth.currentUser;
+
+  // Try popup first. With strict Cross-Origin-Opener-Policy headers
+  // (which GitHub Pages now sends), Firebase's popup.closed polling
+  // can fail and surface as an error EVEN AFTER the user has fully
+  // authenticated. The recovery below handles that case so we don't
+  // cascade into a needless second fullscreen redirect.
   try {
     if (user && user.isAnonymous) {
-      // Link anonymous account → Google so existing folios survive.
       return await fbAuth.linkWithPopup(user, _prov);
     } else {
       return await fbAuth.signInWithPopup(_auth, _prov);
     }
   } catch (e) {
+    // Did the popup actually succeed despite the error? Wait for
+    // the auth state to settle (onAuthStateChanged is async) and
+    // re-check currentUser. If it's now non-anonymous, the auth
+    // landed and we should NOT redirect.
+    await new Promise(r => setTimeout(r, 600));
+    const cu = _auth.currentUser;
+    if (cu && !cu.isAnonymous) {
+      console.log('[AUTH] Popup completed despite error:', e && e.code);
+      return cu;
+    }
+
+    // Genuine failure — fall through to redirect. Set the
+    // pending-upgrade flag first so the post-redirect page load
+    // (which has no in-memory wasAnonymous state) still triggers
+    // the backup-restore branch.
     console.warn('Popup failed, falling back to redirect:', e);
+    try { localStorage.setItem('folio_pending_upgrade', '1'); } catch (e2) {}
     if (user && user.isAnonymous) {
       return await fbAuth.linkWithRedirect(user, _prov);
     } else {
@@ -2350,6 +2383,8 @@ async function signInGoogle() {
 async function doRedirect_global() {
   _clearAuthError();
   const user = window._auth?.currentUser;
+  try { localStorage.setItem('folio_pending_upgrade', '1'); } catch (e) {}
+  if (typeof backupFolio === 'function') backupFolio();
   try {
     if (user && user.isAnonymous) {
       await window._fbAuth.linkWithRedirect(user, window._googleProvider);
