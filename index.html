@@ -1730,6 +1730,9 @@ html[data-reader] #readerBar { display: flex; }
           <button class="btn-sm btn-ghost" onclick="newFolio()" style="font-size:11px;padding:5px 10px">＋ New folio</button>
           <button class="btn-sm btn-ghost" id="btnSaveAsCopy" onclick="saveFolioAsCopy()" style="display:none;font-size:11px;padding:5px 10px;background:#fef3c7;border-color:#d97706;color:#92400e" title="This folio is owned by someone else. Save a copy under your own account so you can edit it freely.">📋 Save as my copy</button>
         </div>
+                  <!-- Serial release dashboard (Phase 1) -->
+          <div id="serialDashboardLine" style="display:none;font-size:10.5px;color:var(--text);background:var(--bg);padding:6px 10px;border-radius:6px;border:.5px solid var(--border-mid);margin-top:7px;line-height:1.5"></div>
+          <button class="btn-sm btn-ghost" id="btnSerialReleaseNext" onclick="_serialReleaseNextChapter()" style="display:none;width:100%;margin-top:5px;padding:6px;font-size:11px;background:#ecfdf5;border-color:#10b981;color:#065f46">🔓 Release next chapter now</button>
         <button class="btn-sm" id="btnRelease" onclick="openReleaseModal()" disabled
           style="width:100%;margin-top:7px;padding:8px;font-size:12px;border-radius:7px;border:1px solid var(--border-mid);background:transparent;color:var(--accent-ui);cursor:pointer;font-family:var(--sans);transition:all .15s;display:flex;align-items:center;justify-content:center;gap:6px">
           <span id="btnReleaseIcon">🔖</span>
@@ -2022,7 +2025,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-25-shelves  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-26-audio-recover-and-serials  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -3992,6 +3995,38 @@ function detectChapterLine(line) {
 }
 
 // --------------------------------------------------------------
+// ──────────────────────────────────────────────────────────────
+// YAML frontmatter stripper. Detects a leading ---\n...\n---\n
+// block and returns { meta, body }. Handles simple
+// key: "value" / key: 'value' / key: value rows. Comments
+// (lines starting with #) and blank lines inside the block are
+// ignored. Keys are lower-cased so callers don't have to think
+// about case.
+//
+// If no frontmatter is detected, meta is {} and body is the
+// original input unchanged.
+function _stripMdFrontmatter(raw) {
+  if (!raw) return { meta: {}, body: '' };
+  // Strip BOM if present so the leading --- detector matches.
+  const text = String(raw).replace(/^\uFEFF/, '');
+  const m = text.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?/);
+  if (!m) return { meta: {}, body: raw };
+  const meta = {};
+  m[1].split(/\r?\n/).forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const kv = trimmed.match(/^([A-Za-z_][\w-]*)\s*:\s*(.*)$/);
+    if (!kv) return;
+    let value = kv[2].trim();
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    meta[kv[1].toLowerCase()] = value;
+  });
+  return { meta: meta, body: text.slice(m[0].length) };
+}
+
 // Markdown paragraph reflow — fixes Bug 1 (soft-wraps treated as
 // hard paragraph breaks). Per CommonMark: a blank line separates
 // paragraphs, a lone \n inside a block is a soft break and is
@@ -4123,10 +4158,14 @@ window._folioImportSmokeTest = _folioImportSmokeTest;
 
 // Smart split — detects chapters by content patterns, not just # headings
 function smartSplit(text) {
+  // Strip leading YAML frontmatter (Gutenberg Cleaner now emits it
+  // on downloaded .md files). Without this the --- renders as a
+  // scene-break HR and the title/author lines become paragraph text.
+  const _stripped = _stripMdFrontmatter(text);
   // Bug 1 fix: normalise paragraphs FIRST so a prose paragraph is a
   // single line — also prevents Bug 2 (a wrapped prose line that
   // starts with "introduction" being read as an H2 heading).
-  const normalised = _normalizeMdBody(text);
+  const normalised = _normalizeMdBody(_stripped.body);
   const lines = normalised.split('\n');
 
   // Bug 2 fix (defence-in-depth): if the author used explicit #/##
@@ -4230,6 +4269,23 @@ function applyImportToChapters() {
   importedFiles.forEach(f => {
     const text = f.rawText.trim();
     if (!text) return;
+
+    // Pull title/author from YAML frontmatter as fallbacks if the
+    // user hasn't already filled those sidebar fields. Existing
+    // values are NEVER overwritten — frontmatter is a hint, not a
+    // command.
+    if (typeof _stripMdFrontmatter === 'function') {
+      const _fm = _stripMdFrontmatter(text);
+      const _meta = _fm.meta || {};
+      if (_meta.title) {
+        const _t = document.getElementById('bookTitle');
+        if (_t && !_t.value.trim()) _t.value = _meta.title;
+      }
+      if (_meta.author) {
+        const _a = document.getElementById('bookAuthor');
+        if (_a && !_a.value.trim()) _a.value = _meta.author;
+      }
+    }
 
     if (mode === 'none') {
       // Import whole file as a single chapter — no splitting at all.
@@ -8875,9 +8931,17 @@ async function _folioImportApply(payload) {
   }
   chapters = [];
 
+  // Frontmatter fallback for missing payload fields. The Cleaner
+  // explicitly strips YAML before sending, so this is defensive —
+  // protects against future companion apps that don't.
+  let _fmMeta = {};
+  if (typeof _stripMdFrontmatter === 'function' && payload.manuscriptMd) {
+    try { _fmMeta = (_stripMdFrontmatter(payload.manuscriptMd) || {}).meta || {}; }
+    catch (e) {}
+  }
   const setField = (id, v) => { const el = document.getElementById(id); if (el) el.value = v || ''; };
-  setField('bookTitle',    payload.title);
-  setField('bookAuthor',   payload.author);
+  setField('bookTitle',    payload.title  || _fmMeta.title  || '');
+  setField('bookAuthor',   payload.author || _fmMeta.author || '');
   setField('bookSubtitle', '');
   setField('dedication',   '');
   // Auto-fill copyright from year + author if currently empty.
@@ -9285,6 +9349,223 @@ function _rlUrl(folioId) {
   return origin + basePath + '?read=' + encodeURIComponent(id);
 }
 
+
+/* ════════════════════════════════════════════════════════════════
+   Serial release helpers (Phase 1).
+   Pure-client unlock math + countdown formatting + cadence parsing.
+   Author-side bumping of releasedThrough lives in
+   _serialReleaseNextChapter below.
+   TODO Phase 2: email / push notifications when a chapter unlocks.
+   TODO Phase 2: drag-to-edit schedule UI; right now editing
+   firstReleaseAt is manual (re-publish from the modal).
+   ──────────────────────────────────────────────────────────── */
+function _serialCadenceMs(release) {
+  if (!release || !release.serial) return 0;
+  const cad = release.serialCadence || 'weekly';
+  const day = 24 * 60 * 60 * 1000;
+  if (cad === 'weekly')   return  7 * day;
+  if (cad === 'biweekly') return 14 * day;
+  if (cad === 'monthly')  return 30 * day;   // calendar-month-ish, fine for v1
+  if (cad === 'custom') {
+    const d = Number(release.serialCadenceCustom);
+    return (isFinite(d) && d > 0) ? d * day : 7 * day;
+  }
+  return 7 * day;
+}
+
+// Returns the 1-based chapter index that's unlocked AT or BEFORE `now`.
+// If `now` is before firstReleaseAt, returns 0 (nothing released yet).
+function _serialAutoReleasedCount(release, now) {
+  if (!release || !release.serial || !release.serialFirstReleaseAt) return 0;
+  const t = (now == null ? Date.now() : now);
+  const start = Number(release.serialFirstReleaseAt);
+  if (!isFinite(start) || t < start) return 0;
+  const cMs = _serialCadenceMs(release);
+  if (cMs <= 0) return 0;
+  return Math.floor((t - start) / cMs) + 1;
+}
+
+// Effective released count: max of the auto-from-time count and
+// the manual releasedThrough field (so an author bumping early
+// wins, but a missed scheduled tick still unlocks on time).
+function _serialReleasedCount(release, now) {
+  if (!release || !release.serial) return Infinity;  // non-serial = all
+  const auto   = _serialAutoReleasedCount(release, now);
+  const manual = Number(release.serialReleasedThrough) || 0;
+  return Math.max(auto, manual);
+}
+
+// Returns ms until the next unlock, or 0 if we're caught up
+// (released >= total). Used to render countdowns on locked cards.
+function _serialMsUntilUnlock(release, chapterIndex /* 1-based */, now) {
+  if (!release || !release.serial || !release.serialFirstReleaseAt) return 0;
+  const t = (now == null ? Date.now() : now);
+  const at = Number(release.serialFirstReleaseAt) +
+             Math.max(0, chapterIndex - 1) * _serialCadenceMs(release);
+  return Math.max(0, at - t);
+}
+
+function _serialUnlockDate(release, chapterIndex /* 1-based */) {
+  if (!release || !release.serial || !release.serialFirstReleaseAt) return null;
+  return new Date(
+    Number(release.serialFirstReleaseAt) +
+    Math.max(0, chapterIndex - 1) * _serialCadenceMs(release)
+  );
+}
+
+function _serialFormatCountdown(ms) {
+  if (ms <= 0) return 'now';
+  const s = Math.floor(ms / 1000);
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d >= 1) return d + 'd ' + h + 'h';
+  if (h >= 1) return h + 'h ' + m + 'm';
+  return Math.max(1, m) + 'm';
+}
+
+function _serialFormatDate(d) {
+  if (!d) return '';
+  try {
+    return d.toLocaleString(undefined, {
+      weekday: 'short', day: 'numeric', month: 'short',
+      hour: 'numeric', minute: '2-digit'
+    });
+  } catch (e) { return d.toString(); }
+}
+
+// Author-side: bump releasedThrough by one (or to a specific value)
+// and persist. Used by the "Release next chapter now" button.
+async function _serialReleaseNextChapter(targetCount /* optional */) {
+  if (!_fbReady || !_projId) {
+    if (typeof setStatus === 'function') setStatus('Not connected to cloud');
+    return;
+  }
+  if (!_rlCurrent || !_rlCurrent.serial) {
+    if (typeof toastWarning === 'function')
+      toastWarning('This folio isn\'t a serial release', { duration: 3000 });
+    return;
+  }
+  const totalCh = (typeof getChapters === 'function')
+    ? getChapters().length : 0;
+  const current = _serialReleasedCount(_rlCurrent);
+  const next = Math.min(
+    totalCh > 0 ? totalCh : 999,
+    targetCount != null ? targetCount : current + 1
+  );
+  if (next <= current) {
+    if (typeof toastInfo === 'function')
+      toastInfo('Already released through Ch ' + current, { duration: 2200 });
+    return;
+  }
+  try {
+    const updated = Object.assign({}, _rlCurrent, {
+      serialReleasedThrough: next,
+      updatedAt: Date.now(),
+    });
+    const ref = window._fb.doc(window._db, 'folio_projects', _projId);
+    await window._fb.setDoc(ref, { release: updated }, { merge: true });
+    _rlCurrent = updated;
+    if (typeof toastSuccess === 'function')
+      toastSuccess('Released through Ch ' + next, { icon: '🔓', duration: 2400 });
+    if (typeof _serialDashboardRefresh === 'function')
+      _serialDashboardRefresh();
+  } catch (e) {
+    if (typeof toastWarning === 'function')
+      toastWarning('Release failed: ' + (e.message || e.code), { duration: 4000 });
+  }
+}
+window._serialReleaseNextChapter = _serialReleaseNextChapter;
+
+// Live preview for the Release modal: returns up to N upcoming
+// unlock dates as { idx, date } pairs based on the current form
+// values (called from the modal's onchange handlers).
+function _serialPreviewUpcoming(form, count) {
+  const cad = (form.cadence || 'weekly');
+  const cadCustom = Number(form.cadenceCustom) || 0;
+  const startStr  = form.firstAt;
+  const start = startStr ? new Date(startStr).getTime() : NaN;
+  if (!isFinite(start)) return [];
+  const fakeRelease = {
+    serial: true,
+    serialCadence: cad,
+    serialCadenceCustom: cadCustom,
+    serialFirstReleaseAt: start,
+  };
+  const cMs = _serialCadenceMs(fakeRelease);
+  const out = [];
+  for (let i = 1; i <= count; i++) {
+    out.push({ idx: i, date: new Date(start + (i - 1) * cMs) });
+  }
+  return out;
+}
+
+// Refreshes the live preview text in the modal.
+function _serialUpdatePreview() {
+  const wrap = document.getElementById('rlSerialFields');
+  if (!wrap || wrap.style.display === 'none') return;
+  const cadEl = document.getElementById('rlSerialCadence');
+  const customEl = document.getElementById('rlSerialCustom');
+  const firstEl = document.getElementById('rlSerialFirst');
+  const previewEl = document.getElementById('rlSerialPreview');
+  if (!cadEl || !firstEl || !previewEl) return;
+  // Toggle visibility of custom-days input
+  const customWrap = document.getElementById('rlSerialCustomWrap');
+  if (customWrap) customWrap.style.display = (cadEl.value === 'custom') ? '' : 'none';
+  const upcoming = _serialPreviewUpcoming({
+    cadence: cadEl.value,
+    cadenceCustom: customEl ? customEl.value : '',
+    firstAt: firstEl.value,
+  }, 5);
+  if (!upcoming.length) {
+    previewEl.innerHTML = '<span style="color:var(--hint)">Pick a first-release date to see the schedule.</span>';
+    return;
+  }
+  previewEl.innerHTML = upcoming.map(u =>
+    'Chapter ' + u.idx + ' · ' + _serialFormatDate(u.date)
+  ).join(' &nbsp;·&nbsp; ');
+}
+window._serialUpdatePreview = _serialUpdatePreview;
+
+function _serialToggleEnabled() {
+  const cb = document.getElementById('rlSerialEnabled');
+  const wrap = document.getElementById('rlSerialFields');
+  if (!cb || !wrap) return;
+  wrap.style.display = cb.checked ? '' : 'none';
+  if (cb.checked) _serialUpdatePreview();
+}
+window._serialToggleEnabled = _serialToggleEnabled;
+
+// Refresh the in-sidebar dashboard line for the current folio's
+// serial status.
+function _serialDashboardRefresh() {
+  const el = document.getElementById('serialDashboardLine');
+  const btn = document.getElementById('btnSerialReleaseNext');
+  if (!el || !btn) return;
+  if (!_rlCurrent || !_rlCurrent.serial) {
+    el.style.display = 'none';
+    btn.style.display = 'none';
+    return;
+  }
+  const totalCh = (typeof getChapters === 'function') ? getChapters().length : 0;
+  const released = _serialReleasedCount(_rlCurrent);
+  const nextIdx  = released + 1;
+  const allOut   = released >= totalCh && totalCh > 0;
+  const nextDate = (!allOut && totalCh > 0)
+                   ? _serialUnlockDate(_rlCurrent, nextIdx) : null;
+  const nextStr  = nextDate ? _serialFormatDate(nextDate) : '—';
+  el.style.display = '';
+  el.innerHTML =
+    '📚 Serial: <strong>Ch ' + Math.min(released, totalCh) +
+    ' of ' + (totalCh || '?') + '</strong>' +
+    (allOut
+       ? ' · <span style="color:#065f46">all released ✓</span>'
+       : (' · next: ' + nextStr));
+  btn.style.display = allOut ? 'none' : '';
+  btn.textContent = '🔓 Release Ch ' + nextIdx + ' now';
+}
+window._serialDashboardRefresh = _serialDashboardRefresh;
+
 function _rlSetMode(mode) {
   if (mode !== 'free' && mode !== 'paid' && mode !== 'private') mode = 'free';
   _rlMode = mode;
@@ -9346,6 +9627,23 @@ function openReleaseModal() {
     if (audioChk1)   audioChk1.checked = !!_rlCurrent.audioBundle;
     const previewField1 = document.getElementById('rlPreviewN');
     if (previewField1) previewField1.value = String(_rlCurrent.previewSections != null ? _rlCurrent.previewSections : 1);
+    // Serial fields hydrate from the existing release (if any).
+    const _sCb = document.getElementById('rlSerialEnabled');
+    const _sCad = document.getElementById('rlSerialCadence');
+    const _sCustom = document.getElementById('rlSerialCustom');
+    const _sFirst = document.getElementById('rlSerialFirst');
+    if (_sCb)    _sCb.checked = !!_rlCurrent.serial;
+    if (_sCad)   _sCad.value  = _rlCurrent.serialCadence || 'weekly';
+    if (_sCustom) _sCustom.value = String(_rlCurrent.serialCadenceCustom || 7);
+    if (_sFirst && _rlCurrent.serialFirstReleaseAt) {
+      // datetime-local wants 'YYYY-MM-DDTHH:mm' in local time.
+      const d = new Date(_rlCurrent.serialFirstReleaseAt);
+      const pad = n => String(n).padStart(2, '0');
+      _sFirst.value = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate())
+                    + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+    }
+    if (typeof _serialToggleEnabled === 'function') _serialToggleEnabled();
+    if (typeof _serialDashboardRefresh === 'function') _serialDashboardRefresh();
     if (btn)   btn.textContent = '💾 Update release';
     if (unpub) unpub.style.display = '';
   } else {
@@ -9411,6 +9709,20 @@ async function _rlPublish() {
     if (!isFinite(priceNum) || priceNum < 0) { _rlSetStatus('Please enter a valid price.', '#c04040'); return; }
   }
 
+  // ── Serial fields (Phase 1) ──
+  // Read from the modal's serial controls if present. Defensive
+  // about missing elements so non-serial releases stay unchanged.
+  const serialCb        = document.getElementById('rlSerialEnabled');
+  const serialEnabled   = !!(serialCb && serialCb.checked);
+  const serialCadenceEl = document.getElementById('rlSerialCadence');
+  const serialCustomEl  = document.getElementById('rlSerialCustom');
+  const serialFirstEl   = document.getElementById('rlSerialFirst');
+  const serialCadence   = (serialCadenceEl && serialCadenceEl.value) || 'weekly';
+  const serialCustomDays= Number(serialCustomEl && serialCustomEl.value) || 7;
+  const serialFirstAtMs = serialFirstEl && serialFirstEl.value
+                          ? new Date(serialFirstEl.value).getTime()
+                          : null;
+
   const release = {
     published:   true,
     publishedAt: _rlCurrent && _rlCurrent.publishedAt ? _rlCurrent.publishedAt : Date.now(),
@@ -9425,6 +9737,17 @@ async function _rlPublish() {
     currency:    currency,
     audioBundle: _rlMode === 'paid' ? audioBundle : false,
     previewSections: _rlMode === 'paid' ? previewN : 0,
+    // Serial fields (null/false-coerced for non-serial releases so
+    // upgrades stay clean).
+    serial:               serialEnabled,
+    serialCadence:        serialEnabled ? serialCadence : null,
+    serialCadenceCustom:  serialEnabled && serialCadence === 'custom' ? serialCustomDays : null,
+    serialFirstReleaseAt: serialEnabled ? serialFirstAtMs : null,
+    // Preserve any prior releasedThrough so a re-publish doesn't
+    // accidentally reset the unlock counter.
+    serialReleasedThrough: serialEnabled
+      ? (_rlCurrent && _rlCurrent.serialReleasedThrough || 0)
+      : null,
   };
 
   try {
@@ -9493,6 +9816,116 @@ function _rlCopyUrl() {
   );
 }
 
+
+/* Reader-view: replace pages for not-yet-released chapters with a
+   locked countdown card. Pure-client; ticks once a minute to update
+   countdowns. ────────────────────────────────────────────────── */
+let _serialTickerHandle = null;
+function _serialApplyLocks(release) {
+  // Bail if not a serial release.
+  if (!release || !release.serial) {
+    _serialClearLocks();
+    return;
+  }
+  const bp = document.getElementById('bookPreview');
+  if (!bp) return;
+  const chapters = (typeof getChapters === 'function') ? getChapters() : [];
+  const chapterIds = chapters.map(c => c.id);
+  const released = _serialReleasedCount(release);
+
+  // Strip prior lock state.
+  bp.querySelectorAll('.serial-lock-page,.pw-hidden-page.serial-locked').forEach(el => {
+    el.classList.remove('serial-locked');
+  });
+  bp.querySelectorAll('.serial-lock-page').forEach(el => el.remove());
+
+  // Walk pages; for each chapter past `released` insert a lock card.
+  const pages = Array.from(bp.children);
+  let chCounter = 0;       // 1-based index of chapter encountered
+  let firstLockedChIdx = null;
+  for (let i = 0; i < pages.length; i++) {
+    const p = pages[i];
+    const chid = p.getAttribute && p.getAttribute('data-chapid');
+    if (!chid || !chapterIds.includes(chid)) continue;
+    chCounter++;
+    if (chCounter <= released) continue;
+    // Locked: hide this page, and (only on the FIRST locked page
+    // for this chapter) inject a lock card before it. Subsequent
+    // pages of the same chapter just hide.
+    p.classList.add('pw-hidden-page', 'serial-locked');
+    if (firstLockedChIdx !== chCounter) {
+      const card = _serialBuildLockCard(release, chCounter, chapters[chCounter - 1]);
+      bp.insertBefore(card, p);
+      firstLockedChIdx = chCounter;
+    }
+  }
+
+  _serialStartTicker(release);
+}
+function _serialClearLocks() {
+  const bp = document.getElementById('bookPreview');
+  if (bp) {
+    bp.querySelectorAll('.serial-lock-page').forEach(el => el.remove());
+    bp.querySelectorAll('.serial-locked').forEach(el => {
+      el.classList.remove('serial-locked', 'pw-hidden-page');
+    });
+  }
+  if (_serialTickerHandle) {
+    clearInterval(_serialTickerHandle);
+    _serialTickerHandle = null;
+  }
+}
+window._serialApplyLocks = _serialApplyLocks;
+window._serialClearLocks = _serialClearLocks;
+
+function _serialBuildLockCard(release, chIdx, chapter) {
+  const card = document.createElement('div');
+  card.className = 'serial-lock-page';
+  card.setAttribute('data-serial-ch', String(chIdx));
+  const title = (chapter && chapter.title) || 'Chapter ' + chIdx;
+  const date = _serialUnlockDate(release, chIdx);
+  const dateStr = _serialFormatDate(date);
+  card.style.cssText =
+    'margin:18px auto;padding:32px 28px;max-width:560px;' +
+    'background:var(--surface);border:.5px solid var(--border-mid);' +
+    'border-radius:14px;text-align:center;font-family:var(--sans);' +
+    'box-shadow:0 4px 20px rgba(0,0,0,0.06)';
+  card.innerHTML =
+    '<div style="font-size:30px;margin-bottom:12px;opacity:.55">🔒</div>' +
+    '<div style="font-size:11px;color:var(--hint);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">Chapter ' + chIdx + '</div>' +
+    '<div style="font-family:\'Playfair Display\',Georgia,serif;font-size:22px;font-weight:700;color:var(--text);margin-bottom:14px">' +
+      _esc(title) + '</div>' +
+    '<div style="font-size:13px;color:var(--text);margin-bottom:6px">' +
+      'Unlocks in <strong class="serial-countdown" data-serial-ch="' + chIdx + '">' +
+      _serialFormatCountdown(_serialMsUntilUnlock(release, chIdx)) +
+      '</strong></div>' +
+    '<div style="font-size:11.5px;color:var(--hint)">' + _esc(dateStr) + '</div>';
+  return card;
+}
+
+// Use existing esc helper if present; else local fallback so this
+// works even if loaded standalone.
+function _esc(s) {
+  if (typeof esc === 'function') return esc(s);
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function _serialStartTicker(release) {
+  if (_serialTickerHandle) clearInterval(_serialTickerHandle);
+  _serialTickerHandle = setInterval(() => {
+    document.querySelectorAll('.serial-countdown').forEach(el => {
+      const ch = parseInt(el.getAttribute('data-serial-ch') || '0', 10);
+      if (!ch) return;
+      const ms = _serialMsUntilUnlock(release, ch);
+      el.textContent = _serialFormatCountdown(ms);
+      // If a chapter just unlocked, re-render to swap card → real chapter.
+      if (ms <= 0 && typeof renderPreview === 'function') renderPreview();
+    });
+  }, 60 * 1000);  // 1 minute is fine — countdown granularity is m/h/d
+}
+
 function _rlOpenPreview() {
   const url = _rlUrl();
   if (!url) return;
@@ -9500,6 +9933,7 @@ function _rlOpenPreview() {
 }
 
 function _rlUpdateButton() {
+  if (typeof _serialDashboardRefresh === 'function') setTimeout(_serialDashboardRefresh, 0);
   const btn   = document.getElementById('btnRelease');
   const lbl   = document.getElementById('btnReleaseLbl');
   const badge = document.getElementById('btnReleaseBadge');
@@ -9771,6 +10205,11 @@ async function _pwCheckAccess(folioId) {
   const cached = _pwGetToken(folioId);
   if (_pwIsValid(cached)) {
     document.documentElement.setAttribute('data-paid-unlocked', '1');
+    // Apply serial locks AFTER the paid gate clears — paid serials
+    // show preview-paywall + unlocked-but-locked-by-cadence layers.
+    if (release && release.serial && typeof _serialApplyLocks === 'function') {
+      setTimeout(() => _serialApplyLocks(release), 50);
+    }
     return true;
   }
 
@@ -9783,6 +10222,18 @@ async function _pwCheckAccess(folioId) {
   }
   return false;
 }
+
+// Free serial release? Apply locks even without going through the
+// pwGate path. Hook into the reader's renderPreview observer.
+window.addEventListener('previewRendered', () => {
+  try {
+    const r = (typeof _rlCurrent !== 'undefined' && _rlCurrent) ? _rlCurrent : null;
+    if (r && r.serial && r.priceMode !== 'paid' &&
+        typeof _serialApplyLocks === 'function') {
+      _serialApplyLocks(r);
+    }
+  } catch (e) { console.warn('[serial] applyLocks error', e); }
+});
 
 /* ── Free preview mode ─────────────────────────────────────────── */
 
@@ -11445,12 +11896,12 @@ function _id3TextFrame(id, text) {
 }
 
 function _id3CommFrame(text) {
-  // COMM: encoding + lang(3) + short desc +   + full text
+  // COMM: encoding + lang(3) + short desc +   + full text
   const tb = _id3StrToUtf8(text);
   const payload = new Uint8Array(1 + 3 + 1 + tb.length);
   payload[0] = 0x03;                        // UTF-8
   payload[1] = 0x65; payload[2] = 0x6E; payload[3] = 0x67; // "eng"
-  payload[4] = 0;                           // empty short description +  
+  payload[4] = 0;                           // empty short description + \0
   payload.set(tb, 5);
   return _id3Frame('COMM', payload);
 }
@@ -11461,7 +11912,7 @@ function _id3ChapFrame(elementId, startMs, endMs, title) {
   const payload = new Uint8Array(idB.length + 1 + 16 + sub.length);
   let pos = 0;
   payload.set(idB, pos); pos += idB.length;
-  payload[pos++] = 0; // element ID  
+  payload[pos++] = 0; // element ID \0
   const st = _id3U32BE(startMs | 0);
   const et = _id3U32BE(endMs   | 0);
   for (let i = 0; i < 4; i++) payload[pos++] = st[i];
@@ -11484,7 +11935,7 @@ function _id3TocFrame(elementIds) {
   const payload = new Uint8Array(idB.length + 1 + 1 + 1 + childLen);
   let pos = 0;
   payload.set(idB, pos); pos += idB.length;
-  payload[pos++] = 0;          //  
+  payload[pos++] = 0;          // \0
   payload[pos++] = 0x03;       // flags: top-level + ordered
   payload[pos++] = elementIds.length & 0xFF; // entry count
   for (let i = 0; i < childBytesList.length; i++) {
@@ -11497,13 +11948,13 @@ function _id3TocFrame(elementIds) {
 
 function _id3ApicFrame(mime, imgBytes) {
   const mimeB = _id3StrToUtf8(mime);
-  // encoding + mime  + pic type + desc  + image
+  // encoding + mime\0 + pic type + desc\0 + image
   const payload = new Uint8Array(1 + mimeB.length + 1 + 1 + 1 + imgBytes.length);
   let pos = 0;
   payload[pos++] = 0x03;                 // UTF-8
   payload.set(mimeB, pos); pos += mimeB.length; payload[pos++] = 0;
   payload[pos++] = 0x03;                 // picture type: Cover (front)
-  payload[pos++] = 0;                    // empty description  
+  payload[pos++] = 0;                    // empty description \0
   payload.set(imgBytes, pos);
   return _id3Frame('APIC', payload);
 }
@@ -12560,7 +13011,18 @@ async function _apConcatAll() {
 /* ── Panel open / close ────────────────────────────────────── */
 async function openAudioPanel() {
   const panel = document.getElementById('audioPanel');
-  if (!panel) return;
+  if (!panel) {
+    // Loud invariant guard: if this fires, the audioPanel HTML
+    // has been corrupted/removed again. Last regression here was
+    // a partial-edit truncation that null-padded the file tail.
+    // Surface immediately rather than silently no-op.
+    console.error('[FOLIO] #audioPanel element missing — HTML corruption?');
+    if (typeof toastWarning === 'function') {
+      toastWarning('Audio panel is missing — please reload the page. If it persists, the build is broken.',
+        { icon: '⚠', duration: 7000 });
+    }
+    return;
+  }
   if (typeof closeExportDrawer === 'function') closeExportDrawer();
   panel.classList.add('open');
   panel.setAttribute('aria-hidden', 'false');
@@ -12947,4 +13409,232 @@ window._apOnImportFile       = _apOnImportFile;
 <div id="audioPanel" aria-hidden="true" role="dialog" aria-labelledby="apTitle">
   <div class="ap-box">
     <div class="ap-hd">
-      <h3 id=                
+      <h3 id="apTitle">🎙 Audio Export</h3>
+      <button class="ap-close" onclick="closeAudioPanel()" aria-label="Close">×</button>
+    </div>
+
+    <label>Provider</label>
+    <div class="ap-prov">
+      <button type="button" id="apProvGoogle"      onclick="_apSetProvider('google')">Google TTS</button>
+      <button type="button" id="apProvElevenlabs"  onclick="_apSetProvider('elevenlabs')">ElevenLabs</button>
+    </div>
+    <div id="apSyncHint" style="font-size:10.5px;color:var(--hint);margin:6px 0 2px">Settings (incl. API keys) sync to your Folio account when signed in.</div>
+
+    <div class="ap-row">
+      <div>
+        <label>Voice</label>
+        <select id="apVoice" onchange="_apSaveSettings()"></select>
+      </div>
+      <div>
+        <label>Speed</label>
+        <select id="apSpeed" onchange="_apSaveSettings()">
+          <option value="0.85">0.85×</option>
+          <option value="0.9">0.9×</option>
+          <option value="0.95">0.95×</option>
+          <option value="1.0" selected>1.0×</option>
+          <option value="1.05">1.05×</option>
+          <option value="1.1">1.1×</option>
+          <option value="1.2">1.2×</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="ap-key-row" id="apGoogleRow">
+      <label>Google Cloud TTS API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span></label>
+      <input type="password" id="apGoogleKey" placeholder="AIza…" oninput="_apOnGoogleKey()" autocomplete="off">
+      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Create a restricted key for <em>Cloud Text-to-Speech API</em> only in the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--accent-ui)">Google Cloud Console</a>. Keys are kept in your browser and sent per-request to the Folio TTS worker — never stored server-side.</div>
+    </div>
+    <div class="ap-key-row" id="apElRow">
+      <label>ElevenLabs API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span></label>
+      <input type="password" id="apElKey" placeholder="sk-…" oninput="_apOnElKey()" autocomplete="off">
+      <label style="margin-top:10px">Model</label>
+      <select id="apElModel" onchange="_apOnElModel()">
+        <option value="eleven_multilingual_v2">Multilingual v2 — highest quality (free tier ✓)</option>
+        <option value="eleven_turbo_v2_5">Turbo v2.5 — fast &amp; low-latency (free tier ✓)</option>
+        <option value="eleven_flash_v2_5">Flash v2.5 — cheapest / fastest (free tier ✓)</option>
+        <option value="eleven_monolingual_v1">Monolingual v1 — legacy (paid tier only)</option>
+      </select>
+      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Get your key at <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" style="color:var(--accent-ui)">elevenlabs.io</a>. It is sent per-request to the Folio TTS worker and never stored on the server.</div>
+    </div>
+
+    <div class="ap-tracks" id="apTracks">
+      <div class="ap-empty">Loading tracks…</div>
+    </div>
+
+    <!-- Hidden file picker — each row's 📎 button triggers this. -->
+    <input type="file" id="apImportFile" accept=".mp3,audio/mpeg,audio/mp3" style="display:none" onchange="_apOnImportFile(event)">
+
+    <!-- Create a new custom audio segment (intro / intermission / outro / etc.) -->
+    <button type="button" class="ap-add-seg-btn" onclick="_apOpenSegModal()">
+      + Add audio segment (intro, intermission, outro…)
+    </button>
+
+    <div id="apEstimate" style="font-size:11.5px;color:var(--text);margin-top:10px;padding:8px 10px;background:var(--bg);border-radius:7px;line-height:1.5"></div>
+
+    <div class="ap-progress" id="apProgress"></div>
+
+    <div class="ap-footer">
+      <button type="button" class="ap-btn primary" id="apGenAll" onclick="_apGenerateAllRemaining()">▶▶ Generate All Remaining</button>
+      <button type="button" class="ap-btn"        id="apZipAll" onclick="_apDownloadZip()">↓ Download All as ZIP</button>
+    </div>
+    <div class="ap-concat">
+      <button type="button" class="ap-btn" id="apConcat" onclick="_apConcatAll()">🎧 Export Audiobook (MP3 with chapters)</button>
+    </div>
+  </div>
+</div>
+
+<div id="audioSegModal" role="dialog" aria-hidden="true" aria-labelledby="segTitle">
+  <div class="seg-box">
+    <h3 id="segTitle">Audio segment</h3>
+    <div class="seg-hint">
+      Use for intros, outros, intermissions, chapter teasers, anything you want spoken <em>between</em> the written chapters.
+      Segments are generated with the same voice and speed as the main book (panel defaults) and included in the audiobook exports at the position you choose.
+    </div>
+
+    <label>Name</label>
+    <input type="text" id="segNameInput" placeholder="Intro / Intermission 1 / Afterword">
+
+    <label>Position</label>
+    <div class="seg-pos-row">
+      <select id="segPosMode" onchange="_apSegOnPosMode()">
+        <option value="start">At the start of the book</option>
+        <option value="end">At the end of the book</option>
+        <option value="before">Before a specific section</option>
+        <option value="after">After a specific section</option>
+      </select>
+      <select id="segPosTarget">
+        <option value="">Select a section…</option>
+      </select>
+    </div>
+
+    <label>Text (will be spoken via the active TTS voice)</label>
+    <textarea id="segTextInput" placeholder="Welcome to Embers of Elekra. A novel by J.D. Siler. Chapter one, The Marmalade Problem, begins now."></textarea>
+    <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Character count: <span id="segCharCount">0</span></div>
+
+    <div class="seg-footer">
+      <button type="button" class="danger" id="segDeleteBtn" onclick="_apSegDelete()" style="display:none">Delete segment</button>
+      <button type="button" onclick="_apSegCancel()">Cancel</button>
+      <button type="button" class="primary" onclick="_apSegSave()">Save segment</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Release / publish panel (recovered after corruption — see commit msg) -->
+<div id="releasePanel" aria-hidden="true" role="dialog" aria-labelledby="rlTitle"
+  style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:560px;width:94%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:26px 28px 22px;font-family:var(--sans);color:var(--text)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <h3 id="rlTitle" style="font-size:15px;font-weight:600;margin:0;letter-spacing:-0.01em">🔖 Release this Folio</h3>
+      <button onclick="closeReleaseModal()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint);padding:2px 6px;border-radius:4px">×</button>
+    </div>
+
+    <p id="rlIntro" style="font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:16px">
+      Publish a read-only copy of your folio that readers can open in their browser.
+      Your folio stays editable — readers always see the latest version.
+    </p>
+
+    <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:12px 0 4px">Title shown to readers</label>
+    <input type="text" id="rlTitleField" placeholder="Use book title or folio name…"
+      style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--bg);color:var(--text);outline:none">
+
+    <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:12px 0 4px">Author byline</label>
+    <input type="text" id="rlAuthorField" placeholder="Author name…"
+      style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--bg);color:var(--text);outline:none">
+
+    <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:12px 0 4px">Short description <span style="opacity:.6;font-weight:400">(optional)</span></label>
+    <textarea id="rlDescField" rows="3" placeholder="A one-paragraph blurb readers see before they open the book."
+      style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--bg);color:var(--text);outline:none;font-family:inherit;resize:vertical;min-height:64px"></textarea>
+
+    <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:14px 0 6px">Access</label>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+      <button type="button" id="rlModeFree" onclick="_rlSetMode('free')" class="rl-mode" style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Public &amp; free</button>
+      <button type="button" id="rlModePaid" onclick="_rlSetMode('paid')" class="rl-mode" style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">💳 Paid</button>
+      <button type="button" id="rlModePriv" onclick="_rlSetMode('private')" class="rl-mode" style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Private link</button>
+    </div>
+    <p id="rlModeHint" style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:4px 0 12px">
+      Anyone with the link can read. No account required beyond Folio's auto sign-in.
+    </p>
+
+    <!-- Paid-mode fields, shown only when priceMode === 'paid' -->
+    <div id="rlPaidFields" style="display:none;padding:12px;background:var(--bg);border-radius:8px;border:.5px solid var(--border-mid);margin-bottom:10px">
+      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Gumroad product id</label>
+      <input type="text" id="rlProductId" placeholder="short-product-id or permalink (e.g. embers-of-elekra)"
+        style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <div style="flex:2">
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Price</label>
+          <input type="number" id="rlPrice" placeholder="9.99" step="0.01" min="0"
+            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+        </div>
+        <div style="flex:1">
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Currency</label>
+          <select id="rlCurrency"
+            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+            <option value="USD">USD</option>
+            <option value="EUR">EUR</option>
+            <option value="GBP">GBP</option>
+            <option value="CAD">CAD</option>
+            <option value="AUD">AUD</option>
+          </select>
+        </div>
+      </div>
+      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:10px 0 4px">Free preview chapters <span style="opacity:.6;font-weight:400">(0 = full gate)</span></label>
+      <input type="number" id="rlPreviewN" value="1" min="0" max="99" step="1"
+        style="width:80px;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+      <label style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--hint);margin-top:10px;cursor:pointer">
+        <input type="checkbox" id="rlAudioBundle">
+        <span>Include audiobook bundle (if you've generated audio)</span>
+      </label>
+    </div>
+
+    <!-- Serial release (Phase 1) — collapsible section -->
+    <label style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text);margin:14px 0 6px;cursor:pointer">
+      <input type="checkbox" id="rlSerialEnabled" onchange="_serialToggleEnabled()">
+      <span><strong>Serial release</strong> — drip chapters on a schedule</span>
+    </label>
+    <div id="rlSerialFields" style="display:none;padding:12px;background:var(--bg);border-radius:8px;border:.5px solid var(--border-mid);margin-bottom:10px">
+      <div style="display:flex;gap:8px">
+        <div style="flex:1">
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Cadence</label>
+          <select id="rlSerialCadence" onchange="_serialUpdatePreview()"
+            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+            <option value="weekly">Weekly</option>
+            <option value="biweekly">Every 2 weeks</option>
+            <option value="monthly">Monthly</option>
+            <option value="custom">Custom…</option>
+          </select>
+        </div>
+        <div id="rlSerialCustomWrap" style="flex:1;display:none">
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Every N days</label>
+          <input type="number" id="rlSerialCustom" min="1" max="365" value="7" oninput="_serialUpdatePreview()"
+            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+        </div>
+      </div>
+      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:10px 0 4px">First chapter unlocks at</label>
+      <input type="datetime-local" id="rlSerialFirst" oninput="_serialUpdatePreview()"
+        style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+      <div style="margin-top:10px;padding:8px 10px;background:var(--surface);border:.5px dashed var(--border-mid);border-radius:6px;font-size:11px;color:var(--text);line-height:1.7">
+        <div style="font-size:9.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Schedule preview</div>
+        <div id="rlSerialPreview" style="font-size:11px"><span style="color:var(--hint)">Pick a first-release date to see the schedule.</span></div>
+      </div>
+      <p style="font-size:10.5px;color:var(--hint);line-height:1.55;margin:8px 0 0">
+        Free serials drip free chapters. Paid serials use the Gumroad gate above; unlocked chapters render normally, locked ones show a countdown card. Already-released chapters stay released even if you change the cadence.
+      </p>
+    </div>
+
+    <!-- URL preview -->
+    <div id="rlUrlBox" style="background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;padding:10px 12px;margin:10px 0 6px;display:none">
+      <div style="font-size:9.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Reader link</div>
+      <div id="rlUrlText" style="font-family:monospace;font-size:11.5px;color:var(--text);word-break:break-all;cursor:pointer" onclick="_rlCopyUrl()" title="Click to copy"></div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <button type="button" onclick="_rlCopyUrl()" style="font-size:11px;padding:5px 10px;border-radius:6px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);cursor:pointer">📋 Copy link</button>
+        <button type="button" onclick="_rlOpenPreview()" style="font-size:11px;padding:5px 10px;border-radius:6px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);cursor:pointer">👁 Preview in reader</button>
+      </div>
+    </div>
+
+    <div id="rlStatus" style="font-size:11px;color:var(--hint);margin:10px 0;min-height:14px"></div>
+
+    <div id="rlFooter" style="display:flex;gap:7px;justify-content:flex-end;margin-top:14px">
+      <button type="button" onclick="closeReleaseModal()" style="padding:9px 15px;border-radius:7px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Close</button>
+      <button type="button" id=
