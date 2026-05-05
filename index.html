@@ -252,9 +252,17 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .preview-area::-webkit-scrollbar-track{
   background:rgba(0,0,0,0.06);border-radius:7px;
 }
+[data-dark] .preview-area{background:#1e1a14}
 [data-dark] .preview-area::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.22);border-color:#1e1a14}
 [data-dark] .preview-area::-webkit-scrollbar-thumb:hover{background:rgba(255,255,255,0.38)}
 [data-dark] .preview-area::-webkit-scrollbar-track{background:rgba(255,255,255,0.04)}
+/* In dark mode the dark drop-shadow on book pages disappears against the dark bg.
+   Add a subtle warm-light glow + thin edge so pages read as floating rectangles. */
+[data-dark] .book-page{
+  box-shadow: 0 6px 32px rgba(232,222,206,0.05), 0 1px 4px rgba(0,0,0,0.6);
+  outline: 0.5px solid rgba(232,222,206,0.06);
+  outline-offset: -0.5px;
+}
 /* ── Writing mode (full chapter prose editor in preview pane) ── */
 .writing-mode{display:none;flex-direction:column;height:100%;background:var(--bg);position:relative}
 .writing-mode.active{display:flex}
@@ -1924,6 +1932,7 @@ html[data-reader] #readerBar { display: flex; }
   <div class="status-bar" id="statusBar">Ready — import files or paste your manuscript</div>
   <div class="sidebar-footer" style="padding:6px 1.25rem 8px;font-size:10.5px;color:var(--hint);background:#faf9f7;border-top:0.5px solid var(--border);display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex-shrink:0">
     <a href="/serials-guide.html" style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Guide</a>
+    <a href="/api-keys-guide.html" style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Keys</a>
     <a href="/privacy.html" style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Privacy</a>
     <a href="/terms.html"   style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Terms</a>
     <a href="mailto:folio@jacobsiler.com" style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Contact</a>
@@ -14230,12 +14239,12 @@ window._apOnImportFile       = _apOnImportFile;
     </div>
 
     <div class="ap-key-row" id="apGoogleRow">
-      <label>Google Cloud TTS API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span></label>
+      <label>Google Cloud TTS API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span> · <a href="/api-keys-guide.html#google" target="_blank" style="color:var(--accent-ui);text-decoration:none;border-bottom:.5px dotted var(--accent-ui)">Need help getting one?</a></label>
       <input type="password" id="apGoogleKey" placeholder="AIza…" oninput="_apOnGoogleKey()" autocomplete="off">
-      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Create a restricted key for <em>Cloud Text-to-Speech API</em> only in the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--accent-ui)">Google Cloud Console</a>. Keys are kept in your browser and sent per-request to the Folio TTS worker — never stored server-side.</div>
+      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Create a restricted key for <em>Cloud Text-to-Speech API</em> only in the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--accent-ui)">Google Cloud Console</a>. Keys are kept in your browser and sent per-request to the Folio TTS worker — never stored server-side. <a href="/api-keys-guide.html#google" target="_blank" style="color:var(--accent-ui)">Step-by-step guide →</a></div>
     </div>
     <div class="ap-key-row" id="apElRow">
-      <label>ElevenLabs API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span></label>
+      <label>ElevenLabs API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span> · <a href="/api-keys-guide.html#elevenlabs" target="_blank" style="color:var(--accent-ui);text-decoration:none;border-bottom:.5px dotted var(--accent-ui)">Need help getting one?</a></label>
       <input type="password" id="apElKey" placeholder="sk-…" oninput="_apOnElKey()" autocomplete="off">
       <label style="margin-top:10px">Model</label>
       <select id="apElModel" onchange="_apOnElModel()">
@@ -14244,7 +14253,7 @@ window._apOnImportFile       = _apOnImportFile;
         <option value="eleven_flash_v2_5">Flash v2.5 — cheapest / fastest (free tier ✓)</option>
         <option value="eleven_monolingual_v1">Monolingual v1 — legacy (paid tier only)</option>
       </select>
-      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Get your key at <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" style="color:var(--accent-ui)">elevenlabs.io</a>. It is sent per-request to the Folio TTS worker and never stored on the server.</div>
+      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Get your key at <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" style="color:var(--accent-ui)">elevenlabs.io</a>. It is sent per-request to the Folio TTS worker and never stored on the server. <a href="/api-keys-guide.html#elevenlabs" target="_blank" style="color:var(--accent-ui)">Step-by-step guide →</a> · <a href="/api-keys-guide.html#custom-voices" target="_blank" style="color:var(--accent-ui)">Custom voices →</a></div>
     </div>
 
     <div class="ap-tracks" id="apTracks">
@@ -14430,4 +14439,4 @@ window._apOnImportFile       = _apOnImportFile;
     <div id="rlStatus" style="font-size:11px;color:var(--hint);margin:10px 0;min-height:14px"></div>
 
     <div id="rlFooter" style="display:flex;gap:7px;justify-content:flex-end;margin-top:14px">
-      <button type="button" onclick="closeReleaseModal()" style="padding:9px 15px;border-radius:7px;border:.5px solid var(--border-m                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
+      <button type="button" onclick="closeReleaseModal()" style="padding:9px 15px;border-radius:7px;border:.5px solid var(--border-m                                                                                                                        
