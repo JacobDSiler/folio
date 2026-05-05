@@ -1,0 +1,526 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Keys Guide — Folio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Crimson+Pro:wght@400;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f0ede6;
+    --surface: #ffffff;
+    --border: rgba(0,0,0,0.1);
+    --border-mid: rgba(0,0,0,0.2);
+    --text: #1a1a1a;
+    --muted: #6b6b6b;
+    --accent: #8B4513;
+    --accent-soft: #c98c2a;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Crimson Pro', Georgia, serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 40px 20px 80px;
+  }
+  .page {
+    max-width: 720px;
+    margin: 0 auto;
+    background: var(--surface);
+    border: .5px solid var(--border);
+    border-radius: 14px;
+    padding: 56px 56px 48px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+  }
+  h1 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    letter-spacing: -0.01em;
+  }
+  .sub {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    margin-bottom: 32px;
+  }
+  h2 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 26px;
+    font-weight: 700;
+    margin-top: 44px;
+    margin-bottom: 14px;
+    color: var(--accent);
+    padding-bottom: 6px;
+    border-bottom: .5px solid var(--border);
+  }
+  h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    margin-top: 22px;
+    margin-bottom: 8px;
+    color: var(--text);
+    letter-spacing: .01em;
+  }
+  p { margin-bottom: 14px; font-size: 17px; }
+  ol, ul { margin: 0 0 14px 24px; }
+  li { margin-bottom: 8px; font-size: 17px; }
+  ol li { padding-left: 4px; }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent); }
+  a:hover { opacity: .7; }
+  code {
+    background: var(--bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 14px;
+  }
+  .key-prefix {
+    font-family: 'SF Mono', Menlo, monospace;
+    background: #fff7e6;
+    border: .5px solid #f0d99a;
+    color: #8a6111;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  .lead {
+    font-size: 19px;
+    color: var(--muted);
+    line-height: 1.65;
+    margin-bottom: 24px;
+  }
+  .callout {
+    margin: 18px 0;
+    padding: 14px 18px;
+    background: var(--bg);
+    border-left: 3px solid var(--accent-soft);
+    border-radius: 4px;
+    font-size: 15.5px;
+    line-height: 1.6;
+  }
+  .callout strong { color: var(--accent); }
+  .privacy-note {
+    margin-top: 14px;
+    padding: 14px 18px;
+    background: #f0f7ed;
+    border-left: 3px solid #5a8a3e;
+    border-radius: 4px;
+    font-size: 15.5px;
+    line-height: 1.6;
+    color: #2d4a1e;
+  }
+  .compare {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 15px;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  .compare th, .compare td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: .5px solid var(--border);
+    vertical-align: top;
+  }
+  .compare th {
+    background: var(--bg);
+    font-weight: 600;
+    color: var(--text);
+    font-size: 13px;
+    letter-spacing: .03em;
+    text-transform: uppercase;
+  }
+  .compare td:first-child { width: 28%; font-weight: 600; }
+  .anchor-nav {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 12px 16px;
+    background: var(--bg);
+    border-radius: 8px;
+    margin-bottom: 32px;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+  }
+  .anchor-nav a {
+    color: var(--accent);
+    text-decoration: none;
+    border: none;
+    border-bottom: 1px dotted var(--accent);
+  }
+  .footer {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: .5px solid var(--border);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  @media (max-width: 600px) {
+    .page { padding: 36px 24px; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 22px; }
+    p, li { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+  <main class="page">
+    <h1>API keys for audiobook generation</h1>
+    <div class="sub">Folio &nbsp;·&nbsp; setup guide</div>
+
+    <p class="lead">
+      Folio's audiobook feature lets you turn any chapter into spoken audio using
+      Google Cloud Text-to-Speech or ElevenLabs. Both require a free API key from
+      the provider. This guide walks through getting one for each, in plain steps,
+      with no jargon.
+    </p>
+
+    <div class="anchor-nav">
+      <span>Jump to:</span>
+      <a href="#why">Why API keys?</a>
+      <a href="#google">Google TTS</a>
+      <a href="#elevenlabs">ElevenLabs</a>
+      <a href="#custom-voices">Custom voices</a>
+      <a href="#privacy">Privacy</a>
+      <a href="#which">Which to pick?</a>
+    </div>
+
+    <h2 id="why">Why does Folio need an API key?</h2>
+    <p>
+      Generating speech from text isn't free for the provider &mdash; somebody has
+      to run the AI models that turn your manuscript into a human voice. Both
+      Google and ElevenLabs offer generous free tiers (enough for several short
+      audiobooks per month), but they need a key to track which account is using
+      their service.
+    </p>
+    <p>
+      Folio doesn't have its own TTS service. Instead, you bring your own key, and
+      Folio sends your manuscript text directly to the provider on your behalf.
+      The key lives in your browser only &mdash; Folio's servers never see it.
+    </p>
+
+    <h2 id="google">Google Cloud Text-to-Speech</h2>
+    <p>
+      Google's TTS produces clean, professional voices. The free tier is huge
+      (millions of characters per month). Setup takes about 5&ndash;10 minutes
+      the first time.
+    </p>
+
+    <h3>Step 1 &mdash; Sign in to Google Cloud Console</h3>
+    <p>
+      Go to <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a>
+      and sign in with your Google account. If you've never used Google Cloud
+      before, it'll ask you to accept the terms. Accept them.
+    </p>
+
+    <h3>Step 2 &mdash; Create a project</h3>
+    <p>
+      At the top of the page there's a project picker (it says &ldquo;Select a
+      project&rdquo; or shows your current project name). Click it, then click
+      <strong>New Project</strong>. Name it whatever you like &mdash; &ldquo;Folio
+      Audio&rdquo; works. You can leave the organization field as
+      &ldquo;No organization.&rdquo; Click <strong>Create</strong>.
+    </p>
+    <p>
+      Wait about 30 seconds for the project to spin up, then make sure it's
+      selected in the project picker before continuing.
+    </p>
+
+    <h3>Step 3 &mdash; Enable the Text-to-Speech API</h3>
+    <p>
+      In the search bar at the top, type <code>Text-to-Speech</code> and hit enter.
+      Click the result called <strong>Cloud Text-to-Speech API</strong>. On the
+      next page, click the blue <strong>Enable</strong> button.
+    </p>
+    <p>
+      If it asks you to set up a billing account, don't panic &mdash; you have to
+      add a card for verification, but you'll stay in the free tier as long as
+      you're under the monthly quota. (Google sends an email if you ever
+      approach the limit.)
+    </p>
+
+    <h3>Step 4 &mdash; Create the API key</h3>
+    <p>
+      In the left sidebar, click <strong>APIs &amp; Services</strong> &rarr;
+      <strong>Credentials</strong>. Or use the search bar to jump to
+      &ldquo;Credentials.&rdquo;
+    </p>
+    <p>
+      At the top, click <strong>+ CREATE CREDENTIALS</strong> &rarr;
+      <strong>API key</strong>. A dialog pops up showing your new key &mdash; it
+      looks like <span class="key-prefix">AIzaSyA...</span> followed by random
+      characters. Copy this. <strong>Don't close the dialog yet.</strong>
+    </p>
+
+    <h3>Step 5 &mdash; Restrict the key (important)</h3>
+    <p>
+      Right below the key, click <strong>Edit API key</strong> (or hit close
+      and click your new key in the credentials list). On the edit page:
+    </p>
+    <ol>
+      <li>Under <strong>API restrictions</strong>, select <strong>Restrict key</strong>.</li>
+      <li>From the dropdown, check only <strong>Cloud Text-to-Speech API</strong>.</li>
+      <li>Click <strong>Save</strong> at the bottom.</li>
+    </ol>
+    <p>
+      This means even if someone got hold of your key, they couldn't use it for
+      anything other than text-to-speech &mdash; no surprise charges for services
+      you don't use.
+    </p>
+
+    <h3>Step 6 &mdash; Paste it into Folio</h3>
+    <p>
+      Back in Folio, open the audiobook panel (the 🎙 button in the export
+      drawer). Pick <strong>Google TTS</strong> as the provider. Paste your key
+      into the <strong>Google Cloud TTS API Key</strong> field. Folio will
+      remember it in your browser; you won't have to enter it again on this
+      device.
+    </p>
+
+    <div class="privacy-note">
+      <strong>Where the key lives.</strong> Your API key is stored in your
+      browser's local storage and synced to your Folio account if you're signed
+      in. It's sent to Google directly when you generate audio. Folio's servers
+      never store it.
+    </div>
+
+    <h3>Free tier &mdash; what fits?</h3>
+    <p>
+      Google's free tier resets monthly. You get:
+    </p>
+    <ul>
+      <li><strong>Standard voices:</strong> 4 million characters per month.
+        That's roughly a 600,000-word book.</li>
+      <li><strong>WaveNet / Neural2 voices</strong> (more natural-sounding):
+        1 million characters per month. Roughly a 150,000-word book.</li>
+    </ul>
+    <p>
+      For most authors generating audiobooks, this is more than enough. Past the
+      limit, you pay around $4&ndash;$16 per million characters depending on the
+      voice tier.
+    </p>
+
+    <h2 id="elevenlabs">ElevenLabs</h2>
+    <p>
+      ElevenLabs produces some of the most natural AI voices currently available
+      &mdash; if you've heard an AI narration that sounded almost human, it was
+      probably ElevenLabs. The free tier is smaller than Google's, but the voice
+      quality is the reason most authors pick it for fiction.
+    </p>
+
+    <h3>Step 1 &mdash; Sign up</h3>
+    <p>
+      Go to <a href="https://elevenlabs.io/" target="_blank" rel="noopener">elevenlabs.io</a>
+      and click <strong>Sign Up</strong> at the top right. You can use your
+      Google account, or an email and password.
+    </p>
+
+    <h3>Step 2 &mdash; Find your API key</h3>
+    <p>
+      Once signed in, click your profile icon at the top right &rarr;
+      <strong>API Keys</strong>. Or go directly to
+      <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener">elevenlabs.io/app/settings/api-keys</a>.
+    </p>
+    <p>
+      Click <strong>Create API Key</strong>. Give it a name like
+      &ldquo;Folio.&rdquo; You can leave permissions at the defaults. Click
+      <strong>Create</strong>.
+    </p>
+    <p>
+      The key appears once, starting with <span class="key-prefix">sk_...</span>
+      <strong>Copy it now</strong> &mdash; ElevenLabs won't show it again. If you
+      lose it, you'll have to delete the key and create a new one.
+    </p>
+
+    <h3>Step 3 &mdash; Paste it into Folio</h3>
+    <p>
+      Open Folio's audiobook panel (the 🎙 button). Pick
+      <strong>ElevenLabs</strong> as the provider. Paste your key into the
+      <strong>ElevenLabs API Key</strong> field. Pick a model from the dropdown:
+    </p>
+    <ul>
+      <li><strong>Multilingual v2</strong> &mdash; best quality, works in many
+        languages. Free-tier-friendly. The default.</li>
+      <li><strong>Turbo v2.5</strong> &mdash; faster, slightly lower quality.
+        Good for long books where speed matters.</li>
+      <li><strong>Flash v2.5</strong> &mdash; fastest and cheapest. Use for drafts
+        you'll regenerate later in higher quality.</li>
+    </ul>
+
+    <h3>Free tier &mdash; what fits?</h3>
+    <p>
+      ElevenLabs' free tier gives you 10,000 characters per month &mdash; that's
+      roughly 1,500 words, or one short chapter. Enough to test the voice quality
+      and hear how your manuscript sounds, but not enough to generate a full
+      book.
+    </p>
+    <p>
+      Paid tiers as of this writing:
+    </p>
+    <table class="compare">
+      <thead>
+        <tr><th>Plan</th><th>Per month</th><th>Characters/month</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Free</td><td>$0</td><td>10,000</td></tr>
+        <tr><td>Starter</td><td>$5</td><td>30,000 (~ short novella)</td></tr>
+        <tr><td>Creator</td><td>$22</td><td>100,000 (~ short book)</td></tr>
+        <tr><td>Pro</td><td>$99</td><td>500,000 (~ full novel)</td></tr>
+      </tbody>
+    </table>
+    <p>
+      For a single audiobook of a full novel, the Creator or Pro tier covers
+      it for a one-month subscription &mdash; cancel after generation if you
+      don't need ongoing capacity.
+    </p>
+
+    <h2 id="custom-voices">Custom voices in ElevenLabs</h2>
+    <p>
+      One of ElevenLabs' best features: you can create a voice from a sample,
+      then narrate your book in that voice. Useful for authors who want a
+      consistent narrator across multiple books, who want their <em>own</em>
+      voice as the narrator, or who want a voice that matches a specific
+      character.
+    </p>
+
+    <h3>Two kinds of cloning</h3>
+    <p>
+      <strong>Instant Voice Clone</strong> &mdash; available on the Starter plan
+      and above. You upload 1&ndash;5 minutes of clean audio (just speech, no
+      music), and ElevenLabs creates a voice from it in seconds. Quality is
+      decent but not professional-grade. Free tier doesn't include cloning.
+    </p>
+    <p>
+      <strong>Professional Voice Clone</strong> &mdash; available on the Creator
+      plan and above. You upload 30+ minutes of high-quality audio (good
+      microphone, no background noise, even pacing) and ElevenLabs trains a
+      higher-quality clone over a few hours. Indistinguishable from the real
+      voice if your sample is good.
+    </p>
+
+    <h3>How to create one</h3>
+    <ol>
+      <li>In ElevenLabs, go to <strong>Voices</strong> in the left sidebar.</li>
+      <li>Click <strong>Add a new voice</strong>.</li>
+      <li>Pick <strong>Instant Voice Clone</strong> or <strong>Professional Voice Clone</strong> based on your plan.</li>
+      <li>Upload your audio sample(s). For Instant: 1&ndash;5 minutes is plenty.
+        For Professional: aim for at least 30 minutes of clean studio-quality
+        speech.</li>
+      <li>Give the voice a name and a description. Save.</li>
+    </ol>
+
+    <h3>Using your custom voice in Folio</h3>
+    <p>
+      <strong>It just works.</strong> Once you've created a voice in ElevenLabs,
+      go back to Folio's audiobook panel and reload the voice list (close and
+      reopen the panel, or refresh the page). Your custom voice will appear in
+      the dropdown alongside ElevenLabs' default voices, labelled with its
+      category &mdash; e.g., <code>MyVoice · cloned</code> or
+      <code>MyVoice · professional</code>.
+    </p>
+    <p>
+      Pick it like any other voice and generate. Folio talks to the same
+      ElevenLabs API regardless of whether the voice is a default or a clone, so
+      no extra setup is needed on the Folio side.
+    </p>
+
+    <div class="callout">
+      <strong>Tip on voice samples.</strong> If you're recording your own voice
+      for a clone, pick a quiet room, sit close to the microphone, and read
+      varied sentences (mix of dialogue, narration, questions, exclamations) so
+      the clone learns your full range. A 30-minute audiobook recording at
+      consistent volume is far more useful than 60 minutes of whispered or
+      uneven audio.
+    </div>
+
+    <h2 id="privacy">How Folio handles your keys</h2>
+    <p>
+      Both keys live entirely in your browser's local storage. When you're
+      signed in, they sync to your Folio user settings document so you can
+      access them from another device &mdash; that document is private to your
+      Google account.
+    </p>
+    <p>
+      When you generate audio, your manuscript text plus the API key go directly
+      to the provider's servers (Google or ElevenLabs). Folio's worker is a
+      thin proxy that adds CORS headers and forwards the request &mdash; it
+      doesn't log keys, doesn't log text, doesn't persist anything.
+    </p>
+    <p>
+      You can revoke either key at any time from the provider's dashboard
+      without touching Folio &mdash; the key just stops working, and Folio will
+      tell you the next time you try to generate audio.
+    </p>
+
+    <h2 id="which">Which one should I pick?</h2>
+    <p>Quick decision matrix:</p>
+
+    <table class="compare">
+      <thead>
+        <tr><th>If you want&hellip;</th><th>Pick&hellip;</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Free generation of a full book</td>
+          <td>Google TTS &mdash; the free tier is huge.</td>
+        </tr>
+        <tr>
+          <td>The most natural-sounding voice for fiction</td>
+          <td>ElevenLabs Multilingual v2.</td>
+        </tr>
+        <tr>
+          <td>Your own voice as narrator</td>
+          <td>ElevenLabs Creator plan + Professional Voice Clone.</td>
+        </tr>
+        <tr>
+          <td>Multiple voices per book (different characters)</td>
+          <td>ElevenLabs &mdash; create a voice per character. Folio narrates the whole chapter in one voice for now, but per-segment voice picking is on the roadmap.</td>
+        </tr>
+        <tr>
+          <td>To test the feature without spending</td>
+          <td>Either &mdash; both have free tiers.</td>
+        </tr>
+        <tr>
+          <td>Volume work (10+ books)</td>
+          <td>Google for cost; ElevenLabs Pro for quality.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p>
+      Most authors using Folio for fiction land on ElevenLabs for the voice
+      quality, even at the cost of a $5&ndash;$22 month here and there. For
+      non-fiction or technical content where voice character matters less,
+      Google's free tier is plenty.
+    </p>
+
+    <p>
+      Stuck somewhere in this guide? Email
+      <a href="mailto:folio@jacobsiler.com">folio@jacobsiler.com</a> and
+      mention which step. Screenshots help a lot.
+    </p>
+
+    <div class="footer">
+      <div>&copy; Jacob Siler &nbsp;·&nbsp; Mullingar, Ireland</div>
+      <div>
+        <a href="/">Back to Folio</a> &nbsp;·&nbsp;
+        <a href="/serials-guide.html">Serials Guide</a> &nbsp;·&nbsp;
+        <a href="/privacy.html">Privacy</a> &nbsp;·&nbsp;
+        <a href="/terms.html">Terms</a>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
