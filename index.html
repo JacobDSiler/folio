@@ -2822,7 +2822,13 @@ async function _doAutoSave() {
   // but a few code paths call _doAutoSave directly.
   if (window._suspendAutoSave) return;
   if (!_fbReady || !_autoSaveDirty) return;
-  if (!chapters.length && !getV('bookTitle')) return; // nothing to save
+  // Don't autosave a totally empty folio. If it's empty we'd just
+  // be creating an "Untitled folio" entry the user has to delete.
+  // Check for ANY meaningful content before writing.
+  const _projNameVal = (document.getElementById('projName')?.value || '').trim();
+  const _hasContent = chapters.length > 0
+    || getV('bookTitle') || getV('bookAuthor') || _projNameVal;
+  if (!_hasContent) return;
   // Create a folio ID if none exists
   if (!_projId) _projId = 'proj_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
   // Use the book title as the folio name, fall back to placeholder
@@ -3568,14 +3574,68 @@ async function _restoreVersion(vid) {
   if (snap.exists()) { _deserialise(snap.data().state); setStatus('Version restored ✓'); }
 }
 
-/* ── Delete project ── */
+/* ── Delete project ──
+   Carefully ordered to defeat the autosave-resurrects-deleted-doc
+   race: kill the in-flight timer FIRST, then disconnect _projId
+   from the deleted doc BEFORE the deleteDoc roundtrip resolves
+   (so any setDoc race fails the "doc still exists" check), then
+   delete. The currently-loaded session keeps its in-memory
+   chapters but stops being bound to the deleted id — if the user
+   keeps editing, autosave will create a fresh untitled folio
+   under a NEW id, not resurrect the old one. */
 async function _deleteProject(id, name) {
-  if (!confirm(`Delete folio "${name}"? This cannot be undone.`)) return;
-  const {doc, deleteDoc} = window._fb;
-  await deleteDoc(window._fb.doc(window._db,'folio_projects',id));
-  if (_projId === id) newFolio();
+  if (!confirm(`Delete folio "${(name || '').trim() || 'Untitled folio'}"? This cannot be undone.`)) return;
+  // 1. Kill any pending autosave timer so it doesn't fire mid-delete
+  //    and recreate the doc.
+  try { clearTimeout(_autoSaveTimer); _autoSaveTimer = null; } catch (e) {}
+  _autoSaveDirty = false;
+  // 2. If this is the loaded folio, disconnect _projId immediately —
+  //    don't go through newFolio() (which has its own confirm and
+  //    would leave _projId pointing at the deleted id if cancelled).
+  const wasActive = (_projId === id);
+  if (wasActive) {
+    _projId = null;
+    _loadedFolioOwnerUid = null;
+    try { localStorage.removeItem('folio_last_open'); } catch (e) {}
+    if (_presenceUnsub) { try { _presenceUnsub(); } catch (e) {} _presenceUnsub = null; }
+    // Also clear the local backup that points at this id, so a
+    // post-sign-in restore doesn't bring it back from localStorage.
+    try {
+      const raw = localStorage.getItem('folio_local_backup');
+      if (raw) {
+        const b = JSON.parse(raw);
+        if (b && b.id === id) localStorage.removeItem('folio_local_backup');
+      }
+    } catch (e) {}
+  }
+  // 3. Now do the actual delete.
+  try {
+    await window._fb.deleteDoc(window._fb.doc(window._db, 'folio_projects', id));
+  } catch (e) {
+    console.warn('[FOLIO] deleteDoc failed:', e);
+    if (typeof toastWarning === 'function')
+      toastWarning('Delete failed: ' + (e?.code || e?.message || 'unknown'), { duration: 4000 });
+    return;
+  }
+  // 4. If we deleted the active folio, blank the UI so the user
+  //    sees a clean slate. Don't ask for confirmation again — they
+  //    already confirmed in step 0.
+  if (wasActive) {
+    try {
+      document.getElementById('projName').value = '';
+      document.getElementById('verList').innerHTML = '<p class="small-note" style="padding:.4rem 0">No versions yet — save a version to snapshot your work.</p>';
+      ['bookTitle','bookAuthor','bookSubtitle','publisher','pubYear','dedication','copyright'].forEach(fid => {
+        const el = document.getElementById(fid); if (el) el.value = '';
+      });
+      chapters = [];
+      if (typeof renderChapterList === 'function') renderChapterList();
+      if (typeof renderPreview === 'function') renderPreview();
+      if (typeof _updateInviteUI === 'function') _updateInviteUI();
+    } catch (e) { console.warn('[FOLIO] post-delete UI reset:', e); }
+  }
   await loadFolioList();
   setStatus('Folio deleted');
+  if (typeof toastInfo === 'function') toastInfo('Folio deleted', { duration: 1800 });
 }
 
 /* ── New project ── */
@@ -9968,12 +10028,21 @@ function _rlSetMode(mode) {
 
 function openReleaseModal() {
   const panel = document.getElementById('releasePanel');
-  if (!panel) return;
-  if (!_projId) {
+  if (!panel) {
+    console.error('[FOLIO] #releasePanel element missing — HTML corruption?');
     if (typeof toastWarning === 'function')
-      toastWarning('Save your folio first to publish it.', { duration: 2800 });
+      toastWarning('Release panel is missing — please reload the page.', { icon:'⚠', duration: 6000 });
     return;
   }
+  if (!_projId) {
+    if (typeof toastWarning === 'function')
+      toastWarning('Save your folio first to publish it. (Type a name and a chapter, then try again.)', { duration: 4000 });
+    return;
+  }
+  // Show the modal FIRST so it's visible no matter what hydration does.
+  // Each hydration block below is wrapped in its own try/catch so a
+  // throw in (e.g.) the serial-section setup doesn't leave the modal
+  // half-rendered or invisible.
   panel.style.display = 'flex';
   panel.setAttribute('aria-hidden', 'false');
 
@@ -9989,12 +10058,13 @@ function openReleaseModal() {
   const bookAuthor = (document.getElementById('bookAuthor') && document.getElementById('bookAuthor').value) || '';
   const projName   = (document.getElementById('projName')   && document.getElementById('projName').value)   || '';
 
+  try {
   if (_rlCurrent) {
     // Existing release — load its values
     if (titleField)  titleField.value  = _rlCurrent.title       || bookTitle || projName || '';
     if (authorField) authorField.value = _rlCurrent.author      || bookAuthor || '';
     if (descField)   descField.value   = _rlCurrent.description || '';
-    _rlSetMode(_rlCurrent.priceMode || 'free');
+    try { _rlSetMode(_rlCurrent.priceMode || 'free'); } catch (e) { console.warn('[rl] setMode:', e); }
     const prodField1  = document.getElementById('rlProductId');
     const priceField1 = document.getElementById('rlPrice');
     const currField1  = document.getElementById('rlCurrency');
@@ -10005,26 +10075,27 @@ function openReleaseModal() {
     if (audioChk1)   audioChk1.checked = !!_rlCurrent.audioBundle;
     const previewField1 = document.getElementById('rlPreviewN');
     if (previewField1) previewField1.value = String(_rlCurrent.previewSections != null ? _rlCurrent.previewSections : 1);
-    // Serial fields hydrate from the existing release (if any).
-    // W3 — hydrate notify-on-unlock checkbox
-    const _nCb = document.getElementById('rlNotifyOnUnlock');
-    if (_nCb) _nCb.checked = !!_rlCurrent.notifyOnUnlock;
-    const _sCb = document.getElementById('rlSerialEnabled');
-    const _sCad = document.getElementById('rlSerialCadence');
-    const _sCustom = document.getElementById('rlSerialCustom');
-    const _sFirst = document.getElementById('rlSerialFirst');
-    if (_sCb)    _sCb.checked = !!_rlCurrent.serial;
-    if (_sCad)   _sCad.value  = _rlCurrent.serialCadence || 'weekly';
-    if (_sCustom) _sCustom.value = String(_rlCurrent.serialCadenceCustom || 7);
-    if (_sFirst && _rlCurrent.serialFirstReleaseAt) {
-      // datetime-local wants 'YYYY-MM-DDTHH:mm' in local time.
-      const d = new Date(_rlCurrent.serialFirstReleaseAt);
-      const pad = n => String(n).padStart(2, '0');
-      _sFirst.value = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate())
-                    + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
-    }
-    if (typeof _serialToggleEnabled === 'function') _serialToggleEnabled();
-    if (typeof _serialDashboardRefresh === 'function') _serialDashboardRefresh();
+    // Serial fields hydrate — wrapped so a malformed release record
+    // (or a missing serial-section element) can't break the modal.
+    try {
+      const _nCb = document.getElementById('rlNotifyOnUnlock');
+      if (_nCb) _nCb.checked = !!_rlCurrent.notifyOnUnlock;
+      const _sCb = document.getElementById('rlSerialEnabled');
+      const _sCad = document.getElementById('rlSerialCadence');
+      const _sCustom = document.getElementById('rlSerialCustom');
+      const _sFirst = document.getElementById('rlSerialFirst');
+      if (_sCb)    _sCb.checked = !!_rlCurrent.serial;
+      if (_sCad)   _sCad.value  = _rlCurrent.serialCadence || 'weekly';
+      if (_sCustom) _sCustom.value = String(_rlCurrent.serialCadenceCustom || 7);
+      if (_sFirst && _rlCurrent.serialFirstReleaseAt) {
+        const d = new Date(_rlCurrent.serialFirstReleaseAt);
+        const pad = n => String(n).padStart(2, '0');
+        _sFirst.value = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate())
+                      + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+      }
+      if (typeof _serialToggleEnabled === 'function') _serialToggleEnabled();
+      if (typeof _serialDashboardRefresh === 'function') _serialDashboardRefresh();
+    } catch (e) { console.warn('[rl] serial hydrate:', e); }
     if (btn)   btn.textContent = '💾 Update release';
     if (unpub) unpub.style.display = '';
   } else {
@@ -10045,12 +10116,15 @@ function openReleaseModal() {
     if (btn)   btn.textContent = '🔖 Publish';
     if (unpub) unpub.style.display = 'none';
   }
+  } catch (e) { console.warn('[rl] open hydrate threw:', e); }
 
-  if (urlBox) urlBox.style.display = _rlIsReleased() ? 'block' : 'none';
-  const urlText = document.getElementById('rlUrlText');
-  if (urlText) urlText.textContent = _rlUrl();
-  const status = document.getElementById('rlStatus');
-  if (status) status.textContent = '';
+  try {
+    if (urlBox) urlBox.style.display = _rlIsReleased() ? 'block' : 'none';
+    const urlText = document.getElementById('rlUrlText');
+    if (urlText) urlText.textContent = _rlUrl();
+    const status = document.getElementById('rlStatus');
+    if (status) status.textContent = '';
+  } catch (e) { console.warn('[rl] tail hydrate:', e); }
 }
 
 function closeReleaseModal() {
@@ -14411,56 +14485,4 @@ window._apOnImportFile       = _apOnImportFile;
     <!-- Paid-mode fields, shown only when priceMode === 'paid' -->
     <div id="rlPaidFields" style="display:none;padding:12px;background:var(--bg);border-radius:8px;border:.5px solid var(--border-mid);margin-bottom:10px">
       <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Gumroad product id</label>
-      <input type="text" id="rlProductId" placeholder="short-product-id or permalink (e.g. embers-of-elekra)"
-        style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <div style="flex:2">
-          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Price</label>
-          <input type="number" id="rlPrice" placeholder="9.99" step="0.01" min="0"
-            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
-        </div>
-        <div style="flex:1">
-          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Currency</label>
-          <select id="rlCurrency"
-            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
-            <option value="USD">USD</option>
-            <option value="EUR">EUR</option>
-            <option value="GBP">GBP</option>
-            <option value="CAD">CAD</option>
-            <option value="AUD">AUD</option>
-          </select>
-        </div>
-      </div>
-      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:10px 0 4px">Free preview chapters <span style="opacity:.6;font-weight:400">(0 = full gate)</span></label>
-      <input type="number" id="rlPreviewN" value="1" min="0" max="99" step="1"
-        style="width:80px;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
-      <label style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--hint);margin-top:10px;cursor:pointer">
-        <input type="checkbox" id="rlAudioBundle">
-        <span>Include audiobook bundle (if you've generated audio)</span>
-      </label>
-    </div>
-
-    <!-- Serial release (Phase 1) — collapsible section -->
-    <label style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text);margin:14px 0 6px;cursor:pointer">
-      <input type="checkbox" id="rlSerialEnabled" onchange="_serialToggleEnabled()">
-      <span><strong>Serial release</strong> — drip chapters on a schedule</span>
-    </label>
-    <div id="rlSerialFields" style="display:none;padding:12px;background:var(--bg);border-radius:8px;border:.5px solid var(--border-mid);margin-bottom:10px">
-      <div style="display:flex;gap:8px">
-        <div style="flex:1">
-          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Cadence</label>
-          <select id="rlSerialCadence" onchange="_serialUpdatePreview()"
-            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
-            <option value="weekly">Weekly</option>
-            <option value="biweekly">Every 2 weeks</option>
-            <option value="monthly">Monthly</option>
-            <option value="custom">Custom…</option>
-          </select>
-        </div>
-        <div id="rlSerialCustomWrap" style="flex:1;display:none">
-          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Every N days</label>
-          <input type="number" id="rlSerialCustom" min="1" max="365" value="7" oninput="_serialUpdatePreview()"
-            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
-        </div>
-      </div>
-      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:10px 0 4p
+      <input type="text" id="rlP
