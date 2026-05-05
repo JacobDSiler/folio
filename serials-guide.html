@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Serials Guide — Folio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Crimson+Pro:wght@400;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f0ede6;
+    --surface: #ffffff;
+    --border: rgba(0,0,0,0.1);
+    --border-mid: rgba(0,0,0,0.2);
+    --text: #1a1a1a;
+    --muted: #6b6b6b;
+    --accent: #8B4513;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Crimson Pro', Georgia, serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 40px 20px 80px;
+  }
+  .page {
+    max-width: 720px;
+    margin: 0 auto;
+    background: var(--surface);
+    border: .5px solid var(--border);
+    border-radius: 14px;
+    padding: 56px 56px 48px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+  }
+  h1 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 36px;
+    font-weight: 700;
+    margin-bottom: 6px;
+    letter-spacing: -0.01em;
+  }
+  .sub {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    margin-bottom: 32px;
+  }
+  h2 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 22px;
+    font-weight: 700;
+    margin-top: 36px;
+    margin-bottom: 12px;
+    color: var(--accent);
+  }
+  h3 {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: 600;
+    margin-top: 20px;
+    margin-bottom: 6px;
+    color: var(--text);
+    letter-spacing: .01em;
+  }
+  p { margin-bottom: 14px; font-size: 17px; }
+  ol, ul { margin: 0 0 14px 22px; }
+  li { margin-bottom: 8px; font-size: 17px; }
+  a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent); }
+  a:hover { opacity: .7; }
+  code {
+    background: var(--bg);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 14px;
+  }
+  blockquote {
+    margin: 14px 0;
+    padding: 12px 18px;
+    background: var(--bg);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    font-style: italic;
+    color: var(--muted);
+  }
+  blockquote.dashboard {
+    font-style: normal;
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .lead {
+    font-size: 19px;
+    color: var(--muted);
+    line-height: 1.65;
+    margin-bottom: 24px;
+  }
+  .checklist {
+    margin-top: 12px;
+    padding: 16px 22px 16px 32px;
+    background: var(--bg);
+    border-radius: 10px;
+  }
+  .checklist li { margin-bottom: 4px; }
+  .footer {
+    margin-top: 48px;
+    padding-top: 20px;
+    border-top: .5px solid var(--border);
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 12.5px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  @media (max-width: 600px) {
+    .page { padding: 36px 24px; }
+    h1 { font-size: 28px; }
+    h2 { font-size: 20px; }
+    p, li { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+  <main class="page">
+    <h1>Publishing a serial in Folio</h1>
+    <div class="sub">Folio &nbsp;·&nbsp; author guide</div>
+
+    <p class="lead">
+      Folio's serial mode lets you release a book chapter by chapter on a schedule &mdash;
+      like Substack, but for fiction. This guide walks through writing, publishing, selling,
+      and running a serial from start to finish.
+    </p>
+
+    <h2>What is a serial?</h2>
+    <p>
+      A serial is a book that doesn't unlock all at once. You set a release cadence
+      (weekly, every two weeks, monthly, or your own custom interval), and chapters
+      become available one at a time on that schedule. Readers see locked chapters
+      with a live countdown &mdash; &ldquo;Chapter 4 unlocks in 2d 14h&rdquo; &mdash;
+      and can subscribe to get an email each time a new chapter drops.
+    </p>
+    <p>
+      Serials work for both free books and paid books. Paid serials gate the whole
+      thing behind a one-time purchase; once a reader has bought it, the cadence
+      still controls when they can read each chapter.
+    </p>
+
+    <h2>Step 1 &mdash; Write the book</h2>
+    <p>
+      Write your manuscript in Folio the same way you'd write any book. Each chapter
+      in your sidebar is a unit that can be drip-released. Make sure your chapter
+      breaks are where you want subscribers to receive an email. If you have a
+      3-chapter prologue you want to drop as one piece, either combine them into
+      one chapter, or accept that subscribers will get three rapid emails on launch
+      day.
+    </p>
+    <p>
+      Front matter (foreword, dedication) and back matter (acknowledgements,
+      copyright page) are <strong>not</strong> part of the cadence. They appear
+      immediately for everyone with access. Only the body chapters are drip-released.
+    </p>
+
+    <h2>Step 2 &mdash; Open the Release modal</h2>
+    <p>
+      Click the <strong>Release</strong> button at the top of the sidebar. You'll
+      see four sections:
+    </p>
+
+    <h3>Title, author, description</h3>
+    <p>
+      Pre-filled from your sidebar fields. The title and author show up on the
+      locked-paywall card if you're charging, in the email subscribers receive,
+      and at the top of the reader's screen.
+    </p>
+
+    <h3>Mode picker</h3>
+    <p>
+      Choose <strong>Public &amp; free</strong>, <strong>Paid</strong>, or
+      <strong>Private link</strong>. Serials work with all three.
+    </p>
+
+    <h3>Paid fields</h3>
+    <p>
+      Only visible when you've picked Paid. Set your Gumroad product ID, price,
+      currency, free-preview chapters, and whether to include an audiobook.
+    </p>
+
+    <h3>Serial release section</h3>
+    <p>
+      Toggle <strong>Drip-release as a serial</strong> to expand it.
+    </p>
+
+    <h2>Step 3 &mdash; Configure the cadence</h2>
+    <p>Inside the Serial section:</p>
+
+    <h3>Cadence</h3>
+    <p>
+      Pick weekly, every two weeks, monthly, or custom. Custom lets you set any
+      interval in days. Weekly is the most common for serial fiction.
+    </p>
+
+    <h3>First chapter unlocks at</h3>
+    <p>
+      A datetime picker. This is when chapter 1 becomes available. For a launch,
+      pick a date in the near future so you can announce &ldquo;chapter 1 is
+      out!&rdquo; and have it actually be true at click-time. If you set a date in
+      the past, every chapter whose computed unlock time has already passed
+      becomes immediately available.
+    </p>
+
+    <h3>Schedule preview</h3>
+    <p>
+      As you change the cadence and first-unlock date, Folio shows you the next
+      five unlock dates so you can sanity-check before committing.
+    </p>
+
+    <h3>Email subscribers when each chapter unlocks</h3>
+    <p>
+      Check this if you want every chapter release to send an email to your
+      subscribers. Leave it unchecked if you'd rather not send emails &mdash;
+      subscribers can still sign up, but releases happen quietly.
+    </p>
+
+    <h2>Step 4 &mdash; If you're selling: set up Gumroad</h2>
+    <p>
+      For paid serials, payments go through <a href="https://gumroad.com" target="_blank" rel="noopener">Gumroad</a>.
+      Folio doesn't process money itself &mdash; it gates the reader on a Gumroad
+      license-key check.
+    </p>
+    <p>
+      Over in Gumroad, create a product. Either &ldquo;Digital download&rdquo; or
+      &ldquo;Membership&rdquo; works (you don't actually upload anything to Gumroad
+      &mdash; Folio is the reader). Set your price. Note the short product ID at the
+      end of the Gumroad URL: if your product is at <code>gumroad.com/l/midnight-rain</code>,
+      the ID is <code>midnight-rain</code>.
+    </p>
+    <p>
+      Back in Folio, paste that ID into the &ldquo;Gumroad product ID&rdquo; field
+      and set the same price. Save.
+    </p>
+    <p>
+      When someone buys, Gumroad emails them a license key. They paste it into
+      Folio's paywall, and Folio unlocks the book for them. The unlock lasts 30
+      days before they have to re-enter the key &mdash; this is automatic, not
+      something you configure.
+    </p>
+
+    <h2>Step 5 &mdash; Publish</h2>
+    <p>
+      Click <strong>Publish</strong> in the Release modal. Folio saves the release
+      and shows you a reader URL &mdash; something like
+      <code>folio.jacobsiler.com/?read=&lt;your-folio-id&gt;</code>. Click
+      &ldquo;Copy link&rdquo; to grab it.
+    </p>
+    <p>
+      The book is now live. If you set the first-unlock for the future, no
+      chapters are visible yet &mdash; readers see locked cards counting down to
+      chapter 1.
+    </p>
+
+    <h2>Step 6 &mdash; Share the link</h2>
+    <p>
+      For free serials, post the reader URL anywhere &mdash; your blog, Twitter,
+      Reddit, your newsletter. Anyone who clicks lands in reader mode and sees
+      whatever has been released so far, plus locked cards for upcoming chapters.
+    </p>
+    <p>
+      For paid serials, share the <strong>Gumroad product URL</strong>
+      (<code>gumroad.com/l/your-product</code>), <em>not</em> the Folio reader URL.
+      Buyers land on Gumroad, pay, and get a license key emailed to them. In your
+      Gumroad product description, paste your Folio reader URL with a note like:
+    </p>
+    <blockquote>
+      After purchase, head to folio.jacobsiler.com/?read=&hellip; and paste the
+      license key when prompted.
+    </blockquote>
+    <p>
+      This way buyers know exactly what to do with the key Gumroad sends them.
+    </p>
+
+    <h2>Step 7 &mdash; Release chapters</h2>
+    <p>Once your serial is live, chapters become available in two ways:</p>
+
+    <h3>Automatically on schedule</h3>
+    <p>
+      Folio computes which chapters should be available based on your cadence and
+      first-unlock date. If you set a weekly cadence with chapter 1 unlocking last
+      Saturday, chapter 2 will unlock itself this Saturday &mdash; no action
+      needed from you.
+    </p>
+
+    <h3>Manually with the &ldquo;Release next chapter now&rdquo; button</h3>
+    <p>
+      This button lives in the sidebar next to the Release button (it appears once
+      a serial is published). Click it to release the next chapter immediately,
+      ahead of schedule. Useful if you wrote a chapter early and want to drop it
+      now, or if you're not using a strict schedule and want to hand-pace the
+      releases.
+    </p>
+    <p>
+      The two methods combine: a chapter is released if either the schedule says so
+      <em>or</em> you've clicked the button enough times. A manual bump never
+      un-releases a chapter that the schedule has already opened.
+    </p>
+
+    <h3>One important note about emails</h3>
+    <p>
+      Today, only the manual button sends emails to subscribers. Auto-scheduled
+      releases happen silently. If you want subscribers pinged each time a new
+      chapter drops, click <strong>Release next chapter now</strong> &mdash; it
+      does both jobs (releases the chapter and sends the email).
+    </p>
+
+    <h2>Step 8 &mdash; Iterate as you go</h2>
+    <p>
+      You can edit your manuscript freely after publishing. Save and readers see
+      the latest version next time they refresh.
+    </p>
+    <p>
+      You can add new chapters at the end as you write them &mdash; the cadence
+      extends automatically. You can edit existing released chapters for typo
+      fixes or revisions; readers see updates immediately.
+    </p>
+    <p>
+      Be careful about reordering chapters in a serial that's already partway
+      through release. The cadence math is based on chapter position, so reordering
+      can confuse subscribers about which chapter is &ldquo;next.&rdquo;
+    </p>
+    <p>
+      To change the cadence after publishing &mdash; say you set weekly but
+      realized you want every two weeks instead &mdash; open the Release modal,
+      adjust the settings, and click Publish again. Chapters that have already been
+      released stay released. The new cadence applies going forward.
+    </p>
+
+    <h2>What readers see</h2>
+    <p>
+      When someone opens the reader URL for your serial, they see the book's title
+      and author at the top. Chapters that are released render normally &mdash;
+      they can read them, bookmark them, take notes if they're a beta reader or
+      editor. Chapters that aren't yet released show as a card with a lock icon,
+      the chapter number, and a live countdown that ticks down every 30 seconds:
+      &ldquo;Chapter 4 unlocks in 2d 14h 03m.&rdquo;
+    </p>
+    <p>
+      Below the first locked card &mdash; only when &ldquo;Email subscribers&rdquo;
+      is enabled &mdash; there's a small inline form: an email field and a
+      Subscribe button. Readers who want to be notified type their email and hit
+      Subscribe. They get added to your subscriber list immediately.
+    </p>
+    <p>
+      When you release the next chapter using the button, Folio sends every
+      subscriber an email with the chapter title, a button that takes them
+      straight to the new chapter, and a one-click unsubscribe link.
+    </p>
+    <p>
+      For paid serials, this all happens behind the Gumroad paywall. The reader
+      buys the book once, enters their license key, and from that point on they
+      see the same locked-card-with-countdown experience that free serial readers
+      see.
+    </p>
+
+    <h2>Your serial dashboard</h2>
+    <p>
+      Once a folio is published as a serial, your sidebar shows a small dashboard
+      line above the Release button:
+    </p>
+    <blockquote class="dashboard">
+      Currently released: Ch 3 of 12 &nbsp;·&nbsp; Next unlock: Sat May 9<br>
+      <strong>[🔓 Release next chapter now]</strong>
+    </blockquote>
+    <p>
+      That's the at-a-glance view of where you are in the run. The
+      &ldquo;next unlock&rdquo; date is what subscribers will see counting down on
+      the next locked card.
+    </p>
+
+    <h2>Tips and gotchas</h2>
+
+    <h3>Pick a launch date you can actually announce</h3>
+    <p>
+      &ldquo;Chapter 1 drops Friday at 9am Pacific&rdquo; works much better than
+      just hitting Publish and letting people stumble across it. Your launch email
+      or social post should land at the same time chapter 1 unlocks.
+    </p>
+
+    <h3>Don't stress about being early</h3>
+    <p>
+      If you've already written ahead, you don't have to release on the strict
+      cadence. The &ldquo;Release next chapter now&rdquo; button exists exactly for
+      this &mdash; let your readers pull you forward if engagement is high. Or
+      stick to the schedule for predictability. Both work.
+    </p>
+
+    <h3>Subscribers persist across re-publishes</h3>
+    <p>
+      If you re-publish a serial (to fix a setting or update the description), your
+      subscriber list stays intact. You won't lose the people who've already
+      signed up.
+    </p>
+
+    <h3>Time zones</h3>
+    <p>
+      The unlock countdown shows each reader their local time. A reader in Tokyo
+      and a reader in New York both see the same actual moment, just rendered for
+      their zone.
+    </p>
+
+    <h3>Test the subscriber flow with another email</h3>
+    <p>
+      As the author, you'll always have full access in editor view, so you won't
+      see the locked cards or the subscribe form on your own folio. Open your
+      reader URL in an incognito window (or with a different account) to see what
+      subscribers actually experience.
+    </p>
+
+    <h3>Releases are forever</h3>
+    <p>
+      Once a chapter is released, it stays released, even if you change the
+      cadence later. There's no way to &ldquo;un-release&rdquo; a chapter from the
+      schedule view &mdash; if you really need to pull a chapter back, you'd have
+      to delete the chapter content from your manuscript and re-publish.
+    </p>
+
+    <h2>What's still coming</h2>
+    <p>
+      A few pieces of the serial workflow are planned but not built yet:
+    </p>
+
+    <h3>Auto-emails on scheduled releases</h3>
+    <p>
+      Today, scheduled releases (the cadence ticking forward without you clicking
+      the button) don't send emails. Only the manual button does. The fix is
+      server-side and is on the roadmap.
+    </p>
+
+    <h3>Subscriber list management</h3>
+    <p>
+      Right now subscribers are stored but there's no UI to view, export, or
+      manually remove them (other than the unsubscribe link they get in every
+      email). A subscriber-list panel is planned.
+    </p>
+
+    <h3>Schedule editing UX</h3>
+    <p>
+      Today you change the cadence by re-publishing. A dedicated &ldquo;edit
+      schedule&rdquo; view that's clearer about which chapters move and which
+      stay is on the list.
+    </p>
+    <p>
+      If you hit any rough edges, drop a note &mdash;
+      <a href="mailto:folio@jacobsiler.com">folio@jacobsiler.com</a>. The serial
+      flow is new and feedback shapes what gets built next.
+    </p>
+
+    <h2>Quick checklist</h2>
+    <p>Before launching:</p>
+    <ol class="checklist">
+      <li>Manuscript chapters are where you want them, with clear breaks.</li>
+      <li>Title, author, description all filled in. They appear in emails and on the reader page.</li>
+      <li>Cadence and first-unlock date set. Schedule preview confirms the next 5 unlock dates look right.</li>
+      <li>If paid: Gumroad product created, ID and price entered in Folio.</li>
+      <li>&ldquo;Email subscribers&rdquo; checked if you want notifications sent.</li>
+      <li>Published. Reader URL copied.</li>
+      <li>(Paid only) Reader URL added to your Gumroad product description.</li>
+      <li>Launch date announced wherever your readers are.</li>
+    </ol>
+
+    <p>
+      That's the full pipeline. Once you've shipped chapter 1, your weekly rhythm
+      is: write the next chapter, save, click <strong>Release next chapter
+      now</strong> when you're ready. Subscribers get an email, the lock card
+      flips to readable content, and the countdown starts ticking on the next
+      one.
+    </p>
+
+    <div class="footer">
+      <div>&copy; Jacob Siler &nbsp;·&nbsp; Mullingar, Ireland</div>
+      <div>
+        <a href="/">Back to Folio</a> &nbsp;·&nbsp;
+        <a href="/privacy.html">Privacy</a> &nbsp;·&nbsp;
+        <a href="/terms.html">Terms</a>
+      </div>
+    </div>
+  </main>
+</body>
+</html>
