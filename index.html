@@ -1923,6 +1923,7 @@ html[data-reader] #readerBar { display: flex; }
 
   <div class="status-bar" id="statusBar">Ready — import files or paste your manuscript</div>
   <div class="sidebar-footer" style="padding:6px 1.25rem 8px;font-size:10.5px;color:var(--hint);background:#faf9f7;border-top:0.5px solid var(--border);display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex-shrink:0">
+    <a href="/serials-guide.html" style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Guide</a>
     <a href="/privacy.html" style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Privacy</a>
     <a href="/terms.html"   style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Terms</a>
     <a href="mailto:folio@jacobsiler.com" style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Contact</a>
@@ -2022,28 +2023,9 @@ html[data-reader] #readerBar { display: flex; }
 
 </div><!-- /app -->
 
-<!-- ═══════════════════════════════════════════════════════════════
-     Site-level footer — outside .app, always in the DOM, always
-     visible in the bottom-right of the viewport. Google's OAuth
-     brand-verification crawler looks for a privacy-policy link on
-     the home page; having it here (and in the sidebar) makes it
-     impossible to miss, regardless of sidebar state or viewport
-     size. Hidden in reader-mode + print via CSS (see top of file).
-     ═══════════════════════════════════════════════════════════════ -->
-<footer id="siteFooter" role="contentinfo"
-  style="position:fixed;bottom:6px;right:10px;z-index:95;
-         display:flex;gap:10px;align-items:center;padding:5px 10px;
-         background:rgba(250,249,247,0.92);backdrop-filter:blur(3px);
-         border:0.5px solid rgba(0,0,0,0.08);border-radius:999px;
-         font-family:system-ui,sans-serif;font-size:10.5px;
-         color:#6b6b6b;box-shadow:0 1px 4px rgba(0,0,0,0.04);
-         pointer-events:auto">
-  <a href="/privacy.html" style="color:#6b6b6b;text-decoration:none;border-bottom:.5px dotted #6b6b6b">Privacy</a>
-  <span style="opacity:.3">·</span>
-  <a href="/terms.html" style="color:#6b6b6b;text-decoration:none;border-bottom:.5px dotted #6b6b6b">Terms</a>
-  <span style="opacity:.3">·</span>
-  <a href="mailto:folio@jacobsiler.com" style="color:#6b6b6b;text-decoration:none;border-bottom:.5px dotted #6b6b6b">Contact</a>
-</footer>
+<!-- (Right-side floating footer removed — was overlapping the editor's
+     up/down arrows. The sidebar footer above carries the privacy/terms
+     links and is visible at all times for OAuth verification.) -->
 
 
 <!-- ── Invite / QR Modal ── -->
@@ -14448,4 +14430,4 @@ window._apOnImportFile       = _apOnImportFile;
     <div id="rlStatus" style="font-size:11px;color:var(--hint);margin:10px 0;min-height:14px"></div>
 
     <div id="rlFooter" style="display:flex;gap:7px;justify-content:flex-end;margin-top:14px">
-      <button type="button" onclick="closeReleaseModal()" style="padding:9px 15px;border-radius:7px;border:.5px solid var(--border-m
+      <button type="button" onclick="closeReleaseModal()" style="padding:9px 15px;border-radius:7px;border:.5px solid var(--border-m                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 
