@@ -591,10 +591,78 @@ html[data-reader] #siteFooter{display:none!important}
   text-transform: uppercase;
   margin-left: 6px;
 }
+
+/* W2 — scope picker style */
+.scope-pick {
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  cursor: pointer; margin-left: 6px; line-height: 1.2;
+  padding-right: 14px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--hint) 50%),
+    linear-gradient(135deg, var(--hint) 50%, transparent 50%);
+  background-position: calc(100% - 7px) 50%, calc(100% - 4px) 50%;
+  background-size: 3px 3px, 3px 3px;
+  background-repeat: no-repeat;
+}
+.scope-pick:hover { border-color: var(--accent-ui); }
 .bm-flash { animation: bmFlash 1.2s ease-out; }
 @keyframes bmFlash {
   0%   { background: rgba(201, 140, 42, 0.35); }
   100% { background: transparent; }
+}
+
+
+/* ── Reader audio drawer (W1 — audio-bundle reader gating) ── */
+#rdAudioBtn{display:none}
+[data-reader] #rdAudioBtn[data-show="1"]{display:inline-flex}
+#rdAudioDrawer{
+  position:fixed;top:46px;right:0;bottom:0;width:340px;max-width:96vw;
+  background:var(--surface);border-left:.5px solid var(--border-mid);
+  z-index:140;transform:translateX(100%);transition:transform .18s ease;
+  display:flex;flex-direction:column;box-shadow:-4px 0 24px rgba(0,0,0,.18);
+}
+#rdAudioDrawer.open{transform:translateX(0)}
+#rdAudioDrawer .rdad-hd{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 14px;border-bottom:.5px solid var(--border);
+  font-size:13px;font-weight:600;color:var(--text);
+}
+#rdAudioDrawer .rdad-body{flex:1;overflow-y:auto;padding:8px 4px}
+#rdAudioDrawer .rdad-empty{
+  padding:30px 18px;text-align:center;font-size:11.5px;
+  color:var(--hint);line-height:1.6;
+}
+#rdAudioDrawer .rdad-locked{
+  padding:24px 18px;text-align:center;font-size:11.5px;
+  color:var(--text);line-height:1.7;
+}
+#rdAudioDrawer .rdad-locked .rdad-icon{font-size:30px;margin-bottom:8px;opacity:.55}
+#rdAudioDrawer .rdad-locked .rdad-cta{
+  display:inline-block;margin-top:10px;padding:7px 14px;border-radius:6px;
+  background:var(--accent-ui);color:#fff;font-size:11px;text-decoration:none;
+}
+#rdAudioDrawer .rdad-row{
+  display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;
+  cursor:pointer;font-size:12px;color:var(--text);
+}
+#rdAudioDrawer .rdad-row:hover{background:var(--bg)}
+#rdAudioDrawer .rdad-row.playing{background:rgba(201,140,42,.12);font-weight:500}
+#rdAudioDrawer .rdad-row .rdad-pp{
+  flex:0 0 28px;height:28px;border-radius:50%;border:.5px solid var(--border-mid);
+  background:transparent;font-size:13px;cursor:pointer;color:var(--text);
+}
+#rdAudioDrawer .rdad-row .rdad-pp:hover{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
+#rdAudioDrawer .rdad-row .rdad-tt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#rdAudioDrawer .rdad-row .rdad-dur{font-size:10.5px;color:var(--hint);font-variant-numeric:tabular-nums}
+#rdAudioDrawer .rdad-now{
+  border-top:.5px solid var(--border);padding:10px 14px;background:var(--bg);
+  font-size:11px;color:var(--text);
+}
+#rdAudioDrawer .rdad-now .rdad-now-tt{font-weight:600;margin-bottom:4px}
+#rdAudioDrawer .rdad-now input[type=range]{width:100%}
+#rdAudioDrawer .rdad-now .rdad-now-time{
+  display:flex;justify-content:space-between;font-size:10px;color:var(--hint);
+  font-variant-numeric:tabular-nums;margin-top:2px;
 }
 
 /* ══════ Release modal ══════ */
@@ -2025,7 +2093,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-26-audio-recover-and-serials  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-04-26-phase2-overnight  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -9434,6 +9502,252 @@ function _serialFormatDate(d) {
   } catch (e) { return d.toString(); }
 }
 
+
+/* ══════════════════════════════════════════════════════════════════
+   W3 — Serials Phase 2: subscriber email notifications (Resend)
+   ──────────────────────────────────────────────────────────────────
+   Activation path documented in docs/SERIALS.md.
+   Flag-gated: window.FOLIO_EMAIL_ENABLED defaults to false.
+   When enabled, _sendNewChapterEmail POSTs to folio-email Worker
+   (which holds the Resend API key server-side and forwards).
+   When disabled, the same call site logs the payload to console
+   so the wiring can be tested without sending real emails.
+   ══════════════════════════════════════════════════════════════════ */
+
+// Email transport flag + worker URL. Default false so a fresh
+// deploy doesn't accidentally email subscribers. Flip to true once
+// folio-email-worker is deployed and FOLIO_EMAIL_WORKER_URL points
+// at it. See docs/SERIALS.md for the full activation checklist.
+window.FOLIO_EMAIL_ENABLED    = window.FOLIO_EMAIL_ENABLED    || false;
+window.FOLIO_EMAIL_WORKER_URL = window.FOLIO_EMAIL_WORKER_URL || 'https://folio-email.jacobsiler.workers.dev';
+
+// Random unsubscribe token. Long enough to be unguessable, short
+// enough to fit in a URL.
+function _subRandomToken() {
+  const arr = new Uint8Array(16);
+  (window.crypto || window.msCrypto).getRandomValues(arr);
+  return Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function _subEmailValid(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email || '');
+}
+
+// Add a subscriber. Returns the new doc reference (so the caller
+// can immediately ack with the unsub link if it wants to email
+// the user a confirmation today).
+async function _subAdd(folioId, email) {
+  if (!window._fb || !window._db) throw new Error('Cloud not ready');
+  if (!folioId) throw new Error('Missing folio id');
+  email = (email || '').trim().toLowerCase();
+  if (!_subEmailValid(email)) throw new Error('Invalid email address');
+  const token = _subRandomToken();
+  const colRef = window._fb.collection(window._db, 'folio_projects', folioId, 'subscribers');
+  const ref = await window._fb.addDoc(colRef, {
+    email: email,
+    subscribedAt: Date.now(),
+    unsubscribeToken: token,
+  });
+  return { id: ref.id, token };
+}
+
+// List subscribers for a folio. Used at release-next time.
+async function _subList(folioId) {
+  if (!window._fb || !window._db || !folioId) return [];
+  try {
+    const colRef = window._fb.collection(window._db, 'folio_projects', folioId, 'subscribers');
+    const snap = await window._fb.getDocs(colRef);
+    const out = [];
+    snap.forEach(d => out.push(Object.assign({ id: d.id }, d.data())));
+    return out;
+  } catch (e) {
+    console.warn('[email] _subList', e);
+    return [];
+  }
+}
+
+// Find by token + delete. Used by the unsubscribe page.
+async function _subUnsubscribeByToken(folioId, token) {
+  if (!window._fb || !window._db || !folioId || !token) return false;
+  try {
+    const colRef = window._fb.collection(window._db, 'folio_projects', folioId, 'subscribers');
+    const q = window._fb.query(colRef, window._fb.where('unsubscribeToken', '==', token));
+    const snap = await window._fb.getDocs(q);
+    let removed = 0;
+    for (const d of snap.docs) {
+      await window._fb.deleteDoc(d.ref);
+      removed++;
+    }
+    return removed > 0;
+  } catch (e) {
+    console.warn('[email] unsub', e);
+    return false;
+  }
+}
+
+// Build the unsubscribe URL for a given token. Today: same origin,
+// uses ?unsubscribe= and ?folio= params handled by the boot path.
+function _subUnsubscribeUrl(folioId, token) {
+  const u = new URL(window.location.origin + window.location.pathname);
+  u.searchParams.set('unsubscribe', token);
+  u.searchParams.set('folio', folioId);
+  return u.toString();
+}
+
+// Sender. When FOLIO_EMAIL_ENABLED is false, logs the payload
+// to console (lets you test wiring without spending sends). When
+// true, POSTs to folio-email Worker which holds the Resend API
+// key server-side. The payload shape is transport-agnostic — to
+// swap Resend for another provider, change the Worker, not this.
+async function _sendNewChapterEmail(folioId, chapterIndex, subscriber, releaseMeta) {
+  const payload = {
+    folioId: folioId,
+    chapterIndex: chapterIndex,                          // 1-based
+    chapterTitle: (releaseMeta && releaseMeta.chapterTitle) || ('Chapter ' + chapterIndex),
+    folioTitle:   (releaseMeta && releaseMeta.title) || 'Untitled',
+    folioAuthor:  (releaseMeta && releaseMeta.author) || '',
+    readerUrl:    window.location.origin + window.location.pathname + '?read=' + encodeURIComponent(folioId),
+    unsubscribeUrl: _subUnsubscribeUrl(folioId, subscriber.unsubscribeToken),
+    to: subscriber.email,
+  };
+  if (!window.FOLIO_EMAIL_ENABLED) {
+    console.log('[email stub] would send to ' + subscriber.email +
+      ' for chapter ' + chapterIndex + ' of folio ' + folioId, payload);
+    return { ok: true, stub: true };
+  }
+  // Live path — POST to folio-email Worker (which holds the Resend
+  // key and forwards). Worker returns { ok, id } on success or
+  // { error } with 4xx/5xx.
+  try {
+    const r = await fetch(window.FOLIO_EMAIL_WORKER_URL + '/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    let data = null;
+    try { data = await r.json(); } catch (e) {}
+    if (!r.ok) {
+      const msg = (data && data.error) || ('email worker ' + r.status);
+      throw new Error(msg);
+    }
+    return { ok: true, id: (data && data.id) || null };
+  } catch (e) {
+    console.warn('[email] send failed', e);
+    return { ok: false, error: e.message || 'send failed' };
+  }
+}
+
+// Reader-side subscribe form. Mounted under the locked-chapter card
+// when the release is a serial AND notifyOnUnlock is true.
+function _subRenderForm(folioId, container) {
+  if (!container) return;
+  container.innerHTML =
+    '<div style="margin-top:14px;padding:12px;border:.5px dashed var(--border-mid);border-radius:8px;background:var(--bg)">' +
+      '<div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px">📨 Get notified when new chapters drop</div>' +
+      '<div style="display:flex;gap:6px">' +
+        '<input type="email" id="subEmailInput" placeholder="you@example.com" ' +
+          'style="flex:1;font-size:12px;padding:6px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);outline:none">' +
+        '<button onclick="_subSubmit(\'' + folioId + '\')" ' +
+          'style="font-size:11px;padding:6px 12px;border-radius:6px;border:.5px solid var(--accent-ui);background:var(--accent-ui);color:#fff;cursor:pointer">Subscribe</button>' +
+      '</div>' +
+      '<div id="subStatus" style="font-size:10.5px;color:var(--hint);margin-top:6px;min-height:14px"></div>' +
+    '</div>';
+}
+
+async function _subSubmit(folioId) {
+  const input = document.getElementById('subEmailInput');
+  const status = document.getElementById('subStatus');
+  if (!input || !status) return;
+  const email = (input.value || '').trim();
+  if (!_subEmailValid(email)) {
+    status.style.color = '#c04040';
+    status.textContent = 'Please enter a valid email address.';
+    return;
+  }
+  status.style.color = 'var(--hint)';
+  status.textContent = 'Subscribing…';
+  try {
+    await _subAdd(folioId, email);
+    status.style.color = '#0a7';
+    status.textContent = 'Subscribed! You\'ll get an email when each chapter unlocks.';
+    input.value = '';
+  } catch (e) {
+    status.style.color = '#c04040';
+    status.textContent = e.message || 'Subscribe failed';
+  }
+}
+
+// Unsubscribe page boot. If ?unsubscribe=<token>&folio=<id> is
+// present, hijack the page render with a confirmation overlay.
+async function _subUnsubscribeBoot() {
+  let p;
+  try { p = new URLSearchParams(window.location.search); } catch (e) { return; }
+  const token = p.get('unsubscribe');
+  const folioId = p.get('folio');
+  if (!token || !folioId) return;
+
+  // Inject a centred overlay. This runs after fb-ready so the
+  // _fb helpers are ready.
+  const mount = () => {
+    let overlay = document.getElementById('subUnsubOverlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.id = 'subUnsubOverlay';
+      overlay.style.cssText =
+        'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(10,8,5,.72);' +
+        'backdrop-filter:blur(4px);z-index:300;display:flex;align-items:center;justify-content:center;';
+      overlay.innerHTML =
+        '<div style="background:var(--surface);border-radius:14px;padding:32px;max-width:440px;width:92%;text-align:center;border:.5px solid var(--border-mid)">' +
+          '<div id="subUnsubBody">' +
+            '<div style="font-size:32px;margin-bottom:12px">📨</div>' +
+            '<h2 style="font-size:16px;margin:0 0 12px">Unsubscribing…</h2>' +
+            '<p style="font-size:12.5px;color:var(--hint);margin:0">Removing your email from this serial\'s notification list.</p>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+    }
+    _subUnsubscribeByToken(folioId, token).then(ok => {
+      const body = document.getElementById('subUnsubBody');
+      if (!body) return;
+      if (ok) {
+        body.innerHTML =
+          '<div style="font-size:32px;margin-bottom:12px">✅</div>' +
+          '<h2 style="font-size:16px;margin:0 0 12px">Unsubscribed</h2>' +
+          '<p style="font-size:12.5px;color:var(--text);margin:0 0 14px">You\'ll no longer receive emails about new chapters from this serial.</p>' +
+          '<a href="' + window.location.origin + window.location.pathname + '?read=' + encodeURIComponent(folioId) +
+            '" style="display:inline-block;padding:7px 14px;border-radius:6px;background:var(--accent-ui);color:#fff;text-decoration:none;font-size:12px">Back to the book</a>';
+      } else {
+        body.innerHTML =
+          '<div style="font-size:32px;margin-bottom:12px">⚠</div>' +
+          '<h2 style="font-size:16px;margin:0 0 12px">Already unsubscribed</h2>' +
+          '<p style="font-size:12.5px;color:var(--hint);margin:0">This email was already removed (or the token has expired).</p>';
+      }
+    });
+  };
+
+  if (typeof _fbReady !== 'undefined' && _fbReady) {
+    mount();
+  } else {
+    window.addEventListener('fb-ready', mount, { once: true });
+    // Also paint the spinner immediately so the user has feedback
+    setTimeout(mount, 100);
+  }
+}
+// Boot the unsubscribe handler at DOM-ready (it's idempotent and
+// no-ops if the params aren't present).
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', _subUnsubscribeBoot);
+} else {
+  _subUnsubscribeBoot();
+}
+
+window._subAdd                = _subAdd;
+window._subList               = _subList;
+window._subUnsubscribeByToken = _subUnsubscribeByToken;
+window._subSubmit             = _subSubmit;
+window._subRenderForm         = _subRenderForm;
+window._sendNewChapterEmail   = _sendNewChapterEmail;
+
 // Author-side: bump releasedThrough by one (or to a specific value)
 // and persist. Used by the "Release next chapter now" button.
 async function _serialReleaseNextChapter(targetCount /* optional */) {
@@ -9470,6 +9784,26 @@ async function _serialReleaseNextChapter(targetCount /* optional */) {
       toastSuccess('Released through Ch ' + next, { icon: '🔓', duration: 2400 });
     if (typeof _serialDashboardRefresh === 'function')
       _serialDashboardRefresh();
+    // W3 — fire stub emails (or real ones, when the flag flips).
+    if (updated.notifyOnUnlock && typeof _subList === 'function') {
+      try {
+        const subs = await _subList(_projId);
+        const meta = { title: updated.title, author: updated.author };
+        for (const s of subs) {
+          try { await _sendNewChapterEmail(_projId, next, s, meta); }
+          catch (em) { console.warn('[email] send err', em); }
+        }
+        if (subs.length && typeof toastInfo === 'function') {
+          if (window.FOLIO_EMAIL_ENABLED) {
+            toastInfo('Notified ' + subs.length + ' subscriber' + (subs.length === 1 ? '' : 's'),
+              { icon: '📨', duration: 3000 });
+          } else {
+            toastInfo('Email worker disabled — ' + subs.length + ' sends logged to console',
+              { icon: '📨', duration: 3500 });
+          }
+        }
+      } catch (em2) { console.warn('[email] outer', em2); }
+    }
   } catch (e) {
     if (typeof toastWarning === 'function')
       toastWarning('Release failed: ' + (e.message || e.code), { duration: 4000 });
@@ -9628,6 +9962,9 @@ function openReleaseModal() {
     const previewField1 = document.getElementById('rlPreviewN');
     if (previewField1) previewField1.value = String(_rlCurrent.previewSections != null ? _rlCurrent.previewSections : 1);
     // Serial fields hydrate from the existing release (if any).
+    // W3 — hydrate notify-on-unlock checkbox
+    const _nCb = document.getElementById('rlNotifyOnUnlock');
+    if (_nCb) _nCb.checked = !!_rlCurrent.notifyOnUnlock;
     const _sCb = document.getElementById('rlSerialEnabled');
     const _sCad = document.getElementById('rlSerialCadence');
     const _sCustom = document.getElementById('rlSerialCustom');
@@ -9748,6 +10085,8 @@ async function _rlPublish() {
     serialReleasedThrough: serialEnabled
       ? (_rlCurrent && _rlCurrent.serialReleasedThrough || 0)
       : null,
+    // W3 — notify-on-unlock toggle (stubbed sender behind feature flag)
+    notifyOnUnlock: serialEnabled && !!(document.getElementById('rlNotifyOnUnlock') && document.getElementById('rlNotifyOnUnlock').checked),
   };
 
   try {
@@ -9821,6 +10160,33 @@ function _rlCopyUrl() {
    locked countdown card. Pure-client; ticks once a minute to update
    countdowns. ────────────────────────────────────────────────── */
 let _serialTickerHandle = null;
+// W3 — render the subscribe form once per page render under the
+// first lock card (or anywhere, if no locks but serial is active).
+function _serialMaybeRenderSubscribeForm(release) {
+  try {
+    if (!release || !release.serial || !release.notifyOnUnlock) return;
+    const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+    if (!folioId) return;
+    // Find the first lock card on the page; mount form right after it.
+    const firstLock = document.querySelector('.serial-lock-card');
+    let host = document.getElementById('subFormHost');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'subFormHost';
+      if (firstLock && firstLock.parentNode) {
+        firstLock.parentNode.insertBefore(host, firstLock.nextSibling);
+      } else {
+        // No lock card visible — drop it after the preview area.
+        const preview = document.getElementById('previewArea');
+        if (preview) preview.appendChild(host);
+        else return;
+      }
+    }
+    if (typeof _subRenderForm === 'function') _subRenderForm(folioId, host);
+  } catch (e) { console.warn('[w3] subscribe form render', e); }
+}
+window._serialMaybeRenderSubscribeForm = _serialMaybeRenderSubscribeForm;
+
 function _serialApplyLocks(release) {
   // Bail if not a serial release.
   if (!release || !release.serial) {
@@ -9875,6 +10241,13 @@ function _serialClearLocks() {
     _serialTickerHandle = null;
   }
 }
+// Wrap _serialApplyLocks so the subscribe form renders alongside locks
+const _serialApplyLocks_inner = _serialApplyLocks;
+_serialApplyLocks = function (release) {
+  _serialApplyLocks_inner(release);
+  if (typeof _serialMaybeRenderSubscribeForm === 'function')
+    setTimeout(() => _serialMaybeRenderSubscribeForm(release), 80);
+};
 window._serialApplyLocks = _serialApplyLocks;
 window._serialClearLocks = _serialClearLocks;
 
@@ -10183,6 +10556,9 @@ async function _pwSubmitKey() {
     _pwStoreToken(releaseId, result.token, result.expiresAt, result.email);
     status.classList.add('ok');
     status.textContent = 'Unlocked! ' + (result.email ? '(' + result.email + ')' : '');
+    // W1 — re-evaluate audio button now that the JWT is fresh
+    if (typeof _rdAudioMaybeShowButton === 'function' && _rdAudioCurrentRelease)
+      _rdAudioMaybeShowButton(_rdAudioCurrentRelease);
     setTimeout(_pwHideGate, 600);
   } catch (e) {
     status.classList.add('error');
@@ -10210,6 +10586,8 @@ async function _pwCheckAccess(folioId) {
     if (release && release.serial && typeof _serialApplyLocks === 'function') {
       setTimeout(() => _serialApplyLocks(release), 50);
     }
+    // W1 — surface the audio button if this release ships an audiobook.
+    if (typeof _rdAudioMaybeShowButton === 'function') _rdAudioMaybeShowButton(release);
     return true;
   }
 
@@ -10232,6 +10610,8 @@ window.addEventListener('previewRendered', () => {
         typeof _serialApplyLocks === 'function') {
       _serialApplyLocks(r);
     }
+    // W1 — surface audio button (shows locked on paid+preview, unlocked on free)
+    if (r && typeof _rdAudioMaybeShowButton === 'function') _rdAudioMaybeShowButton(r);
   } catch (e) { console.warn('[serial] applyLocks error', e); }
 });
 
@@ -10652,6 +11032,271 @@ function _rdCloseDrawer() {
   if (d) d.classList.remove('open');
 }
 
+
+/* ══════════════════════════════════════════════════════════════════
+   Reader audio drawer (W1 — audio-bundle reader gating)
+   ──────────────────────────────────────────────────────────────────
+   Visible only in reader mode AND when the open release has
+   audioBundle === true. If the buyer has a valid Gumroad JWT (or
+   the release is non-paid), tracks load from the projId-keyed
+   IndexedDB and play. Otherwise the drawer renders a locked state
+   advertising the bundle.
+
+   Audio chunks live in the same `folio_audio` IDB store that the
+   editor's Audio Export panel writes to — _apDBGetAllForProject is
+   the canonical reader.
+
+   INVARIANT: when audioBundle === true and the gate has cleared
+   (or it's a free release with audioBundle, weird but legal) BUT
+   no tracks are present in IDB, that's a bad state. Surface a
+   loud toast asking the reader to refresh.
+   ══════════════════════════════════════════════════════════════════ */
+
+let _rdAudioCurrentRelease = null;
+let _rdAudioTracks         = [];
+let _rdAudioCurrentEl      = null;   // active HTMLAudioElement
+let _rdAudioCurrentKey     = null;
+let _rdAudioBlobUrl        = null;   // currently-playing object URL (revoke on switch)
+
+function _rdAudioPaidUnlocked(release) {
+  // Free releases don't need a JWT. Paid releases require one.
+  if (!release || release.priceMode !== 'paid') return true;
+  if (typeof _pwGetToken !== 'function' || typeof _pwIsValid !== 'function') return false;
+  const id = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+  return _pwIsValid(_pwGetToken(id));
+}
+
+// Boot hook — called from _pwCheckAccess and from the previewRendered
+// handler. Decides whether to show the audio button at all.
+function _rdAudioMaybeShowButton(release) {
+  if (typeof _readerMode === 'undefined' || !_readerMode) return;
+  const btn = document.getElementById('rdAudioBtn');
+  if (!btn) return;
+  if (!release || !release.audioBundle) {
+    btn.removeAttribute('data-show');
+    return;
+  }
+  // audioBundle === true → show the button. Drawer body decides
+  // locked-state vs. tracklist on open.
+  btn.setAttribute('data-show', '1');
+  _rdAudioCurrentRelease = release;
+}
+
+function _rdAudioToggleDrawer() {
+  const d = document.getElementById('rdAudioDrawer');
+  if (!d) return;
+  if (d.classList.contains('open')) { _rdAudioCloseDrawer(); return; }
+  _rdAudioOpenDrawer();
+}
+
+async function _rdAudioOpenDrawer() {
+  const d = document.getElementById('rdAudioDrawer');
+  const body = document.getElementById('rdAudioBody');
+  const now = document.getElementById('rdAudioNow');
+  if (!d || !body) return;
+  d.classList.add('open');
+  if (now) now.style.display = 'none';
+  body.innerHTML = '<div class="rdad-empty">Loading audiobook…</div>';
+
+  const release = _rdAudioCurrentRelease;
+  if (!release || !release.audioBundle) {
+    body.innerHTML = '<div class="rdad-empty">No audiobook bundled with this release.</div>';
+    return;
+  }
+
+  // Locked state — paid release, no valid JWT
+  if (!_rdAudioPaidUnlocked(release)) {
+    const buy = (release.product
+      ? ('https://gumroad.com/l/' + encodeURIComponent(release.product))
+      : null);
+    body.innerHTML =
+      '<div class="rdad-locked">' +
+        '<div class="rdad-icon">🔒</div>' +
+        '<div><strong>Includes audiobook</strong></div>' +
+        '<div style="margin-top:6px;color:var(--hint)">Unlock with your Gumroad license to listen.</div>' +
+        (buy ? '<a class="rdad-cta" href="' + buy + '" target="_blank" rel="noopener">Get it on Gumroad →</a>' : '') +
+      '</div>';
+    return;
+  }
+
+  // Unlocked — pull tracks from IDB
+  let tracks = [];
+  try {
+    if (typeof _apDBGetAllForProject !== 'function') {
+      throw new Error('Audio store not initialised');
+    }
+    const projId = (_readerFolioId || _projId || 'local');
+    tracks = await _apDBGetAllForProject(projId);
+  } catch (e) {
+    console.error('[rd-audio] IDB read failed', e);
+  }
+
+  if (!tracks || !tracks.length) {
+    // INVARIANT VIOLATION — audioBundle promised, no tracks delivered.
+    // Loud toast + on-screen help.
+    if (typeof toastWarning === 'function') {
+      toastWarning('Audio failed to load — refresh the page? If it persists, this device may not have the audiobook downloaded yet.',
+        { icon: '⚠', duration: 7000 });
+    }
+    body.innerHTML =
+      '<div class="rdad-empty">' +
+        '<div style="font-size:24px;margin-bottom:8px">⚠</div>' +
+        '<strong>Audio failed to load</strong><br>' +
+        'The audiobook is part of this release but the chunks are not on this device. ' +
+        'Try refreshing — if that doesn\'t help, the author may need to re-publish.' +
+      '</div>';
+    return;
+  }
+
+  // Sort tracks by sectionType (front → chapter → back) then by
+  // generation order. Front matter and back matter collapse into a
+  // single track each, chapters keep their array order.
+  tracks.sort((a, b) => {
+    const ord = { pre: 0, chapter: 1, post: 2, segment: 3 };
+    const oa = ord[a.sectionType] != null ? ord[a.sectionType] : 9;
+    const ob = ord[b.sectionType] != null ? ord[b.sectionType] : 9;
+    if (oa !== ob) return oa - ob;
+    return (a.generatedAt || 0) - (b.generatedAt || 0);
+  });
+  _rdAudioTracks = tracks;
+
+  const rows = tracks.map((t, i) => (
+    '<div class="rdad-row" data-key="' + _esc(t.key) + '" onclick="_rdAudioPlay(' + i + ')">' +
+      '<button class="rdad-pp" onclick="event.stopPropagation();_rdAudioPlay(' + i + ')">▶</button>' +
+      '<div class="rdad-tt">' + _esc(t.title || ('Track ' + (i + 1))) + '</div>' +
+      '<div class="rdad-dur">' + _rdAudioFmtDur(t.durationSecs || 0) + '</div>' +
+    '</div>'
+  )).join('');
+  body.innerHTML = rows;
+}
+
+function _rdAudioCloseDrawer() {
+  const d = document.getElementById('rdAudioDrawer');
+  if (d) d.classList.remove('open');
+}
+
+function _rdAudioFmtDur(secs) {
+  secs = Math.round(secs || 0);
+  const m = Math.floor(secs / 60), s = secs % 60;
+  return m + ':' + (s < 10 ? '0' : '') + s;
+}
+
+async function _rdAudioPlay(idx) {
+  const t = _rdAudioTracks[idx];
+  if (!t) return;
+  // Tear down any existing audio element + revoke its blob URL
+  if (_rdAudioCurrentEl) {
+    try { _rdAudioCurrentEl.pause(); } catch (e) {}
+    _rdAudioCurrentEl.onended = null;
+    _rdAudioCurrentEl.ontimeupdate = null;
+    _rdAudioCurrentEl = null;
+  }
+  if (_rdAudioBlobUrl) {
+    try { URL.revokeObjectURL(_rdAudioBlobUrl); } catch (e) {}
+    _rdAudioBlobUrl = null;
+  }
+
+  const url = URL.createObjectURL(t.blob);
+  _rdAudioBlobUrl = url;
+  _rdAudioCurrentKey = t.key;
+
+  const audio = new Audio(url);
+  _rdAudioCurrentEl = audio;
+  audio.onended = () => {
+    // Auto-advance to next track
+    const next = idx + 1;
+    if (next < _rdAudioTracks.length) _rdAudioPlay(next);
+    else _rdAudioStopUI();
+  };
+  audio.ontimeupdate = () => _rdAudioUpdateProgress(audio, t);
+  try { await audio.play(); } catch (e) {
+    console.warn('[rd-audio] play() blocked', e);
+    if (typeof toastInfo === 'function') toastInfo('Tap Play to start audio', { duration: 1800 });
+  }
+  _rdAudioUpdateRowState();
+  _rdAudioShowNow(t);
+}
+
+function _rdAudioStopUI() {
+  _rdAudioCurrentKey = null;
+  _rdAudioUpdateRowState();
+  const pp = document.getElementById('rdAudioPP');
+  if (pp) pp.textContent = '▶ Play';
+}
+
+function _rdAudioUpdateRowState() {
+  document.querySelectorAll('#rdAudioBody .rdad-row').forEach(row => {
+    if (row.dataset.key === _rdAudioCurrentKey) row.classList.add('playing');
+    else row.classList.remove('playing');
+    const ppBtn = row.querySelector('.rdad-pp');
+    if (ppBtn) ppBtn.textContent = (row.dataset.key === _rdAudioCurrentKey) ? '▮▮' : '▶';
+  });
+}
+
+function _rdAudioShowNow(track) {
+  const now = document.getElementById('rdAudioNow');
+  const tt = document.getElementById('rdAudioNowTitle');
+  const dur = document.getElementById('rdAudioNowDur');
+  if (now) now.style.display = '';
+  if (tt) tt.textContent = track.title || 'Track';
+  if (dur) dur.textContent = _rdAudioFmtDur(track.durationSecs || 0);
+  const pp = document.getElementById('rdAudioPP');
+  if (pp) pp.textContent = '▮▮ Pause';
+}
+
+function _rdAudioUpdateProgress(audio, track) {
+  const dur = track.durationSecs || audio.duration || 0;
+  const cur = audio.currentTime || 0;
+  const seek = document.getElementById('rdAudioSeek');
+  if (seek && dur > 0) seek.value = String(Math.round((cur / dur) * 1000));
+  const curEl = document.getElementById('rdAudioNowCur');
+  if (curEl) curEl.textContent = _rdAudioFmtDur(cur);
+}
+
+function _rdAudioSeek(val) {
+  if (!_rdAudioCurrentEl) return;
+  const t = _rdAudioTracks.find(x => x.key === _rdAudioCurrentKey);
+  if (!t) return;
+  const dur = t.durationSecs || _rdAudioCurrentEl.duration || 0;
+  if (!dur) return;
+  _rdAudioCurrentEl.currentTime = (Number(val) / 1000) * dur;
+}
+
+function _rdAudioPlayPause() {
+  if (!_rdAudioCurrentEl) {
+    if (_rdAudioTracks.length) _rdAudioPlay(0);
+    return;
+  }
+  const pp = document.getElementById('rdAudioPP');
+  if (_rdAudioCurrentEl.paused) {
+    _rdAudioCurrentEl.play().catch(() => {});
+    if (pp) pp.textContent = '▮▮ Pause';
+  } else {
+    _rdAudioCurrentEl.pause();
+    if (pp) pp.textContent = '▶ Play';
+  }
+}
+
+function _rdAudioPrev() {
+  const i = _rdAudioTracks.findIndex(t => t.key === _rdAudioCurrentKey);
+  if (i > 0) _rdAudioPlay(i - 1);
+}
+
+function _rdAudioNext() {
+  const i = _rdAudioTracks.findIndex(t => t.key === _rdAudioCurrentKey);
+  if (i >= 0 && i < _rdAudioTracks.length - 1) _rdAudioPlay(i + 1);
+}
+
+window._rdAudioToggleDrawer  = _rdAudioToggleDrawer;
+window._rdAudioCloseDrawer   = _rdAudioCloseDrawer;
+window._rdAudioOpenDrawer    = _rdAudioOpenDrawer;
+window._rdAudioPlay          = _rdAudioPlay;
+window._rdAudioPlayPause     = _rdAudioPlayPause;
+window._rdAudioPrev          = _rdAudioPrev;
+window._rdAudioNext          = _rdAudioNext;
+window._rdAudioSeek          = _rdAudioSeek;
+window._rdAudioMaybeShowButton = _rdAudioMaybeShowButton;
+
 // Boot reader mode ASAP (before main script hits renderPreview).
 (function _rdBoot() {
   const start = () => _rdMaybeActivate();
@@ -10683,6 +11328,123 @@ const ANN_COLORS = [
   { id: 'pink',    value: '#fbd0e0', label: 'Pink'     },
   { id: 'orange',  value: '#fcd6a8', label: 'Orange'   },
 ];
+
+
+/* ══════════════════════════════════════════════════════════════════
+   Scope helpers (W2 — bookmarks/annotations visibility)
+   ──────────────────────────────────────────────────────────────────
+   Scope values: 'personal' | 'editor' | 'collaborator' | 'public'.
+   Legacy 'private' coerces to 'personal'. Filter is applied at
+   render-time so toggling sharing on later doesn't lose history.
+   ══════════════════════════════════════════════════════════════════ */
+
+const _SCOPES = ['personal', 'editor', 'collaborator', 'public'];
+const _SCOPE_LABELS = {
+  personal:     'Personal',
+  editor:       'Editor',
+  collaborator: 'Collaborator',
+  public:       'Public',
+};
+const _SCOPE_HINTS = {
+  personal:     'Only you, across your devices.',
+  editor:       'Visible to anyone with editor role.',
+  collaborator: 'Visible to editors + beta readers.',
+  public:       'Visible to all readers.',
+};
+
+function _scopeNormalize(s) {
+  if (!s || s === 'private') return 'personal';
+  return _SCOPES.indexOf(s) >= 0 ? s : 'personal';
+}
+
+// Default-scope memory, per-folio. Defaults to 'personal' for new folios.
+function _scopeLastFor(folioId) {
+  try {
+    const v = localStorage.getItem('folio_last_scope_' + (folioId || 'local'));
+    return _scopeNormalize(v);
+  } catch (e) { return 'personal'; }
+}
+function _scopeRememberFor(folioId, scope) {
+  try {
+    localStorage.setItem('folio_last_scope_' + (folioId || 'local'), _scopeNormalize(scope));
+  } catch (e) {}
+}
+
+// Role helper. Today the source of truth is the URL ?role=... param
+// captured into _readerRole. When a server-side collaborators map
+// lands in Phase 2, this is where to read it from instead.
+function _userHasFolioRole(folioId, role) {
+  // Author always has every role on their own folio.
+  if (typeof _loadedFolioOwnerUid !== 'undefined' &&
+      _loadedFolioOwnerUid && window._uid &&
+      _loadedFolioOwnerUid === window._uid) return true;
+  // In reader mode, _readerRole is the URL-supplied role.
+  const rr = (typeof _readerRole !== 'undefined' && _readerRole) ? _readerRole : null;
+  if (role === 'reader')        return true;                                  // everyone is at least a reader
+  if (role === 'beta')          return rr === 'beta'   || rr === 'editor';
+  if (role === 'editor')        return rr === 'editor';
+  if (role === 'collaborator')  return rr === 'beta'   || rr === 'editor';
+  return false;
+}
+
+function _scopeIsVisible(scope, item /* bookmark|annotation */) {
+  scope = _scopeNormalize(scope);
+  // Editor view — author sees their own work
+  if (typeof _readerMode === 'undefined' || !_readerMode) return true;
+  // Reader view — apply role gates
+  if (scope === 'public')       return true;
+  if (scope === 'collaborator') return _userHasFolioRole(_readerFolioId, 'collaborator');
+  if (scope === 'editor')       return _userHasFolioRole(_readerFolioId, 'editor');
+  // 'personal' — only visible to the creator. In reader mode the
+  // creator's uid lives on the item.
+  if (scope === 'personal') {
+    if (item && item.createdBy && window._uid && item.createdBy === window._uid) return true;
+    return false;
+  }
+  return false;
+}
+
+// Render a small inline scope picker. Used by both the create
+// flow (popovers) and the list-row "change scope" affordance.
+function _scopeRenderPickerHTML(currentScope, onChangeFn /* string */) {
+  currentScope = _scopeNormalize(currentScope);
+  return (
+    '<select class="scope-pick" onclick="event.stopPropagation()" onchange="' + onChangeFn + '" ' +
+      'title="Who can see this?" style="font-size:10.5px;padding:2px 5px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text)">' +
+      _SCOPES.map(s =>
+        '<option value="' + s + '"' + (s === currentScope ? ' selected' : '') + '>' +
+          _SCOPE_LABELS[s] +
+        '</option>'
+      ).join('') +
+    '</select>'
+  );
+}
+
+// Inline scope-update handlers for list rows. Both touch the
+// same persistence layer (`_annLoad`/`_annSave`, `_bmLoad`/`_bmSave`).
+function _annSetScope(annId, newScope) {
+  newScope = _scopeNormalize(newScope);
+  const list = _annLoad();
+  const a = list.find(x => x.id === annId);
+  if (!a) return;
+  a.scope = newScope;
+  _annSave(list);
+  _scopeRememberFor(_projId || _readerFolioId, newScope);
+  if (typeof _annRender === 'function') _annRender();
+  if (typeof _annRenderSidebarList === 'function') _annRenderSidebarList();
+}
+function _bmSetScope(bmId, newScope) {
+  newScope = _scopeNormalize(newScope);
+  const list = _bmLoad();
+  const bm = list.find(x => x.id === bmId);
+  if (!bm) return;
+  bm.scope = newScope;
+  _bmSave(list);
+  _scopeRememberFor(_projId || _readerFolioId, newScope);
+  if (typeof _bmRenderList === 'function') _bmRenderList();
+}
+window._annSetScope = _annSetScope;
+window._bmSetScope  = _bmSetScope;
 
 function _annFolioKey() {
   // Same split as _bmFolioKey — reader notes live under their own prefix.
@@ -10822,7 +11584,7 @@ function _annApplyColor(color) {
   list.push({
     id: 'an' + Math.random().toString(36).slice(2, 9),
     type: 'highlight',
-    scope: 'private',
+    scope: _scopeLastFor(_projId || _readerFolioId),
     folioId: _projId || 'local',
     chapterId: s.chid,
     paragraphIndex: s.paraidx,
@@ -10872,9 +11634,24 @@ function _annOpenNoteBox() {
     if (a) current = { note: a.note || '', id: a.id };
   }
 
+  // W2 — pre-fill scope from current annotation if editing, else last-used
+  const _curScope = _annActiveId
+    ? (function () {
+        const a = _annLoad().find(x => x.id === _annActiveId);
+        return a ? _scopeNormalize(a.scope) : _scopeLastFor(_projId || _readerFolioId);
+      })()
+    : _scopeLastFor(_projId || _readerFolioId);
   box.innerHTML =
     '<div style="font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:6px">Note</div>' +
     '<textarea id="annNoteInput" placeholder="Thoughts, revision notes, questions…"></textarea>' +
+    '<div style="display:flex;align-items:center;gap:8px;margin:6px 0 4px;font-size:10.5px;color:var(--hint)">' +
+      '<span>Visible to:</span>' +
+      '<select id="annNoteScope" style="font-size:10.5px;padding:3px 6px;border-radius:5px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text)">' +
+        _SCOPES.map(s =>
+          '<option value="' + s + '"' + (s === _curScope ? ' selected' : '') + '>' + _SCOPE_LABELS[s] + '</option>'
+        ).join('') +
+      '</select>' +
+    '</div>' +
     '<div class="ann-note-actions">' +
       '<button type="button" class="ann-btn" onclick="_annCloseNoteBox()">Cancel</button>' +
       '<button type="button" class="ann-btn" style="background:var(--accent-ui);color:#fff" onclick="_annSaveNote()">Save</button>' +
@@ -10895,6 +11672,11 @@ function _annSaveNote() {
   if (!ta) return;
   const text = ta.value.trim();
 
+  // W2 — read scope from the note-box dropdown (if present)
+  const scopeSel = document.getElementById('annNoteScope');
+  const chosenScope = scopeSel ? _scopeNormalize(scopeSel.value) : null;
+  if (chosenScope) _scopeRememberFor(_projId || _readerFolioId, chosenScope);
+
   // Applying to an existing annotation
   if (_annActiveId) {
     const list = _annLoad();
@@ -10902,6 +11684,7 @@ function _annSaveNote() {
     if (a) {
       a.note = text;
       a.type = text ? 'note' : 'highlight';
+      if (chosenScope) a.scope = chosenScope;
       _annSave(list);
     }
     _annCloseNoteBox();
@@ -10915,7 +11698,7 @@ function _annSaveNote() {
     list.push({
       id: 'an' + Math.random().toString(36).slice(2, 9),
       type: text ? 'note' : 'highlight',
-      scope: 'private',
+      scope: chosenScope || _scopeLastFor(_projId || _readerFolioId),
       folioId: _projId || 'local',
       chapterId: s.chid,
       paragraphIndex: s.paraidx,
@@ -11018,7 +11801,9 @@ function _annRender() {
 }
 
 function _annRenderSidebarList() {
-  const list = _annLoad();
+  // W2 — apply scope/role visibility filter at render time
+  const _allAnn = _annLoad();
+  const list = _allAnn.filter(a => _scopeIsVisible(a.scope, a));
   const targets = [
     { host: document.getElementById('annList'),   empty: document.getElementById('annEmpty'),   count: document.getElementById('annCount') },
     { host: document.getElementById('rdAnnList'), empty: document.getElementById('rdAnnEmpty'), count: null },
@@ -11054,11 +11839,12 @@ function _annRenderSidebarList() {
       const noteBits = a.note
         ? '<div style="font-size:11px;color:var(--text);margin-top:4px;font-style:italic">📝 ' + _esc(a.note) + '</div>'
         : '';
+      const _scopePicker = _scopeRenderPickerHTML(a.scope, '_annSetScope(\'' + _esc(a.id) + '\', this.value)');
       chunks.push(
         '<div class="bm-item ann-item" style="--annot-color:' + _esc(a.color) + '" ' +
           'onclick="_annJumpTo(\'' + _esc(a.id) + '\')">' +
           '<div class="bm-ch">' + _esc(chTitle) + ' · ¶' + (a.paragraphIndex + 1) +
-            '<span class="bm-scope">' + _esc(a.scope || 'private') + '</span>' +
+            ' ' + _scopePicker +
           '</div>' +
           '<div class="bm-snip">“' + _esc(a.selectedText || '') + '”</div>' +
           noteBits +
@@ -11292,7 +12078,7 @@ function _bmToggle(chid, paraidx) {
   list.push({
     id: 'bm' + Math.random().toString(36).slice(2, 9),
     type: 'bookmark',
-    scope: 'private',
+    scope: _scopeLastFor(_projId || _readerFolioId),
     folioId: _projId || 'local',
     chapterId: chid,
     chapterTitle: (ch && ch.title) || '',
@@ -11325,7 +12111,9 @@ function _bmApplyMarks() {
 }
 
 function _bmRenderList() {
-  const list = _bmLoad();
+  // W2 — apply scope/role visibility filter at render time
+  const _allBm = _bmLoad();
+  const list = _allBm.filter(bm => _scopeIsVisible(bm.scope, bm));
   // Collect every host pair that currently exists in the DOM so we
   // update the sidebar AND the reader drawer whenever they are open.
   const targets = [
@@ -11360,11 +12148,12 @@ function _bmRenderList() {
     const group = byCh[chid].slice().sort((a, b) => a.paragraphIndex - b.paragraphIndex);
     for (const bm of group) {
       const title = bm.chapterTitle || (chapters.find(c => c.id === chid) || {}).title || 'Untitled';
+      const _scopePicker = _scopeRenderPickerHTML(bm.scope, '_bmSetScope(\'' + _esc(bm.id) + '\', this.value)');
       chunks.push(
         '<div class="bm-item" data-bmid="' + _esc(bm.id) + '" ' +
           'onclick="_bmJumpTo(\'' + _esc(chid) + '\',' + bm.paragraphIndex + ')">' +
           '<div class="bm-ch">' + _esc(title) + ' · ¶' + (bm.paragraphIndex + 1) +
-            '<span class="bm-scope">' + _esc(bm.scope || 'private') + '</span>' +
+            ' ' + _scopePicker +
           '</div>' +
           '<div class="bm-snip">' + _esc(bm.snippet || '(empty)') + '</div>' +
           '<div class="bm-actions">' +
@@ -13338,6 +14127,25 @@ window._apOnImportFile       = _apOnImportFile;
   <button id="rdTypoBtn" onclick="_rdToggleTypo()" title="Typography">Aa</button>
   <button id="rdBmBtn"  onclick="_rdOpenDrawer('bookmarks')" title="Bookmarks">🔖</button>
   <button id="rdAnBtn"  onclick="_rdOpenDrawer('annotations')" title="Notes">✍</button>
+  <button id="rdAudioBtn" onclick="_rdAudioToggleDrawer()" title="Audiobook">🎧</button>
+</div>
+
+<div id="rdAudioDrawer" role="dialog" aria-label="Audiobook player">
+  <div class="rdad-hd">
+    <span>🎧 Audiobook</span>
+    <button onclick="_rdAudioCloseDrawer()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--hint);padding:2px 6px;border-radius:4px">×</button>
+  </div>
+  <div class="rdad-body" id="rdAudioBody"><div class="rdad-empty">Loading audiobook…</div></div>
+  <div class="rdad-now" id="rdAudioNow" style="display:none">
+    <div class="rdad-now-tt" id="rdAudioNowTitle">—</div>
+    <input type="range" id="rdAudioSeek" min="0" max="1000" value="0" oninput="_rdAudioSeek(this.value)">
+    <div class="rdad-now-time"><span id="rdAudioNowCur">0:00</span><span id="rdAudioNowDur">0:00</span></div>
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <button onclick="_rdAudioPrev()" style="flex:1;padding:5px;border-radius:6px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);cursor:pointer;font-size:11px">⏮ Prev</button>
+      <button onclick="_rdAudioPlayPause()" id="rdAudioPP" style="flex:1.4;padding:5px;border-radius:6px;border:.5px solid var(--accent-ui);background:var(--accent-ui);color:#fff;cursor:pointer;font-size:11px">▶ Play</button>
+      <button onclick="_rdAudioNext()" style="flex:1;padding:5px;border-radius:6px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);cursor:pointer;font-size:11px">Next ⏭</button>
+    </div>
+  </div>
 </div>
 
 <div id="readerDrawer" role="dialog" aria-label="Reader panel">
@@ -13621,6 +14429,10 @@ window._apOnImportFile       = _apOnImportFile;
       <p style="font-size:10.5px;color:var(--hint);line-height:1.55;margin:8px 0 0">
         Free serials drip free chapters. Paid serials use the Gumroad gate above; unlocked chapters render normally, locked ones show a countdown card. Already-released chapters stay released even if you change the cadence.
       </p>
+      <label style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text);margin:12px 0 0;cursor:pointer">
+        <input type="checkbox" id="rlNotifyOnUnlock">
+        <span><strong>Email subscribers</strong> when each chapter unlocks <span style="color:var(--hint);font-weight:400">(stub today; live once Mailchimp is wired)</span></span>
+      </label>
     </div>
 
     <!-- URL preview -->
@@ -13636,5 +14448,4 @@ window._apOnImportFile       = _apOnImportFile;
     <div id="rlStatus" style="font-size:11px;color:var(--hint);margin:10px 0;min-height:14px"></div>
 
     <div id="rlFooter" style="display:flex;gap:7px;justify-content:flex-end;margin-top:14px">
-      <button type="button" onclick="closeReleaseModal()" style="padding:9px 15px;border-radius:7px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Close</button>
-      <button type="button" id=
+      <button type="button" onclick="closeReleaseModal()" style="padding:9px 15px;border-radius:7px;border:.5px solid var(--border-mi
