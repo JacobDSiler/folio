@@ -690,6 +690,153 @@ html[data-reader] #siteFooter{display:none!important}
   font-variant-numeric:tabular-nums;margin-top:2px;
 }
 
+
+/* ── Writing goals widget (Step 1 / Phase 1) ── */
+.wg-card{
+  margin-top:10px;padding:10px 11px;border-radius:9px;
+  background:var(--bg);border:.5px solid var(--border-mid);
+  font-family:var(--sans);
+}
+.wg-card-hd{
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:10px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--hint);margin-bottom:6px;
+}
+.wg-card-hd .wg-edit{
+  background:none;border:none;color:var(--hint);cursor:pointer;
+  font-size:11px;padding:0 2px;border-radius:4px;
+}
+.wg-card-hd .wg-edit:hover{color:var(--accent-ui);background:rgba(201,140,42,.08)}
+.wg-line{
+  display:flex;align-items:baseline;justify-content:space-between;
+  font-size:13px;color:var(--text);margin-bottom:5px;
+}
+.wg-line .wg-count{font-weight:600;font-variant-numeric:tabular-nums}
+.wg-line .wg-target{font-size:11px;color:var(--hint);font-variant-numeric:tabular-nums}
+.wg-bar{
+  height:5px;background:var(--surface);border-radius:3px;overflow:hidden;
+  border:.5px solid var(--border-mid);
+}
+.wg-bar-fill{
+  height:100%;background:linear-gradient(90deg,var(--accent-ui),#e0a050);
+  width:0%;transition:width .3s ease;border-radius:3px;
+}
+.wg-bar-fill.wg-hit{background:linear-gradient(90deg,#10b981,#34d399)}
+.wg-meta{
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:10.5px;color:var(--muted);margin-top:6px;
+}
+.wg-streak{display:flex;align-items:center;gap:3px}
+.wg-streak .wg-flame{font-size:11px}
+[data-dark] .wg-card{background:rgba(255,255,255,.03)}
+
+
+/* ── Pronunciation glossary (Step 4) ── */
+.pron-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.pron-row{
+  display:grid;grid-template-columns:1fr auto auto;gap:7px;align-items:center;
+  padding:7px 9px;border:.5px solid var(--border-mid);border-radius:6px;
+  background:var(--bg);font-size:12px;
+}
+.pron-row .pron-word{font-weight:600;color:var(--text)}
+.pron-row .pron-ipa{
+  display:block;font-size:10.5px;color:var(--hint);
+  font-family:'Charis SIL','Doulos SIL','Lucida Sans Unicode',sans-serif;
+}
+.pron-row .pron-phon{display:block;font-size:10.5px;color:var(--muted);font-style:italic}
+.pron-row .pron-mini{
+  background:none;border:.5px solid transparent;border-radius:5px;
+  font-size:11px;cursor:pointer;color:var(--hint);padding:3px 7px;
+}
+.pron-row .pron-mini:hover{color:var(--accent-ui);border-color:var(--accent-ui)}
+.pron-row .pron-del:hover{color:#c44;border-color:#c44}
+.pron-add-btn{
+  display:flex;align-items:center;justify-content:center;gap:5px;
+  width:100%;padding:6px 10px;margin-top:8px;
+  border:.5px dashed var(--border-mid);border-radius:6px;
+  background:transparent;color:var(--hint);font-size:11.5px;
+  font-family:var(--sans);cursor:pointer;transition:all .12s;
+}
+.pron-add-btn:hover{border-color:var(--accent-ui);color:var(--accent-ui)}
+.pron-empty{font-size:10.5px;color:var(--hint);padding:.4rem 0;font-style:italic}
+[data-dark] .pron-row{background:rgba(255,255,255,.03)}
+
+/* Modal */
+#pronModal{
+  position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;
+  background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);
+  display:none;align-items:center;justify-content:center;
+}
+#pronModal.open{display:flex}
+#pronModal .pm-box{
+  background:var(--surface);border:.5px solid var(--border-mid);
+  border-radius:14px;max-width:480px;width:94%;
+  box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:22px 24px;
+  font-family:var(--sans);color:var(--text);
+}
+#pronModal h3{font-size:14px;font-weight:600;margin:0 0 12px}
+#pronModal label{
+  display:block;font-size:11px;font-weight:500;color:var(--hint);
+  margin:10px 0 4px;letter-spacing:.02em;
+}
+#pronModal input[type=text]{
+  width:100%;font-size:13px;padding:7px 10px;
+  border:.5px solid var(--border-mid);border-radius:7px;
+  background:var(--bg);color:var(--text);outline:none;
+  font-family:var(--sans);
+}
+#pronModal input.pm-ipa{
+  font-family:'Charis SIL','Doulos SIL','Lucida Sans Unicode',sans-serif;
+  font-size:14px;
+}
+#pronModal input:focus{border-color:var(--accent-ui)}
+#pronModal .pm-hint{font-size:10.5px;color:var(--hint);margin-top:3px;line-height:1.5}
+#pronModal .pm-hint a{color:var(--accent-ui)}
+#pronModal .pm-actions{
+  display:flex;gap:7px;justify-content:flex-end;margin-top:16px;
+}
+#pronModal .pm-btn{
+  padding:7px 13px;border-radius:7px;border:.5px solid var(--border-mid);
+  background:transparent;color:var(--text);font-size:12px;cursor:pointer;
+  font-family:var(--sans);
+}
+#pronModal .pm-btn.pm-primary{
+  background:var(--accent-ui);color:#fff;border-color:var(--accent-ui);
+}
+#pronModal .pm-btn:hover:not(:disabled){opacity:.85}
+
+
+/* ── Step 7 — Reader pronunciation tooltips ── */
+.pron-tip{
+  border-bottom:1px dotted rgba(201,140,42,.55);
+  cursor:help;position:relative;
+}
+.pron-tip:hover{background:rgba(201,140,42,.08)}
+.pron-tip[data-pron]:hover::after{
+  content:attr(data-pron);
+  position:absolute;left:50%;bottom:calc(100% + 6px);
+  transform:translateX(-50%);
+  background:rgba(30,22,14,.96);color:#f0ebe0;
+  font-family:'Charis SIL','Doulos SIL','Lucida Sans Unicode',-apple-system,sans-serif;
+  font-size:12px;font-weight:400;line-height:1.4;letter-spacing:0;
+  padding:6px 10px;border-radius:6px;white-space:nowrap;
+  box-shadow:0 4px 16px rgba(0,0,0,.3);z-index:9999;pointer-events:none;
+  animation:pronTipIn .12s ease-out;
+}
+.pron-tip[data-pron]:hover::before{
+  content:'';position:absolute;left:50%;bottom:calc(100% + 1px);
+  transform:translateX(-50%);
+  border:5px solid transparent;border-top-color:rgba(30,22,14,.96);
+  pointer-events:none;z-index:9999;
+}
+@keyframes pronTipIn{from{opacity:0;transform:translateX(-50%) translateY(2px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+[data-dark] .pron-tip[data-pron]:hover::after{background:rgba(232,222,206,.95);color:#1c1a17}
+[data-dark] .pron-tip[data-pron]:hover::before{border-top-color:rgba(232,222,206,.95)}
+
+/* Reader-bar 🗣 button — same shape as the other reader-bar pills */
+#rdPronBtn{display:inline-flex;align-items:center;justify-content:center}
+#rdPronBtn[data-active="1"]{background:rgba(201,140,42,.15);color:var(--accent-ui)}
+
 /* ══════ Release modal ══════ */
 .rl-mode.active {
   background: var(--accent-ui) !important;
@@ -1537,6 +1684,21 @@ html[data-reader] #readerBar { display: flex; }
           <button class="ch-add-btn" style="flex:0 0 auto;padding:7px 12px" onclick="addTOC()" title="Insert a Table of Contents — drag to reorder">+ TOC</button>
         </div>
         <button class="ch-add-btn" style="margin-top:6px;color:var(--accent-ui);border-color:var(--accent-ui)" onclick="openManuscriptView()" title="View the full compiled manuscript">📖 View full manuscript</button>
+        <div class="wg-card" id="wgCard">
+          <div class="wg-card-hd">
+            <span>📝 Today's writing</span>
+            <button class="wg-edit" onclick="_wgEditTarget()" title="Set your daily target">⚙ target</button>
+          </div>
+          <div class="wg-line">
+            <span class="wg-count" id="wgCount">0 words</span>
+            <span class="wg-target" id="wgTargetLabel">/ 500</span>
+          </div>
+          <div class="wg-bar"><div class="wg-bar-fill" id="wgBarFill"></div></div>
+          <div class="wg-meta">
+            <span class="wg-streak" id="wgStreak"></span>
+            <span id="wgPctLabel"></span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1729,6 +1891,17 @@ html[data-reader] #readerBar { display: flex; }
         </div>
         <p class="small-note" style="margin-top:4px">Note: Left-aligned (not justified) text is generally recommended for large print and low-vision readers, as it preserves consistent word spacing.</p>
       </div>
+
+      <div class="section" id="pronSection">
+        <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Pronunciations</span>
+          <span style="font-size:10px;color:var(--hint);text-transform:none;letter-spacing:0;font-weight:400">audio only</span>
+        </div>
+        <p class="small-note" style="margin-bottom:4px">Tell the audiobook how to pronounce names, fantasy words, and unusual spellings. Visible exports (PDF, EPUB, print) ignore this list.</p>
+        <div class="pron-list" id="pronList"></div>
+        <button class="pron-add-btn" onclick="_pronOpenModal()">+ Add pronunciation</button>
+      </div>
+
     </div>
 
     <!-- ── IMAGES TAB ── -->
@@ -2101,7 +2274,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-04-26-phase2-overnight  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-05-05-phase1-complete  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -4007,6 +4180,71 @@ async function handleFileImport(input){
   setStatus(`${importedFiles.length} file${importedFiles.length>1?'s':''} ready — click "Split into chapters" to load`);
 }
 
+// ─── HTML → Markdown for DOCX import (Step 2). Mammoth preserves
+// Word's heading styles as <h1>…<h6>, paragraphs as <p>, etc. We
+// turn those into the markdown-ish format the rest of the import
+// pipeline expects (# for chapters, ## for sections, etc.).
+function _docxHtmlToMarkdown(html) {
+  if (!html) return '';
+  let s = String(html);
+
+  // Normalise self-closing breaks/horizontal rules
+  s = s.replace(/<br\s*\/?>(?!\s*<\/li>)/gi, '\n');
+  s = s.replace(/<hr\s*\/?>/gi, '\n\n---\n\n');
+
+  // Headings — h1..h6. Capture content, strip nested tags, prepend #s.
+  for (let level = 1; level <= 6; level++) {
+    const re = new RegExp('<h' + level + '[^>]*>([\\s\\S]*?)<\\/h' + level + '>', 'gi');
+    s = s.replace(re, (m, inner) => {
+      const text = inner.replace(/<[^>]+>/g, '').trim();
+      return '\n\n' + '#'.repeat(level) + ' ' + text + '\n\n';
+    });
+  }
+
+  // Lists — collect <ol>/<ul> blocks, convert <li> to "- " or "N. " lines.
+  s = s.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (m, inner) => {
+    let n = 0;
+    return '\n' + inner.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (m2, t) => {
+      n++;
+      return n + '. ' + t.replace(/<[^>]+>/g, '').trim() + '\n';
+    }) + '\n';
+  });
+  s = s.replace(/<ul[^>]*>([\s\S]*?)<\/ul>/gi, (m, inner) => {
+    return '\n' + inner.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (m2, t) =>
+      '- ' + t.replace(/<[^>]+>/g, '').trim() + '\n'
+    ) + '\n';
+  });
+
+  // Inline formatting
+  s = s.replace(/<(strong|b)[^>]*>([\s\S]*?)<\/\1>/gi, (m, tag, t) => '**' + t + '**');
+  s = s.replace(/<(em|i)[^>]*>([\s\S]*?)<\/\1>/gi,    (m, tag, t) => '*'  + t + '*');
+
+  // Paragraphs — <p>...</p> becomes text + blank line.
+  s = s.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, (m, inner) => '\n\n' + inner + '\n\n');
+
+  // Strip remaining tags, keep their text content.
+  s = s.replace(/<[^>]+>/g, '');
+
+  // HTML entities → real characters (small set, covers 99% of DOCX).
+  s = s.replace(/&nbsp;/g, ' ')
+       .replace(/&amp;/g, '&')
+       .replace(/&lt;/g, '<')
+       .replace(/&gt;/g, '>')
+       .replace(/&quot;/g, '"')
+       .replace(/&#39;/g, "'")
+       .replace(/&rsquo;/g, '\u2019')
+       .replace(/&lsquo;/g, '\u2018')
+       .replace(/&rdquo;/g, '\u201d')
+       .replace(/&ldquo;/g, '\u201c')
+       .replace(/&mdash;/g, '\u2014')
+       .replace(/&ndash;/g, '\u2013')
+       .replace(/&hellip;/g, '\u2026');
+
+  // Collapse runs of blank lines to at most 2 (paragraph separator).
+  s = s.replace(/\n{3,}/g, '\n\n').trim();
+  return s;
+}
+
 async function readFileAsText(file){
   const ext=file.name.split('.').pop().toLowerCase();
   if(ext==='docx'){
@@ -4014,8 +4252,16 @@ async function readFileAsText(file){
       const r=new FileReader();
       r.onload=async e=>{
         try{
-          const result=await mammoth.extractRawText({arrayBuffer:e.target.result});
-          res(result.value);
+          // Step 2: prefer convertToHtml so Word heading styles round-trip
+          // as # / ## markers that smartSplit can chapter on. Fall back to
+          // raw text if the mammoth version is unexpectedly missing it.
+          if (typeof mammoth.convertToHtml === 'function') {
+            const r2 = await mammoth.convertToHtml({arrayBuffer:e.target.result});
+            res(_docxHtmlToMarkdown(r2.value || ''));
+          } else {
+            const result = await mammoth.extractRawText({arrayBuffer:e.target.result});
+            res(result.value);
+          }
         } catch(err){ rej(err); }
       };
       r.onerror=()=>rej(new Error('File read failed'));
@@ -5031,6 +5277,351 @@ function estimatePageCount(wordCount) {
   return Math.max(1, Math.round(wordCount / wpp + nCh * 0.3 + nFB * 0.5));
 }
 
+
+
+/* ══════════════════════════════════════════════════════════════════
+   Pronunciation glossary (Step 4 — infrastructure)
+   ──────────────────────────────────────────────────────────────────
+   Per-folio storage on state.pronunciations. Key is lowercase word
+   for case-insensitive matching; value carries the original word
+   spelling, IPA, phonetic respelling, and an optional note.
+
+   Step 5 will wire this into the TTS pipeline. Step 6 will hook the
+   editor's right-click menu. Step 7 will surface tooltips in the
+   reader. This step is the data + editor only.
+   ══════════════════════════════════════════════════════════════════ */
+
+function _pronGetAll() {
+  if (typeof _state !== 'object' || _state == null) return {};
+  if (!_state.pronunciations || typeof _state.pronunciations !== 'object') {
+    _state.pronunciations = {};
+  }
+  return _state.pronunciations;
+}
+
+function _pronGet(word) {
+  if (!word) return null;
+  const map = _pronGetAll();
+  return map[String(word).toLowerCase()] || null;
+}
+
+function _pronAdd(word, ipa, phonetic, note) {
+  word = String(word || '').trim();
+  if (!word) return;
+  const map = _pronGetAll();
+  const key = word.toLowerCase();
+  const existing = map[key] || {};
+  map[key] = {
+    word: word,
+    ipa: String(ipa || '').trim(),
+    phonetic: String(phonetic || '').trim(),
+    note: String(note || '').trim(),
+    createdAt: existing.createdAt || Date.now(),
+    updatedAt: Date.now(),
+  };
+  if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+  _pronRender();
+}
+
+function _pronDelete(word) {
+  if (!word) return;
+  const map = _pronGetAll();
+  const key = String(word).toLowerCase();
+  if (map[key]) {
+    delete map[key];
+    if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+    _pronRender();
+  }
+}
+
+function _pronRender() {
+  const list = document.getElementById('pronList');
+  if (!list) return;
+  const map = _pronGetAll();
+  const keys = Object.keys(map).sort((a, b) => map[a].word.localeCompare(map[b].word));
+  if (!keys.length) {
+    list.innerHTML = '<div class="pron-empty">No pronunciations yet. Add fantasy names, technical terms, or any word the TTS gets wrong.</div>';
+    return;
+  }
+  list.innerHTML = keys.map(k => {
+    const e = map[k];
+    const ipa = e.ipa ? '<span class="pron-ipa">/' + _esc(e.ipa) + '/</span>' : '';
+    const phon = e.phonetic ? '<span class="pron-phon">' + _esc(e.phonetic) + '</span>' : '';
+    return '<div class="pron-row">' +
+      '<div>' +
+        '<div class="pron-word">' + _esc(e.word) + '</div>' +
+        ipa + phon +
+      '</div>' +
+      '<button class="pron-mini" onclick="_pronOpenModal(\'' + _esc(e.word).replace(/'/g, "\\'") + '\')" title="Edit">✎</button>' +
+      '<button class="pron-mini pron-del" onclick="_pronDelete(\'' + _esc(e.word).replace(/'/g, "\\'") + '\')" title="Delete">✕</button>' +
+    '</div>';
+  }).join('');
+}
+
+// Modal — open (with optional preselect for editing), close, save, delete
+let _pronModalEditingKey = null;
+
+function _pronOpenModal(prefillWord) {
+  const modal = document.getElementById('pronModal');
+  if (!modal) return;
+  const map = _pronGetAll();
+  const titleEl = document.getElementById('pronModalTitle');
+  const wordEl = document.getElementById('pmWord');
+  const ipaEl = document.getElementById('pmIpa');
+  const phonEl = document.getElementById('pmPhon');
+  const noteEl = document.getElementById('pmNote');
+  const delBtn = document.getElementById('pmDeleteBtn');
+
+  let editing = null;
+  if (prefillWord) {
+    const key = String(prefillWord).toLowerCase();
+    if (map[key]) editing = map[key];
+  }
+  _pronModalEditingKey = editing ? editing.word.toLowerCase() : null;
+
+  if (titleEl) titleEl.textContent = editing ? 'Edit pronunciation' : 'Add pronunciation';
+  if (wordEl) wordEl.value = editing ? editing.word : (prefillWord || '');
+  if (ipaEl) ipaEl.value = editing ? editing.ipa : '';
+  if (phonEl) phonEl.value = editing ? editing.phonetic : '';
+  if (noteEl) noteEl.value = editing ? editing.note : '';
+  if (delBtn) delBtn.style.display = editing ? '' : 'none';
+
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden', 'false');
+  setTimeout(() => { if (wordEl && !wordEl.value) wordEl.focus(); else if (ipaEl) ipaEl.focus(); }, 50);
+}
+
+function _pronCloseModal() {
+  const modal = document.getElementById('pronModal');
+  if (modal) {
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  _pronModalEditingKey = null;
+}
+
+function _pronSaveFromModal() {
+  const wordEl = document.getElementById('pmWord');
+  const ipaEl = document.getElementById('pmIpa');
+  const phonEl = document.getElementById('pmPhon');
+  const noteEl = document.getElementById('pmNote');
+  const word = (wordEl && wordEl.value || '').trim();
+  if (!word) {
+    if (typeof toastWarning === 'function')
+      toastWarning('Enter the word to add.', { duration: 2400 });
+    if (wordEl) wordEl.focus();
+    return;
+  }
+  const ipa = (ipaEl && ipaEl.value || '').trim();
+  const phon = (phonEl && phonEl.value || '').trim();
+  if (!ipa && !phon) {
+    if (typeof toastWarning === 'function')
+      toastWarning('Enter either an IPA or a phonetic respelling.', { duration: 3000 });
+    if (ipaEl) ipaEl.focus();
+    return;
+  }
+  // If renaming the word (key differs from editing key), drop the old entry first.
+  if (_pronModalEditingKey && _pronModalEditingKey !== word.toLowerCase()) {
+    _pronDelete(_pronModalEditingKey);
+  }
+  _pronAdd(word, ipa, phon, noteEl ? noteEl.value : '');
+  if (typeof toastSuccess === 'function')
+    toastSuccess('Pronunciation saved for "' + word + '"', { icon: '🗣', duration: 2200 });
+  _pronCloseModal();
+}
+
+function _pronDeleteFromModal() {
+  if (!_pronModalEditingKey) return;
+  if (!confirm('Delete pronunciation for "' + _pronModalEditingKey + '"?')) return;
+  _pronDelete(_pronModalEditingKey);
+  _pronCloseModal();
+  if (typeof toastInfo === 'function')
+    toastInfo('Pronunciation removed', { duration: 1800 });
+}
+
+// Re-render whenever folio loads or chapter list refreshes (autosave restore path)
+window.addEventListener('folio-loaded', () => { try { _pronRender(); } catch (e) {} });
+
+window._pronOpenModal      = _pronOpenModal;
+window._pronCloseModal     = _pronCloseModal;
+window._pronSaveFromModal  = _pronSaveFromModal;
+window._pronDeleteFromModal = _pronDeleteFromModal;
+window._pronDelete         = _pronDelete;
+window._pronGet            = _pronGet;
+window._pronGetAll         = _pronGetAll;
+window._pronRender         = _pronRender;
+
+/* ══════════════════════════════════════════════════════════════════
+   Writing goals (Step 1 — Phase 1 catch-up)
+   ──────────────────────────────────────────────────────────────────
+   Persistence:
+     localStorage 'folio_wg_global_target'   — global default (number)
+     state.writingGoal {
+       dailyTarget?: number,                  // per-folio override
+       baseline:     number,                  // wordcount at start of today
+       baselineDate: 'YYYY-MM-DD',            // local-time date of baseline
+       history:      { 'YYYY-MM-DD': number } // words written that day
+     }
+   The state object is part of the folio doc, so it round-trips through
+   _serialise / _deserialise automatically (those marshal `state` whole).
+   ══════════════════════════════════════════════════════════════════ */
+
+function _wgGlobalTargetGet() {
+  try {
+    const v = parseInt(localStorage.getItem('folio_wg_global_target') || '500', 10);
+    return (isFinite(v) && v > 0) ? v : 500;
+  } catch (e) { return 500; }
+}
+function _wgGlobalTargetSet(n) {
+  try { localStorage.setItem('folio_wg_global_target', String(n | 0)); } catch (e) {}
+}
+
+function _wgState() {
+  if (typeof _state !== 'object' || _state == null) return null;
+  if (!_state.writingGoal) {
+    _state.writingGoal = { baseline: 0, baselineDate: '', history: {} };
+  }
+  if (!_state.writingGoal.history) _state.writingGoal.history = {};
+  return _state.writingGoal;
+}
+
+function _wgEffectiveTarget() {
+  const wg = _wgState();
+  if (wg && wg.dailyTarget && wg.dailyTarget > 0) return wg.dailyTarget;
+  return _wgGlobalTargetGet();
+}
+
+function _wgTodayKey() {
+  const d = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+}
+
+// Roll the baseline if the date has changed. Records yesterday's
+// final word count into history before resetting.
+function _wgRollIfNeeded(currentCount) {
+  const wg = _wgState();
+  if (!wg) return;
+  const today = _wgTodayKey();
+  if (!wg.baselineDate || wg.baselineDate !== today) {
+    if (wg.baselineDate) {
+      // Finalise the previous day. wordsWritten = previous-end - previous-baseline
+      // We don't know the previous-end exactly (we only have the new
+      // currentCount), but currentCount IS the previous-end IF the user
+      // didn't write between midnight and now. Good enough for streak math.
+      const yesterdayWords = Math.max(0, currentCount - (wg.baseline || 0));
+      wg.history[wg.baselineDate] = yesterdayWords;
+    }
+    wg.baseline = currentCount;
+    wg.baselineDate = today;
+  }
+}
+
+function _wgWordsToday(currentCount) {
+  const wg = _wgState();
+  if (!wg) return 0;
+  _wgRollIfNeeded(currentCount);
+  return Math.max(0, currentCount - (wg.baseline || 0));
+}
+
+function _wgComputeStreak() {
+  const wg = _wgState();
+  if (!wg || !wg.history) return 0;
+  const target = _wgEffectiveTarget();
+  // Walk back from yesterday
+  let streak = 0;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  for (let i = 1; i <= 365; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const pad = n => String(n).padStart(2, '0');
+    const key = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    const w = wg.history[key];
+    if (w == null) break;
+    if (w >= target) streak++;
+    else break;
+  }
+  return streak;
+}
+
+function _wgRender() {
+  const card = document.getElementById('wgCard');
+  if (!card) return; // chapters tab not rendered yet
+  if (typeof getWordCount !== 'function') return;
+  const total = getWordCount();
+  const wg = _wgState();
+  if (!wg) return;
+  const target = _wgEffectiveTarget();
+  const today = _wgWordsToday(total);
+  const pct = Math.min(100, Math.round((today / target) * 100));
+  const hit = today >= target;
+
+  const countEl  = document.getElementById('wgCount');
+  const targetEl = document.getElementById('wgTargetLabel');
+  const fillEl   = document.getElementById('wgBarFill');
+  const streakEl = document.getElementById('wgStreak');
+  const pctEl    = document.getElementById('wgPctLabel');
+
+  if (countEl)  countEl.textContent  = today + (today === 1 ? ' word' : ' words');
+  if (targetEl) targetEl.textContent = '/ ' + target;
+  if (fillEl) {
+    fillEl.style.width = pct + '%';
+    fillEl.classList.toggle('wg-hit', hit);
+  }
+  if (pctEl)    pctEl.textContent = (hit ? '✓ ' : '') + pct + '%';
+
+  if (streakEl) {
+    const s = _wgComputeStreak();
+    if (s > 0) {
+      streakEl.innerHTML = '<span class="wg-flame">🔥</span> ' + s + '-day streak';
+    } else {
+      streakEl.innerHTML = '<span style="opacity:.5">no streak yet — write today to start one</span>';
+    }
+  }
+}
+
+function _wgEditTarget() {
+  const wg = _wgState();
+  const current = _wgEffectiveTarget();
+  const isOverride = !!(wg && wg.dailyTarget && wg.dailyTarget > 0);
+  const promptMsg =
+    'Daily writing target (words):' +
+    '\n\nCurrent: ' + current + (isOverride ? ' (this folio)' : ' (global default)') +
+    '\n\nLeave blank to use the global default. ' +
+    'Enter a number to set this folio\'s target. ' +
+    'Type "global" to change the global default for all new folios.';
+  const v = prompt(promptMsg, String(current));
+  if (v === null) return;
+  const trimmed = v.trim();
+  if (trimmed === '') {
+    if (wg) delete wg.dailyTarget;
+    if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+    if (typeof toastInfo === 'function') toastInfo('Using global default: ' + _wgGlobalTargetGet() + ' words/day', { duration: 2400 });
+  } else if (trimmed.toLowerCase() === 'global') {
+    const v2 = prompt('Global default daily target (words):', String(_wgGlobalTargetGet()));
+    if (v2 === null) return;
+    const n = parseInt(v2, 10);
+    if (isFinite(n) && n > 0) {
+      _wgGlobalTargetSet(n);
+      if (typeof toastSuccess === 'function') toastSuccess('Global daily target set to ' + n + ' words', { icon: '🎯', duration: 2400 });
+    }
+  } else {
+    const n = parseInt(trimmed, 10);
+    if (!isFinite(n) || n <= 0) {
+      if (typeof toastWarning === 'function') toastWarning('Please enter a positive number', { duration: 2400 });
+      return;
+    }
+    if (wg) wg.dailyTarget = n;
+    if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+    if (typeof toastSuccess === 'function') toastSuccess('Folio target: ' + n + ' words/day', { icon: '🎯', duration: 2400 });
+  }
+  _wgRender();
+}
+
+window._wgEditTarget = _wgEditTarget;
+window._wgRender     = _wgRender;
+
 function getWordCount() {
   const text = chapters
     .filter(c => c.type !== 'toc')
@@ -5044,6 +5635,10 @@ function formatWC(n) {
   return String(n);
 }
 function updateChapterStats(){
+  // Step 1 — refresh the writing-goal widget alongside the stats bar.
+  if (typeof _wgRender === 'function') { try { _wgRender(); } catch (e) {} }
+  // Step 4 — refresh the pronunciation glossary list when relevant.
+  if (typeof _pronRender === 'function') { try { _pronRender(); } catch (e) {} }
   const pre=chapters.filter(c=>c.type==='pre').length;
   const ch=chapters.filter(c=>c.type==='chapter').length;
   const post=chapters.filter(c=>c.type==='post').length;
@@ -6543,7 +7138,7 @@ async function exportEPUB(){
     const now=new Date().toISOString();
     const zip=new JSZip();
     zip.file('mimetype','application/epub+zip',{compression:'STORE'});
-    zip.folder('META-INF').file('container.xml',`<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:schemas:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`);
+    zip.folder('META-INF').file('container.xml',`<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`);
     const oebps=zip.folder('OEBPS');
     oebps.file('style.css',`body{font-family:Georgia,serif;background:${T.bg};color:${T.text};margin:2em;line-height:${lspace}}h1.book-title{font-size:2.2em;text-align:center;margin-top:2em}h2.book-subtitle{font-size:1.2em;text-align:center;font-style:italic;color:${S.accent};margin-top:0.4em}p.author-name{text-align:center;letter-spacing:0.12em;color:${T.text}88;font-size:0.9em;margin-top:1.5em}.rule{border:none;border-top:1px solid ${T.divider};width:40%;margin:1.5em auto}.chapter-num{font-size:0.75em;letter-spacing:0.18em;text-transform:uppercase;color:${S.accent};text-align:center;margin-bottom:0.5em}h2.chapter-title{font-size:1.5em;text-align:center;margin:0 0 0.4em}.ornament{text-align:center;color:${S.accent};font-size:1.1em;margin:0.6em 0 1em;opacity:0.65}.scene-break{text-align:center;color:${S.accent};margin:1em 0;opacity:0.6}p{margin:0;text-indent:1.3em;text-align:justify}p.no-indent{text-indent:0}.dedication{font-style:italic;text-align:center;margin:3em auto;max-width:22em;line-height:1.8;color:${T.text}99}.copyright{font-size:0.78em;line-height:1.8;color:${T.text}77;margin-top:3em}.drop-cap::first-letter{float:left;font-size:3.5em;line-height:0.72;margin:0.06em 0.05em 0 0;color:${S.accent};font-weight:bold;font-family:Georgia,serif}.section-title{font-size:1.5em;text-align:center;margin-bottom:1em}`);
     const xhtmlWrap=(t,body)=>`<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd"><html xmlns="http://www.w3.org/1999/xhtml"><head><meta charset="UTF-8"/><title>${esc(t)}</title><link rel="stylesheet" href="style.css"/></head><body>${body}</body></html>`;
@@ -8449,6 +9044,104 @@ document.addEventListener('keydown', e => {
 let _ctxTarget = null; // the element that was right-clicked
 let _ctxSavedRange = null; // saved selection for contenteditable
 
+/* ── Step 6 — Set Pronunciation context-menu hookup ──
+   On right-click in any editable surface, figure out which word the
+   user clicked, look it up in the glossary, and update the
+   "Set/Edit pronunciation" item accordingly. Hides itself when no
+   word is identifiable.
+   ────────────────────────────────────────────────── */
+
+let _ctxWord = null;
+
+function _ctxWordAtPoint(el, evt) {
+  if (!el) return null;
+  // Textarea: derive word at the click's character position.
+  if (el.tagName === 'TEXTAREA') {
+    // If the click placed a selection, use it directly when it's a
+    // single word.
+    const s = el.selectionStart, e = el.selectionEnd;
+    if (s !== e) {
+      const sel = el.value.slice(s, e).trim();
+      if (sel && /^\S+$/.test(sel)) return sel.replace(/[^A-Za-z'\u2019-]+$/, '').replace(/^[^A-Za-z'\u2019-]+/, '');
+    }
+    // Otherwise compute the word around the caret. We can't get the
+    // caret index from a click event reliably across browsers without
+    // workarounds; use document.caretPositionFromPoint / caretRangeFromPoint.
+    let charIdx = el.selectionStart;
+    if (typeof document.caretRangeFromPoint === 'function') {
+      try {
+        const r = document.caretRangeFromPoint(evt.clientX, evt.clientY);
+        if (r && r.startContainer === el) charIdx = r.startOffset;
+      } catch (e) {}
+    }
+    const text = el.value;
+    if (charIdx == null || charIdx < 0 || charIdx > text.length) return null;
+    // Walk left and right from charIdx while we're on word characters.
+    const isWord = c => /[A-Za-z'\u2019-]/.test(c);
+    let lo = charIdx, hi = charIdx;
+    while (lo > 0 && isWord(text[lo - 1])) lo--;
+    while (hi < text.length && isWord(text[hi])) hi++;
+    const w = text.slice(lo, hi).trim();
+    return w || null;
+  }
+  // Contenteditable: use the saved range or the current selection.
+  if (el.isContentEditable) {
+    const sel = window.getSelection();
+    if (sel && sel.toString().trim()) {
+      const t = sel.toString().trim();
+      if (/^\S+$/.test(t)) return t.replace(/[^A-Za-z'\u2019-]+$/, '').replace(/^[^A-Za-z'\u2019-]+/, '');
+    }
+    // No selection — figure out the word from the click point via caretRangeFromPoint
+    if (typeof document.caretRangeFromPoint === 'function') {
+      try {
+        const r = document.caretRangeFromPoint(evt.clientX, evt.clientY);
+        if (r && r.startContainer && r.startContainer.nodeType === 3) {
+          const text = r.startContainer.nodeValue || '';
+          const i = r.startOffset;
+          const isWord = c => /[A-Za-z'\u2019-]/.test(c);
+          let lo = i, hi = i;
+          while (lo > 0 && isWord(text[lo - 1])) lo--;
+          while (hi < text.length && isWord(text[hi])) hi++;
+          const w = text.slice(lo, hi).trim();
+          return w || null;
+        }
+      } catch (e) {}
+    }
+  }
+  return null;
+}
+
+// Update the "Set/Edit pronunciation" item — called from inside _ctxOpen.
+function _ctxRefreshPronItem(el, evt) {
+  const item = document.getElementById('ctxPronItem');
+  const label = document.getElementById('ctxPronLabel');
+  if (!item || !label) return;
+  const word = _ctxWordAtPoint(el, evt);
+  _ctxWord = word;
+  if (!word) {
+    item.style.display = 'none';
+    return;
+  }
+  item.style.display = '';
+  const existing = (typeof _pronGet === 'function') ? _pronGet(word) : null;
+  label.textContent = existing
+    ? ('Edit pronunciation: ' + word)
+    : ('Set pronunciation: ' + word);
+}
+
+function _ctxOpenPronModal() {
+  const word = _ctxWord;
+  // Close the context menu first
+  if (typeof _ctxClose === 'function') _ctxClose();
+  if (!word) return;
+  if (typeof _pronOpenModal === 'function') _pronOpenModal(word);
+}
+
+window._ctxWordAtPoint     = _ctxWordAtPoint;
+window._ctxRefreshPronItem = _ctxRefreshPronItem;
+window._ctxOpenPronModal   = _ctxOpenPronModal;
+
+
 function _ctxOpen(e, el) {
   e.preventDefault();
   _ctxTarget = el;
@@ -8471,6 +9164,9 @@ function _ctxOpen(e, el) {
   document.getElementById('ctxScene').style.display = isTA ? '' : 'none';
   // Find selection only when text is selected
   document.getElementById('ctxFind').style.display = hasSel ? '' : 'none';
+  // Step 6 — refresh the Set/Edit pronunciation item based on the
+  // word under the cursor.
+  try { _ctxRefreshPronItem(el, e); } catch (err) { console.warn('[ctx] pron item:', err); }
 
   // Position near cursor, keep inside viewport
   const menu = document.getElementById('ctxMenu');
@@ -11151,6 +11847,159 @@ function _rdCloseDrawer() {
 }
 
 
+
+/* ══════════════════════════════════════════════════════════════════
+   Step 7 — Reader pronunciation tooltips
+   ──────────────────────────────────────────────────────────────────
+   Off by default. The 🗣 button in the reader bar toggles state,
+   stored in localStorage 'folio_reader_pron_tooltips'. When ON, every
+   render of the preview triggers a walk of #bookPreview text nodes
+   that wraps glossary words with .pron-tip spans carrying a
+   data-pron attribute used by the CSS hover tooltip.
+   ══════════════════════════════════════════════════════════════════ */
+
+function _rdPronTipsEnabled() {
+  try { return localStorage.getItem('folio_reader_pron_tooltips') === 'on'; }
+  catch (e) { return false; }
+}
+
+function _rdSetPronTips(on) {
+  try { localStorage.setItem('folio_reader_pron_tooltips', on ? 'on' : 'off'); }
+  catch (e) {}
+  const btn = document.getElementById('rdPronBtn');
+  if (btn) btn.setAttribute('data-active', on ? '1' : '0');
+}
+
+function _rdTogglePronTips() {
+  const next = !_rdPronTipsEnabled();
+  _rdSetPronTips(next);
+  if (next) {
+    _rdApplyPronTips();
+    if (typeof toastInfo === 'function') toastInfo('Pronunciation tooltips on — hover any name', { icon: '🗣', duration: 2200 });
+  } else {
+    _rdRemovePronTips();
+    if (typeof toastInfo === 'function') toastInfo('Pronunciation tooltips off', { icon: '🗣', duration: 1600 });
+  }
+}
+
+function _rdBuildPronTipText(entry) {
+  // Compose what the user sees in the tooltip. Prefer phonetic-then-IPA
+  // for readers who don't speak IPA fluently. If only IPA exists, show
+  // it alone in slashes.
+  if (!entry) return '';
+  if (entry.phonetic && entry.ipa) return entry.phonetic + '  ·  /' + entry.ipa + '/';
+  if (entry.phonetic) return entry.phonetic;
+  if (entry.ipa) return '/' + entry.ipa + '/';
+  return '';
+}
+
+// Walk text nodes inside the preview area, wrapping glossary words.
+// Skipped: nodes already inside a .pron-tip (avoid double-wrap), nodes
+// inside SCRIPT/STYLE elements, nodes inside chapter title elements
+// (titles already render in their own typography).
+function _rdApplyPronTips() {
+  if (typeof _pronGetAll !== 'function') return;
+  const map = _pronGetAll();
+  const entries = Object.values(map || {}).filter(e => e && e.word && (e.ipa || e.phonetic));
+  if (!entries.length) return;
+
+  const root = document.getElementById('bookPreview');
+  if (!root) return;
+
+  // Strip any existing wraps first so we're idempotent.
+  _rdRemovePronTips();
+
+  // Sort longest-first so multi-word names match before sub-names.
+  entries.sort((a, b) => (b.word || '').length - (a.word || '').length);
+
+  // Build a single combined regex (with capture for the matched word).
+  const escape = s => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(
+    '\\b(' + entries.map(e => escape(e.word)).join('|') + ')\\b',
+    'gi'
+  );
+  // Map lowercase word -> entry for fast lookup
+  const byLower = {};
+  entries.forEach(e => { byLower[e.word.toLowerCase()] = e; });
+
+  // Walk text nodes
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => {
+      if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      let p = node.parentNode;
+      while (p && p !== root) {
+        if (p.nodeType === 1) {
+          const tag = p.tagName;
+          if (tag === 'SCRIPT' || tag === 'STYLE') return NodeFilter.FILTER_REJECT;
+          if (p.classList && p.classList.contains('pron-tip')) return NodeFilter.FILTER_REJECT;
+        }
+        p = p.parentNode;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const textNodes = [];
+  let n;
+  while ((n = walker.nextNode())) textNodes.push(n);
+
+  for (const node of textNodes) {
+    const text = node.nodeValue;
+    if (!pattern.test(text)) { pattern.lastIndex = 0; continue; }
+    pattern.lastIndex = 0;
+
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    let m;
+    while ((m = pattern.exec(text)) !== null) {
+      if (m.index > last) frag.appendChild(document.createTextNode(text.slice(last, m.index)));
+      const matched = m[0];
+      const entry = byLower[matched.toLowerCase()];
+      if (entry) {
+        const span = document.createElement('span');
+        span.className = 'pron-tip';
+        span.setAttribute('data-pron', _rdBuildPronTipText(entry));
+        span.appendChild(document.createTextNode(matched));
+        frag.appendChild(span);
+      } else {
+        frag.appendChild(document.createTextNode(matched));
+      }
+      last = m.index + matched.length;
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    node.parentNode.replaceChild(frag, node);
+  }
+}
+
+function _rdRemovePronTips() {
+  const root = document.getElementById('bookPreview');
+  if (!root) return;
+  const tips = root.querySelectorAll('.pron-tip');
+  tips.forEach(span => {
+    const parent = span.parentNode;
+    if (!parent) return;
+    while (span.firstChild) parent.insertBefore(span.firstChild, span);
+    parent.removeChild(span);
+    parent.normalize();
+  });
+}
+
+// Re-apply after each preview render (and during reader-mode boot).
+window.addEventListener('previewRendered', () => {
+  if (typeof _readerMode !== 'undefined' && _readerMode && _rdPronTipsEnabled()) {
+    setTimeout(_rdApplyPronTips, 50);
+  }
+});
+
+// Initial state for the reader-bar button (active class).
+window.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('rdPronBtn');
+  if (btn) btn.setAttribute('data-active', _rdPronTipsEnabled() ? '1' : '0');
+});
+
+window._rdTogglePronTips = _rdTogglePronTips;
+window._rdApplyPronTips  = _rdApplyPronTips;
+window._rdRemovePronTips = _rdRemovePronTips;
+
 /* ══════════════════════════════════════════════════════════════════
    Reader audio drawer (W1 — audio-bundle reader gating)
    ──────────────────────────────────────────────────────────────────
@@ -12976,13 +13825,77 @@ async function _loadJSZip() {
   return window.JSZip;
 }
 
+
+/* ── Pronunciation glossary → TTS pre-processing (Step 5) ──
+   Built once per generation. Visual exports never touch this. */
+function _apEscSSML(s) {
+  return String(s).replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+
+function _apEscapeRegex(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Sorted entries (longest first) so multi-word names match before
+// any shorter sub-name.
+function _apSortedPronEntries() {
+  if (typeof _pronGetAll !== 'function') return [];
+  const map = _pronGetAll();
+  return Object.values(map || {})
+    .filter(e => e && e.word)
+    .sort((a, b) => (b.word || '').length - (a.word || '').length);
+}
+
+// Build an SSML wrap of the chunk for Google. Wraps each glossary word
+// in <phoneme alphabet="ipa" ph="..."> when an IPA exists, otherwise
+// falls back to substituting the phonetic respelling inline.
+function _apBuildSSML(text) {
+  const entries = _apSortedPronEntries();
+  if (!entries.length) return null; // no SSML needed
+  let s = _apEscSSML(text);
+  for (const e of entries) {
+    if (!e.ipa && !e.phonetic) continue;
+    const re = new RegExp('\\b' + _apEscapeRegex(e.word) + '\\b', 'gi');
+    if (e.ipa) {
+      const ipa = _apEscSSML(e.ipa);
+      s = s.replace(re, m => '<phoneme alphabet="ipa" ph="' + ipa + '">' + _apEscSSML(m) + '</phoneme>');
+    } else if (e.phonetic) {
+      const phon = _apEscSSML(e.phonetic);
+      s = s.replace(re, phon);
+    }
+  }
+  return '<speak>' + s + '</speak>';
+}
+
+// For ElevenLabs: phonetic substitution directly into the text.
+// (ElevenLabs SSML phoneme support is inconsistent across models;
+// substitution is more reliable.)
+function _apApplyPronToText(text) {
+  const entries = _apSortedPronEntries();
+  if (!entries.length) return text;
+  let out = text;
+  for (const e of entries) {
+    const sub = e.phonetic || null;
+    if (!sub) continue;  // pure-IPA entries can't be substituted into plain text
+    const re = new RegExp('\\b' + _apEscapeRegex(e.word) + '\\b', 'gi');
+    out = out.replace(re, sub);
+  }
+  return out;
+}
+
 /* ── TTS API calls (user key required, never stored server-side) ── */
 async function _apGoogleTTS(text, voice, speed, apiKey) {
+  // Step 5 — build SSML when pronunciations exist. Send both fields
+  // so old workers that don't know about SSML still use the text path.
+  const ssml = _apBuildSSML(text);
   const resp = await fetch(TTS_WORKER_URL + '/google', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       text: text,
+      ssml: ssml || '',
       voice: voice,
       speakingRate: speed,
       apiKey: apiKey,
@@ -13003,6 +13916,10 @@ async function _apElevenLabsTTS(text, voiceId, apiKey) {
   // the account. The key is already client-side, so the worker hop adds
   // no security and only triggers the abuse detector. The /v1/text-to-speech
   // endpoint supports CORS explicitly for client-side use.
+  // Step 5 — apply pronunciation respellings before sending. ElevenLabs
+  // SSML phoneme support is inconsistent across models; direct text
+  // substitution is the most reliable path.
+  text = _apApplyPronToText(text);
   const modelId = _apElModelId || 'eleven_multilingual_v2';
   const resp = await fetch(
     'https://api.elevenlabs.io/v1/text-to-speech/' + encodeURIComponent(voiceId),
@@ -14232,6 +15149,73 @@ window._apImportTrack        = _apImportTrack;
 window._apOnImportFile       = _apOnImportFile;
 
 </script>
+
+
+<!-- Right-click context menu (Step 6 — restored + Set Pronunciation) -->
+<div id="ctxMenu" role="menu" aria-label="Editor context menu">
+  <button class="ctx-item" id="ctxBold" onclick="_ctxWrap('**')" type="button">
+    <span style="font-weight:700">B</span>
+    <span>Bold</span>
+    <span class="ctx-kbd">Ctrl+B</span>
+  </button>
+  <button class="ctx-item" id="ctxItalic" onclick="_ctxWrap('*')" type="button">
+    <span style="font-style:italic">I</span>
+    <span>Italic</span>
+    <span class="ctx-kbd">Ctrl+I</span>
+  </button>
+  <div class="ctx-sep"></div>
+  <button class="ctx-item" id="ctxPronItem" onclick="_ctxOpenPronModal()" type="button" style="display:none">
+    <span>🗣</span>
+    <span id="ctxPronLabel">Set pronunciation</span>
+  </button>
+  <button class="ctx-item" id="ctxScene" onclick="_ctxScene()" type="button">
+    <span>—</span>
+    <span>Scene break</span>
+  </button>
+  <button class="ctx-item has-sub" id="ctxDingbat" onmouseenter="_ctxDingbatOpen(this)" type="button">
+    <span>✦</span>
+    <span>Insert ornament</span>
+  </button>
+  <div class="ctx-sep"></div>
+  <button class="ctx-item" id="ctxFind" onclick="_ctxFind()" type="button" style="display:none">
+    <span>🔍</span>
+    <span>Find selection</span>
+  </button>
+</div>
+
+<!-- Ornament submenu, populated dynamically by _ctxDingbatOpen() -->
+<div id="ctxDingbatSub" role="menu" aria-label="Insert ornament">
+  <div class="sub-label">Insert ornament</div>
+  <div class="dingbat-grid" id="ctxDingbatGrid"></div>
+</div>
+
+<!-- Pronunciation editor modal (Step 4) -->
+<div id="pronModal" role="dialog" aria-hidden="true" aria-labelledby="pronModalTitle" onclick="if(event.target===this)_pronCloseModal()">
+  <div class="pm-box">
+    <h3 id="pronModalTitle">Add pronunciation</h3>
+    <label for="pmWord">Word or name</label>
+    <input type="text" id="pmWord" placeholder="e.g., Aelindra" autocomplete="off" spellcheck="false">
+    <div class="pm-hint">Case-insensitive. Match the spelling exactly as it appears in your manuscript.</div>
+
+    <label for="pmIpa">IPA pronunciation <span style="opacity:.6;font-weight:400">(preferred when supported)</span></label>
+    <input type="text" id="pmIpa" class="pm-ipa" placeholder="e.g., eɪˈlɪndɹə" autocomplete="off" spellcheck="false">
+    <div class="pm-hint">Use International Phonetic Alphabet symbols. Need a chart? <a href="https://www.ipachart.com/" target="_blank" rel="noopener">ipachart.com</a></div>
+
+    <label for="pmPhon">Phonetic respelling <span style="opacity:.6;font-weight:400">(fallback)</span></label>
+    <input type="text" id="pmPhon" placeholder="e.g., ay-LIN-dra" autocomplete="off" spellcheck="false">
+    <div class="pm-hint">Used by ElevenLabs (which has limited IPA support) and as a fallback for any TTS that can't parse the IPA. CAPITALS mark stressed syllables.</div>
+
+    <label for="pmNote">Note <span style="opacity:.6;font-weight:400">(optional)</span></label>
+    <input type="text" id="pmNote" placeholder="e.g., elven, four syllables" autocomplete="off">
+
+    <div class="pm-actions">
+      <button class="pm-btn pm-del" id="pmDeleteBtn" onclick="_pronDeleteFromModal()" style="margin-right:auto;color:#c44;border-color:#c4444450;display:none">Delete</button>
+      <button class="pm-btn" onclick="_pronCloseModal()">Cancel</button>
+      <button class="pm-btn pm-primary" onclick="_pronSaveFromModal()">Save</button>
+    </div>
+  </div>
+</div>
+
 <button id="bmFloatBtn" type="button" title="Toggle bookmark">🔖</button>
 <div id="annPop" role="dialog" aria-label="Annotate selection"></div>
 <div id="annNoteBox" role="dialog" aria-label="Edit note"></div>
@@ -14243,6 +15227,7 @@ window._apOnImportFile       = _apOnImportFile;
   </div>
   <select id="rdChapSel" onchange="_rdJumpToChapter(this.value)" title="Jump to chapter"></select>
   <button id="rdTypoBtn" onclick="_rdToggleTypo()" title="Typography">Aa</button>
+  <button id="rdPronBtn" onclick="_rdTogglePronTips()" title="Show pronunciations on hover">🗣</button>
   <button id="rdBmBtn"  onclick="_rdOpenDrawer('bookmarks')" title="Bookmarks">🔖</button>
   <button id="rdAnBtn"  onclick="_rdOpenDrawer('annotations')" title="Notes">✍</button>
   <button id="rdAudioBtn" onclick="_rdAudioToggleDrawer()" title="Audiobook">🎧</button>

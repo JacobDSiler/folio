@@ -95,13 +95,18 @@ async function handleGoogleSynthesize(request, env) {
   const voice = (body && body.voice) || 'en-US-Neural2-F';
   const speakingRate = Number((body && body.speakingRate) || 1.0);
   const apiKey = (body && body.apiKey) || request.headers.get('X-API-Key') || '';
+  // Step 5 — SSML support. If the client sends a non-empty `ssml` string,
+  // route it to Google's input.ssml branch. Otherwise fall back to plain
+  // text. Old clients that send only `text` keep working.
+  const ssml = (body && typeof body.ssml === 'string') ? body.ssml : '';
 
   if (!apiKey) return errorJson('Missing "apiKey" (Google Cloud TTS API key)', 400, request, env);
-  if (!text || typeof text !== 'string') {
-    return errorJson('Missing "text"', 400, request, env);
+  if (!ssml && (!text || typeof text !== 'string')) {
+    return errorJson('Missing "text" or "ssml"', 400, request, env);
   }
-  if (text.length > 4800) {
-    return errorJson('Text too long for a single call (max 4500 chars)', 400, request, env);
+  const inputLen = (ssml || text).length;
+  if (inputLen > 4800) {
+    return errorJson('Input too long for a single call (max 4800 chars)', 400, request, env);
   }
 
   // Language code is everything up through the second hyphen of the voice name.
@@ -109,7 +114,7 @@ async function handleGoogleSynthesize(request, env) {
   const languageCode = m ? m[1] : 'en-US';
 
   const payload = {
-    input: { text },
+    input: ssml ? { ssml } : { text },
     voice: { languageCode, name: voice },
     audioConfig: {
       audioEncoding: 'MP3',
