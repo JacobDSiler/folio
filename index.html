@@ -182,6 +182,8 @@ textarea{resize:vertical;font-family:'Crimson Pro',Georgia,serif;font-size:13px;
 .theme-card{border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;cursor:pointer;transition:all 0.15s;background:var(--surface)}
 .theme-card:hover{border-color:#888}
 .theme-card.active{border-color:var(--accent-ui);background:#faf8f3}
+[data-dark] .theme-card:hover{border-color:var(--accent-ui)}
+[data-dark] .theme-card.active{background:rgba(232,222,206,0.08)}
 .theme-card .t-name{font-size:12px;font-weight:500}
 .theme-card .t-desc{font-size:10px;color:var(--hint);margin-top:1px}
 .theme-preview{height:18px;border-radius:3px;margin-bottom:6px;display:flex;gap:3px}
@@ -228,6 +230,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .exp-primary .ep-lbl{font-size:10px;opacity:.75;font-weight:400;margin-left:2px}
 .exp-toggle{width:36px;border-radius:8px;border:1px solid var(--accent-ui);background:transparent;color:var(--accent-ui);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0}
 .exp-toggle:hover{background:#faf8f3}
+[data-dark] .exp-toggle:hover{background:rgba(255,255,255,0.06)}
 .exp-toggle.open{background:var(--accent-ui);color:#fff}
 /* Slide-up drawer */
 .exp-drawer{overflow:hidden;max-height:0;transition:max-height .28s cubic-bezier(.4,0,.2,1),opacity .2s;opacity:0;pointer-events:none}
@@ -235,10 +238,15 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .exp-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding-bottom:2px}
 .exp-btn{padding:7px 4px;border-radius:7px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid var(--border-mid);background:transparent;color:var(--accent-ui);font-family:var(--sans);display:flex;flex-direction:column;align-items:center;gap:1px;transition:all .15s}
 .exp-btn:hover{background:#faf8f3;border-color:var(--accent-ui)}
+[data-dark] .exp-btn:hover{background:rgba(232,222,206,0.08);border-color:var(--accent-ui)}
 .exp-btn:disabled{opacity:.4;cursor:not-allowed}
 .exp-btn .fmt{font-size:13px;font-weight:600}
 .exp-btn .lbl{font-size:9px;opacity:.7;font-weight:400}
 .status-bar{padding:6px 1.25rem;font-size:11px;color:var(--hint);background:#faf9f7;border-top:0.5px solid var(--border);flex-shrink:0}
+[data-dark] .status-bar{background:rgba(255,255,255,0.03);color:var(--muted)}
+[data-dark] .sidebar-footer{background:rgba(255,255,255,0.03)!important}
+[data-dark] .sidebar-footer a{color:var(--muted)!important;border-bottom-color:var(--muted)!important}
+[data-dark] .sidebar-footer a:hover{color:var(--text)!important}
 .preview-area{overflow:auto;background:#c8c4bc;display:flex;flex-direction:column;align-items:center;position:relative;height:100%;min-height:0}
 /* Chunky preview scrollbar — easy to grab on large screens */
 .preview-area::-webkit-scrollbar{width:14px;height:14px}
@@ -361,6 +369,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .tabs{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:0.5px solid var(--border);flex-shrink:0}
 .tab-btn{padding:7px 3px;font-size:10.5px;font-family:var(--sans);border:none;background:transparent;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.15s;white-space:nowrap;text-align:center;letter-spacing:-0.01em;width:100%}
 .tab-btn.active{color:var(--text);border-bottom-color:var(--accent-ui);background:#faf9f7}
+[data-dark] .tab-btn.active{background:rgba(232,222,206,0.06)}
 .tab-btn:hover:not(.active){color:var(--text);background:var(--bg)}
 @media(max-width:768px){
   .app{grid-template-columns:1fr;grid-template-rows:auto 1fr}
@@ -469,6 +478,11 @@ html[data-reader] #siteFooter{display:none!important}
 .btn-primary:hover{opacity:0.85}
 .btn-ghost{background:transparent;color:var(--muted);border-color:var(--border-mid)}
 .btn-ghost:hover{color:var(--text);border-color:#888}
+/* Dark-mode contrast — var(--muted) on transparent reads weak; bump to --text. */
+[data-dark] .btn-ghost{color:var(--text);border-color:rgba(255,255,255,0.22)}
+[data-dark] .btn-ghost:hover{background:rgba(255,255,255,0.06);border-color:var(--accent-ui)}
+[data-dark] .shelf-add-btn{color:var(--text);border-color:rgba(255,255,255,0.22)}
+[data-dark] .shelf-add-btn:hover{background:rgba(255,255,255,0.05);border-color:var(--accent-ui);color:var(--accent-ui)}
 .schema-error{color:#c44;font-size:11px;margin-top:5px;display:none}
 
 @keyframes folio-spin{to{transform:rotate(360deg)}}
@@ -480,6 +494,9 @@ html[data-reader] #siteFooter{display:none!important}
 .proj-card{border:.5px solid var(--border-mid);border-radius:8px;padding:9px 11px;cursor:pointer;transition:all .15s;background:var(--surface);margin-bottom:5px}
 .proj-card:hover{border-color:#888;background:#faf8f3}
 .proj-card.proj-active{border-color:var(--accent-ui);background:#faf8f3}
+/* Dark-mode equivalents — cream backgrounds on dark surface read as flashes. */
+[data-dark] .proj-card:hover{background:rgba(255,255,255,0.04);border-color:var(--accent-ui)}
+[data-dark] .proj-card.proj-active{background:rgba(232,222,206,0.08);border-color:var(--accent-ui)}
 .proj-card-name{font-size:12.5px;font-weight:500}
 .proj-card-meta{font-size:10px;color:var(--hint);margin-top:2px;display:flex;gap:8px}
 .proj-card-acts{display:flex;gap:5px;margin-top:7px}
@@ -1882,7 +1899,7 @@ html[data-reader] #readerBar { display: flex; }
           <button class="btn-sm btn-ghost" style="padding:2px 8px;font-size:10px" onclick="loadFolioList()">↺</button>
         </div>
         <div id="projList">
-          <p class="small-note">Connect to see your folios.</p>
+          <p class="small-note">Loading your folios…</p>
         </div>
       </div>
 
@@ -3292,8 +3309,31 @@ async function saveVersion() {
 
 /* ── Load project list ── */
 async function loadFolioList() {
-  if (!_fbReady) return;
-  const {collection, query, where, getDocs, orderBy} = window._fb;
+  // Defensive: always render SOMETHING into #projList. The original
+  // initial-state placeholder ("Connect to see your folios.") is the
+  // unmodified DOM — if anything in this function silently early-
+  // returns or throws, the user is left with a misleading placeholder
+  // forever. Don't allow that. Render an explicit state for every
+  // exit path.
+  const _setListState = (html) => {
+    const el = document.getElementById('projList');
+    if (el) el.innerHTML = html;
+  };
+  if (!_fbReady) {
+    _setListState('<p class="small-note">Connecting to the cloud…</p>');
+    return;
+  }
+  if (!window._uid) {
+    _setListState('<p class="small-note">Sign in to see your folios.</p>');
+    return;
+  }
+  if (!window._fb || !window._db) {
+    _setListState('<p class="small-note" style="color:#c44">Cloud not initialised — try reloading the page.</p>');
+    return;
+  }
+  // Show a transient loading state so users know something is happening.
+  _setListState('<p class="small-note">Loading your folios…</p>');
+  const {collection, query, where, getDocs} = window._fb;
   try {
     const q = query(collection(window._db,'folio_projects'), where('uid','==',window._uid));
     const snap = await getDocs(q);
@@ -3301,12 +3341,25 @@ async function loadFolioList() {
     snap.forEach(d => list.push({id:d.id,...d.data()}));
     list.sort((a,b)=>(b.updatedAt?.seconds||0)-(a.updatedAt?.seconds||0));
     _renderFolioList(list);
-  } catch(e) { console.error('loadFolioList:',e); }
+  } catch(e) {
+    console.error('loadFolioList:',e);
+    // Surface the failure rather than leaving the loading placeholder.
+    _setListState(
+      '<p class="small-note" style="color:#c44">Could not load folios — ' +
+      (e?.code || e?.message || 'unknown error') + '. ' +
+      '<a href="#" onclick="loadFolioList();return false;" style="color:var(--accent-ui);text-decoration:underline">Retry</a></p>'
+    );
+  }
 }
 
 function _renderFolioList(list) {
   _lastFolioList = list;
   const el = document.getElementById('projList');
+  if (!el) return;
+  // Defensive: ensure _shelves is always a usable array even if the
+  // localStorage / cloud load failed earlier.
+  if (!Array.isArray(_shelves)) _shelves = [];
+  if (!Array.isArray(list)) list = [];
   if (!list.length) {
     el.innerHTML = '<p class="small-note">No saved projects yet.</p>'
                  + '<button class="shelf-add-btn" onclick="_createShelf()">+ New shelf</button>';
@@ -14410,33 +14463,4 @@ window._apOnImportFile       = _apOnImportFile;
             style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
         </div>
       </div>
-      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:10px 0 4px">First chapter unlocks at</label>
-      <input type="datetime-local" id="rlSerialFirst" oninput="_serialUpdatePreview()"
-        style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
-      <div style="margin-top:10px;padding:8px 10px;background:var(--surface);border:.5px dashed var(--border-mid);border-radius:6px;font-size:11px;color:var(--text);line-height:1.7">
-        <div style="font-size:9.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Schedule preview</div>
-        <div id="rlSerialPreview" style="font-size:11px"><span style="color:var(--hint)">Pick a first-release date to see the schedule.</span></div>
-      </div>
-      <p style="font-size:10.5px;color:var(--hint);line-height:1.55;margin:8px 0 0">
-        Free serials drip free chapters. Paid serials use the Gumroad gate above; unlocked chapters render normally, locked ones show a countdown card. Already-released chapters stay released even if you change the cadence.
-      </p>
-      <label style="display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text);margin:12px 0 0;cursor:pointer">
-        <input type="checkbox" id="rlNotifyOnUnlock">
-        <span><strong>Email subscribers</strong> when each chapter unlocks <span style="color:var(--hint);font-weight:400">(stub today; live once Mailchimp is wired)</span></span>
-      </label>
-    </div>
-
-    <!-- URL preview -->
-    <div id="rlUrlBox" style="background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;padding:10px 12px;margin:10px 0 6px;display:none">
-      <div style="font-size:9.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Reader link</div>
-      <div id="rlUrlText" style="font-family:monospace;font-size:11.5px;color:var(--text);word-break:break-all;cursor:pointer" onclick="_rlCopyUrl()" title="Click to copy"></div>
-      <div style="display:flex;gap:6px;margin-top:8px">
-        <button type="button" onclick="_rlCopyUrl()" style="font-size:11px;padding:5px 10px;border-radius:6px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);cursor:pointer">📋 Copy link</button>
-        <button type="button" onclick="_rlOpenPreview()" style="font-size:11px;padding:5px 10px;border-radius:6px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);cursor:pointer">👁 Preview in reader</button>
-      </div>
-    </div>
-
-    <div id="rlStatus" style="font-size:11px;color:var(--hint);margin:10px 0;min-height:14px"></div>
-
-    <div id="rlFooter" style="display:flex;gap:7px;justify-content:flex-end;margin-top:14px">
-      <button type="button" onclick="closeReleaseModal()" style="padding:9px 15px;border-radius:7px;border:.5px solid var(--border-m                                                                                                                        
+      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:10px 0 4p
