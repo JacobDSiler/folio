@@ -154,12 +154,28 @@ try {
   --radius:8px;--radius-lg:12px;
   --sans:'Inter',system-ui,sans-serif;
 }
+/* ══════════════════════════════════════════════════════════════════
+   Dark-mode palette (Bug 2 contrast pass — 2026-05-06)
+   ──────────────────────────────────────────────────────────────────
+   Contrast targets (against --surface #252320):
+     --text  on surface  ≈  9.6 : 1   ✓ AAA
+     --muted on surface  ≈  5.5 : 1   ✓ AA   (was 3.8 — failing)
+     --hint  on surface  ≈  4.7 : 1   ✓ AA   (was 2.0 — failing)
+
+   Don't lower --hint or --muted below WCAG AA without verifying
+   readability in actual usage (sidebar labels, status bar, small-notes).
+   ══════════════════════════════════════════════════════════════════ */
 [data-dark]{
   --bg:#1c1a17;--surface:#252320;
   --border:rgba(255,255,255,0.08);--border-mid:rgba(255,255,255,0.15);
-  --text:#e8dece;--muted:#8a8070;--hint:#5a5448;
+  --text:#e8dece;--muted:#b0a596;--hint:#9c937f;
   --accent-ui:#e8dece;
 }
+/* btn-primary uses var(--accent-ui) as background; in dark mode that's
+   cream, and the default color #fff would be unreadable. Override
+   with dark text for high contrast. */
+[data-dark] .btn-primary{color:#1c1a17}
+[data-dark] .btn-primary:hover{color:#1c1a17;opacity:.92}
 html,body{height:100%}
 body{font-family:var(--sans);background:var(--bg);color:var(--text);display:flex;flex-direction:column;height:100vh;overflow:hidden}
 .app{display:grid;grid-template-columns:var(--sidebar-w) 1fr;flex:1;overflow:hidden;height:100%;min-height:0}
@@ -291,7 +307,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 #writingOrnBtns{display:flex;gap:5px}
 /* writing-body and writing-area defined above */
 .writing-nav{display:flex;gap:6px}
-.writing-nav-btn{padding:3px 10px;border-radius:5px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:rgba(255,255,255,0.65);font-size:10.5px;cursor:pointer;font-family:var(--sans)}
+.writing-nav-btn{padding:3px 10px;border-radius:5px;border:1px solid rgba(255,255,255,0.28);background:transparent;color:rgba(255,255,255,0.85);font-size:10.5px;cursor:pointer;font-family:var(--sans)}
 .writing-nav-btn:hover{background:rgba(255,255,255,0.12);color:#fff}
 
 /* ── Split editor ── */
@@ -358,7 +374,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .fr-input:focus{border-color:rgba(201,149,106,0.7)}
 .fr-input::placeholder{color:rgba(255,255,255,0.3)}
 .fr-label{font-size:10.5px;color:rgba(255,255,255,0.5);font-family:var(--sans);white-space:nowrap}
-.fr-btn{padding:4px 11px;border-radius:5px;border:1px solid rgba(255,255,255,0.2);background:transparent;color:rgba(255,255,255,0.75);font-size:11px;cursor:pointer;font-family:var(--sans);white-space:nowrap}
+.fr-btn{padding:4px 11px;border-radius:5px;border:1px solid rgba(255,255,255,0.3);background:transparent;color:rgba(255,255,255,0.9);font-size:11px;cursor:pointer;font-family:var(--sans);white-space:nowrap}
 .fr-btn:hover{background:rgba(255,255,255,0.12);color:#fff}
 .fr-btn.primary{background:rgba(201,149,106,0.5);border-color:rgba(201,149,106,0.7);color:#fff}
 .fr-btn.primary:hover{background:rgba(201,149,106,0.75)}
@@ -2373,7 +2389,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-05-05-step8-character-list  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-05-06-bug1-and-2  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -3585,8 +3601,20 @@ async function saveVersion() {
   } catch(e) { _hideSaving(); setStatus('Version save failed: '+e.message); }
 }
 
+// Bug 1 invariant guard — set true around the optimistic-removal
+// path in _deleteProject. If a code path inside delete fires
+// loadFolioList anyway, we warn loudly so the regression doesn't
+// reappear silently next time.
+let _wgFlagDeletePath = false;
+
 /* ── Load project list ── */
 async function loadFolioList() {
+  if (_wgFlagDeletePath) {
+    console.warn('[FOLIO] loadFolioList() called from delete path — regression suspected. ' +
+      'Optimistic removal should handle the UI; full reload causes a "Loading your folios…" flash. ' +
+      'Stack trace below.');
+    try { console.trace('[FOLIO] loadFolioList from delete path'); } catch (e) {}
+  }
   // Defensive: always render SOMETHING into #projList. The original
   // initial-state placeholder ("Connect to see your folios.") is the
   // unmodified DOM — if anything in this function silently early-
@@ -3685,7 +3713,10 @@ function _renderShelfBlock(shelfId, label, items) {
   const cards = items.map(p => _renderFolioCard(p)).join('') ||
                 '<p class="small-note" style="opacity:.7;margin:4px 4px 0">— empty —</p>';
 
-  return '<div class="shelf-block">' +
+  // Stamp data-shelf-id (or 'unshelved') so optimistic updates can
+  // find the right shelf without re-rendering the whole list.
+  const dataAttr = ' data-shelf-id="' + (shelfId || 'unshelved') + '"';
+  return '<div class="shelf-block"' + dataAttr + '>' +
     '<div class="shelf-hdr" onclick="_toggleShelfCollapsed(\'' + cToggle + '\')">' +
       '<span class="' + arrowCls + '">▼</span>' +
       '<span class="shelf-hdr-icon">📁</span>' +
@@ -3693,7 +3724,7 @@ function _renderShelfBlock(shelfId, label, items) {
       '<span class="shelf-hdr-count">' + items.length + '</span>' +
       menu +
     '</div>' +
-    '<div class="' + bodyCls + '">' + cards + '</div>' +
+    '<div class="' + bodyCls + '"' + dataAttr + '>' + cards + '</div>' +
   '</div>';
 }
 
@@ -3706,7 +3737,7 @@ function _renderFolioCard(p) {
           esc(s.name) +
         '</option>'
       ).join('');
-  return '<div class="proj-card' + (p.id === _projId ? ' proj-active' : '') + '">' +
+  return '<div class="proj-card' + (p.id === _projId ? ' proj-active' : '') + '" data-folio-id="' + esc(p.id) + '">' +
     '<div class="proj-card-name">' + esc(p.name) + '</div>' +
     '<div class="proj-card-meta"><span>' + n + ' chapter' + (n !== 1 ? 's' : '') + '</span><span>' + d + '</span></div>' +
     '<div class="proj-card-acts">' +
@@ -3905,7 +3936,44 @@ async function _deleteProject(id, name) {
       if (typeof _updateInviteUI === 'function') _updateInviteUI();
     } catch (e) { console.warn('[FOLIO] post-delete UI reset:', e); }
   }
-  await loadFolioList();
+  // ─ Optimistic local removal. Don't refetch the whole list — that
+  //   blanks the sidebar and rebuilds every shelf, losing collapse
+  //   state and triggering a "Loading your folios…" flash.
+  try {
+    _wgFlagDeletePath = true;  // invariant guard — see _wgWatchedLoadFolioList below
+    if (Array.isArray(_lastFolioList)) {
+      const idx = _lastFolioList.findIndex(p => p && p.id === id);
+      if (idx >= 0) _lastFolioList.splice(idx, 1);
+    }
+    const card = document.querySelector('.proj-card[data-folio-id="' + id + '"]');
+    if (card) {
+      const shelfBody = card.closest('[data-shelf-id]');
+      const shelfBlock = shelfBody ? shelfBody.closest('.shelf-block') : null;
+      // Smooth visual fade-out
+      card.style.transition = 'opacity .15s, transform .15s';
+      card.style.opacity = '0';
+      card.style.transform = 'scale(.97)';
+      setTimeout(() => {
+        try {
+          if (card.parentNode) card.parentNode.removeChild(card);
+          // Decrement the shelf header count badge
+          if (shelfBlock) {
+            const badge = shelfBlock.querySelector('.shelf-hdr-count');
+            if (badge) {
+              const n = parseInt(badge.textContent, 10);
+              if (isFinite(n) && n > 0) badge.textContent = String(n - 1);
+            }
+            // If the body now has no .proj-card children, render the empty placeholder
+            if (shelfBody && !shelfBody.querySelector('.proj-card')) {
+              shelfBody.innerHTML = '<p class="small-note" style="opacity:.7;margin:4px 4px 0">— empty —</p>';
+            }
+          }
+        } catch (e) { console.warn('[FOLIO] post-delete DOM update:', e); }
+      }, 150);
+    }
+  } finally {
+    setTimeout(() => { _wgFlagDeletePath = false; }, 200);
+  }
   setStatus('Folio deleted');
   if (typeof toastInfo === 'function') toastInfo('Folio deleted', { duration: 1800 });
 }
