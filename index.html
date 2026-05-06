@@ -837,6 +837,95 @@ html[data-reader] #siteFooter{display:none!important}
 #rdPronBtn{display:inline-flex;align-items:center;justify-content:center}
 #rdPronBtn[data-active="1"]{background:rgba(201,140,42,.15);color:var(--accent-ui)}
 
+
+/* ── Character cast list (Step 8) ── */
+.char-list{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.char-row{
+  display:grid;grid-template-columns:auto 1fr auto auto;gap:8px;align-items:center;
+  padding:8px 9px;border:.5px solid var(--border-mid);border-radius:6px;
+  background:var(--bg);font-size:12px;
+}
+.char-row .char-swatch{
+  width:14px;height:14px;border-radius:50%;
+  border:.5px solid rgba(0,0,0,.18);flex-shrink:0;
+}
+.char-row .char-info{min-width:0;overflow:hidden}
+.char-row .char-name{font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.char-row .char-voice{
+  display:block;font-size:10.5px;color:var(--hint);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.char-row .char-voice.no-voice{color:#c44;font-style:italic}
+.char-row .char-mini{
+  background:none;border:.5px solid transparent;border-radius:5px;
+  font-size:11px;cursor:pointer;color:var(--hint);padding:3px 7px;
+}
+.char-row .char-mini:hover{color:var(--accent-ui);border-color:var(--accent-ui)}
+.char-row .char-del:hover{color:#c44;border-color:#c44}
+.char-add-btn{
+  display:flex;align-items:center;justify-content:center;gap:5px;
+  width:100%;padding:6px 10px;margin-top:8px;
+  border:.5px dashed var(--border-mid);border-radius:6px;
+  background:transparent;color:var(--hint);font-size:11.5px;
+  font-family:var(--sans);cursor:pointer;transition:all .12s;
+}
+.char-add-btn:hover{border-color:var(--accent-ui);color:var(--accent-ui)}
+.char-empty{font-size:10.5px;color:var(--hint);padding:.4rem 0;font-style:italic}
+[data-dark] .char-row{background:rgba(255,255,255,.03)}
+
+/* Character modal — same shape as pron modal */
+#charModal{
+  position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;
+  background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);
+  display:none;align-items:center;justify-content:center;
+}
+#charModal.open{display:flex}
+#charModal .cm-box{
+  background:var(--surface);border:.5px solid var(--border-mid);
+  border-radius:14px;max-width:520px;width:94%;
+  box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:22px 24px;
+  font-family:var(--sans);color:var(--text);
+}
+#charModal h3{font-size:14px;font-weight:600;margin:0 0 12px}
+#charModal label{
+  display:block;font-size:11px;font-weight:500;color:var(--hint);
+  margin:10px 0 4px;letter-spacing:.02em;
+}
+#charModal input[type=text],#charModal select,#charModal textarea{
+  width:100%;font-size:13px;padding:7px 10px;
+  border:.5px solid var(--border-mid);border-radius:7px;
+  background:var(--bg);color:var(--text);outline:none;
+  font-family:var(--sans);
+}
+#charModal textarea{font-family:var(--sans);min-height:54px;resize:vertical}
+#charModal input:focus,#charModal select:focus,#charModal textarea:focus{border-color:var(--accent-ui)}
+#charModal .cm-hint{font-size:10.5px;color:var(--hint);margin-top:3px;line-height:1.5}
+#charModal .cm-color-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+#charModal .cm-color-swatch{
+  width:22px;height:22px;border-radius:50%;cursor:pointer;
+  border:1.5px solid transparent;transition:transform .12s;
+}
+#charModal .cm-color-swatch:hover{transform:scale(1.1)}
+#charModal .cm-color-swatch.active{
+  border-color:var(--text);box-shadow:0 0 0 2px var(--surface),0 0 0 3.5px var(--text);
+}
+#charModal .cm-actions{
+  display:flex;gap:7px;justify-content:flex-end;margin-top:16px;
+}
+#charModal .cm-btn{
+  padding:7px 13px;border-radius:7px;border:.5px solid var(--border-mid);
+  background:transparent;color:var(--text);font-size:12px;cursor:pointer;
+  font-family:var(--sans);
+}
+#charModal .cm-btn.cm-primary{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
+#charModal .cm-btn:hover:not(:disabled){opacity:.85}
+#charModal .cm-warn{
+  background:#fff7e6;border:.5px solid #f0d99a;color:#8a6111;
+  padding:8px 11px;border-radius:6px;font-size:11px;line-height:1.5;
+  margin-top:8px;
+}
+[data-dark] #charModal .cm-warn{background:rgba(245,158,11,.08);border-color:rgba(245,158,11,.4);color:#fbbf24}
+
 /* ══════ Release modal ══════ */
 .rl-mode.active {
   background: var(--accent-ui) !important;
@@ -1902,6 +1991,16 @@ html[data-reader] #readerBar { display: flex; }
         <button class="pron-add-btn" onclick="_pronOpenModal()">+ Add pronunciation</button>
       </div>
 
+      <div class="section" id="charSection">
+        <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Cast</span>
+          <span style="font-size:10px;color:var(--hint);text-transform:none;letter-spacing:0;font-weight:400">audio only · auto-voicing soon</span>
+        </div>
+        <p class="small-note" style="margin-bottom:4px">Define your characters and pick a voice for each. The next update will auto-detect dialog and switch voices when speakers change. For now the list is saved with the folio so it's ready when the audio side lands.</p>
+        <div class="char-list" id="charList"></div>
+        <button class="char-add-btn" onclick="_charOpenModal()">+ Add character</button>
+      </div>
+
     </div>
 
     <!-- ── IMAGES TAB ── -->
@@ -2274,7 +2373,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-05-05-phase1-complete  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-05-05-step8-character-list  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -5279,6 +5378,299 @@ function estimatePageCount(wordCount) {
 
 
 
+
+/* ══════════════════════════════════════════════════════════════════
+   Character cast list (Step 8 — foundation only)
+   ──────────────────────────────────────────────────────────────────
+   Per-folio storage on state.characters. NOT YET wired to the audio
+   pipeline — that's the next commit. This commit just records the
+   author's cast and assigned voices so the data is ready when
+   auto-detection lands.
+
+   Schema:
+     state.characters: [{
+       id:            string ('char_' + epoch + '_' + rand),
+       name:          string,
+       voiceId:       string ('' = no voice / narrator default),
+       voiceProvider: 'google' | 'elevenlabs' | '',
+       description:   string,
+       aliases:       string[] (lowercased on save for matching),
+       color:         string (hex / named),
+     }]
+   ══════════════════════════════════════════════════════════════════ */
+
+const _CHAR_COLORS = [
+  '#c98c2a', '#5a8a3e', '#3a6c8c', '#9c3d4a',
+  '#6b4c8a', '#2a6a5a', '#c47a5a', '#8a8a3e',
+  '#5a5a8a', '#8a3e5a', '#3e8a8a', '#6b6b6b',
+];
+
+function _charNewId() {
+  return 'char_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+}
+
+function _charGetAll() {
+  if (typeof _state !== 'object' || _state == null) return [];
+  if (!Array.isArray(_state.characters)) _state.characters = [];
+  return _state.characters;
+}
+
+function _charGetById(id) {
+  const list = _charGetAll();
+  return list.find(c => c.id === id) || null;
+}
+
+function _charAdd(rec) {
+  if (!rec || !rec.name) return null;
+  const list = _charGetAll();
+  const c = {
+    id: rec.id || _charNewId(),
+    name: String(rec.name).trim(),
+    voiceId: String(rec.voiceId || ''),
+    voiceProvider: String(rec.voiceProvider || ''),
+    description: String(rec.description || '').trim(),
+    aliases: Array.isArray(rec.aliases)
+      ? rec.aliases.map(a => String(a).trim().toLowerCase()).filter(Boolean)
+      : [],
+    color: String(rec.color || _CHAR_COLORS[list.length % _CHAR_COLORS.length]),
+    createdAt: rec.createdAt || Date.now(),
+    updatedAt: Date.now(),
+  };
+  // Replace if exists by id, otherwise append
+  const i = list.findIndex(x => x.id === c.id);
+  if (i >= 0) list[i] = c; else list.push(c);
+  if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+  _charRender();
+  return c;
+}
+
+function _charDelete(id) {
+  if (!id) return;
+  const list = _charGetAll();
+  const i = list.findIndex(c => c.id === id);
+  if (i >= 0) {
+    list.splice(i, 1);
+    if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+    _charRender();
+  }
+}
+
+function _charVoiceLabel(c) {
+  if (!c || !c.voiceId) return null;
+  // Try to look up the friendly label from the loaded voice lists
+  if (c.voiceProvider === 'google' && Array.isArray(_apGoogleVoices)) {
+    const v = _apGoogleVoices.find(x => x.id === c.voiceId || x.name === c.voiceId);
+    if (v) return 'Google · ' + (v.label || v.name || v.id);
+  }
+  if (c.voiceProvider === 'elevenlabs' && Array.isArray(_apElVoices)) {
+    const v = _apElVoices.find(x => x.id === c.voiceId);
+    if (v) return 'ElevenLabs · ' + (v.label || v.name || v.id);
+  }
+  // Unknown / not loaded yet — show the raw id with a hint
+  return (c.voiceProvider || 'voice') + ' · ' + c.voiceId;
+}
+
+function _charRender() {
+  const list = document.getElementById('charList');
+  if (!list) return;
+  const chars = _charGetAll();
+  if (!chars.length) {
+    list.innerHTML = '<div class="char-empty">No characters yet. Add your protagonists, antagonists, or anyone with dialog you want voiced distinctly.</div>';
+    return;
+  }
+  list.innerHTML = chars.map(c => {
+    const voice = _charVoiceLabel(c);
+    const voiceCls = voice ? 'char-voice' : 'char-voice no-voice';
+    const voiceTxt = voice || 'No voice assigned';
+    return '<div class="char-row" data-id="' + _esc(c.id) + '">' +
+      '<div class="char-swatch" style="background:' + _esc(c.color) + '"></div>' +
+      '<div class="char-info">' +
+        '<div class="char-name">' + _esc(c.name) + '</div>' +
+        '<span class="' + voiceCls + '">' + _esc(voiceTxt) + '</span>' +
+      '</div>' +
+      '<button class="char-mini" onclick="_charOpenModal(\'' + _esc(c.id) + '\')" title="Edit">✎</button>' +
+      '<button class="char-mini char-del" onclick="_charDelete(\'' + _esc(c.id) + '\')" title="Delete">✕</button>' +
+    '</div>';
+  }).join('');
+}
+
+// Modal state
+let _charModalEditingId = null;
+
+function _charPopulateVoiceDropdown(selectedId, selectedProvider) {
+  const sel = document.getElementById('cmVoice');
+  const hint = document.getElementById('cmVoiceHint');
+  if (!sel) return;
+  // Always include the "no voice" placeholder at the top
+  sel.innerHTML = '<option value="">— No voice assigned (narrator default) —</option>';
+
+  const googleVoices = Array.isArray(_apGoogleVoices) ? _apGoogleVoices : [];
+  const elVoices = Array.isArray(_apElVoices) ? _apElVoices : [];
+
+  if (googleVoices.length) {
+    const og = document.createElement('optgroup');
+    og.label = 'Google TTS';
+    googleVoices.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = 'google::' + v.id;
+      opt.textContent = v.label || v.name || v.id;
+      sel.appendChild(og);
+      og.appendChild(opt);
+    });
+  }
+  if (elVoices.length) {
+    const og = document.createElement('optgroup');
+    og.label = 'ElevenLabs';
+    elVoices.forEach(v => {
+      const opt = document.createElement('option');
+      opt.value = 'elevenlabs::' + v.id;
+      opt.textContent = v.label || v.name || v.id;
+      sel.appendChild(og);
+      og.appendChild(opt);
+    });
+  }
+  // Restore selection
+  if (selectedId && selectedProvider) {
+    sel.value = selectedProvider + '::' + selectedId;
+  }
+  // Hint
+  if (!googleVoices.length && !elVoices.length) {
+    if (hint) hint.innerHTML = '<span style="color:#c44">⚠ Open the Audio panel (🎙) and enter your TTS API key first to load voices.</span>';
+  } else {
+    const parts = [];
+    if (googleVoices.length) parts.push(googleVoices.length + ' Google');
+    if (elVoices.length) parts.push(elVoices.length + ' ElevenLabs');
+    if (hint) hint.textContent = 'Available: ' + parts.join(', ') + ' voice' + ((googleVoices.length + elVoices.length === 1) ? '' : 's') + '. Open the Audio panel to refresh.';
+  }
+}
+
+function _charOpenModal(prefillId) {
+  const modal = document.getElementById('charModal');
+  if (!modal) return;
+  const titleEl = document.getElementById('charModalTitle');
+  const nameEl = document.getElementById('cmName');
+  const voiceEl = document.getElementById('cmVoice');
+  const aliasEl = document.getElementById('cmAliases');
+  const descEl = document.getElementById('cmDesc');
+  const colorRow = document.getElementById('cmColorRow');
+  const delBtn = document.getElementById('cmDeleteBtn');
+
+  let editing = null;
+  if (prefillId) {
+    editing = _charGetById(prefillId);
+  }
+  _charModalEditingId = editing ? editing.id : null;
+
+  if (titleEl) titleEl.textContent = editing ? 'Edit character' : 'Add character';
+  if (nameEl) nameEl.value = editing ? editing.name : '';
+  if (aliasEl) aliasEl.value = editing && editing.aliases ? editing.aliases.join(', ') : '';
+  if (descEl) descEl.value = editing ? editing.description : '';
+  if (delBtn) delBtn.style.display = editing ? '' : 'none';
+
+  // Voice picker — populate fresh each open so newly-loaded voices appear.
+  _charPopulateVoiceDropdown(
+    editing ? editing.voiceId : '',
+    editing ? editing.voiceProvider : ''
+  );
+
+  // Color picker — render swatches, mark active.
+  if (colorRow) {
+    const activeColor = editing ? editing.color
+      : _CHAR_COLORS[_charGetAll().length % _CHAR_COLORS.length];
+    colorRow.innerHTML = _CHAR_COLORS.map(col =>
+      '<div class="cm-color-swatch' + (col === activeColor ? ' active' : '') + '" ' +
+        'style="background:' + col + '" data-color="' + col + '" ' +
+        'onclick="_charPickColor(\'' + col + '\')"></div>'
+    ).join('');
+    colorRow.dataset.selected = activeColor;
+  }
+
+  modal.classList.add('open');
+  modal.setAttribute('aria-hidden', 'false');
+  setTimeout(() => { if (nameEl && !nameEl.value) nameEl.focus(); }, 50);
+}
+
+function _charPickColor(col) {
+  const row = document.getElementById('cmColorRow');
+  if (!row) return;
+  row.dataset.selected = col;
+  row.querySelectorAll('.cm-color-swatch').forEach(s => {
+    s.classList.toggle('active', s.dataset.color === col);
+  });
+}
+
+function _charCloseModal() {
+  const modal = document.getElementById('charModal');
+  if (modal) {
+    modal.classList.remove('open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+  _charModalEditingId = null;
+}
+
+function _charSaveFromModal() {
+  const nameEl = document.getElementById('cmName');
+  const voiceEl = document.getElementById('cmVoice');
+  const aliasEl = document.getElementById('cmAliases');
+  const descEl = document.getElementById('cmDesc');
+  const colorRow = document.getElementById('cmColorRow');
+  const name = (nameEl && nameEl.value || '').trim();
+  if (!name) {
+    if (typeof toastWarning === 'function')
+      toastWarning('Enter a character name.', { duration: 2400 });
+    if (nameEl) nameEl.focus();
+    return;
+  }
+  // Voice value is "provider::id" or "" (none)
+  let voiceId = '', voiceProvider = '';
+  if (voiceEl && voiceEl.value) {
+    const parts = voiceEl.value.split('::');
+    if (parts.length === 2) {
+      voiceProvider = parts[0];
+      voiceId = parts[1];
+    }
+  }
+  const aliases = (aliasEl && aliasEl.value || '')
+    .split(',').map(a => a.trim()).filter(Boolean);
+  const description = (descEl && descEl.value || '').trim();
+  const color = (colorRow && colorRow.dataset.selected) || _CHAR_COLORS[0];
+
+  const rec = {
+    id: _charModalEditingId,  // null if new
+    name: name,
+    voiceId: voiceId,
+    voiceProvider: voiceProvider,
+    description: description,
+    aliases: aliases,
+    color: color,
+  };
+  _charAdd(rec);
+  if (typeof toastSuccess === 'function')
+    toastSuccess('Character "' + name + '" saved', { icon: '🎭', duration: 2200 });
+  _charCloseModal();
+}
+
+function _charDeleteFromModal() {
+  if (!_charModalEditingId) return;
+  const c = _charGetById(_charModalEditingId);
+  if (!c) return;
+  if (!confirm('Delete character "' + c.name + '"?')) return;
+  _charDelete(_charModalEditingId);
+  _charCloseModal();
+  if (typeof toastInfo === 'function')
+    toastInfo('Character removed', { duration: 1800 });
+}
+
+window._charOpenModal      = _charOpenModal;
+window._charCloseModal     = _charCloseModal;
+window._charSaveFromModal  = _charSaveFromModal;
+window._charDeleteFromModal = _charDeleteFromModal;
+window._charDelete         = _charDelete;
+window._charGetAll         = _charGetAll;
+window._charGetById        = _charGetById;
+window._charRender         = _charRender;
+window._charPickColor      = _charPickColor;
+
 /* ══════════════════════════════════════════════════════════════════
    Pronunciation glossary (Step 4 — infrastructure)
    ──────────────────────────────────────────────────────────────────
@@ -5639,6 +6031,8 @@ function updateChapterStats(){
   if (typeof _wgRender === 'function') { try { _wgRender(); } catch (e) {} }
   // Step 4 — refresh the pronunciation glossary list when relevant.
   if (typeof _pronRender === 'function') { try { _pronRender(); } catch (e) {} }
+  // Step 8 — refresh the character cast list.
+  if (typeof _charRender === 'function') { try { _charRender(); } catch (e) {} }
   const pre=chapters.filter(c=>c.type==='pre').length;
   const ch=chapters.filter(c=>c.type==='chapter').length;
   const post=chapters.filter(c=>c.type==='post').length;
@@ -15150,6 +15544,41 @@ window._apOnImportFile       = _apOnImportFile;
 
 </script>
 
+
+
+<!-- Character editor modal (Step 8) -->
+<div id="charModal" role="dialog" aria-hidden="true" aria-labelledby="charModalTitle" onclick="if(event.target===this)_charCloseModal()">
+  <div class="cm-box">
+    <h3 id="charModalTitle">Add character</h3>
+
+    <label for="cmName">Name</label>
+    <input type="text" id="cmName" placeholder="e.g., Aelindra" autocomplete="off">
+    <div class="cm-hint">The name as it appears in your manuscript. Auto-detection will look for "said NAME" / "NAME said" patterns near dialog.</div>
+
+    <label for="cmVoice">Voice</label>
+    <select id="cmVoice">
+      <option value="">— No voice assigned (narrator default) —</option>
+    </select>
+    <div class="cm-hint" id="cmVoiceHint"></div>
+
+    <label for="cmAliases">Also known as <span style="opacity:.6;font-weight:400">(comma-separated, optional)</span></label>
+    <input type="text" id="cmAliases" placeholder="e.g., Ael, the Princess, your highness" autocomplete="off">
+    <div class="cm-hint">Aliases help auto-detection match dialog tags written with nicknames or titles.</div>
+
+    <label for="cmDesc">Description <span style="opacity:.6;font-weight:400">(optional)</span></label>
+    <textarea id="cmDesc" placeholder="e.g., Elven princess, contralto voice, slight British accent in delivery"></textarea>
+    <div class="cm-hint">Notes for yourself. Future versions may use this to help pick voices automatically.</div>
+
+    <label>Color tag <span style="opacity:.6;font-weight:400">(for at-a-glance reference)</span></label>
+    <div class="cm-color-row" id="cmColorRow"></div>
+
+    <div class="cm-actions">
+      <button class="cm-btn cm-del" id="cmDeleteBtn" onclick="_charDeleteFromModal()" style="margin-right:auto;color:#c44;border-color:#c4444450;display:none">Delete</button>
+      <button class="cm-btn" onclick="_charCloseModal()">Cancel</button>
+      <button class="cm-btn cm-primary" onclick="_charSaveFromModal()">Save</button>
+    </div>
+  </div>
+</div>
 
 <!-- Right-click context menu (Step 6 — restored + Set Pronunciation) -->
 <div id="ctxMenu" role="menu" aria-label="Editor context menu">
