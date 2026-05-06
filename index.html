@@ -2041,7 +2041,11 @@ html[data-reader] #readerBar { display: flex; }
       <div class="section" id="pronSection">
         <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
           <span>Pronunciations</span>
-          <span style="font-size:10px;color:var(--hint);text-transform:none;letter-spacing:0;font-weight:400">audio only</span>
+          <span style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--hint);text-transform:none;letter-spacing:0;font-weight:400">
+            <button onclick="_pronImportCSV()" title="Import pronunciations from CSV" style="background:none;border:none;color:var(--hint);cursor:pointer;font-size:11px;padding:2px 5px;border-radius:4px;text-transform:none;letter-spacing:0;font-weight:400">↑ CSV</button>
+            <button onclick="_pronExportCSV()" title="Export pronunciations to CSV" style="background:none;border:none;color:var(--hint);cursor:pointer;font-size:11px;padding:2px 5px;border-radius:4px;text-transform:none;letter-spacing:0;font-weight:400">↓ CSV</button>
+            <span style="opacity:.6">audio only</span>
+          </span>
         </div>
         <p class="small-note" style="margin-bottom:4px">Tell the audiobook how to pronounce names, fantasy words, and unusual spellings. Visible exports (PDF, EPUB, print) ignore this list.</p>
         <div class="pron-list" id="pronList"></div>
@@ -2051,7 +2055,11 @@ html[data-reader] #readerBar { display: flex; }
       <div class="section" id="charSection">
         <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
           <span>Cast</span>
-          <span style="font-size:10px;color:var(--hint);text-transform:none;letter-spacing:0;font-weight:400">audio only · auto-voicing soon</span>
+          <span style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--hint);text-transform:none;letter-spacing:0;font-weight:400">
+            <button onclick="_charImportCSV()" title="Import cast from CSV" style="background:none;border:none;color:var(--hint);cursor:pointer;font-size:11px;padding:2px 5px;border-radius:4px;text-transform:none;letter-spacing:0;font-weight:400">↑ CSV</button>
+            <button onclick="_charExportCSV()" title="Export cast to CSV" style="background:none;border:none;color:var(--hint);cursor:pointer;font-size:11px;padding:2px 5px;border-radius:4px;text-transform:none;letter-spacing:0;font-weight:400">↓ CSV</button>
+            <span style="opacity:.6">audio only · auto-voicing soon</span>
+          </span>
         </div>
         <p class="small-note" style="margin-bottom:4px">Define your characters and pick a voice for each. The next update will auto-detect dialog and switch voices when speakers change. For now the list is saved with the folio so it's ready when the audio side lands.</p>
         <div class="char-list" id="charList"></div>
@@ -2430,7 +2438,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-05-06-bugs3-4-5  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-05-06-test-buttons  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -5770,6 +5778,102 @@ function _charDeleteFromModal() {
     toastInfo('Character removed', { duration: 1800 });
 }
 
+
+function _charExportCSV() {
+  const list = _charGetAll();
+  if (!list.length) {
+    if (typeof toastInfo === 'function')
+      toastInfo('No characters to export yet', { duration: 2400 });
+    return;
+  }
+  const rows = [['name', 'voiceId', 'voiceProvider', 'description', 'aliases', 'color']];
+  list.forEach(c => {
+    rows.push([
+      c.name || '',
+      c.voiceId || '',
+      c.voiceProvider || '',
+      c.description || '',
+      Array.isArray(c.aliases) ? c.aliases.join(';') : '',
+      c.color || '',
+    ]);
+  });
+  const folioName = (document.getElementById('projName')?.value || 'folio').trim();
+  const safe = folioName.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 60) || 'folio';
+  _csvDownload(safe + '-characters.csv', _csvBuild(rows));
+  if (typeof toastSuccess === 'function')
+    toastSuccess('Exported ' + list.length + ' character' + (list.length === 1 ? '' : 's'),
+      { icon: '🎭', duration: 2200 });
+}
+
+function _charImportCSV() {
+  _csvPickFile(text => {
+    const rows = _csvParse(text);
+    if (!rows.length) {
+      if (typeof toastWarning === 'function')
+        toastWarning('Empty CSV', { duration: 2400 });
+      return;
+    }
+    const headerRow = rows[0].map(c => String(c).trim().toLowerCase());
+    let dataRows = rows;
+    let cols = { name: 0, voiceId: 1, voiceProvider: 2, description: 3, aliases: 4, color: 5 };
+    if (headerRow.includes('name')) {
+      dataRows = rows.slice(1);
+      cols = {
+        name: headerRow.indexOf('name'),
+        voiceId: headerRow.indexOf('voiceid'),
+        voiceProvider: headerRow.indexOf('voiceprovider'),
+        description: headerRow.indexOf('description'),
+        aliases: headerRow.indexOf('aliases'),
+        color: headerRow.indexOf('color'),
+      };
+    }
+    let added = 0, skipped = 0;
+    for (const r of dataRows) {
+      const name = (r[cols.name] || '').trim();
+      if (!name) { skipped++; continue; }
+      const aliasesRaw = cols.aliases >= 0 ? (r[cols.aliases] || '') : '';
+      const aliases = aliasesRaw.split(/[;,]/).map(a => a.trim()).filter(Boolean);
+      _charAdd({
+        name: name,
+        voiceId: cols.voiceId >= 0 ? (r[cols.voiceId] || '').trim() : '',
+        voiceProvider: cols.voiceProvider >= 0 ? (r[cols.voiceProvider] || '').trim() : '',
+        description: cols.description >= 0 ? (r[cols.description] || '').trim() : '',
+        aliases: aliases,
+        color: cols.color >= 0 ? (r[cols.color] || '').trim() : '',
+      });
+      added++;
+    }
+    if (typeof toastSuccess === 'function')
+      toastSuccess('Imported ' + added + ' character' + (added === 1 ? '' : 's') +
+        (skipped ? ' (' + skipped + ' skipped)' : ''),
+        { icon: '🎭', duration: 3000 });
+  });
+}
+
+window._charExportCSV = _charExportCSV;
+window._charImportCSV = _charImportCSV;
+
+
+function _charTestFromModal() {
+  const nameEl = document.getElementById('cmName');
+  const voiceEl = document.getElementById('cmVoice');
+  const name = (nameEl && nameEl.value || '').trim() || 'Character';
+  // Voice value is "provider::id" or "" (none) — same as save flow.
+  let voiceId = '', voiceProvider = '';
+  if (voiceEl && voiceEl.value) {
+    const parts = voiceEl.value.split('::');
+    if (parts.length === 2) { voiceProvider = parts[0]; voiceId = parts[1]; }
+  }
+  if (!voiceId) {
+    if (typeof toastWarning === 'function')
+      toastWarning('Pick a voice first.', { duration: 2800 });
+    return;
+  }
+  const sample = 'Hello, my name is ' + name + '.';
+  _ttsTestSpeak(sample, { provider: voiceProvider, voiceId: voiceId });
+}
+window._charTestFromModal = _charTestFromModal;
+
 window._charOpenModal      = _charOpenModal;
 window._charCloseModal     = _charCloseModal;
 window._charSaveFromModal  = _charSaveFromModal;
@@ -5779,6 +5883,135 @@ window._charGetAll         = _charGetAll;
 window._charGetById        = _charGetById;
 window._charRender         = _charRender;
 window._charPickColor      = _charPickColor;
+
+
+/* ── CSV helpers (used by glossary + cast import/export) ── */
+function _csvEscape(v) {
+  v = String(v == null ? '' : v);
+  if (/[",\n\r]/.test(v)) return '"' + v.replace(/"/g, '""') + '"';
+  return v;
+}
+function _csvBuild(rows) {
+  return rows.map(r => r.map(_csvEscape).join(',')).join('\n');
+}
+// Character-by-character CSV parser. Handles RFC 4180 properly.
+function _csvParse(text) {
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ',') { row.push(field); field = ''; }
+      else if (c === '\n' || c === '\r') {
+        if (c === '\r' && text[i + 1] === '\n') i++;
+        row.push(field); rows.push(row);
+        row = []; field = '';
+      } else field += c;
+    }
+  }
+  if (field || row.length) { row.push(field); rows.push(row); }
+  // Filter trailing empty rows (common with file editors that add a
+  // final newline).
+  while (rows.length && rows[rows.length - 1].every(c => c === '')) rows.pop();
+  return rows;
+}
+function _csvDownload(filename, csvText) {
+  try {
+    const blob = new Blob(['\uFEFF' + csvText], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+  } catch (e) { console.warn('[csv] download:', e); }
+}
+function _csvPickFile(onText) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.csv,text/csv';
+  input.onchange = (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = (ev) => onText(ev.target.result || '');
+    r.onerror = () => {
+      if (typeof toastWarning === 'function')
+        toastWarning('CSV read failed', { duration: 3000 });
+    };
+    r.readAsText(f, 'utf-8');
+  };
+  input.click();
+}
+
+
+/* ── Test-utterance helper (used by glossary + cast Test buttons) ── */
+let _ttsTestAudio = null;
+
+async function _ttsTestSpeak(text, opts) {
+  // Stop any in-flight test playback first.
+  if (_ttsTestAudio) {
+    try { _ttsTestAudio.pause(); } catch (e) {}
+    _ttsTestAudio = null;
+  }
+  opts = opts || {};
+  const provider = opts.provider || (typeof _apProvider !== 'undefined' ? _apProvider : 'google');
+  let voiceId = opts.voiceId;
+  if (!voiceId) {
+    voiceId = (typeof _apVoiceId !== 'undefined' ? _apVoiceId : '');
+  }
+  // Fail fast with a clear message if the audio panel hasn't been
+  // configured yet.
+  if (provider === 'google') {
+    const key = localStorage.getItem('folio_audio_google_key') || '';
+    if (!key) {
+      if (typeof toastWarning === 'function')
+        toastWarning('Open the Audio panel (🎙) and enter your Google TTS API key first.', { duration: 4000 });
+      return;
+    }
+    try {
+      const blob = await _apGoogleTTS(text, voiceId, (typeof _apSpeed !== 'undefined' ? _apSpeed : 1.0), key);
+      _ttsTestPlay(blob);
+    } catch (e) {
+      if (typeof toastWarning === 'function')
+        toastWarning('Test failed: ' + (e?.message || 'unknown'), { duration: 4500 });
+    }
+  } else if (provider === 'elevenlabs') {
+    const key = localStorage.getItem('folio_audio_el_key') || '';
+    if (!key) {
+      if (typeof toastWarning === 'function')
+        toastWarning('Open the Audio panel (🎙) and enter your ElevenLabs API key first.', { duration: 4000 });
+      return;
+    }
+    try {
+      const blob = await _apElevenLabsTTS(text, voiceId, key);
+      _ttsTestPlay(blob);
+    } catch (e) {
+      if (typeof toastWarning === 'function')
+        toastWarning('Test failed: ' + (e?.message || 'unknown'), { duration: 4500 });
+    }
+  }
+}
+
+function _ttsTestPlay(blob) {
+  try {
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onended = () => { try { URL.revokeObjectURL(url); } catch (e) {} _ttsTestAudio = null; };
+    _ttsTestAudio = audio;
+    audio.play().catch(e => {
+      if (typeof toastInfo === 'function')
+        toastInfo('Tap Test again to play (browser blocked autoplay)', { duration: 2400 });
+    });
+  } catch (e) { console.warn('[tts-test] play:', e); }
+}
+
+window._ttsTestSpeak = _ttsTestSpeak;
 
 /* ══════════════════════════════════════════════════════════════════
    Pronunciation glossary (Step 4 — infrastructure)
@@ -5806,7 +6039,7 @@ function _pronGet(word) {
   return map[String(word).toLowerCase()] || null;
 }
 
-function _pronAdd(word, ipa, phonetic, note) {
+function _pronAdd(word, ipa, phonetic, note, speakerOverride) {
   word = String(word || '').trim();
   if (!word) return;
   const map = _pronGetAll();
@@ -5817,6 +6050,11 @@ function _pronAdd(word, ipa, phonetic, note) {
     ipa: String(ipa || '').trim(),
     phonetic: String(phonetic || '').trim(),
     note: String(note || '').trim(),
+    // Forward-compat with the per-speaker voices feature: a
+    // glossary entry may declare "always voice this in characterId
+    // X's voice" — empty by default, opt-in via the picker we'll
+    // add when dialog auto-detection lands.
+    speakerOverride: String(speakerOverride || existing.speakerOverride || '').trim(),
     createdAt: existing.createdAt || Date.now(),
     updatedAt: Date.now(),
   };
@@ -5942,6 +6180,110 @@ function _pronDeleteFromModal() {
 
 // Re-render whenever folio loads or chapter list refreshes (autosave restore path)
 window.addEventListener('folio-loaded', () => { try { _pronRender(); } catch (e) {} });
+
+
+function _pronExportCSV() {
+  const map = _pronGetAll();
+  const keys = Object.keys(map).sort((a, b) => map[a].word.localeCompare(map[b].word));
+  const rows = [['word', 'ipa', 'phonetic', 'note', 'speakerOverride']];
+  keys.forEach(k => {
+    const e = map[k];
+    rows.push([
+      e.word || '', e.ipa || '', e.phonetic || '',
+      e.note || '', e.speakerOverride || '',
+    ]);
+  });
+  if (rows.length === 1) {
+    if (typeof toastInfo === 'function')
+      toastInfo('No pronunciations to export yet', { duration: 2400 });
+    return;
+  }
+  const folioName = (document.getElementById('projName')?.value || 'folio').trim();
+  const safe = folioName.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 60) || 'folio';
+  _csvDownload(safe + '-pronunciations.csv', _csvBuild(rows));
+  if (typeof toastSuccess === 'function')
+    toastSuccess('Exported ' + (rows.length - 1) + ' pronunciation' + (rows.length === 2 ? '' : 's'),
+      { icon: '🗣', duration: 2200 });
+}
+
+function _pronImportCSV() {
+  _csvPickFile(text => {
+    const rows = _csvParse(text);
+    if (!rows.length) {
+      if (typeof toastWarning === 'function')
+        toastWarning('Empty CSV', { duration: 2400 });
+      return;
+    }
+    // Detect header. If row 0 has a 'word' or 'Word' cell, treat as header.
+    const headerRow = rows[0].map(c => String(c).trim().toLowerCase());
+    let dataRows = rows;
+    let cols = { word: 0, ipa: 1, phonetic: 2, note: 3, speakerOverride: 4 };
+    if (headerRow.includes('word')) {
+      dataRows = rows.slice(1);
+      cols = {
+        word: headerRow.indexOf('word'),
+        ipa: headerRow.indexOf('ipa'),
+        phonetic: headerRow.indexOf('phonetic'),
+        note: headerRow.indexOf('note'),
+        speakerOverride: headerRow.indexOf('speakeroverride'),
+      };
+    }
+    let added = 0, skipped = 0;
+    for (const r of dataRows) {
+      const word = (r[cols.word] || '').trim();
+      if (!word) { skipped++; continue; }
+      const ipa = cols.ipa >= 0 ? (r[cols.ipa] || '').trim() : '';
+      const phonetic = cols.phonetic >= 0 ? (r[cols.phonetic] || '').trim() : '';
+      const note = cols.note >= 0 ? (r[cols.note] || '').trim() : '';
+      const speakerOverride = cols.speakerOverride >= 0 ? (r[cols.speakerOverride] || '').trim() : '';
+      if (!ipa && !phonetic) { skipped++; continue; }  // need at least one
+      _pronAdd(word, ipa, phonetic, note, speakerOverride);
+      added++;
+    }
+    if (typeof toastSuccess === 'function')
+      toastSuccess('Imported ' + added + ' pronunciation' + (added === 1 ? '' : 's') +
+        (skipped ? ' (' + skipped + ' skipped)' : ''),
+        { icon: '🗣', duration: 3000 });
+  });
+}
+
+window._pronExportCSV = _pronExportCSV;
+window._pronImportCSV = _pronImportCSV;
+
+
+function _pronTestFromModal() {
+  const wordEl = document.getElementById('pmWord');
+  const ipaEl = document.getElementById('pmIpa');
+  const phonEl = document.getElementById('pmPhon');
+  const word = (wordEl && wordEl.value || '').trim();
+  if (!word) {
+    if (typeof toastWarning === 'function')
+      toastWarning('Enter the word first.', { duration: 2400 });
+    return;
+  }
+  const ipa = (ipaEl && ipaEl.value || '').trim();
+  const phon = (phonEl && phonEl.value || '').trim();
+  // Use whichever is set — IPA preferred for Google, phonetic for ElevenLabs.
+  const provider = (typeof _apProvider !== 'undefined') ? _apProvider : 'google';
+  let testText;
+  if (provider === 'google' && ipa) {
+    testText = '<speak><phoneme alphabet="ipa" ph="' +
+      _apEscSSML(ipa) + '">' + _apEscSSML(word) + '</phoneme></speak>';
+  } else if (phon) {
+    testText = phon;
+  } else if (ipa) {
+    // Phonetic-only fallback for ElevenLabs when only IPA is set —
+    // ElevenLabs won't pronounce IPA-as-text well, but at least
+    // synthesise the word as-is so the author hears the default.
+    testText = word;
+  } else {
+    if (typeof toastWarning === 'function')
+      toastWarning('Enter an IPA or phonetic respelling first.', { duration: 2800 });
+    return;
+  }
+  _ttsTestSpeak(testText);
+}
+window._pronTestFromModal = _pronTestFromModal;
 
 window._pronOpenModal      = _pronOpenModal;
 window._pronCloseModal     = _pronCloseModal;
@@ -15683,6 +16025,7 @@ window._apOnImportFile       = _apOnImportFile;
 
     <div class="cm-actions">
       <button class="cm-btn cm-del" id="cmDeleteBtn" onclick="_charDeleteFromModal()" style="margin-right:auto;color:#c44;border-color:#c4444450;display:none">Delete</button>
+      <button class="cm-btn" onclick="_charTestFromModal()" title="Hear a sample line in this character's voice">▶ Test</button>
       <button class="cm-btn" onclick="_charCloseModal()">Cancel</button>
       <button class="cm-btn cm-primary" onclick="_charSaveFromModal()">Save</button>
     </div>
@@ -15748,6 +16091,7 @@ window._apOnImportFile       = _apOnImportFile;
 
     <div class="pm-actions">
       <button class="pm-btn pm-del" id="pmDeleteBtn" onclick="_pronDeleteFromModal()" style="margin-right:auto;color:#c44;border-color:#c4444450;display:none">Delete</button>
+      <button class="pm-btn" onclick="_pronTestFromModal()" title="Synthesize this word now to verify the pronunciation">▶ Test</button>
       <button class="pm-btn" onclick="_pronCloseModal()">Cancel</button>
       <button class="pm-btn pm-primary" onclick="_pronSaveFromModal()">Save</button>
     </div>
