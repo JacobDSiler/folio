@@ -2438,7 +2438,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-05-06-paginator-bulletproof  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-05-06-compress-state  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -3176,17 +3176,19 @@ async function _doAutoSave() {
   const nameEl = document.getElementById('projName');
   if (nameEl && !nameEl.value.trim()) nameEl.value = autoName;
   try {
+    // Local backup: keep uncompressed JSON for diagnostic readability.
+    // localStorage has no comparable size cap.
     const _state = _serialise();
     localStorage.setItem('folio_local_backup', JSON.stringify({
       id: _projId, name: autoName, state: _state, savedAt: Date.now()
     }));
     localStorage.setItem('folio_last_open', _projId);
-    await window._fb.setDoc(window._fb.doc(window._db, 'folio_projects', _projId), {
-      uid: window._uid, name: autoName, state: _state,
-      updatedAt: window._fb.serverTimestamp(),
-      createdAt: window._fb.serverTimestamp(),
-      autoSaved: true,
-    }, {merge: true});
+    // Cloud: compressed state + sidebar metadata.
+    const { payload: _cloudPayload } = await _buildCloudSavePayload(autoName, { autoSaved: true });
+    await window._fb.setDoc(
+      window._fb.doc(window._db, 'folio_projects', _projId),
+      _cloudPayload, { merge: true }
+    );
     _autoSaveDirty = false;
     _updateFolioCloudBadge('saved');
     toastSuccess('Auto-saved ✓', { duration: 1800, id: 'autosave' });
@@ -3216,6 +3218,154 @@ function _updateFolioCloudBadge(state) {
 const _origRenderPreview = null; // placeholder — we patch below
 
 /* ── Serialise / deserialise full app state ── */
+
+/* ══════════════════════════════════════════════════════════════════
+   Cloud save compression (clears Firestore's 1 MiB doc cap)
+   ──────────────────────────────────────────────────────────────────
+   Long manuscripts (David Copperfield: 360k words → 1.9 MB
+   serialised) overflow Firestore's hard 1,048,576 byte per-doc
+   cap. Manuscript text compresses ~3.5–4× via gzip, so the
+   compressed payload fits well under the limit. Native browser
+   CompressionStream API — no library dependency.
+
+   Schema:
+     state_gz       — base64-encoded gzipped state JSON (new path)
+     state          — uncompressed state object (legacy fallback)
+     chapterCount   — top-level so sidebar list doesn't decompress
+     wordCount      — same
+   Read paths prefer state_gz when present, fall back to state.
+   ══════════════════════════════════════════════════════════════════ */
+
+const FIRESTORE_DOC_LIMIT = 1048576;        // 1 MiB hard cap
+const FIRESTORE_DOC_WARN  = 900 * 1024;     // friendly warning when close
+
+function _supportsCompressionStream() {
+  return typeof CompressionStream !== 'undefined' &&
+         typeof DecompressionStream !== 'undefined';
+}
+
+// Convert a Uint8Array to a base64 string. Chunked to avoid
+// stack-overflow on large payloads (apply spread limit ~64k).
+function _bytesToBase64(bytes) {
+  const CHUNK = 32768;
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+
+function _base64ToBytes(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function _gzipToBase64(text) {
+  if (!_supportsCompressionStream()) throw new Error('CompressionStream unavailable');
+  const stream = new Blob([text]).stream().pipeThrough(new CompressionStream('gzip'));
+  const buf = await new Response(stream).arrayBuffer();
+  return _bytesToBase64(new Uint8Array(buf));
+}
+
+async function _gunzipFromBase64(b64) {
+  if (!_supportsCompressionStream()) throw new Error('DecompressionStream unavailable');
+  const bytes = _base64ToBytes(b64);
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return await new Response(stream).text();
+}
+
+// Build the setDoc payload with the compressed body + sidebar
+// metadata fields. Surfaces friendly toasts when the compressed
+// size is approaching or exceeding Firestore's hard limit.
+async function _buildCloudSavePayload(name, opts) {
+  opts = opts || {};
+  const stateObj = (typeof _serialise === 'function') ? _serialise() : {};
+  const stateJson = JSON.stringify(stateObj);
+  const chapterCount = (Array.isArray(stateObj.chapters) ? stateObj.chapters.length : 0);
+  const wordCount = (typeof getWordCount === 'function')
+    ? (function () { try { return getWordCount(); } catch (e) { return 0; } })()
+    : 0;
+
+  const base = {
+    uid: window._uid,
+    name: name,
+    chapterCount: chapterCount,
+    wordCount: wordCount,
+    updatedAt: window._fb.serverTimestamp(),
+  };
+  if (opts.includeCreatedAt !== false) base.createdAt = window._fb.serverTimestamp();
+  if (opts.autoSaved) base.autoSaved = true;
+  if (opts.copiedFrom) base.copiedFrom = opts.copiedFrom;
+
+  // Try compression. If it fails for any reason, fall back to the
+  // uncompressed `state` field — preserves today's behavior on
+  // browsers without CompressionStream.
+  let compressed = null;
+  if (_supportsCompressionStream()) {
+    try { compressed = await _gzipToBase64(stateJson); }
+    catch (e) { console.warn('[FOLIO] gzip failed, falling back:', e); }
+  }
+
+  if (compressed) {
+    // Estimate Firestore's view of the doc size. Each string field
+    // counts as utf-8 bytes + 1; we approximate by length. Add some
+    // overhead for the other fields (~256 bytes is generous).
+    const docSizeApprox = compressed.length + (name ? name.length : 0) + 256;
+    if (docSizeApprox > FIRESTORE_DOC_LIMIT) {
+      // Even compressed, too big. Hard error — better than letting
+      // the setDoc reject opaquely.
+      const mb = (docSizeApprox / 1048576).toFixed(2);
+      throw new Error(
+        'Folio is too large to save to the cloud (' + mb + ' MiB compressed). ' +
+        'Try splitting it into smaller folios — one book per folio is recommended.'
+      );
+    }
+    if (docSizeApprox > FIRESTORE_DOC_WARN && typeof toastWarning === 'function') {
+      const pct = Math.round((docSizeApprox / FIRESTORE_DOC_LIMIT) * 100);
+      toastWarning('Folio is at ' + pct + '% of the cloud size limit. Consider splitting soon.',
+        { duration: 5000, id: 'folio-size' });
+    }
+    base.state_gz = compressed;
+    // Don't write state alongside — wastes Firestore quota.
+  } else {
+    // No compression available. Use plain state with an explicit
+    // size guard so we fail fast with a clear message instead of
+    // hitting Firestore's opaque rejection.
+    if (stateJson.length > FIRESTORE_DOC_LIMIT - 4096) {
+      throw new Error(
+        'Folio is too large to save to the cloud and your browser ' +
+        'doesn\'t support compression. Use a recent browser (Chrome 80+, ' +
+        'Firefox 113+, Safari 16.4+), or split the folio.'
+      );
+    }
+    base.state = stateObj;
+  }
+
+  return { payload: base, stateObj: stateObj };
+}
+
+// Read either state_gz (new) or state (legacy) from a Firestore
+// document. Returns the deserialised state object.
+async function _readDocState(data) {
+  if (!data) return null;
+  if (data.state_gz && _supportsCompressionStream()) {
+    try {
+      const json = await _gunzipFromBase64(data.state_gz);
+      return JSON.parse(json);
+    } catch (e) {
+      console.warn('[FOLIO] gunzip failed, falling back to legacy state:', e);
+    }
+  }
+  return data.state || null;
+}
+
+window._gzipToBase64        = _gzipToBase64;
+window._gunzipFromBase64    = _gunzipFromBase64;
+window._buildCloudSavePayload = _buildCloudSavePayload;
+window._readDocState        = _readDocState;
+
 function _serialise() {
   return {
     meta: {
@@ -3346,10 +3496,9 @@ async function saveFolio() {
     const _state = _serialise();
     // Save a local backup immediately in case of network issues
     try { localStorage.setItem('folio_local_backup', JSON.stringify({id:_projId, name, state:_state, savedAt:Date.now()})); } catch(e){}
-    await setDoc(window._fb.doc(window._db, 'folio_projects', _projId), {
-      uid: window._uid, name, state: _state,
-      updatedAt: serverTimestamp(), createdAt: serverTimestamp(),
-    }, {merge: true});
+    const { payload: _cloudPayload } = await _buildCloudSavePayload(name, {});
+    await setDoc(window._fb.doc(window._db, 'folio_projects', _projId),
+      _cloudPayload, { merge: true });
     _updateInviteUI();
     await loadFolioList();
     await _subscribePresence();
@@ -3407,16 +3556,12 @@ async function saveFolioAsCopy() {
   try {
     const { setDoc, serverTimestamp } = window._fb;
     const _state = _serialise();
+    const { payload: _cloudPayload } = await _buildCloudSavePayload(name, {
+      copiedFrom: _projId || null,
+    });
     await setDoc(
       window._fb.doc(window._db, 'folio_projects', newId),
-      {
-        uid: window._uid,
-        name: name,
-        state: _state,
-        updatedAt: serverTimestamp(),
-        createdAt: serverTimestamp(),
-        copiedFrom: _projId || null,  // provenance — not enforced anywhere
-      }
+      _cloudPayload
     );
 
     // Switch to the new folio.
@@ -3642,8 +3787,16 @@ async function saveVersion() {
   try {
     const {doc, setDoc, serverTimestamp} = window._fb;
     const vid = 'v_' + Date.now();
-    await setDoc(window._fb.doc(window._db,'folio_projects',_projId,'versions',vid),
-      { name, state: _serialise(), savedAt: serverTimestamp() });
+    // Build a compressed body. Versions don't need chapterCount/wordCount
+    // for any sidebar — we just use the same helper for the gzip path.
+    const { payload: _verPayload } = await _buildCloudSavePayload(name, {});
+    // Strip the sidebar metadata — versions are looked up by id, not listed by count
+    delete _verPayload.chapterCount;
+    delete _verPayload.wordCount;
+    delete _verPayload.uid;
+    delete _verPayload.createdAt;
+    _verPayload.savedAt = serverTimestamp();
+    await setDoc(window._fb.doc(window._db,'folio_projects',_projId,'versions',vid), _verPayload);
     await _loadVersionList();
     _hideSaving();
     setStatus(`Version "${name}" saved ✓`);
@@ -3779,7 +3932,12 @@ function _renderShelfBlock(shelfId, label, items) {
 
 function _renderFolioCard(p) {
   const d = p.updatedAt ? new Date(p.updatedAt.seconds * 1000).toLocaleDateString() : '—';
-  const n = p.state?.chapters?.length || 0;
+  // Prefer top-level chapterCount (set on compressed-payload saves).
+  // Falls back to digging into p.state.chapters.length for legacy
+  // (uncompressed) folio docs.
+  const n = (typeof p.chapterCount === 'number')
+    ? p.chapterCount
+    : (p.state?.chapters?.length || 0);
   const shelfOpts = '<option value="">— Unshelved —</option>'
     + _shelves.map(s =>
         '<option value="' + s.id + '"' + (p.shelfId === s.id ? ' selected' : '') + '>' +
@@ -3829,8 +3987,10 @@ async function loadFolioById(id) {
     _autoSaveDirty = false; // don't auto-save until user makes changes
     document.getElementById('projName').value = data.name || '';
 
-    // Deserialise sets all fields AND calls renderPreview() at the end
-    _deserialise(data.state);
+    // Deserialise sets all fields AND calls renderPreview() at the end.
+    // Read state from either state_gz (compressed) or state (legacy).
+    const _stateLoaded = await _readDocState(data);
+    _deserialise(_stateLoaded);
     _updateInviteUI();
 
     // Belt-and-braces: ensure spinner is gone and preview is rendered
@@ -3923,7 +4083,11 @@ async function _restoreVersion(vid) {
   if (!confirm('Restore this version? Current unsaved edits will be replaced.')) return;
   const {doc, getDoc} = window._fb;
   const snap = await getDoc(window._fb.doc(window._db,'folio_projects',_projId,'versions',vid));
-  if (snap.exists()) { _deserialise(snap.data().state); setStatus('Version restored ✓'); }
+  if (snap.exists()) {
+    const _stateLoaded = await _readDocState(snap.data());
+    _deserialise(_stateLoaded);
+    setStatus('Version restored ✓');
+  }
 }
 
 /* ── Delete project ──
