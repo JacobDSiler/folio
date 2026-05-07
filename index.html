@@ -24,7 +24,7 @@
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
 <script type="module">
 import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-import{getFirestore,doc,getDoc,setDoc,collection,query,where,getDocs,deleteDoc,addDoc,onSnapshot,serverTimestamp,orderBy,limit}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import{getFirestore,doc,getDoc,setDoc,collection,query,where,getDocs,deleteDoc,addDoc,onSnapshot,serverTimestamp,orderBy,limit,deleteField}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
 import{getStorage,ref,uploadBytes,getDownloadURL,deleteObject}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js';
 import{getAuth,signInAnonymously,signInWithPopup,signInWithRedirect,linkWithPopup,linkWithRedirect,getRedirectResult,signInWithCredential,linkWithCredential,GoogleAuthProvider,onAuthStateChanged,signOut}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
 const FC={apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",authDomain:"auth.jacobsiler.com",projectId:"miscellaneous-117e9",storageBucket:"miscellaneous-117e9.firebasestorage.app",messagingSenderId:"514858431339",appId:"1:514858431339:web:8b3acbe89966b45fe3922e"};
@@ -33,7 +33,7 @@ const db=getFirestore(app);const auth=getAuth(app);
 window._db=db;window._auth=auth;
 window._storage=getStorage(app);
 window._storageLib={ref,uploadBytes,getDownloadURL,deleteObject};
-window._fb={doc,getDoc,setDoc,collection,query,where,getDocs,deleteDoc,addDoc,onSnapshot,serverTimestamp,orderBy,limit};
+window._fb={doc,getDoc,setDoc,collection,query,where,getDocs,deleteDoc,addDoc,onSnapshot,serverTimestamp,orderBy,limit,deleteField};
 window._googleProvider=new GoogleAuthProvider();
 window._googleProvider.setCustomParameters({prompt:'select_account'});
 // Track if popup has failed this session so we can switch to redirect-first
@@ -2438,7 +2438,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-05-06-compress-state  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-05-06-body-subcollection  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -3183,12 +3183,8 @@ async function _doAutoSave() {
       id: _projId, name: autoName, state: _state, savedAt: Date.now()
     }));
     localStorage.setItem('folio_last_open', _projId);
-    // Cloud: compressed state + sidebar metadata.
-    const { payload: _cloudPayload } = await _buildCloudSavePayload(autoName, { autoSaved: true });
-    await window._fb.setDoc(
-      window._fb.doc(window._db, 'folio_projects', _projId),
-      _cloudPayload, { merge: true }
-    );
+    // Cloud: parent metadata + body subdoc (split schema).
+    await _writeFolioCloud(_projId, autoName, { autoSaved: true });
     _autoSaveDirty = false;
     _updateFolioCloudBadge('saved');
     toastSuccess('Auto-saved ✓', { duration: 1800, id: 'autosave' });
@@ -3276,9 +3272,12 @@ async function _gunzipFromBase64(b64) {
   return await new Response(stream).text();
 }
 
-// Build the setDoc payload with the compressed body + sidebar
-// metadata fields. Surfaces friendly toasts when the compressed
-// size is approaching or exceeding Firestore's hard limit.
+// Build BOTH the parent metadata payload AND the body payload.
+// Parent doc is metadata-only so the sidebar listing stays small.
+// Body lives at folio_projects/{id}/body/main and holds state_gz.
+// The parent payload explicitly deletes any legacy state / state_gz
+// fields via deleteField() so old folios migrate forward cleanly
+// (no merge:true leftover bytes from previous saves).
 async function _buildCloudSavePayload(name, opts) {
   opts = opts || {};
   const stateObj = (typeof _serialise === 'function') ? _serialise() : {};
@@ -3288,77 +3287,126 @@ async function _buildCloudSavePayload(name, opts) {
     ? (function () { try { return getWordCount(); } catch (e) { return 0; } })()
     : 0;
 
-  const base = {
-    uid: window._uid,
-    name: name,
-    chapterCount: chapterCount,
-    wordCount: wordCount,
-    updatedAt: window._fb.serverTimestamp(),
-  };
-  if (opts.includeCreatedAt !== false) base.createdAt = window._fb.serverTimestamp();
-  if (opts.autoSaved) base.autoSaved = true;
-  if (opts.copiedFrom) base.copiedFrom = opts.copiedFrom;
-
-  // Try compression. If it fails for any reason, fall back to the
-  // uncompressed `state` field — preserves today's behavior on
-  // browsers without CompressionStream.
+  // Compress body. Falls back to uncompressed state on browsers
+  // without CompressionStream.
   let compressed = null;
   if (_supportsCompressionStream()) {
     try { compressed = await _gzipToBase64(stateJson); }
     catch (e) { console.warn('[FOLIO] gzip failed, falling back:', e); }
   }
 
+  // Body doc — just the state. The 1 MiB cap is per-doc, so this
+  // alone gets the full cap to itself (no metadata sharing the
+  // budget).
+  const bodyPayload = {
+    updatedAt: window._fb.serverTimestamp(),
+  };
   if (compressed) {
-    // Estimate Firestore's view of the doc size. Each string field
-    // counts as utf-8 bytes + 1; we approximate by length. Add some
-    // overhead for the other fields (~256 bytes is generous).
-    const docSizeApprox = compressed.length + (name ? name.length : 0) + 256;
-    if (docSizeApprox > FIRESTORE_DOC_LIMIT) {
-      // Even compressed, too big. Hard error — better than letting
-      // the setDoc reject opaquely.
-      const mb = (docSizeApprox / 1048576).toFixed(2);
+    const bodySize = compressed.length + 256;
+    if (bodySize > FIRESTORE_DOC_LIMIT) {
+      const mb = (bodySize / 1048576).toFixed(2);
       throw new Error(
-        'Folio is too large to save to the cloud (' + mb + ' MiB compressed). ' +
-        'Try splitting it into smaller folios — one book per folio is recommended.'
+        'Folio body is too large to save to the cloud (' + mb +
+        ' MiB compressed). Try splitting it into smaller folios — ' +
+        'one book per folio is recommended.'
       );
     }
-    if (docSizeApprox > FIRESTORE_DOC_WARN && typeof toastWarning === 'function') {
-      const pct = Math.round((docSizeApprox / FIRESTORE_DOC_LIMIT) * 100);
-      toastWarning('Folio is at ' + pct + '% of the cloud size limit. Consider splitting soon.',
+    if (bodySize > FIRESTORE_DOC_WARN && typeof toastWarning === 'function') {
+      const pct = Math.round((bodySize / FIRESTORE_DOC_LIMIT) * 100);
+      toastWarning('Folio body is at ' + pct + '% of the cloud size limit. ' +
+        'Consider splitting soon.',
         { duration: 5000, id: 'folio-size' });
     }
-    base.state_gz = compressed;
-    // Don't write state alongside — wastes Firestore quota.
+    bodyPayload.state_gz = compressed;
   } else {
-    // No compression available. Use plain state with an explicit
-    // size guard so we fail fast with a clear message instead of
-    // hitting Firestore's opaque rejection.
     if (stateJson.length > FIRESTORE_DOC_LIMIT - 4096) {
       throw new Error(
-        'Folio is too large to save to the cloud and your browser ' +
-        'doesn\'t support compression. Use a recent browser (Chrome 80+, ' +
-        'Firefox 113+, Safari 16.4+), or split the folio.'
+        'Folio body is too large to save to the cloud and your ' +
+        'browser doesn\'t support compression. Use a recent ' +
+        'browser (Chrome 80+, Firefox 113+, Safari 16.4+), or split ' +
+        'the folio.'
       );
     }
-    base.state = stateObj;
+    bodyPayload.state = stateObj;
   }
 
-  return { payload: base, stateObj: stateObj };
+  // Parent doc — metadata only. deleteField() markers strip any
+  // legacy state / state_gz from the parent on save. After the
+  // first save under the new schema, the parent stays small forever.
+  const parentPayload = {
+    uid: window._uid,
+    name: name,
+    chapterCount: chapterCount,
+    wordCount: wordCount,
+    updatedAt: window._fb.serverTimestamp(),
+    state:    window._fb.deleteField(),
+    state_gz: window._fb.deleteField(),
+  };
+  if (opts.includeCreatedAt !== false) parentPayload.createdAt = window._fb.serverTimestamp();
+  if (opts.autoSaved) parentPayload.autoSaved = true;
+  if (opts.copiedFrom) parentPayload.copiedFrom = opts.copiedFrom;
+
+  return { parentPayload: parentPayload, bodyPayload: bodyPayload, stateObj: stateObj };
 }
 
-// Read either state_gz (new) or state (legacy) from a Firestore
-// document. Returns the deserialised state object.
-async function _readDocState(data) {
-  if (!data) return null;
-  if (data.state_gz && _supportsCompressionStream()) {
+// Shared cloud-save helper. Writes body subdoc first (heavy — fails
+// first if too big), then parent (metadata, near-instant). If body
+// fails, parent is left untouched so we don't lie about state. If
+// body succeeds but parent fails, retry the parent once before
+// surfacing — body is the source of truth for state.
+async function _writeFolioCloud(folioId, name, opts) {
+  const { parentPayload, bodyPayload } = await _buildCloudSavePayload(name, opts);
+  const parentRef = window._fb.doc(window._db, 'folio_projects', folioId);
+  const bodyRef   = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'main');
+
+  // Body first. set() (no merge) — body has only state + updatedAt,
+  // so there's no field to preserve from a previous version.
+  await window._fb.setDoc(bodyRef, bodyPayload);
+
+  // Parent second. merge:true is fine here because the deleteField()
+  // markers explicitly clear any legacy state/state_gz fields.
+  try {
+    await window._fb.setDoc(parentRef, parentPayload, { merge: true });
+  } catch (e) {
+    // One retry — transient hiccups happen.
+    console.warn('[FOLIO] parent setDoc failed, retrying once:', e);
+    await window._fb.setDoc(parentRef, parentPayload, { merge: true });
+  }
+}
+
+// Read state from either:
+//   1. The body subdoc (new schema): folio_projects/{id}/body/main
+//   2. The parent doc's state_gz field (intermediate schema)
+//   3. The parent doc's state field (oldest legacy)
+// folioId is optional — when omitted, only paths 2/3 are tried.
+async function _readDocState(data, folioId) {
+  // Try the body subdoc first (new schema).
+  if (folioId && window._fb && window._db) {
+    try {
+      const bodyRef = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'main');
+      const bodySnap = await window._fb.getDoc(bodyRef);
+      if (bodySnap.exists()) {
+        const b = bodySnap.data() || {};
+        if (b.state_gz && _supportsCompressionStream()) {
+          try {
+            const json = await _gunzipFromBase64(b.state_gz);
+            return JSON.parse(json);
+          } catch (e) { console.warn('[FOLIO] body gunzip failed:', e); }
+        }
+        if (b.state) return b.state;
+      }
+    } catch (e) { console.warn('[FOLIO] body fetch failed, falling back:', e); }
+  }
+  // Legacy: parent's state_gz field (intermediate schema between
+  // 2026-05-06-compress-state and now).
+  if (data && data.state_gz && _supportsCompressionStream()) {
     try {
       const json = await _gunzipFromBase64(data.state_gz);
       return JSON.parse(json);
-    } catch (e) {
-      console.warn('[FOLIO] gunzip failed, falling back to legacy state:', e);
-    }
+    } catch (e) { console.warn('[FOLIO] parent gunzip failed, falling back:', e); }
   }
-  return data.state || null;
+  // Oldest: parent's `state` object (pre-compression).
+  return (data && data.state) || null;
 }
 
 window._gzipToBase64        = _gzipToBase64;
@@ -3496,9 +3544,7 @@ async function saveFolio() {
     const _state = _serialise();
     // Save a local backup immediately in case of network issues
     try { localStorage.setItem('folio_local_backup', JSON.stringify({id:_projId, name, state:_state, savedAt:Date.now()})); } catch(e){}
-    const { payload: _cloudPayload } = await _buildCloudSavePayload(name, {});
-    await setDoc(window._fb.doc(window._db, 'folio_projects', _projId),
-      _cloudPayload, { merge: true });
+    await _writeFolioCloud(_projId, name, {});
     _updateInviteUI();
     await loadFolioList();
     await _subscribePresence();
@@ -3554,15 +3600,8 @@ async function saveFolioAsCopy() {
   _showSaving('Saving as your copy…');
 
   try {
-    const { setDoc, serverTimestamp } = window._fb;
     const _state = _serialise();
-    const { payload: _cloudPayload } = await _buildCloudSavePayload(name, {
-      copiedFrom: _projId || null,
-    });
-    await setDoc(
-      window._fb.doc(window._db, 'folio_projects', newId),
-      _cloudPayload
-    );
+    await _writeFolioCloud(newId, name, { copiedFrom: _projId || null });
 
     // Switch to the new folio.
     _projId = newId;
@@ -3988,8 +4027,8 @@ async function loadFolioById(id) {
     document.getElementById('projName').value = data.name || '';
 
     // Deserialise sets all fields AND calls renderPreview() at the end.
-    // Read state from either state_gz (compressed) or state (legacy).
-    const _stateLoaded = await _readDocState(data);
+    // Read state from body subdoc → parent.state_gz → parent.state.
+    const _stateLoaded = await _readDocState(data, id);
     _deserialise(_stateLoaded);
     _updateInviteUI();
 
