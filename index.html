@@ -2438,7 +2438,7 @@ html[data-reader] #readerBar { display: flex; }
 <script>
 // Toast helpers hoisted — must be defined before any async code that calls them
 
-// FOLIO_AUDIO_BUILD=2026-05-06-body-subcollection  // search for this to verify you have the latest build
+// FOLIO_AUDIO_BUILD=2026-05-06-friendly-perm-error  // search for this to verify you have the latest build
 function toastInfo(msg, opts)    { return toast(msg, { type: 'info',    ...(opts||{}) }); }
 function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts||{}) }); }
 function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts||{}) }); }
@@ -3349,6 +3349,44 @@ async function _buildCloudSavePayload(name, opts) {
   return { parentPayload: parentPayload, bodyPayload: bodyPayload, stateObj: stateObj };
 }
 
+
+/* ── Firestore error helpers (friendlier user-facing messages) ── */
+function _isPermissionError(e) {
+  if (!e) return false;
+  // Modular Firestore SDK errors carry a `code` like 'permission-denied'.
+  if (e.code === 'permission-denied') return true;
+  if (typeof e.code === 'string' && e.code.indexOf('permission') >= 0) return true;
+  // Some error wrappers strip the code; fall back to a string match.
+  const msg = String(e.message || e || '').toLowerCase();
+  return msg.indexOf('missing or insufficient permissions') >= 0
+      || msg.indexOf('permission-denied') >= 0
+      || msg.indexOf('permission denied') >= 0;
+}
+
+// Show a friendly toast for a permissions error. Returns true if it
+// handled the error (so callers can short-circuit other handling).
+function _surfaceCloudError(e, contextLabel) {
+  if (_isPermissionError(e)) {
+    const ctx = contextLabel ? (' (' + contextLabel + ')') : '';
+    if (typeof toastWarning === 'function') {
+      toastWarning(
+        'Save blocked by cloud rules' + ctx + '. ' +
+        'Your manuscript is safe locally — autosave keeps a backup. ' +
+        'Email folio@jacobsiler.com if this persists.',
+        { duration: 9000, id: 'fb-perm-' + (contextLabel || 'x') }
+      );
+    }
+    console.error('[FOLIO] Firestore permission denied' + ctx + ' — ',
+      'this usually means the security rules don\'t cover the path being written.',
+      'Original error:', e);
+    return true;
+  }
+  return false;
+}
+
+window._isPermissionError = _isPermissionError;
+window._surfaceCloudError = _surfaceCloudError;
+
 // Shared cloud-save helper. Writes body subdoc first (heavy — fails
 // first if too big), then parent (metadata, near-instant). If body
 // fails, parent is left untouched so we don't lie about state. If
@@ -3361,16 +3399,30 @@ async function _writeFolioCloud(folioId, name, opts) {
 
   // Body first. set() (no merge) — body has only state + updatedAt,
   // so there's no field to preserve from a previous version.
-  await window._fb.setDoc(bodyRef, bodyPayload);
+  try {
+    await window._fb.setDoc(bodyRef, bodyPayload);
+  } catch (e) {
+    if (_surfaceCloudError(e, 'body subdoc')) throw e;
+    throw e;
+  }
 
   // Parent second. merge:true is fine here because the deleteField()
   // markers explicitly clear any legacy state/state_gz fields.
   try {
     await window._fb.setDoc(parentRef, parentPayload, { merge: true });
   } catch (e) {
+    if (_isPermissionError(e)) {
+      _surfaceCloudError(e, 'parent doc');
+      throw e;
+    }
     // One retry — transient hiccups happen.
     console.warn('[FOLIO] parent setDoc failed, retrying once:', e);
-    await window._fb.setDoc(parentRef, parentPayload, { merge: true });
+    try {
+      await window._fb.setDoc(parentRef, parentPayload, { merge: true });
+    } catch (e2) {
+      if (_surfaceCloudError(e2, 'parent doc retry')) throw e2;
+      throw e2;
+    }
   }
 }
 
