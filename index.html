@@ -33,6 +33,47 @@
   })();
 </script>
 
+<!-- ── Firebase init (showcase config only) ────────────────────────────────
+     Same project + apiKey as app.html, so a returning author whose auth
+     session persisted from the editor is recognized here as the same UID
+     (and matched against folio_landing/config.admin_uids).
+
+     What we deliberately do NOT do:
+       • Sign in anonymously. Marketing-page visitors should not create
+         Firebase auth users by simply landing here. Auth is observe-only.
+       • Load storage / google-provider / link-with-popup. The welcome
+         page only needs auth-state + a single Firestore read.
+
+     The loadLandingConfig() function in the body script polls window._db
+     / window._fb for up to 800ms before falling back to placeholders and
+     sample stats, so this module's async init is well within the budget.
+     ──────────────────────────────────────────────────────────────────── -->
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getFirestore, doc, getDoc } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+import { getAuth, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+
+const FC = {
+  apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",
+  authDomain: "auth.jacobsiler.com",
+  projectId: "miscellaneous-117e9",
+  storageBucket: "miscellaneous-117e9.firebasestorage.app",
+  messagingSenderId: "514858431339",
+  appId: "1:514858431339:web:8b3acbe89966b45fe3922e"
+};
+const app = initializeApp(FC);
+window._db   = getFirestore(app);
+window._auth = getAuth(app);
+window._fb   = { doc, getDoc };
+
+// Observe-only: pick up any session that persisted from app.html. If the
+// visitor isn't signed in, window._uid stays null and the showcase loader
+// treats them as a non-admin (correct for first-time marketing visitors).
+onAuthStateChanged(window._auth, user => {
+  window._uid = user?.uid || null;
+});
+</script>
+
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPHJlY3QgeD0iMiIgeT0iOCIgd2lkdGg9IjI4IiBoZWlnaHQ9IjQ4IiByeD0iMyIgZmlsbD0iI2ZhZjhmNCIgc3Ryb2tlPSIjYzlhODZjIiBzdHJva2Utd2lkdGg9IjIiLz4KICA8cmVjdCB4PSIzMCIgeT0iOCIgd2lkdGg9IjMyIiBoZWlnaHQ9IjQ4IiByeD0iMyIgZmlsbD0iI2Y1ZjBlOCIgc3Ryb2tlPSIjYzlhODZjIiBzdHJva2Utd2lkdGg9IjIiLz4KICA8bGluZSB4MT0iMzAiIHkxPSI4IiB4Mj0iMzAiIHkyPSI1NiIgc3Ryb2tlPSIjYzlhODZjIiBzdHJva2Utd2lkdGg9IjIuNSIvPgogIDxsaW5lIHgxPSI4IiAgeTE9IjIwIiB4Mj0iMjYiIHkyPSIyMCIgc3Ryb2tlPSIjYzlhODZjIiBzdHJva2Utd2lkdGg9IjEiIG9wYWNpdHk9Ii42Ii8+CiAgPGxpbmUgeDE9IjgiICB5MT0iMjYiIHgyPSIyNiIgeTI9IjI2IiBzdHJva2U9IiNjOWE4NmMiIHN0cm9rZS13aWR0aD0iMSIgb3BhY2l0eT0iLjYiLz4KICA8bGluZSB4MT0iOCIgIHkxPSIzMiIgeDI9IjI2IiB5Mj0iMzIiIHN0cm9rZT0iI2M5YTg2YyIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIuNiIvPgogIDxsaW5lIHgxPSI4IiAgeTE9IjM4IiB4Mj0iMjYiIHkyPSIzOCIgc3Ryb2tlPSIjYzlhODZjIiBzdHJva2Utd2lkdGg9IjEiIG9wYWNpdHk9Ii42Ii8+CiAgPGxpbmUgeDE9IjgiICB5MT0iNDQiIHgyPSIyMiIgeTI9IjQ0IiBzdHJva2U9IiNjOWE4NmMiIHN0cm9rZS13aWR0aD0iMSIgb3BhY2l0eT0iLjYiLz4KICA8bGluZSB4MT0iMzYiIHkxPSIyMCIgeDI9IjU4IiB5Mj0iMjAiIHN0cm9rZT0iI2M5YTg2YyIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIuNiIvPgogIDxsaW5lIHgxPSIzNiIgeTE9IjI2IiB4Mj0iNTgiIHkyPSIyNiIgc3Ryb2tlPSIjYzlhODZjIiBzdHJva2Utd2lkdGg9IjEiIG9wYWNpdHk9Ii42Ii8+CiAgPGxpbmUgeDE9IjM2IiB5MT0iMzIiIHgyPSI1OCIgeTI9IjMyIiBzdHJva2U9IiNjOWE4NmMiIHN0cm9rZS13aWR0aD0iMSIgb3BhY2l0eT0iLjYiLz4KICA8bGluZSB4MT0iMzYiIHkxPSIzOCIgeDI9IjQ4IiB5Mj0iMzgiIHN0cm9rZT0iI2M5YTg2YyIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIuNiIvPgogIDx0ZXh0IHg9IjQ3IiB5PSI1MCIgZm9udC1mYW1pbHk9Ikdlb3JnaWEsc2VyaWYiIGZvbnQtc2l6ZT0iMTEiIGZpbGw9IiM4QjQ1MTMiIHRleHQtYW5jaG9yPSJtaWRkbGUiIG9wYWNpdHk9Ii44Ij7inKY8L3RleHQ+CiAgPHBhdGggZD0iTTQwIDU0IFE1MCA0MCA1NiAyMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjOEI0NTEzIiBzdHJva2Utd2lkdGg9IjIuMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPHBhdGggZD0iTTU2IDIwIFE1MSAzMCA0NyA0MCBRNDQgMzcgNDAgNTQiIGZpbGw9IiNjOWE4NmMiIHN0cm9rZT0iIzhCNDUxMyIgc3Ryb2tlLXdpZHRoPSIxLjIiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KICA8cGF0aCBkPSJNNTYgMjAgUTU5IDMwIDU2IDQwIFE1MSAzNyA0MCA1NCIgZmlsbD0iI2U4ZDRhMCIgc3Ryb2tlPSIjOEI0NTEzIiBzdHJva2Utd2lkdGg9IjEuMiIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik00MCA1NCBMMzYgNjIgTDQwIDU1IEw0NSA2MiBaIiBmaWxsPSIjMWExNTA0IiBzdHJva2U9IiMxYTE1MDQiIHN0cm9rZS13aWR0aD0iLjgiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KICA8ZWxsaXBzZSBjeD0iMzgiIGN5PSI2MyIgcng9IjIuNSIgcnk9IjMiIGZpbGw9IiMxYTE1MDQiIG9wYWNpdHk9Ii42NSIvPgogIDxyZWN0IHg9IjIiIHk9IjUyIiB3aWR0aD0iNjAiIGhlaWdodD0iNiIgcng9IjIiIGZpbGw9IiNjOWE4NmMiIG9wYWNpdHk9Ii4zNSIvPgo8L3N2Zz4=">
 <link rel="shortcut icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPHJlY3QgeD0iMiIgeT0iOCIgd2lkdGg9IjI4IiBoZWlnaHQ9IjQ4IiByeD0iMyIgZmlsbD0iI2ZhZjhmNCIgc3Ryb2tlPSIjYzlhODZjIiBzdHJva2Utd2lkdGg9IjIiLz4KICA8cmVjdCB4PSIzMCIgeT0iOCIgd2lkdGg9IjMyIiBoZWlnaHQ9IjQ4IiByeD0iMyIgZmlsbD0iI2Y1ZjBlOCIgc3Ryb2tlPSIjYzlhODZjIiBzdHJva2Utd2lkdGg9IjIiLz4KICA8bGluZSB4MT0iMzAiIHkxPSI4IiB4Mj0iMzAiIHkyPSI1NiIgc3Ryb2tlPSIjYzlhODZjIiBzdHJva2Utd2lkdGg9IjIuNSIvPgogIDxsaW5lIHgxPSI4IiAgeTE9IjIwIiB4Mj0iMjYiIHkyPSIyMCIgc3Ryb2tlPSIjYzlhODZjIiBzdHJva2Utd2lkdGg9IjEiIG9wYWNpdHk9Ii42Ii8+CiAgPGxpbmUgeDE9IjgiICB5MT0iMjYiIHgyPSIyNiIgeTI9IjI2IiBzdHJva2U9IiNjOWE4NmMiIHN0cm9rZS13aWR0aD0iMSIgb3BhY2l0eT0iLjYiLz4KICA8bGluZSB4MT0iOCIgIHkxPSIzMiIgeDI9IjI2IiB5Mj0iMzIiIHN0cm9rZT0iI2M5YTg2YyIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIuNiIvPgogIDxsaW5lIHgxPSI4IiAgeTE9IjM4IiB4Mj0iMjYiIHkyPSIzOCIgc3Ryb2tlPSIjYzlhODZjIiBzdHJva2Utd2lkdGg9IjEiIG9wYWNpdHk9Ii42Ii8+CiAgPGxpbmUgeDE9IjgiICB5MT0iNDQiIHgyPSIyMiIgeTI9IjQ0IiBzdHJva2U9IiNjOWE4NmMiIHN0cm9rZS13aWR0aD0iMSIgb3BhY2l0eT0iLjYiLz4KICA8bGluZSB4MT0iMzYiIHkxPSIyMCIgeDI9IjU4IiB5Mj0iMjAiIHN0cm9rZT0iI2M5YTg2YyIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIuNiIvPgogIDxsaW5lIHgxPSIzNiIgeTE9IjI2IiB4Mj0iNTgiIHkyPSIyNiIgc3Ryb2tlPSIjYzlhODZjIiBzdHJva2Utd2lkdGg9IjEiIG9wYWNpdHk9Ii42Ii8+CiAgPGxpbmUgeDE9IjM2IiB5MT0iMzIiIHgyPSI1OCIgeTI9IjMyIiBzdHJva2U9IiNjOWE4NmMiIHN0cm9rZS13aWR0aD0iMSIgb3BhY2l0eT0iLjYiLz4KICA8bGluZSB4MT0iMzYiIHkxPSIzOCIgeDI9IjQ4IiB5Mj0iMzgiIHN0cm9rZT0iI2M5YTg2YyIgc3Ryb2tlLXdpZHRoPSIxIiBvcGFjaXR5PSIuNiIvPgogIDx0ZXh0IHg9IjQ3IiB5PSI1MCIgZm9udC1mYW1pbHk9Ikdlb3JnaWEsc2VyaWYiIGZvbnQtc2l6ZT0iMTEiIGZpbGw9IiM4QjQ1MTMiIHRleHQtYW5jaG9yPSJtaWRkbGUiIG9wYWNpdHk9Ii44Ij7inKY8L3RleHQ+CiAgPHBhdGggZD0iTTQwIDU0IFE1MCA0MCA1NiAyMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjOEI0NTEzIiBzdHJva2Utd2lkdGg9IjIuMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPHBhdGggZD0iTTU2IDIwIFE1MSAzMCA0NyA0MCBRNDQgMzcgNDAgNTQiIGZpbGw9IiNjOWE4NmMiIHN0cm9rZT0iIzhCNDUxMyIgc3Ryb2tlLXdpZHRoPSIxLjIiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KICA8cGF0aCBkPSJNNTYgMjAgUTU5IDMwIDU2IDQwIFE1MSAzNyA0MCA1NCIgZmlsbD0iI2U4ZDRhMCIgc3Ryb2tlPSIjOEI0NTEzIiBzdHJva2Utd2lkdGg9IjEuMiIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCIvPgogIDxwYXRoIGQ9Ik00MCA1NCBMMzYgNjIgTDQwIDU1IEw0NSA2MiBaIiBmaWxsPSIjMWExNTA0IiBzdHJva2U9IiMxYTE1MDQiIHN0cm9rZS13aWR0aD0iLjgiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz4KICA8ZWxsaXBzZSBjeD0iMzgiIGN5PSI2MyIgcng9IjIuNSIgcnk9IjMiIGZpbGw9IiMxYTE1MDQiIG9wYWNpdHk9Ii42NSIvPgogIDxyZWN0IHg9IjIiIHk9IjUyIiB3aWR0aD0iNjAiIGhlaWdodD0iNiIgcng9IjIiIGZpbGw9IiNjOWE4NmMiIG9wYWNpdHk9Ii4zNSIvPgo8L3N2Zz4=">
 <title>Folio — Beautiful books, written in your browser</title>
@@ -1261,23 +1302,28 @@ function renderAuthors(authors, isPlaceholder){
 }
 function escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-/* ─── Firestore-controlled showcase visibility ───────────────────────────
+/* ─── Firestore-controlled landing config ───────────────────────────────
    Doc path:  folio_landing/config
-   Fields:    showcase_visible : bool   — show real authors publicly
-              admin_uids       : array  — uids that see admin banner
-              featured         : array  — author objects (see PLACEHOLDER_AUTHORS shape)
 
-   When showcase_visible === false, visitors see nothing for the section
-   (it's hidden). When you (admin) are signed in, you still see the
-   placeholder roster with an admin banner so you can keep iterating.
+   Fields used for the testimonials shelf:
+     showcase_visible : bool   — show real authors publicly
+     featured         : array  — author objects (see PLACEHOLDER_AUTHORS shape)
+     admin_uids       : array  — uids that see the placeholder banner
 
-   The page tries to read the doc through Folio's existing window._db /
-   window._fb globals. If those aren't loaded (i.e. this page is hit
-   standalone before Firebase initializes), it falls back to placeholder
-   mode with the admin banner shown — perfect for your personal testing.
+   Fields used for the stat strip:
+     stats_live                : bool    — when true, replace the sample
+                                           numbers (12,847 / 892) with the
+                                           real numbers below; otherwise the
+                                           hardcoded sample numbers remain
+     stats_books_written       : number  — real "Books written in Folio"
+     stats_audiobooks_this_week: number  — real "Audiobooks generated…"
+
+   Default behavior when the doc, the field, or Firebase itself isn't
+   available: keep the sample numbers and placeholder testimonials. This
+   lets the welcome page render confidently before any real data exists.
    ──────────────────────────────────────────────────────────────────────── */
 
-async function loadShowcase(){
+async function loadLandingConfig(){
   // Default: render placeholders silently. The admin banner is only
   // shown later if Firestore reports the visitor is an admin AND the
   // showcase is still in placeholder mode. Public visitors never see it.
@@ -1287,37 +1333,81 @@ async function loadShowcase(){
   // Wait briefly for Folio's Firebase globals (if this page is served
   // from the same origin and the user has visited the main app).
   const db = await waitForFirebase(800);
-  if (!db) return; // standalone — leave placeholders + banner
+  if (!db) return; // standalone — leave placeholders + sample stats
 
   try{
     const { doc, getDoc } = window._fb;
     const snap = await getDoc(doc(db, 'folio_landing', 'config'));
     if (!snap.exists()){
-      // No doc yet — silently keep placeholders
+      // No doc yet — silently keep placeholders + sample stats
       return;
     }
     const cfg = snap.data() || {};
     const isAdmin = Array.isArray(cfg.admin_uids) && window._uid && cfg.admin_uids.includes(window._uid);
 
-    if (cfg.showcase_visible){
-      // Public — show real featured authors (or placeholders if none configured)
-      const list = Array.isArray(cfg.featured) && cfg.featured.length ? cfg.featured : PLACEHOLDER_AUTHORS;
-      renderAuthors(list, !cfg.featured?.length);
-      showAdminBanner(isAdmin && !cfg.featured?.length);
-    } else {
-      // Hidden from public — but admins still see placeholders
-      const sec = document.getElementById('authors-sec');
-      if (isAdmin){
-        renderAuthors(PLACEHOLDER_AUTHORS, true);
-        showAdminBanner(true);
-      } else if (sec){
-        sec.style.display = 'none';
-      }
-    }
+    applyShowcaseConfig(cfg, isAdmin);
+    applyStatsConfig(cfg);
   } catch(e){
-    // Quietly degrade — keep placeholders
-    console.warn('[folio-landing] showcase config load failed:', e?.message);
+    // Quietly degrade — keep placeholders + sample stats
+    console.warn('[folio-landing] config load failed:', e?.message);
   }
+}
+
+function applyShowcaseConfig(cfg, isAdmin){
+  if (cfg.showcase_visible){
+    // Public — show real featured authors (or placeholders if none configured)
+    const list = Array.isArray(cfg.featured) && cfg.featured.length ? cfg.featured : PLACEHOLDER_AUTHORS;
+    renderAuthors(list, !cfg.featured?.length);
+    showAdminBanner(isAdmin && !cfg.featured?.length);
+  } else {
+    // Hidden from public — but admins still see placeholders
+    const sec = document.getElementById('authors-sec');
+    if (isAdmin){
+      renderAuthors(PLACEHOLDER_AUTHORS, true);
+      showAdminBanner(true);
+    } else if (sec){
+      sec.style.display = 'none';
+    }
+  }
+}
+
+function applyStatsConfig(cfg){
+  // Opt-in: only flip to live numbers when stats_live is explicitly true
+  // AND both numbers are present and finite. Anything missing means we
+  // leave the sample numbers in place — better to show plausible aspirational
+  // numbers than "0 books · 0 audiobooks" when the real data isn't there yet.
+  if (cfg.stats_live !== true) return;
+  const liveNumbers = {
+    stats_books_written:        Number.isFinite(cfg.stats_books_written)        ? cfg.stats_books_written        : null,
+    stats_audiobooks_this_week: Number.isFinite(cfg.stats_audiobooks_this_week) ? cfg.stats_audiobooks_this_week : null,
+  };
+
+  // Map Firestore field → the matching .stat .n[data-count] element. (We
+  // identify the elements by the order they appear in #statsBand because
+  // the original markup doesn't id them individually; the first data-count
+  // is "Books written", the second is "Audiobooks generated this week".)
+  const targets = document.querySelectorAll('#statsBand [data-count]');
+  const fieldOrder = ['stats_books_written', 'stats_audiobooks_this_week'];
+  fieldOrder.forEach((field, i) => {
+    const el = targets[i];
+    const val = liveNumbers[field];
+    if (!el || val == null) return;
+    // If the IntersectionObserver hasn't fired yet (very common — the
+    // stats strip lives below the hero), updating data-count means the
+    // animation will count up to the live value. If the IO already
+    // triggered (visitor scrolled fast), we just snap the rendered
+    // textContent to the new value — no re-animation, no flash of the
+    // sample number.
+    el.dataset.count = String(val);
+    if (el.dataset.counted === '1') {
+      el.textContent = val.toLocaleString();
+    } else {
+      // Pre-render the number so a non-JS or count-disabled state still
+      // shows the right value (the IO will overwrite this with the
+      // animated value, finishing at the same number).
+      el.textContent = val.toLocaleString();
+    }
+  });
 }
 
 function waitForFirebase(timeoutMs){
@@ -1339,7 +1429,7 @@ document.getElementById('bannerHide').addEventListener('click', ()=>{
   document.getElementById('authorBanner').style.display = 'none';
 });
 
-loadShowcase();
+loadLandingConfig();
 
 /* ═══════════════════════════════════════════════════════════════════════
    VIRAL "PREVIEW YOUR BOOK"
