@@ -3532,6 +3532,16 @@ function _refreshLocalBackupUI() {
   const pill   = document.getElementById('localBackupPill');
   const banner = document.getElementById('localBackupBanner');
   const summary = document.getElementById('localBackupBannerSummary');
+
+  // Reader mode (?read=...) has no editor state to back up — the local
+  // backup is irrelevant to the reader and the pill/banner would just
+  // be confusing chrome on a published page. Force-hide both and bail.
+  if (typeof _readerMode !== 'undefined' && _readerMode) {
+    if (pill)   pill.style.display = 'none';
+    if (banner) banner.style.display = 'none';
+    return;
+  }
+
   const backup = _readLocalBackup();
 
   if (!backup) {
