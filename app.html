@@ -3380,17 +3380,47 @@ function _isPermissionError(e) {
 
 // Show a friendly toast for a permissions error. Returns true if it
 // handled the error (so callers can short-circuit other handling).
+//
+// We deliberately surface where the local backup actually lives
+// (localStorage key folio_local_backup) so the user can verify it
+// themselves in DevTools rather than having to trust a claim. The
+// backup IS written before every cloud-save attempt in both
+// _doAutoSave (line ~3188) and saveFolio (line ~3627), so the
+// promise here matches what the code does.
 function _surfaceCloudError(e, contextLabel) {
   if (_isPermissionError(e)) {
     const ctx = contextLabel ? (' (' + contextLabel + ')') : '';
     if (typeof toastWarning === 'function') {
       toastWarning(
         'Save blocked by cloud rules' + ctx + '. ' +
-        'Your manuscript is safe locally — autosave keeps a backup. ' +
+        'Your in-memory work is safe and a local backup was just written ' +
+        '(DevTools → Application → Local Storage → ' +
+        'folio_local_backup). Reload to restore from it if needed. ' +
         'Email folio@jacobsiler.com if this persists.',
         { duration: 9000, id: 'fb-perm-' + (contextLabel || 'x') }
       );
     }
+    // Sanity-check the local backup exists so the toast's claim is
+    // independently verifiable. Logs the key, byte count, and the
+    // savedAt timestamp so the user can correlate with the toast.
+    try {
+      const raw = localStorage.getItem('folio_local_backup');
+      if (raw) {
+        const parsed = (function () { try { return JSON.parse(raw); } catch (_) { return null; } })();
+        console.info(
+          '[FOLIO] Local backup is in localStorage.folio_local_backup' +
+          (parsed && parsed.savedAt ? ' (savedAt: ' + new Date(parsed.savedAt).toISOString() + ')' : '') +
+          ' — ' + raw.length.toLocaleString() + ' bytes.'
+        );
+      } else {
+        console.warn(
+          '[FOLIO] No folio_local_backup key in localStorage. The ' +
+          'in-memory state is still safe in this tab, but a reload ' +
+          'will lose it. Storage may be disabled (private mode?) or ' +
+          'a quota error swallowed the write.'
+        );
+      }
+    } catch (_) {}
     console.error('[FOLIO] Firestore permission denied' + ctx + ' — ',
       'this usually means the security rules don\'t cover the path being written.',
       'Original error:', e);
@@ -3402,27 +3432,31 @@ function _surfaceCloudError(e, contextLabel) {
 window._isPermissionError = _isPermissionError;
 window._surfaceCloudError = _surfaceCloudError;
 
-// Shared cloud-save helper. Writes body subdoc first (heavy — fails
-// first if too big), then parent (metadata, near-instant). If body
-// fails, parent is left untouched so we don't lie about state. If
-// body succeeds but parent fails, retry the parent once before
-// surfacing — body is the source of truth for state.
+// Shared cloud-save helper. Writes parent FIRST so the security rule
+// on the body subdoc — which uses get() against the parent to verify
+// ownership — has a parent to read. Then writes the body.
+//
+// Failure modes after this reordering:
+//   • Parent fails (permission, transient): no body write attempted, so
+//     state on the server stays consistent with what readers had before.
+//   • Parent succeeds, body fails: the parent's metadata is ahead of the
+//     body's content. Readers still see the OLD body subdoc — there is
+//     no half-state on disk, just a one-version metadata/content drift
+//     that resolves on the next successful save. We surface the toast
+//     either way so the user knows the save didn't fully land.
+//
+// (Previously body wrote first; that flow broke as soon as the rules
+// started using get() on the parent — on a brand-new folio the parent
+// didn't exist yet, and on any folio whose rules check the parent's uid
+// the body write couldn't satisfy them.)
 async function _writeFolioCloud(folioId, name, opts) {
   const { parentPayload, bodyPayload } = await _buildCloudSavePayload(name, opts);
   const parentRef = window._fb.doc(window._db, 'folio_projects', folioId);
   const bodyRef   = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'main');
 
-  // Body first. set() (no merge) — body has only state + updatedAt,
-  // so there's no field to preserve from a previous version.
-  try {
-    await window._fb.setDoc(bodyRef, bodyPayload);
-  } catch (e) {
-    if (_surfaceCloudError(e, 'body subdoc')) throw e;
-    throw e;
-  }
-
-  // Parent second. merge:true is fine here because the deleteField()
-  // markers explicitly clear any legacy state/state_gz fields.
+  // Parent first. merge:true is fine here because the deleteField()
+  // markers explicitly clear any legacy state/state_gz fields, and the
+  // parent doc itself carries `uid` for the rule check.
   try {
     await window._fb.setDoc(parentRef, parentPayload, { merge: true });
   } catch (e) {
@@ -3438,6 +3472,16 @@ async function _writeFolioCloud(folioId, name, opts) {
       if (_surfaceCloudError(e2, 'parent doc retry')) throw e2;
       throw e2;
     }
+  }
+
+  // Body second. set() (no merge) — body has only state + updatedAt
+  // + uid, so there's no field to preserve from a previous version.
+  // The parent now exists, so any get() in the body rule resolves.
+  try {
+    await window._fb.setDoc(bodyRef, bodyPayload);
+  } catch (e) {
+    if (_surfaceCloudError(e, 'body subdoc')) throw e;
+    throw e;
   }
 }
 
@@ -16796,38 +16840,4 @@ window._apOnImportFile       = _apOnImportFile;
       <input type="datetime-local" id="rlSerialFirst" onchange="_serialUpdatePreview()" oninput="_serialUpdatePreview()"
         style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
 
-      <div id="rlSerialPreview" style="margin-top:10px;padding:8px 10px;background:var(--surface);border:.5px dashed var(--border-mid);border-radius:6px;font-size:11.5px;line-height:1.55;color:var(--text);min-height:30px">
-        <span style="color:var(--hint)">Pick a first-release date to see the schedule.</span>
-      </div>
-
-      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin-top:10px;cursor:pointer">
-        <input type="checkbox" id="rlNotifyOnUnlock" style="margin:0">
-        <span>Email subscribers each time a chapter unlocks</span>
-      </label>
-    </div>
-
-    <!-- Status line (publish/unpublish progress + error messages) -->
-    <div id="rlStatus" style="font-size:11.5px;color:var(--hint);min-height:1.4em;margin:6px 0 10px"></div>
-
-    <!-- Reader URL, shown only after a release exists -->
-    <div id="rlUrlBox" style="display:none;padding:10px 12px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;margin-bottom:10px">
-      <div style="font-size:10.5px;color:var(--hint);letter-spacing:.02em;margin-bottom:4px">Reader link</div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <code id="rlUrlText" style="flex:1;font-family:var(--mono,ui-monospace,monospace);font-size:12px;color:var(--text);word-break:break-all;line-height:1.4"></code>
-        <button type="button" onclick="_rlCopyUrl()"
-          style="font-size:11.5px;padding:6px 10px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap">📋 Copy</button>
-      </div>
-    </div>
-
-    <!-- Action row — Publish (primary) + Unpublish (shown for live releases) -->
-    <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
-      <button type="button" id="rlPublishBtn" onclick="_rlPublish()"
-        style="flex:1;font-size:13px;font-weight:500;padding:10px 14px;border-radius:8px;border:none;background:#065f46;color:#fff;cursor:pointer">🔖 Publish</button>
-      <button type="button" id="rlUnpublishBtn" onclick="_rlUnpublish()"
-        style="display:none;font-size:12px;padding:10px 12px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">Unpublish</button>
-    </div>
-  </div>
-</div>
-
-</body>
-</html>
+      <div id
