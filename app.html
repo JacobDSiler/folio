@@ -2152,7 +2152,8 @@ html[data-reader] #readerBar { display: flex; }
       </div>
 
       <div class="section">
-        <div class="section-title" style="display:flex;align-items:center;gap:6px"><span>Current Folio</span><span style="font-size:9px;background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:8px;font-weight:400;letter-spacing:.02em" id="folioCloudBadge">Not saved</span></div>
+        <div class="section-title" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><span>Current Folio</span><span style="font-size:9px;background:#d1fae5;color:#065f46;padding:1px 6px;border-radius:8px;font-weight:400;letter-spacing:.02em" id="folioCloudBadge">Not saved</span><button id="localBackupPill" type="button" onclick="_openBackupRecoveryDialog()" title="A local autosave is stored in this browser. Click to view, restore, or save it as a new folio."
+          style="display:none;font-size:9px;background:#fef3c7;color:#92400e;padding:1px 7px;border-radius:8px;font-weight:500;letter-spacing:.02em;border:.5px solid #f59e0b;cursor:pointer;line-height:1.4;white-space:nowrap">💾 Local backup</button></div>
         <div style="display:flex;gap:6px;margin-bottom:6px">
           <input type="text" id="projName" placeholder="Folio name…" maxlength="80" style="flex:1" oninput="if(typeof _updateInviteUI==='function')_updateInviteUI();_scheduleAutoSave()">
           <button class="btn-sm btn-primary" id="btnSaveProj" onclick="saveFolio()" disabled style="white-space:nowrap">Save</button>
@@ -2302,6 +2303,72 @@ html[data-reader] #readerBar { display: flex; }
 
 <!-- ════════════════ PREVIEW ════════════════ -->
 <main class="preview-area" id="previewArea">
+
+  <!-- Local-backup recovery banner. Hidden by default; populated and
+       shown by _maybeShowLocalBackupBanner() when localStorage has a
+       folio_local_backup entry. Sits at the top of the preview area so
+       it's the first thing a returning author sees if a cloud save
+       previously failed. -->
+  <div id="localBackupBanner" role="status" aria-live="polite"
+       style="display:none;margin:10px 14px 0;padding:10px 14px;background:#fef3c7;border:.5px solid #f59e0b;border-radius:8px;font-size:12px;color:#5b3a09;display:none;align-items:center;gap:10px;flex-wrap:wrap;line-height:1.5">
+    <span style="font-size:15px;flex-shrink:0">💾</span>
+    <div style="flex:1;min-width:200px">
+      <strong style="font-weight:600">Local autosave detected.</strong>
+      <span id="localBackupBannerSummary" style="opacity:.85"></span>
+    </div>
+    <button type="button" onclick="_openBackupRecoveryDialog()"
+      style="font-size:11.5px;padding:5px 11px;border-radius:6px;border:.5px solid #f59e0b;background:#fef9e6;color:#5b3a09;cursor:pointer;white-space:nowrap;font-weight:500">View &amp; recover…</button>
+    <button type="button" onclick="_dismissLocalBackupBanner()" title="Dismiss for this session — the backup stays in storage and the sidebar pill remains."
+      style="font-size:11.5px;padding:5px 9px;border-radius:6px;border:.5px solid transparent;background:transparent;color:#5b3a09;cursor:pointer">×</button>
+  </div>
+
+  <!-- Local-backup recovery dialog. A small modal mirroring the
+       release-modal pattern. Opened by the banner's "View" button or
+       the sidebar's "Local backup" pill. -->
+  <div id="localBackupDialog" aria-hidden="true" role="dialog" aria-labelledby="localBackupDialogTitle"
+       style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:210;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+    <div style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:520px;width:94%;max-height:88vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:24px 26px 20px;font-family:var(--sans);color:var(--text)">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <h3 id="localBackupDialogTitle" style="font-size:15px;font-weight:600;margin:0;letter-spacing:-0.01em">💾 Local autosave backup</h3>
+        <button onclick="_closeBackupRecoveryDialog()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint);padding:2px 6px;border-radius:4px">×</button>
+      </div>
+
+      <p style="font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:14px">
+        Folio keeps a copy of your most recent state in this browser's
+        local storage, written every time it tries to save (whether
+        the cloud succeeds or not). If something went wrong with the
+        cloud — or if you just want to fork off your latest state —
+        this is where you recover it.
+      </p>
+
+      <div id="localBackupDialogDetails" style="background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:12px;line-height:1.6">
+        <!-- Populated by _populateBackupDialog() -->
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button type="button" id="lbRestoreBtn" onclick="_restoreLocalBackup()"
+          style="font-size:13px;font-weight:500;padding:10px 14px;border-radius:8px;border:none;background:#065f46;color:#fff;cursor:pointer;text-align:left">
+          <strong>Restore into the current editor</strong>
+          <div style="font-size:11px;font-weight:400;opacity:.9;margin-top:2px">Replaces what's loaded right now with the backup. If the backup is for a different folio, switches to it.</div>
+        </button>
+
+        <button type="button" id="lbSaveAsNewBtn" onclick="_saveBackupAsNewFolio()"
+          style="font-size:13px;font-weight:500;padding:10px 14px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;text-align:left">
+          <strong>Save as a new folio</strong>
+          <div style="font-size:11px;font-weight:400;color:var(--hint);margin-top:2px">Creates a fresh folio under a new id, populates it from the backup, and saves to cloud. Leaves the current editor untouched.</div>
+        </button>
+
+        <button type="button" id="lbDiscardBtn" onclick="_discardLocalBackup()"
+          style="font-size:12px;padding:8px 12px;border-radius:8px;border:.5px solid var(--border-mid);background:transparent;color:var(--hint);cursor:pointer;text-align:left;margin-top:4px">
+          Discard backup permanently
+          <span style="font-size:10.5px;font-weight:400;color:var(--hint);margin-left:6px">— removes the localStorage entry. Cannot be undone.</span>
+        </button>
+      </div>
+
+      <div id="lbDialogStatus" style="font-size:11.5px;color:var(--hint);min-height:1.4em;margin-top:10px"></div>
+    </div>
+  </div>
+
   <!-- Writing mode — full prose editor for a single chapter -->
   <div class="writing-mode" id="writingMode">
     <div class="writing-toolbar">
@@ -2592,6 +2659,7 @@ let _autoSaveDirty = false; // true when unsaved changes exist
 
     const params = new URLSearchParams(window.location.search);
     const isImport = params.get('import') === 'pending';
+    const isReader = params.has('read');
 
     // Belt-and-braces: no matter which priority path runs (or which
     // one errors), make sure the "Loading your folios…" spinner is
@@ -2620,6 +2688,20 @@ let _autoSaveDirty = false; // true when unsaved changes exist
 
     if (isImport) {
       console.log('[FOLIO] Import mode — skipping auto-restore');
+    }
+
+    // ─────────────────────────────────────────────
+    // Reader mode (?read=...) handles its own load via _rdMaybeActivate /
+    // loadFolioById. Stop here so the priority sequence below doesn't
+    // race the reader path and fall through to _loadDemo() on a fresh
+    // device — which is why a shared reader link previously showed
+    // the Night Garden demo on phones / other browsers instead of the
+    // book the URL pointed at.
+    // ─────────────────────────────────────────────
+    if (isReader) {
+      console.log('[FOLIO] Reader mode (?read=) — yielding to _rdMaybeActivate');
+      document.getElementById('folioLoadingState')?.remove();
+      return;
     }
 
     // ─────────────────────────────────────────────
@@ -2707,6 +2789,20 @@ let _autoSaveDirty = false; // true when unsaved changes exist
       }
     }
   });
+
+// Surface the local-backup recovery UI as soon as the page is alive,
+// regardless of whether the fb-ready load path got that far. The UI
+// only renders if folio_local_backup is actually present, and the
+// pill / banner stay quiet otherwise.
+window.addEventListener('DOMContentLoaded', function () {
+  try { _refreshLocalBackupUI(); } catch (e) { /* never let this break boot */ }
+});
+// Re-evaluate once auth + the load path resolve, so the dialog's
+// "matches the folio you have open" detection can use the freshly
+// populated _projId.
+window.addEventListener('fb-ready', function () {
+  try { _refreshLocalBackupUI(); } catch (e) {}
+});
 
 function _loadDemo() {
   // Don't load demo if chapters already exist
@@ -3365,6 +3461,338 @@ async function _buildCloudSavePayload(name, opts) {
 }
 
 
+/* ════════════════════════════════════════════════════════════════════
+   Local-backup recovery UI
+   ──────────────────────────────────────────────────────────────────
+   folio_local_backup is written to localStorage before every cloud
+   save attempt (both _doAutoSave and saveFolio). It's the user's
+   safety net when cloud writes fail (rules, network, quota), but
+   without UI it's invisible. This block surfaces it three ways:
+
+     1. Pill in the sidebar's Current-Folio header  (#localBackupPill)
+        — persistent shortcut, visible whenever a backup exists.
+     2. Banner at the top of the preview area       (#localBackupBanner)
+        — drawn on page load and after a failed cloud save; can be
+        dismissed for the session via sessionStorage.
+     3. Recovery dialog                              (#localBackupDialog)
+        — opened by either of the above; shows backup metadata and
+        the three recovery actions (restore / save-as-new / discard).
+   ──────────────────────────────────────────────────────────────────── */
+
+const _LB_KEY            = 'folio_local_backup';
+const _LB_DISMISS_KEY    = 'folio_local_backup_banner_dismissed';
+
+function _readLocalBackup() {
+  try {
+    const raw = localStorage.getItem(_LB_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch (_) { return null; }
+}
+
+function _lbFormatRelativeTime(ms) {
+  if (!ms || !isFinite(ms)) return 'an unknown time ago';
+  const delta = Date.now() - ms;
+  if (delta < 0) return 'in the future';
+  const s = Math.floor(delta / 1000);
+  if (s < 45) return 'just now';
+  const m = Math.floor(s / 60);
+  if (m < 2)  return 'a minute ago';
+  if (m < 55) return m + ' minutes ago';
+  const h = Math.floor(s / 3600);
+  if (h < 2)  return 'an hour ago';
+  if (h < 24) return h + ' hours ago';
+  const d = Math.floor(s / 86400);
+  if (d < 2)  return 'yesterday';
+  if (d < 14) return d + ' days ago';
+  // Older than two weeks → absolute date so the user sees the staleness
+  try { return 'on ' + new Date(ms).toLocaleDateString(); }
+  catch (_) { return 'a while ago'; }
+}
+
+function _lbAbsoluteTime(ms) {
+  if (!ms || !isFinite(ms)) return '(unknown)';
+  try { return new Date(ms).toLocaleString(); }
+  catch (_) { return String(ms); }
+}
+
+function _lbWasDismissedThisSession(backupId) {
+  try {
+    return sessionStorage.getItem(_LB_DISMISS_KEY) === (backupId || '*');
+  } catch (_) { return false; }
+}
+
+// Best-effort refresh point for both the pill and the banner. Called
+// on page load, after every save attempt (success or failure), and
+// from inside the recovery dialog after each action so the UI stays
+// in sync with localStorage without polling.
+function _refreshLocalBackupUI() {
+  const pill   = document.getElementById('localBackupPill');
+  const banner = document.getElementById('localBackupBanner');
+  const summary = document.getElementById('localBackupBannerSummary');
+  const backup = _readLocalBackup();
+
+  if (!backup) {
+    if (pill)   pill.style.display = 'none';
+    if (banner) banner.style.display = 'none';
+    return;
+  }
+
+  // Pill is always shown when a backup exists; the user can always
+  // click it to open the dialog and review.
+  if (pill) pill.style.display = '';
+
+  // Banner: show if not dismissed for this session AND the backup
+  // looks like it's worth surfacing. Cheap "worth surfacing" check:
+  //   - Backup is for a different folio than what's loaded, OR
+  //   - Backup is for the same folio but the in-memory _projId
+  //     hasn't been initialised yet (page just loaded), OR
+  //   - The user just had a save error (caller forces show via
+  //     _showLocalBackupBanner()).
+  if (banner) {
+    if (_lbWasDismissedThisSession(backup.id || '*')) {
+      banner.style.display = 'none';
+    } else {
+      const name = backup.name || 'Untitled folio';
+      const when = _lbFormatRelativeTime(backup.savedAt);
+      if (summary) summary.textContent = ' “' + name + '” from ' + when + '.';
+      // The element's own inline display:none must be cleared via
+      // explicit flex so the layout matches the CSS we authored.
+      banner.style.display = 'flex';
+    }
+  }
+}
+window._refreshLocalBackupUI = _refreshLocalBackupUI;
+
+// Force the banner to show (even if it was dismissed earlier). Used
+// from _surfaceCloudError so a fresh failure brings the recovery UI
+// back into view.
+function _showLocalBackupBanner() {
+  try { sessionStorage.removeItem(_LB_DISMISS_KEY); } catch (_) {}
+  _refreshLocalBackupUI();
+}
+window._showLocalBackupBanner = _showLocalBackupBanner;
+
+function _dismissLocalBackupBanner() {
+  const backup = _readLocalBackup();
+  try { sessionStorage.setItem(_LB_DISMISS_KEY, (backup && backup.id) || '*'); } catch (_) {}
+  const banner = document.getElementById('localBackupBanner');
+  if (banner) banner.style.display = 'none';
+  // Pill stays — _refreshLocalBackupUI() handles that side.
+}
+window._dismissLocalBackupBanner = _dismissLocalBackupBanner;
+
+function _openBackupRecoveryDialog() {
+  const dlg = document.getElementById('localBackupDialog');
+  if (!dlg) return;
+  _populateBackupDialog();
+  dlg.style.display = 'flex';
+  dlg.setAttribute('aria-hidden', 'false');
+}
+window._openBackupRecoveryDialog = _openBackupRecoveryDialog;
+
+function _closeBackupRecoveryDialog() {
+  const dlg = document.getElementById('localBackupDialog');
+  if (!dlg) return;
+  dlg.style.display = 'none';
+  dlg.setAttribute('aria-hidden', 'true');
+  const s = document.getElementById('lbDialogStatus');
+  if (s) { s.textContent = ''; s.style.color = 'var(--hint)'; }
+}
+window._closeBackupRecoveryDialog = _closeBackupRecoveryDialog;
+
+// Click outside the inner dialog box → close (mirrors the release
+// modal's behavior).
+document.addEventListener('click', function (e) {
+  if (e.target && e.target.id === 'localBackupDialog') _closeBackupRecoveryDialog();
+});
+
+function _populateBackupDialog() {
+  const el = document.getElementById('localBackupDialogDetails');
+  if (!el) return;
+  const backup = _readLocalBackup();
+  if (!backup) {
+    el.innerHTML = '<em style="color:var(--hint)">No backup is currently stored in this browser.</em>';
+    return;
+  }
+  // Approximate the state's size as JSON bytes for the user's frame
+  // of reference. State is the heavy part; metadata is rounding.
+  let stateBytes = 0;
+  try { stateBytes = JSON.stringify(backup.state || {}).length; } catch (_) {}
+  const kb = stateBytes > 1024 ? (stateBytes / 1024).toFixed(1) + ' KB' : (stateBytes + ' B');
+
+  const chapters = (backup.state && Array.isArray(backup.state.chapters)) ? backup.state.chapters.length : 0;
+  // Words: best-effort sum of chapter contents
+  let words = 0;
+  try {
+    (backup.state && backup.state.chapters || []).forEach(function (c) {
+      const txt = (c && c.content) ? String(c.content) : '';
+      const m = txt.trim().match(/\S+/g);
+      if (m) words += m.length;
+    });
+  } catch (_) {}
+
+  const matchesCurrent = backup.id && (typeof _projId !== 'undefined') && backup.id === _projId;
+
+  el.innerHTML =
+    '<div><b>Name:</b> ' + _esc(backup.name || 'Untitled folio') + '</div>' +
+    '<div><b>Folio id:</b> <code style="font-family:var(--mono,ui-monospace,monospace);font-size:11px;color:var(--accent)">' + _esc(backup.id || '(none)') + '</code></div>' +
+    '<div><b>Saved:</b> ' + _esc(_lbAbsoluteTime(backup.savedAt)) + ' &middot; ' + _esc(_lbFormatRelativeTime(backup.savedAt)) + '</div>' +
+    '<div><b>Size:</b> ' + chapters + ' chapter' + (chapters === 1 ? '' : 's') + ' &middot; ~' + words.toLocaleString() + ' words &middot; ' + kb + '</div>' +
+    (matchesCurrent
+      ? '<div style="margin-top:8px;padding:6px 8px;background:var(--surface);border:.5px dashed var(--border-mid);border-radius:6px;font-size:11.5px;color:var(--hint)">This backup matches the folio you have open right now. Restoring is only useful if you’ve made edits in this tab that you want to discard in favor of the backup.</div>'
+      : '<div style="margin-top:8px;padding:6px 8px;background:var(--surface);border:.5px dashed var(--border-mid);border-radius:6px;font-size:11.5px;color:var(--hint)">This backup is for a <b>different</b> folio than the one you have open. Restoring will switch the editor to it.</div>');
+}
+
+function _esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+    return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c];
+  });
+}
+
+function _lbStatus(msg, color) {
+  const s = document.getElementById('lbDialogStatus');
+  if (s) {
+    s.textContent = msg || '';
+    s.style.color = color || 'var(--hint)';
+  }
+}
+
+async function _restoreLocalBackup() {
+  const backup = _readLocalBackup();
+  if (!backup) { _lbStatus('No backup to restore.', '#c04040'); return; }
+  if (!backup.state) { _lbStatus('Backup is missing its state payload.', '#c04040'); return; }
+
+  // Warn if the user has unsaved in-memory edits that the restore would wipe.
+  if (typeof _autoSaveDirty !== 'undefined' && _autoSaveDirty) {
+    const ok = confirm(
+      'You have unsaved edits in the current editor. ' +
+      'Restoring the backup will replace them with the backup’s state. ' +
+      'Continue?'
+    );
+    if (!ok) return;
+  }
+
+  try {
+    _lbStatus('Restoring…');
+    // Adopt the backup's id so the next cloud save updates the same
+    // folio_projects/{id} (rather than orphaning the backup under a
+    // fresh id). If the backup has no id, fall back to a fresh one.
+    _projId = backup.id || ('proj_' + Date.now() + '_' + Math.random().toString(36).slice(2,8));
+    const nameField = document.getElementById('projName');
+    if (nameField) nameField.value = backup.name || '';
+    _deserialise(backup.state);
+    if (typeof _updateInviteUI === 'function') _updateInviteUI();
+    if (typeof renderPreview === 'function') renderPreview();
+    if (typeof setStatus === 'function') setStatus('Restored from local backup');
+    if (typeof toastSuccess === 'function')
+      toastSuccess('Backup restored', { icon: '💾', duration: 2200 });
+    _lbStatus('Restored. Saving to cloud…', 'var(--hint)');
+
+    // Push to cloud now that the in-memory state matches the backup.
+    // _writeFolioCloud will fail loudly via _surfaceCloudError if the
+    // rules still don\'t allow the write — the user keeps their local
+    // copy either way.
+    try {
+      const name = (document.getElementById('projName')?.value || backup.name || 'Untitled folio').trim() || 'Untitled folio';
+      if (typeof _writeFolioCloud === 'function' && window._fb && window._db) {
+        await _writeFolioCloud(_projId, name, {});
+        try { localStorage.setItem('folio_last_open', _projId); } catch (_) {}
+        if (typeof loadFolioList === 'function') await loadFolioList();
+        _lbStatus('Restored and saved to cloud ✓', '#065f46');
+      } else {
+        _lbStatus('Restored locally. Cloud save will happen when connected.', 'var(--hint)');
+      }
+    } catch (e) {
+      console.warn('[FOLIO] restore-then-save: cloud write failed', e);
+      _lbStatus('Restored locally. Cloud save did not land — see the toast for details.', '#92400e');
+    }
+    _refreshLocalBackupUI();
+  } catch (e) {
+    console.error('[FOLIO] restore failed', e);
+    _lbStatus('Restore failed: ' + (e && e.message || e), '#c04040');
+  }
+}
+window._restoreLocalBackup = _restoreLocalBackup;
+
+async function _saveBackupAsNewFolio() {
+  const backup = _readLocalBackup();
+  if (!backup) { _lbStatus('No backup to save.', '#c04040'); return; }
+  if (!backup.state) { _lbStatus('Backup is missing its state payload.', '#c04040'); return; }
+
+  // Default name: backup.name + " (recovered)"; let the user adjust.
+  const suggested = (backup.name && backup.name.replace(/\s*\(recovered\)\s*$/i, '')
+                       + ' (recovered)') || 'Recovered folio';
+  const name = (prompt('Name for the recovered folio:', suggested) || '').trim();
+  if (!name) return;
+
+  if (!window._fb || !window._db) {
+    _lbStatus('Not connected to cloud yet — try again in a moment.', '#c04040');
+    return;
+  }
+
+  try {
+    _lbStatus('Saving as a new folio…');
+
+    // Stash the current editor state so we don't clobber it, then
+    // swap in the backup state, save, then restore the prior state.
+    const priorId    = _projId;
+    const priorState = (typeof _serialise === 'function') ? _serialise() : null;
+    const priorName  = document.getElementById('projName')?.value || '';
+
+    const newId = 'proj_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+    _projId = newId;
+    _deserialise(backup.state);
+    const nameField = document.getElementById('projName');
+    if (nameField) nameField.value = name;
+
+    await _writeFolioCloud(newId, name, { copiedFrom: backup.id || null });
+    try { localStorage.setItem('folio_last_open', newId); } catch (_) {}
+
+    // Reload the original folio state so the editor view is unchanged
+    // from the user\'s perspective. The recovered folio is now in the
+    // cloud and in the sidebar list.
+    _projId = priorId;
+    if (priorState) _deserialise(priorState);
+    if (nameField) nameField.value = priorName;
+    if (typeof renderPreview === 'function') renderPreview();
+
+    if (typeof loadFolioList === 'function') await loadFolioList();
+
+    _lbStatus('Saved as “' + name + '” ✓', '#065f46');
+    if (typeof toastSuccess === 'function')
+      toastSuccess('Recovered to a new folio', { icon: '💾', duration: 2600 });
+  } catch (e) {
+    console.error('[FOLIO] save-as-new failed', e);
+    _lbStatus('Save failed: ' + (e && e.message || e), '#c04040');
+  }
+}
+window._saveBackupAsNewFolio = _saveBackupAsNewFolio;
+
+function _discardLocalBackup() {
+  const backup = _readLocalBackup();
+  if (!backup) { _lbStatus('No backup stored.', 'var(--hint)'); return; }
+  const ok = confirm(
+    'Permanently delete the local backup?\n\n' +
+    'This removes the folio_local_backup entry from this browser’s ' +
+    'local storage. The next autosave will create a fresh backup, but ' +
+    'this exact saved state cannot be recovered after deletion.'
+  );
+  if (!ok) return;
+  try {
+    localStorage.removeItem(_LB_KEY);
+    _lbStatus('Backup discarded.', 'var(--hint)');
+    _refreshLocalBackupUI();
+    setTimeout(_closeBackupRecoveryDialog, 800);
+  } catch (e) {
+    _lbStatus('Could not delete: ' + (e && e.message || e), '#c04040');
+  }
+}
+window._discardLocalBackup = _discardLocalBackup;
+
+
 /* ── Firestore error helpers (friendlier user-facing messages) ── */
 function _isPermissionError(e) {
   if (!e) return false;
@@ -3393,13 +3821,17 @@ function _surfaceCloudError(e, contextLabel) {
     if (typeof toastWarning === 'function') {
       toastWarning(
         'Save blocked by cloud rules' + ctx + '. ' +
-        'Your in-memory work is safe and a local backup was just written ' +
-        '(DevTools → Application → Local Storage → ' +
-        'folio_local_backup). Reload to restore from it if needed. ' +
+        'Your in-memory work is safe and a local backup was just written. ' +
+        'Open the “💾 Local backup” pill in the sidebar to view, restore, ' +
+        'or save it as a new folio. ' +
         'Email folio@jacobsiler.com if this persists.',
         { duration: 9000, id: 'fb-perm-' + (contextLabel || 'x') }
       );
     }
+    // Bring the recovery banner back into view even if the user
+    // dismissed it earlier this session — a fresh save failure means
+    // the backup just earned its keep and the user should see it.
+    try { if (typeof _showLocalBackupBanner === 'function') _showLocalBackupBanner(); } catch (_) {}
     // Sanity-check the local backup exists so the toast's claim is
     // independently verifiable. Logs the key, byte count, and the
     // savedAt timestamp so the user can correlate with the toast.
@@ -12883,20 +13315,44 @@ function _rdMaybeActivate() {
   document.documentElement.setAttribute('data-reader', '1');
   document.documentElement.setAttribute('data-role', _readerRole);
 
-  // Load the folio once Firebase is ready. loadFolio() already handles the
-  // auth/network dance; we just need to call it after fb-ready.
+  // Load the folio once Firebase is ready. loadFolioById() already
+  // handles the auth/network dance; we just need to call it after
+  // fb-ready.
+  //
+  // (Earlier this called a bare `loadFolio` global that doesn't exist —
+  // the typeof check evaluated false, so the load was silently skipped.
+  // On the owner's device the load still appeared to work, but only
+  // because the fb-ready priority sequence's "last-open" path
+  // coincidentally loaded the same folio from localStorage. On a fresh
+  // device with no folio_last_open, no fetch happened at all and the
+  // demo took over, hence the "Night Garden / empty folio" you saw.)
   const startLoad = () => {
-    if (typeof loadFolio === 'function') {
-      loadFolio(id).then(() => {
-        // After the folio loads, check paywall gating.
-        if (typeof _pwCheckAccess === 'function') {
-          setTimeout(() => _pwCheckAccess(id), 150);
-        }
-      }).catch(err => {
-        if (typeof toastWarning === 'function')
-          toastWarning('Could not open this book: ' + (err.message || err), { duration: 5000 });
-      });
+    if (typeof loadFolioById !== 'function') {
+      console.error('[reader] loadFolioById is not available — cannot open ?read= URL');
+      return;
     }
+    loadFolioById(id).then(() => {
+      // After the folio loads, check paywall gating.
+      if (typeof _pwCheckAccess === 'function') {
+        setTimeout(() => _pwCheckAccess(id), 150);
+      }
+    }).catch(err => {
+      // Surface a more diagnostic message for the most common case:
+      // Firestore rules denying a non-owner's read of a published
+      // folio. The fix is server-side (allow read when
+      // resource.data.release.published == true) — the toast helps
+      // the author understand why a shared link "just shows nothing"
+      // on a friend's phone.
+      const code = err && err.code;
+      const isPerm = code === 'permission-denied'
+                     || /permission/i.test(String(err && err.message || ''));
+      const msg = isPerm
+        ? 'This reader link is blocked by Firestore rules. The folio is published, but the rules need to allow read access for non-owners when release.published is true. Ask the author to update their rules.'
+        : ('Could not open this book: ' + (err && err.message || err));
+      if (typeof toastWarning === 'function')
+        toastWarning(msg, { duration: 9000 });
+      console.error('[reader] load failed', err);
+    });
   };
   if (typeof _fbReady !== 'undefined' && _fbReady) {
     startLoad();
@@ -16548,196 +17004,29 @@ window._apOnImportFile       = _apOnImportFile;
   <div class="rdad-now" id="rdAudioNow" style="display:none">
     <div class="rdad-now-tt" id="rdAudioNowTitle">—</div>
     <input type="range" id="rdAudioSeek" min="0" max="1000" value="0" oninput="_rdAudioSeek(this.value)">
-    <div class="rdad-now-time"><span id="rdAudioNowCur">0:00</span><span id="rdAudioNowDur">0:00</span></div>
-    <div style="display:flex;gap:6px;margin-top:6px">
-      <button onclick="_rdAudioPrev()" style="flex:1;padding:5px;border-radius:6px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);cursor:pointer;font-size:11px">⏮ Prev</button>
-      <button onclick="_rdAudioPlayPause()" id="rdAudioPP" style="flex:1.4;padding:5px;border-radius:6px;border:.5px solid var(--accent-ui);background:var(--accent-ui);color:#fff;cursor:pointer;font-size:11px">▶ Play</button>
-      <button onclick="_rdAudioNext()" style="flex:1;padding:5px;border-radius:6px;border:.5px solid var(--border-mid);background:transparent;color:var(--text);cursor:pointer;font-size:11px">Next ⏭</button>
+    <div class="rdad-times" style="display:flex;justify-content:space-between;font-size:11px;color:var(--hint);margin-top:4px">
+      <span id="rdAudioNowCur">0:00</span>
+      <span id="rdAudioNowDur">0:00</span>
+    </div>
+    <div class="rdad-controls" style="display:flex;gap:8px;justify-content:center;margin-top:10px">
+      <button onclick="_rdAudioPrev()" title="Previous track" style="background:none;border:.5px solid var(--border-mid);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--text);cursor:pointer">⏮</button>
+      <button id="rdAudioPP" onclick="_rdAudioPlayPause()" style="background:var(--ink);color:var(--bg);border:none;border-radius:6px;padding:6px 16px;font-size:13px;font-weight:500;cursor:pointer">▮▮ Pause</button>
+      <button onclick="_rdAudioNext()" title="Next track" style="background:none;border:.5px solid var(--border-mid);border-radius:6px;padding:6px 10px;font-size:13px;color:var(--text);cursor:pointer">⏭</button>
     </div>
   </div>
 </div>
 
-<div id="readerDrawer" role="dialog" aria-label="Reader panel">
-  <div class="rd-drawer-hd">
-    <span id="rdDrawerTitle">Bookmarks</span>
-    <button onclick="_rdCloseDrawer()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--hint);padding:2px 6px;border-radius:4px">×</button>
-  </div>
-  <div class="rd-drawer-body" id="rdDrawerBody"></div>
-</div>
-
-<button id="readerContinue" onclick="_rdResumeProgress()" title="Jump to where you left off">▶ Continue reading</button>
-<div id="pwGate" aria-hidden="true" role="dialog" aria-label="Purchase required to read">
-  <div class="pw-card">
-    <div class="pw-cover" id="pwCover"></div>
-    <h2 class="pw-title" id="pwTitle">Loading&hellip;</h2>
-    <div class="pw-by" id="pwBy"></div>
-    <div class="pw-blurb" id="pwBlurb" style="display:none"></div>
-    <div class="pw-price" id="pwPrice"></div>
-    <a class="pw-buy" id="pwBuy" target="_blank" rel="noopener">Buy on Gumroad</a>
-    <div class="pw-have">
-      <div class="pw-have-label">Already bought it? Paste your license key:</div>
-      <div class="pw-key-row">
-        <input type="text" class="pw-key" id="pwKey" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false">
-        <button type="button" class="pw-unlock" id="pwUnlockBtn" onclick="_pwSubmitKey()">Unlock</button>
-      </div>
-      <div class="pw-status" id="pwStatus"></div>
-    </div>
-  </div>
-</div>
-
-<div id="collabBanner" role="status" aria-live="polite"
-  style="display:none;position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:90;background:var(--surface);border:.5px solid var(--border-mid);border-radius:999px;padding:6px 14px;font-family:var(--sans);font-size:11.5px;color:var(--text);box-shadow:0 2px 10px rgba(0,0,0,0.12);align-items:center;gap:8px">
-  <span id="collabBannerText">🛠 Opened as Collaborator</span>
-  <button onclick="document.getElementById('collabBanner').style.display='none'" style="background:none;border:none;font-size:14px;cursor:pointer;color:var(--hint);padding:0 2px">×</button>
-</div>
-
-
-<div id="toastContainer"></div>
-<div id="printBook"></div>
-
-
-<!-- Print & Publish panel -->
-<div id="podPanel" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);align-items:center;justify-content:center">
-  <div style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:540px;width:92%;max-height:88vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:28px 28px 24px">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
-      <div style="font-family:var(--sans);font-size:16px;font-weight:600;color:var(--text)">📦 Print &amp; Publish</div>
-      <button onclick="closePOD()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint);padding:2px 6px;border-radius:4px" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--hint)'">×</button>
-    </div>
-    <div style="background:var(--bg);border-radius:9px;padding:14px 16px;margin-bottom:20px">
-      <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:10px">Interior spec check</div>
-      <div id="podChecklist" style="display:flex;flex-direction:column;gap:6px;font-family:var(--sans);font-size:12px"></div>
-    </div>
-    <button onclick="exportPDF();closePOD();" style="width:100%;padding:10px;border-radius:8px;border:none;background:var(--accent-ui);color:#fff;font-family:var(--sans);font-size:13px;font-weight:500;cursor:pointer;margin-bottom:20px">⬇ Download Print-Ready PDF</button>
-    <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:10px">Upload to a provider</div>
-    <div style="display:flex;flex-direction:column;gap:10px" id="podProviders"></div>
-    <div style="margin-top:18px;padding:12px 14px;background:#fef9f0;border:.5px solid #f0d080;border-radius:8px;font-family:var(--sans);font-size:11.5px;color:#92400e;line-height:1.6">
-      <strong>Cover needed?</strong> Every provider requires a cover PDF. <a href="https://www.canva.com/create/book-covers/" target="_blank" style="color:#c9956a">Canva's free book cover maker</a> is the easiest starting point. KDP's free Cover Creator is at kdp.amazon.com.
-    </div>
-
-    <!-- Lulu jobs list -->
-    <div id="podJobsList" style="display:none;margin-top:18px">
-      <div style="font-family:var(--sans);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:8px">Recent Lulu orders</div>
-      <div id="podJobsItems" style="display:flex;flex-direction:column;gap:6px"></div>
-    </div>
-  </div>
-</div>
-
-<!-- Audio / Audiobook export panel -->
-<div id="audioPanel" aria-hidden="true" role="dialog" aria-labelledby="apTitle">
-  <div class="ap-box">
-    <div class="ap-hd">
-      <h3 id="apTitle">🎙 Audio Export</h3>
-      <button class="ap-close" onclick="closeAudioPanel()" aria-label="Close">×</button>
-    </div>
-
-    <label>Provider</label>
-    <div class="ap-prov">
-      <button type="button" id="apProvGoogle"      onclick="_apSetProvider('google')">Google TTS</button>
-      <button type="button" id="apProvElevenlabs"  onclick="_apSetProvider('elevenlabs')">ElevenLabs</button>
-    </div>
-    <div id="apSyncHint" style="font-size:10.5px;color:var(--hint);margin:6px 0 2px">Settings (incl. API keys) sync to your Folio account when signed in.</div>
-
-    <div class="ap-row">
-      <div>
-        <label>Voice</label>
-        <select id="apVoice" onchange="_apSaveSettings()"></select>
-      </div>
-      <div>
-        <label>Speed</label>
-        <select id="apSpeed" onchange="_apSaveSettings()">
-          <option value="0.85">0.85×</option>
-          <option value="0.9">0.9×</option>
-          <option value="0.95">0.95×</option>
-          <option value="1.0" selected>1.0×</option>
-          <option value="1.05">1.05×</option>
-          <option value="1.1">1.1×</option>
-          <option value="1.2">1.2×</option>
-        </select>
-      </div>
-    </div>
-
-    <div class="ap-key-row" id="apGoogleRow">
-      <label>Google Cloud TTS API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span> · <a href="/api-keys-guide.html#google" target="_blank" style="color:var(--accent-ui);text-decoration:none;border-bottom:.5px dotted var(--accent-ui)">Need help getting one?</a></label>
-      <input type="password" id="apGoogleKey" placeholder="AIza…" oninput="_apOnGoogleKey()" autocomplete="off">
-      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Create a restricted key for <em>Cloud Text-to-Speech API</em> only in the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--accent-ui)">Google Cloud Console</a>. Keys are kept in your browser and sent per-request to the Folio TTS worker — never stored server-side. <a href="/api-keys-guide.html#google" target="_blank" style="color:var(--accent-ui)">Step-by-step guide →</a></div>
-    </div>
-    <div class="ap-key-row" id="apElRow">
-      <label>ElevenLabs API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span> · <a href="/api-keys-guide.html#elevenlabs" target="_blank" style="color:var(--accent-ui);text-decoration:none;border-bottom:.5px dotted var(--accent-ui)">Need help getting one?</a></label>
-      <input type="password" id="apElKey" placeholder="sk-…" oninput="_apOnElKey()" autocomplete="off">
-      <label style="margin-top:10px">Model</label>
-      <select id="apElModel" onchange="_apOnElModel()">
-        <option value="eleven_multilingual_v2">Multilingual v2 — highest quality (free tier ✓)</option>
-        <option value="eleven_turbo_v2_5">Turbo v2.5 — fast &amp; low-latency (free tier ✓)</option>
-        <option value="eleven_flash_v2_5">Flash v2.5 — cheapest / fastest (free tier ✓)</option>
-        <option value="eleven_monolingual_v1">Monolingual v1 — legacy (paid tier only)</option>
-      </select>
-      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Get your key at <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" style="color:var(--accent-ui)">elevenlabs.io</a>. It is sent per-request to the Folio TTS worker and never stored on the server. <a href="/api-keys-guide.html#elevenlabs" target="_blank" style="color:var(--accent-ui)">Step-by-step guide →</a> · <a href="/api-keys-guide.html#custom-voices" target="_blank" style="color:var(--accent-ui)">Custom voices →</a></div>
-    </div>
-
-    <div class="ap-tracks" id="apTracks">
-      <div class="ap-empty">Loading tracks…</div>
-    </div>
-
-    <!-- Hidden file picker — each row's 📎 button triggers this. -->
-    <input type="file" id="apImportFile" accept=".mp3,audio/mpeg,audio/mp3" style="display:none" onchange="_apOnImportFile(event)">
-
-    <!-- Create a new custom audio segment (intro / intermission / outro / etc.) -->
-    <button type="button" class="ap-add-seg-btn" onclick="_apOpenSegModal()">
-      + Add audio segment (intro, intermission, outro…)
-    </button>
-
-    <div id="apEstimate" style="font-size:11.5px;color:var(--text);margin-top:10px;padding:8px 10px;background:var(--bg);border-radius:7px;line-height:1.5"></div>
-
-    <div class="ap-progress" id="apProgress"></div>
-
-    <div class="ap-footer">
-      <button type="button" class="ap-btn primary" id="apGenAll" onclick="_apGenerateAllRemaining()">▶▶ Generate All Remaining</button>
-      <button type="button" class="ap-btn"        id="apZipAll" onclick="_apDownloadZip()">↓ Download All as ZIP</button>
-    </div>
-    <div class="ap-concat">
-      <button type="button" class="ap-btn" id="apConcat" onclick="_apConcatAll()">🎧 Export Audiobook (MP3 with chapters)</button>
-    </div>
-  </div>
-</div>
-
-<div id="audioSegModal" role="dialog" aria-hidden="true" aria-labelledby="segTitle">
-  <div class="seg-box">
-    <h3 id="segTitle">Audio segment</h3>
-    <div class="seg-hint">
-      Use for intros, outros, intermissions, chapter teasers, anything you want spoken <em>between</em> the written chapters.
-      Segments are generated with the same voice and speed as the main book (panel defaults) and included in the audiobook exports at the position you choose.
-    </div>
-
-    <label>Name</label>
-    <input type="text" id="segNameInput" placeholder="Intro / Intermission 1 / Afterword">
-
-    <label>Position</label>
-    <div class="seg-pos-row">
-      <select id="segPosMode" onchange="_apSegOnPosMode()">
-        <option value="start">At the start of the book</option>
-        <option value="end">At the end of the book</option>
-        <option value="before">Before a specific section</option>
-        <option value="after">After a specific section</option>
-      </select>
-      <select id="segPosTarget">
-        <option value="">Select a section…</option>
-      </select>
-    </div>
-
-    <label>Text (will be spoken via the active TTS voice)</label>
-    <textarea id="segTextInput" placeholder="Welcome to Embers of Elekra. A novel by J.D. Siler. Chapter one, The Marmalade Problem, begins now."></textarea>
-    <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Character count: <span id="segCharCount">0</span></div>
-
-    <div class="seg-footer">
-      <button type="button" class="danger" id="segDeleteBtn" onclick="_apSegDelete()" style="display:none">Delete segment</button>
-      <button type="button" onclick="_apSegCancel()">Cancel</button>
-      <button type="button" class="primary" onclick="_apSegSave()">Save segment</button>
-    </div>
-  </div>
-</div>
-
-
-<!-- Release / publish panel (recovered after corruption — see commit msg) -->
+<!-- ════════════════ RELEASE MODAL ════════════════
+     Reconstructed in full after a partial-file corruption truncated
+     the original markup at the rlSerialFirst input. Element IDs and
+     event handlers cross-checked against:
+       * _rlSetMode      (rlModeFree/Paid/Priv, rlModeHint, rlPaidFields)
+       * openReleaseModal (rlTitleField, rlAuthorField, rlDescField, ...)
+       * _rlPublish      (rlProductId, rlPrice, rlCurrency, rlAudioBundle,
+                          rlPreviewN, rlSerial*, rlNotifyOnUnlock)
+       * _rlUnpublish    (rlPublishBtn, rlUnpublishBtn, rlUrlBox)
+       * _serialToggleEnabled / _serialUpdatePreview
+       * closeReleaseModal -->
 <div id="releasePanel" aria-hidden="true" role="dialog" aria-labelledby="rlTitle"
   style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);align-items:center;justify-content:center">
   <div style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:560px;width:94%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:26px 28px 22px;font-family:var(--sans);color:var(--text)">
@@ -16840,4 +17129,39 @@ window._apOnImportFile       = _apOnImportFile;
       <input type="datetime-local" id="rlSerialFirst" onchange="_serialUpdatePreview()" oninput="_serialUpdatePreview()"
         style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
 
-      <div id
+
+      <div id="rlSerialPreview" style="margin-top:10px;padding:8px 10px;background:var(--surface);border:.5px dashed var(--border-mid);border-radius:6px;font-size:11.5px;line-height:1.55;color:var(--text);min-height:30px">
+        <span style="color:var(--hint)">Pick a first-release date to see the schedule.</span>
+      </div>
+
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin-top:10px;cursor:pointer">
+        <input type="checkbox" id="rlNotifyOnUnlock" style="margin:0">
+        <span>Email subscribers each time a chapter unlocks</span>
+      </label>
+    </div>
+
+    <!-- Status line (publish/unpublish progress + error messages) -->
+    <div id="rlStatus" style="font-size:11.5px;color:var(--hint);min-height:1.4em;margin:6px 0 10px"></div>
+
+    <!-- Reader URL, shown only after a release exists -->
+    <div id="rlUrlBox" style="display:none;padding:10px 12px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;margin-bottom:10px">
+      <div style="font-size:10.5px;color:var(--hint);letter-spacing:.02em;margin-bottom:4px">Reader link</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <code id="rlUrlText" style="flex:1;font-family:var(--mono,ui-monospace,monospace);font-size:12px;color:var(--text);word-break:break-all;line-height:1.4"></code>
+        <button type="button" onclick="_rlCopyUrl()"
+          style="font-size:11.5px;padding:6px 10px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap">📋 Copy</button>
+      </div>
+    </div>
+
+    <!-- Action row — Publish (primary) + Unpublish (shown for live releases) -->
+    <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+      <button type="button" id="rlPublishBtn" onclick="_rlPublish()"
+        style="flex:1;font-size:13px;font-weight:500;padding:10px 14px;border-radius:8px;border:none;background:#065f46;color:#fff;cursor:pointer">🔖 Publish</button>
+      <button type="button" id="rlUnpublishBtn" onclick="_rlUnpublish()"
+        style="display:none;font-size:12px;padding:10px 12px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">Unpublish</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
