@@ -70,7 +70,14 @@ try {
     Set-Location $repoRoot
     Write-Host "Repo:   $repoRoot" -ForegroundColor Cyan
 
-    # -- Auto-discover the most recent Cowork outputs folder ---------
+    # -- Auto-discover the right Cowork outputs folder ---------------
+    # Heuristic: prefer the most-recently-modified 'outputs' folder
+    # that ALSO contains the commit-message stamp (.folio-pending-
+    # commit.txt). That stamp is Claude's "I have staged a full
+    # push-ready drop here" signal, so an otherwise-fresher but
+    # empty session (e.g. a second Cowork tab) does not hijack the
+    # push. Fall back to plain most-recent if no stamped session
+    # exists, to preserve backwards compatibility with old drops.
     $base = Join-Path $env:APPDATA "Claude\local-agent-mode-sessions"
     if (-not (Test-Path $base)) {
         Write-Host "Cowork sessions folder not found at: $base" -ForegroundColor Red
@@ -78,26 +85,45 @@ try {
         Stop-Here 1
     }
 
-    $outputsDir = Get-ChildItem -Path $base -Directory -Recurse -Filter 'outputs' -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
+    $allOutputs = Get-ChildItem -Path $base -Directory -Recurse -Filter 'outputs' -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending
 
-    if (-not $outputsDir) {
+    if (-not $allOutputs) {
         Write-Host "No Cowork 'outputs' folder found under: $base" -ForegroundColor Red
         Stop-Here 1
     }
 
-    $srcRoot   = $outputsDir.FullName
-    $srcIndex  = Join-Path $srcRoot 'index.html'
-    $srcWorker = Join-Path $srcRoot 'folio-tts-worker.js'
-    $srcCommit = Join-Path $srcRoot '.folio-pending-commit.txt'
+    # First pick: most-recent folder that actually has the commit stamp.
+    $stamped = $allOutputs | Where-Object {
+        Test-Path (Join-Path $_.FullName '.folio-pending-commit.txt')
+    } | Select-Object -First 1
+
+    if ($stamped) {
+        $outputsDir = $stamped
+    } else {
+        $outputsDir = $allOutputs | Select-Object -First 1
+        Write-Host "(No outputs folder has a .folio-pending-commit.txt - falling back to most-recent.)" -ForegroundColor DarkGray
+    }
+
+    $srcRoot    = $outputsDir.FullName
+    $srcIndex   = Join-Path $srcRoot 'index.html'
+    $srcApp     = Join-Path $srcRoot 'app.html'
+    $srcWorker  = Join-Path $srcRoot 'folio-tts-worker.js'
+    $srcPaywall = Join-Path $srcRoot 'folio-paywall-worker.js'
+    $srcPrivacy = Join-Path $srcRoot 'privacy.html'
+    $srcTerms   = Join-Path $srcRoot 'terms.html'
+    $srcCommit  = Join-Path $srcRoot '.folio-pending-commit.txt'
 
     Write-Host "Source: $srcRoot" -ForegroundColor Cyan
     Write-Host "        (modified $($outputsDir.LastWriteTime))" -ForegroundColor DarkGray
 
+    # The only strictly-required file is the commit message stamp - that is
+    # the signal that "Claude has staged a push-ready drop in this folder."
+    # Every content file is OPTIONAL: copy it if it's there, leave it alone
+    # if it isn't. That way sessions that only touch the welcome page, only
+    # the editor, only the workers, or only the static guides all work
+    # without needing a no-op stash of every other file.
     $missing = @()
-    if (-not (Test-Path $srcIndex))  { $missing += 'index.html' }
-    if (-not (Test-Path $srcWorker)) { $missing += 'folio-tts-worker.js' }
     if (-not (Test-Path $srcCommit)) { $missing += '.folio-pending-commit.txt' }
     if ($missing.Count -gt 0) {
         Write-Host ""
@@ -109,10 +135,46 @@ try {
     # -- Copy files into repo ----------------------------------------
     Write-Host ""
     Write-Host "Copying files into repo..." -ForegroundColor Cyan
-    Copy-Item -Force $srcIndex  (Join-Path $repoRoot 'index.html')
-    Copy-Item -Force $srcWorker (Join-Path $repoRoot 'folio-tts-worker.js')
-    Write-Host "  index.html           -> repo root" -ForegroundColor DarkGray
-    Write-Host "  folio-tts-worker.js  -> repo root" -ForegroundColor DarkGray
+    if (Test-Path $srcIndex) {
+        Copy-Item -Force $srcIndex (Join-Path $repoRoot 'index.html')
+        Write-Host "  index.html               -> repo root" -ForegroundColor DarkGray
+    }
+    if (Test-Path $srcApp) {
+        Copy-Item -Force $srcApp (Join-Path $repoRoot 'app.html')
+        Write-Host "  app.html                 -> repo root" -ForegroundColor DarkGray
+    }
+    if (Test-Path $srcWorker) {
+        Copy-Item -Force $srcWorker (Join-Path $repoRoot 'folio-tts-worker.js')
+        Write-Host "  folio-tts-worker.js      -> repo root" -ForegroundColor DarkGray
+    }
+    if (Test-Path $srcPaywall) {
+        Copy-Item -Force $srcPaywall (Join-Path $repoRoot 'folio-paywall-worker.js')
+        Write-Host "  folio-paywall-worker.js  -> repo root" -ForegroundColor DarkGray
+    }
+    if (Test-Path $srcPrivacy) {
+        Copy-Item -Force $srcPrivacy (Join-Path $repoRoot 'privacy.html')
+        Write-Host "  privacy.html             -> repo root" -ForegroundColor DarkGray
+    }
+    if (Test-Path $srcTerms) {
+        Copy-Item -Force $srcTerms (Join-Path $repoRoot 'terms.html')
+        Write-Host "  terms.html               -> repo root" -ForegroundColor DarkGray
+    }
+    # Optional outputs: copied if present, but tracked in repo regardless
+    $srcGuide       = Join-Path $srcRoot 'serials-guide.html'
+    $srcKeysGuide   = Join-Path $srcRoot 'api-keys-guide.html'
+    $srcEmailWorker = Join-Path $srcRoot 'folio-email-worker.js'
+    if (Test-Path $srcGuide) {
+        Copy-Item -Force $srcGuide (Join-Path $repoRoot 'serials-guide.html')
+        Write-Host "  serials-guide.html       -> repo root" -ForegroundColor DarkGray
+    }
+    if (Test-Path $srcKeysGuide) {
+        Copy-Item -Force $srcKeysGuide (Join-Path $repoRoot 'api-keys-guide.html')
+        Write-Host "  api-keys-guide.html      -> repo root" -ForegroundColor DarkGray
+    }
+    if (Test-Path $srcEmailWorker) {
+        Copy-Item -Force $srcEmailWorker (Join-Path $repoRoot 'folio-email-worker.js')
+        Write-Host "  folio-email-worker.js    -> repo root" -ForegroundColor DarkGray
+    }
 
     # Pull commit message into TEMP (not into the repo)
     $tmpCommitFile = Join-Path $env:TEMP 'folio-pending-commit.txt'
@@ -158,7 +220,32 @@ try {
     # -- Commit + push -----------------------------------------------
     Write-Host ""
     Write-Host "Committing..." -ForegroundColor Cyan
-    git add index.html folio-tts-worker.js
+    # Stage whatever is actually in the repo - git only commits files whose
+    # content differs from HEAD, so listing extras is harmless. Everything
+    # here is optional; we just enumerate the known files so a brand-new
+    # tracked file (e.g. app.html the first time the welcome page split
+    # ships) gets picked up.
+    $toAdd = @()
+    if (Test-Path (Join-Path $repoRoot 'index.html'))               { $toAdd += 'index.html' }
+    if (Test-Path (Join-Path $repoRoot 'app.html'))                 { $toAdd += 'app.html' }
+    if (Test-Path (Join-Path $repoRoot 'folio-tts-worker.js'))      { $toAdd += 'folio-tts-worker.js' }
+    if (Test-Path (Join-Path $repoRoot 'folio-paywall-worker.js'))  { $toAdd += 'folio-paywall-worker.js' }
+    if (Test-Path (Join-Path $repoRoot 'folio-email-worker.js'))    { $toAdd += 'folio-email-worker.js' }
+    if (Test-Path (Join-Path $repoRoot 'privacy.html'))             { $toAdd += 'privacy.html' }
+    if (Test-Path (Join-Path $repoRoot 'terms.html'))               { $toAdd += 'terms.html' }
+    if (Test-Path (Join-Path $repoRoot 'serials-guide.html'))       { $toAdd += 'serials-guide.html' }
+    if (Test-Path (Join-Path $repoRoot 'api-keys-guide.html'))      { $toAdd += 'api-keys-guide.html' }
+    # Stage the docs/ folder when present (markdown reference docs)
+    if (Test-Path (Join-Path $repoRoot 'docs')) { $toAdd += 'docs' }
+    # Stage the scripts/ folder so iterations to this push script itself
+    # (or its launcher) get committed automatically alongside the build.
+    if (Test-Path (Join-Path $repoRoot 'scripts')) { $toAdd += 'scripts' }
+    if ($toAdd.Count -eq 0) {
+        Write-Host "Nothing to stage." -ForegroundColor Yellow
+        Remove-Item $tmpCommitFile -ErrorAction SilentlyContinue
+        Stop-Here 0
+    }
+    git add @toAdd
     git commit -F $tmpCommitFile
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""
