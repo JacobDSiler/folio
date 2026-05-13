@@ -4584,6 +4584,15 @@ async function loadFolioById(id) {
     const _stateLoaded = await _readDocState(data, id);
     _deserialise(_stateLoaded);
     _updateInviteUI();
+    // Kick off the annotation cloud-sync for this folio. Pulls
+    // any cloud-side annotations into the local cache, then attaches
+    // an onSnapshot subscription so collaborator/beta/reader edits
+    // flow in real-time. Safe to call on every load — idempotent.
+    try { _annAttachCloudSync(id); } catch (e) { console.warn('[ann] attach sync failed', e); }
+    // Run the URL-anchor protocol after the preview renders. Uses
+    // its own retry loop to handle the case where the chapter
+    // paragraphs haven't been painted yet at this exact moment.
+    try { setTimeout(_deepLinkApply, 250); } catch (e) {}
 
     // Belt-and-braces: ensure spinner is gone and preview is rendered
     // (guards against any race where _deserialise's internal render was skipped)
@@ -14165,8 +14174,385 @@ function _annLoad() {
 }
 
 function _annSave(list) {
+  // Local cache — used for offline + immediate reads.
   try { localStorage.setItem(_annFolioKey(), JSON.stringify(list)); } catch(e){}
+  // Fire-and-forget delta push to Firestore so this device's edits
+  // reach everyone else viewing the same folio. See _annSyncToCloud
+  // for the diff algorithm; failures stay silent so the local UX
+  // remains responsive whether or not the cloud is reachable.
+  try { _annSyncToCloud(list); } catch(e){ /* never let cloud sync break local save */ }
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Annotation cloud sync — Phase 2.
+//
+// Source of truth: folio_projects/{folioId}/annotations/{annId} on
+// Firestore. Each annotation is its own doc so the rules can gate
+// reads/writes per-annotation rather than blanket-allowing access
+// to the whole list. localStorage stays as a write-through cache for
+// offline behavior and instant reads on page load.
+//
+// Annotations carry:
+//   - `uid`            (creator's auth uid — used by rules for write/own-read)
+//   - `scope`          ('personal' | 'editor' | 'collaborator' | 'public')
+//   - `createdByRole`  ('author' | 'editor' | 'beta' | 'reader' — for UI label)
+//   - `createdByName`  optional display name (presence nickname)
+// ─────────────────────────────────────────────────────────────────────
+
+let _annLastSaved = null;        // last-known list, for diff'ing in _annSave
+let _annCloudUnsubscribe = null; // active onSnapshot handle (one folio at a time)
+let _annLoopGuard = false;       // suppresses cloud-push during snapshot-driven _annSave
+
+function _annSyncableFolioId() {
+  // No cloud sync for the offline-only "local" id or when not signed in.
+  const id = (typeof _readerFolioId !== 'undefined' && _readerFolioId)
+             || (typeof _projId !== 'undefined' && _projId)
+             || null;
+  if (!id || id === 'local') return null;
+  if (!window._fb || !window._db || !window._uid) return null;
+  return id;
+}
+
+async function _annCloudPush(folioId, ann) {
+  if (!folioId || !window._fb || !window._db) return;
+  try {
+    const ref = window._fb.doc(window._db, 'folio_projects', folioId, 'annotations', ann.id);
+    // Carry uid for the security rule; default to creator's uid if the
+    // annotation already has one (so re-saves don't clobber the
+    // original author's identity).
+    const payload = Object.assign({}, ann, {
+      uid: ann.uid || ann.createdBy || window._uid,
+      updatedAt: Date.now(),
+    });
+    await window._fb.setDoc(ref, payload);
+  } catch (e) {
+    console.warn('[ann] cloud push failed for', ann.id, e && e.code || e && e.message || e);
+  }
+}
+
+async function _annCloudDelete(folioId, annId) {
+  if (!folioId || !window._fb || !window._db) return;
+  try {
+    const ref = window._fb.doc(window._db, 'folio_projects', folioId, 'annotations', annId);
+    await window._fb.deleteDoc(ref);
+  } catch (e) {
+    console.warn('[ann] cloud delete failed for', annId, e && e.code || e && e.message || e);
+  }
+}
+
+function _annSyncToCloud(currentList) {
+  // Skip when a recent onSnapshot triggered the save (avoids infinite
+  // ping-pong: snapshot → _annSave → push → another snapshot).
+  if (_annLoopGuard) return;
+  const folioId = _annSyncableFolioId();
+  if (!folioId) return;
+
+  const prev = _annLastSaved || [];
+  const prevMap = new Map(prev.map(a => [a.id, a]));
+  const currMap = new Map(currentList.map(a => [a.id, a]));
+
+  // Pushes (adds + updates). Stringify-compare keeps trivial color
+  // changes cheap; we tolerate the occasional false positive (e.g.
+  // a key-order shuffle) because setDoc is idempotent.
+  for (const a of currentList) {
+    const prevA = prevMap.get(a.id);
+    let changed = !prevA;
+    if (prevA) {
+      try { changed = JSON.stringify(prevA) !== JSON.stringify(a); } catch(e) { changed = true; }
+    }
+    if (changed) _annCloudPush(folioId, a);
+  }
+  // Deletes
+  for (const a of prev) {
+    if (!currMap.has(a.id)) _annCloudDelete(folioId, a.id);
+  }
+
+  // Snapshot the new state (deep copy via JSON to avoid aliasing).
+  try { _annLastSaved = JSON.parse(JSON.stringify(currentList)); }
+  catch(e) { _annLastSaved = currentList.slice(); }
+}
+
+// Initial cloud load — runs once on folio open. Merges Firestore's
+// view with whatever's in localStorage:
+//   - If an annotation exists in both, cloud wins (authoritative)
+//   - If an annotation exists locally but NOT in cloud, push it up
+//     (handles devices that drafted notes while offline and migrates
+//      legacy localStorage-only annotations on first cloud-sync)
+async function _annInitFromCloud(folioId) {
+  if (!folioId || !window._fb || !window._db) return;
+  try {
+    const { collection, getDocs } = window._fb;
+    const snap = await getDocs(collection(window._db, 'folio_projects', folioId, 'annotations'));
+    const fromCloud = [];
+    snap.forEach(d => fromCloud.push(Object.assign({ id: d.id }, d.data())));
+
+    const local = _annLoad();
+    const cloudIds = new Set(fromCloud.map(a => a.id));
+    const localOnly = local.filter(a => !cloudIds.has(a.id));
+
+    const merged = fromCloud.concat(localOnly);
+    // Update cache + render baseline WITHOUT triggering a re-push of the
+    // cloud items we just fetched.
+    _annLoopGuard = true;
+    try {
+      _annLastSaved = JSON.parse(JSON.stringify(merged));
+      try { localStorage.setItem(_annFolioKey(), JSON.stringify(merged)); } catch(e){}
+    } finally {
+      _annLoopGuard = false;
+    }
+
+    // Push the local-only stragglers up (one-time migration).
+    for (const a of localOnly) _annCloudPush(folioId, a);
+
+    if (typeof _annRender === 'function') _annRender();
+    if (typeof _annRenderSidebarList === 'function') _annRenderSidebarList();
+  } catch (e) {
+    console.warn('[ann] initial cloud load failed', e && e.code || e && e.message || e);
+    // Stay on the localStorage cache — no UX regression for offline users.
+  }
+}
+
+// Live subscription. Single-flight: attaches one onSnapshot per folio;
+// detaches the previous one whenever the active folio changes.
+function _annSubscribe(folioId) {
+  // Tear down any prior subscription (folio switch, sign-out, etc.).
+  if (_annCloudUnsubscribe) {
+    try { _annCloudUnsubscribe(); } catch(e) {}
+    _annCloudUnsubscribe = null;
+  }
+  if (!folioId || !window._fb || !window._db) return;
+  if (typeof window._fb.onSnapshot !== 'function' ||
+      typeof window._fb.collection !== 'function') return;
+  try {
+    const { collection, onSnapshot } = window._fb;
+    const colRef = collection(window._db, 'folio_projects', folioId, 'annotations');
+    _annCloudUnsubscribe = onSnapshot(colRef, snap => {
+      const fromCloud = [];
+      snap.forEach(d => fromCloud.push(Object.assign({ id: d.id }, d.data())));
+      // Cache-write WITHOUT cloud re-push.
+      _annLoopGuard = true;
+      try {
+        _annLastSaved = JSON.parse(JSON.stringify(fromCloud));
+        try { localStorage.setItem(_annFolioKey(), JSON.stringify(fromCloud)); } catch(e){}
+      } finally {
+        _annLoopGuard = false;
+      }
+      if (typeof _annRender === 'function') _annRender();
+      if (typeof _annRenderSidebarList === 'function') _annRenderSidebarList();
+    }, err => {
+      console.warn('[ann] subscription error', err && err.code || err);
+    });
+  } catch (e) {
+    console.warn('[ann] subscribe failed', e);
+  }
+}
+
+// Convenience: kick off both the one-shot merge and the live
+// subscription for a folio. Idempotent — safe to call on every load.
+function _annAttachCloudSync(folioId) {
+  if (!folioId || folioId === 'local') return;
+  _annInitFromCloud(folioId).then(() => _annSubscribe(folioId));
+}
+window._annAttachCloudSync = _annAttachCloudSync;
+
+// ─────────────────────────────────────────────────────────────────────
+// URL ANCHOR PROTOCOL  (Phase 2 — deep links into a folio)
+//
+//   ?read=<folioId>                 → open in reader mode (existing)
+//   ?folio=<folioId>                → open in editor mode (existing)
+//   ?annot=<annId>                  → scroll to this annotation, flash it
+//   ?bm=<bmId>                      → scroll to this bookmark, flash it
+//   ?ch=<chapterId>                 → jump to this chapter
+//   ?p=<paragraphIndex>             → paragraph offset (use with ?ch=)
+//   ?role=reader|beta|editor        → caller's role label (existing)
+//
+// Any combination is valid:
+//   /app.html?read=ID&annot=an_xyz                 — share a comment
+//   /app.html?read=ID&bm=bm_abc                    — share a bookmark
+//   /app.html?read=ID&ch=ch1&p=4                   — share a paragraph
+//   /app.html?folio=ID&annot=an_xyz&role=editor    — editor opens to a note
+//
+// The anchor runs AFTER the folio loads and the preview has rendered
+// (paragraph nodes need to exist for scrollIntoView to land). A short
+// retry handles preview render races on slow devices.
+// ─────────────────────────────────────────────────────────────────────
+
+function _deepLinkParams() {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    return {
+      annot: p.get('annot') || null,
+      bm:    p.get('bm')    || null,
+      ch:    p.get('ch')    || null,
+      p:     (p.get('p') != null && p.get('p') !== '') ? parseInt(p.get('p'), 10) : null,
+    };
+  } catch (e) { return { annot:null, bm:null, ch:null, p:null }; }
+}
+
+let _deepLinkRetries = 0;
+function _deepLinkApply() {
+  const dl = _deepLinkParams();
+  if (!dl.annot && !dl.bm && !dl.ch && dl.p == null) return;
+
+  const bp = document.getElementById('bookPreview');
+  // If the preview isn't fully populated yet, retry briefly. Preview
+  // render can race the fb-ready handler in reader mode.
+  const ready = bp && bp.querySelector('[data-chid][data-paraidx]');
+  if (!ready) {
+    if (_deepLinkRetries < 30) {
+      _deepLinkRetries++;
+      setTimeout(_deepLinkApply, 150);
+    }
+    return;
+  }
+  _deepLinkRetries = 0;
+
+  // ?annot=ID — highest precedence
+  if (dl.annot) {
+    if (typeof _annJumpTo === 'function') _annJumpTo(dl.annot);
+    return;
+  }
+
+  // ?bm=ID — look up the bookmark to find its chid/paraidx, then jump
+  if (dl.bm) {
+    try {
+      const list = (typeof _bmLoad === 'function') ? _bmLoad() : [];
+      const bm = list.find(b => b.id === dl.bm);
+      if (bm && typeof _bmJumpTo === 'function') {
+        _bmJumpTo(bm.chapterId || bm.chid, (bm.paragraphIndex != null ? bm.paragraphIndex : bm.paraidx));
+      }
+    } catch (e) { console.warn('[deepLink] bookmark jump failed', e); }
+    return;
+  }
+
+  // ?ch=CHID with optional ?p=N
+  if (dl.ch) {
+    if (dl.p != null && typeof _bmJumpTo === 'function') {
+      _bmJumpTo(dl.ch, dl.p);
+    } else if (typeof _rdJumpToChapter === 'function') {
+      _rdJumpToChapter(dl.ch);
+    }
+    return;
+  }
+}
+window._deepLinkApply = _deepLinkApply;
+
+// Build a shareable URL pointing at a specific spot in a folio. By
+// default uses the ?read= form because that's the dominant share
+// audience (anyone with the link can open it).
+function _deepLinkUrl(opts) {
+  opts = opts || {};
+  const folioId = opts.folioId || (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+  if (!folioId) return '';
+  const origin = window.location.origin || 'https://folio.jacobsiler.com';
+  // /app.html is the editor; use it for both editor and reader links so
+  // the same URL works no matter where the recipient lands.
+  const pathBase = (window.location.pathname && window.location.pathname.indexOf('app.html') >= 0)
+                   ? window.location.pathname
+                   : '/app.html';
+  const params = new URLSearchParams();
+  // Prefer ?read= for share URLs; ?folio= for self-references / editor.
+  if (opts.mode === 'editor') params.set('folio', folioId);
+  else                         params.set('read',  folioId);
+  if (opts.annot) params.set('annot', opts.annot);
+  if (opts.bm)    params.set('bm',    opts.bm);
+  if (opts.ch)    params.set('ch',    opts.ch);
+  if (opts.p != null) params.set('p', String(opts.p));
+  if (opts.role) params.set('role', opts.role);
+  return origin + pathBase + '?' + params.toString();
+}
+
+function _deepLinkCopy(url, label) {
+  if (!url) return;
+  const write = (navigator.clipboard && navigator.clipboard.writeText)
+    ? navigator.clipboard.writeText(url)
+    : Promise.reject();
+  write.then(
+    () => { if (typeof toastSuccess === 'function')
+              toastSuccess((label || 'Link') + ' copied — paste anywhere',
+                           { icon:'🔗', duration: 1800 }); },
+    () => {
+      // Fallback: temporary textarea select+copy
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = url; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        if (typeof toastSuccess === 'function')
+          toastSuccess((label || 'Link') + ' copied',
+                       { icon:'🔗', duration: 1800 });
+      } catch (e) {
+        if (typeof toastWarning === 'function')
+          toastWarning('Could not copy — long-press the URL to copy manually: ' + url,
+                       { duration: 6000 });
+      }
+    }
+  );
+}
+
+window._annCopyDeepLink = function (annId) {
+  if (!annId) return;
+  _deepLinkCopy(_deepLinkUrl({ annot: annId }), 'Annotation link');
+};
+window._bmCopyDeepLink = function (bmId) {
+  if (!bmId) return;
+  _deepLinkCopy(_deepLinkUrl({ bm: bmId }), 'Bookmark link');
+};
+window._chCopyDeepLink = function (chid, paraidx) {
+  if (!chid) return;
+  const opts = { ch: chid };
+  if (paraidx != null) opts.p = paraidx;
+  _deepLinkCopy(_deepLinkUrl(opts), (paraidx != null ? 'Paragraph link' : 'Chapter link'));
+};
+
+
+// ─────────────────────────────────────────────────────────────────────
+// Role-based default scope.
+//
+// When a user creates a new annotation, the default scope follows
+// who they are on this folio:
+//   - Author of the folio          → 'personal'   (private working notes)
+//   - URL-role 'editor'            → 'editor'     (editorial channel)
+//   - URL-role 'beta'              → 'collaborator' (feedback to author + betas)
+//   - URL-role 'reader' (default)  → 'personal'   (their own reading notes)
+//
+// The user can still change the scope via the picker in the note
+// dialog; this is just the starting point. The picker itself filters
+// available options to those the user is permitted to use (see
+// _annAllowedScopesForRole).
+// ─────────────────────────────────────────────────────────────────────
+function _annUserRoleHere() {
+  if (typeof _loadedFolioOwnerUid !== 'undefined' &&
+      _loadedFolioOwnerUid && window._uid &&
+      _loadedFolioOwnerUid === window._uid) return 'author';
+  if (typeof _readerRole !== 'undefined' && _readerRole) return _readerRole;
+  return 'reader';
+}
+
+function _annDefaultScope() {
+  const role = _annUserRoleHere();
+  if (role === 'author') return 'personal';
+  if (role === 'editor') return 'editor';
+  if (role === 'beta')   return 'collaborator';
+  return 'personal';
+}
+
+function _annAllowedScopesForRole() {
+  const role = _annUserRoleHere();
+  // Author can do anything, including publishing notes to readers.
+  if (role === 'author') return ['personal', 'editor', 'collaborator', 'public'];
+  // Editor can write personal, editor (their channel), or collaborator (to betas).
+  if (role === 'editor') return ['personal', 'editor', 'collaborator'];
+  // Beta: personal or collaborator (to author + other betas).
+  if (role === 'beta')   return ['personal', 'collaborator'];
+  // Reader: only personal — their own reading log.
+  return ['personal'];
+}
+
+window._annDefaultScope        = _annDefaultScope;
+window._annAllowedScopesForRole = _annAllowedScopesForRole;
+window._annUserRoleHere        = _annUserRoleHere;
+
 
 function _annParagraphText(chid, paraidx) {
   const ch = chapters.find(c => c.id === chid);
@@ -14286,8 +14672,9 @@ function _annApplyColor(color) {
   list.push({
     id: 'an' + Math.random().toString(36).slice(2, 9),
     type: 'highlight',
-    scope: _scopeLastFor(_projId || _readerFolioId),
+    scope: _annDefaultScope(),
     folioId: _projId || 'local',
+    createdByRole: _annUserRoleHere(),
     chapterId: s.chid,
     paragraphIndex: s.paraidx,
     selectionStart: s.start,
@@ -14349,7 +14736,7 @@ function _annOpenNoteBox() {
     '<div style="display:flex;align-items:center;gap:8px;margin:6px 0 4px;font-size:10.5px;color:var(--hint)">' +
       '<span>Visible to:</span>' +
       '<select id="annNoteScope" style="font-size:10.5px;padding:3px 6px;border-radius:5px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text)">' +
-        _SCOPES.map(s =>
+        _annAllowedScopesForRole().map(s =>
           '<option value="' + s + '"' + (s === _curScope ? ' selected' : '') + '>' + _SCOPE_LABELS[s] + '</option>'
         ).join('') +
       '</select>' +
@@ -14400,8 +14787,9 @@ function _annSaveNote() {
     list.push({
       id: 'an' + Math.random().toString(36).slice(2, 9),
       type: text ? 'note' : 'highlight',
-      scope: chosenScope || _scopeLastFor(_projId || _readerFolioId),
+      scope: chosenScope || _annDefaultScope(),
       folioId: _projId || 'local',
+      createdByRole: _annUserRoleHere(),
       chapterId: s.chid,
       paragraphIndex: s.paraidx,
       selectionStart: s.start,
@@ -14552,6 +14940,7 @@ function _annRenderSidebarList() {
           noteBits +
           '<div class="bm-actions">' +
             '<button class="bm-mini" onclick="event.stopPropagation();_annEditNote(\'' + _esc(a.id) + '\')" title="Edit note">📝</button>' +
+            '<button class="bm-mini" onclick="event.stopPropagation();_annCopyDeepLink(\'' + _esc(a.id) + '\')" title="Copy a shareable link that opens the folio scrolled to this annotation">🔗</button>' +
             '<button class="bm-mini" onclick="event.stopPropagation();_annDelete(\'' + _esc(a.id) + '\')" title="Remove">✕</button>' +
           '</div>' +
         '</div>'
@@ -14859,6 +15248,7 @@ function _bmRenderList() {
           '</div>' +
           '<div class="bm-snip">' + _esc(bm.snippet || '(empty)') + '</div>' +
           '<div class="bm-actions">' +
+            '<button class="bm-mini" onclick="event.stopPropagation();_bmCopyDeepLink(\'' + _esc(bm.id) + '\')" title="Copy a shareable link to this bookmark">🔗</button>' +
             '<button class="bm-mini" onclick="event.stopPropagation();_bmDelete(\'' + _esc(bm.id) + '\')" title="Remove bookmark">✕</button>' +
           '</div>' +
         '</div>'
