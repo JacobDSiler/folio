@@ -7168,8 +7168,13 @@ function _pronTestFromModal() {
   const provider = (typeof _apProvider !== 'undefined') ? _apProvider : 'google';
   let testText;
   if (provider === 'google' && ipa) {
+    // Clean the IPA the same way the chapter-generation path does:
+    // strip surrounding slashes (Google's <phoneme ph="..."> rejects
+    // them and falls back to reading the literal characters).
+    const cleanIpa = (typeof _apCleanIpa === 'function') ? _apCleanIpa(ipa) : ipa;
     testText = '<speak><phoneme alphabet="ipa" ph="' +
-      _apEscSSML(ipa) + '">' + _apEscSSML(word) + '</phoneme></speak>';
+      _apEscSSML(cleanIpa) + '">' + _apEscSSML(word) + '</phoneme></speak>';
+    console.log('[pron-test] SSML being sent:', testText);
   } else if (phon) {
     testText = phon;
   } else if (ipa) {
@@ -12964,6 +12969,8 @@ function _serialApplyLocks(release) {
   let chCounter = 0;
   let currentChapterLocked = false;
   let firstLockedChIdx = null;
+  let _hiddenCount = 0;
+  let _visibleCount = 0;
   for (let i = 0; i < pages.length; i++) {
     const p = pages[i];
     const chid = p.getAttribute && p.getAttribute('data-chapid');
@@ -12979,13 +12986,24 @@ function _serialApplyLocks(release) {
       }
     }
 
-    // Hide every page inside a locked chapter — including the pages
-    // 2..N that have no data-chapid. This is the fix for "the lock
-    // card shows but the chapter text still appears underneath it".
     if (currentChapterLocked) {
+      // Belt + braces: class for restorable cleanup, inline style with
+      // !important so no rogue CSS or specificity quirk leaves the
+      // page visible. _serialClearLocks strips both.
       p.classList.add('pw-hidden-page', 'serial-locked');
+      try { p.style.setProperty('display', 'none', 'important'); } catch (e) {}
+      _hiddenCount++;
+    } else {
+      _visibleCount++;
     }
   }
+  console.log('[serial] applyLocks page walk done', {
+    hiddenPages: _hiddenCount,
+    visiblePages: _visibleCount,
+    chaptersUnlocked: released,
+    chaptersTotal: chapters.length,
+    firstLockedChapterIdx: firstLockedChIdx,
+  });
 
   // Also gate the TOC rows so locked chapters look the part. Refresh
   // is idempotent; safe to call on every applyLocks pass.
@@ -13078,6 +13096,19 @@ function _serialClearLocks() {
     bp.querySelectorAll('.serial-lock-page').forEach(el => el.remove());
     bp.querySelectorAll('.serial-locked').forEach(el => {
       el.classList.remove('serial-locked', 'pw-hidden-page');
+      try { el.style.removeProperty('display'); } catch (e) {}
+    });
+    // Also clear the TOC-row dimming so the TOC re-applies cleanly
+    // next time _serialApplyLocks runs.
+    bp.querySelectorAll('.toc-nav-row.serial-toc-locked').forEach(row => {
+      row.classList.remove('serial-toc-locked');
+      row.style.opacity = '';
+      row.style.cursor = '';
+      row.removeAttribute('data-locked-ch');
+      const first = row.querySelector('span');
+      if (first && first.textContent && first.textContent.startsWith('🔒 ')) {
+        first.textContent = first.textContent.slice(2).trimStart();
+      }
     });
   }
   if (_serialTickerHandle) {
@@ -16502,18 +16533,27 @@ function _apBuildSSML(text) {
   const entries = _apSortedPronEntries();
   if (!entries.length) return null;
   let s = _apEscSSML(text);
+  const matchSummary = [];
   for (const e of entries) {
     if (!e.ipa && !e.phonetic) continue;
     const re = _apWordBoundaryRegex(e.word);
+    // Count matches before replacing so we can log the result.
+    const matches = (text.match(re) || []).length;
     if (e.ipa) {
       const ipa = _apEscSSML(_apCleanIpa(e.ipa));
-      if (!ipa) continue;
+      if (!ipa) {
+        matchSummary.push({ word: e.word, matches, used: 'skipped (ipa empty after cleanup)' });
+        continue;
+      }
       s = s.replace(re, m => '<phoneme alphabet="ipa" ph="' + ipa + '">' + _apEscSSML(m) + '</phoneme>');
+      matchSummary.push({ word: e.word, matches, used: 'ipa→phoneme', ph: ipa });
     } else if (e.phonetic) {
       const phon = _apEscSSML(e.phonetic);
       s = s.replace(re, phon);
+      matchSummary.push({ word: e.word, matches, used: 'phonetic→text', sub: phon });
     }
   }
+  console.log('[ssml] build', { entries: entries.length, matchSummary });
   return '<speak>' + s + '</speak>';
 }
 
