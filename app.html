@@ -4090,6 +4090,14 @@ function _serialise() {
       content: c.content, src: c.src || null,
     })),
     schema: importSchema,
+    // Pronunciation glossary, character voice map, and word-goal
+    // config — all live on _state and need to persist to cloud
+    // alongside the manuscript. Without including them here, the
+    // user's pronunciations would never reach a re-loaded folio
+    // (and the audio pipeline would always see an empty glossary).
+    pronunciations: (_state && _state.pronunciations) || {},
+    characters:     (_state && _state.characters)     || [],
+    writingGoal:    (_state && _state.writingGoal)    || null,
   };
 }
 
@@ -4129,6 +4137,22 @@ function _deserialise(state) {
     renderChapterList();
   }
   if (state.schema) importSchema=state.schema;
+  // Rehydrate the _state bucket: pronunciation glossary, character
+  // voice map, writing-goal config. Use defensive defaults so
+  // pre-fix folios (no pronunciations field) don't crash. After this
+  // assignment, _pronGetAll / _chcharGetAll / _wgGetGoal see the
+  // restored data and the TTS pipeline can substitute glossary
+  // entries into chapter SSML.
+  if (typeof _state !== 'object' || _state == null) _state = {};
+  _state.pronunciations = (state.pronunciations && typeof state.pronunciations === 'object')
+    ? state.pronunciations : {};
+  _state.characters     = Array.isArray(state.characters)
+    ? state.characters : [];
+  _state.writingGoal    = (state.writingGoal && typeof state.writingGoal === 'object')
+    ? state.writingGoal : null;
+  // Re-render the pronunciation sidebar so it reflects the
+  // freshly-loaded entries.
+  try { if (typeof _pronRender === 'function') _pronRender(); } catch (e) {}
   _syncTOCToggle();
   // Silently fix chapter boundary duplicates left by older sync versions
   _deduplicateChapterBoundaries();
@@ -5207,6 +5231,17 @@ let S={theme:THEMES[0],accent:'#8B4513',ornament:'❖',images:[],coverImg:null};
    Each item: { id, type:'pre'|'chapter'|'post', title, content, src, expanded } */
 let chapters=[];
 let importedFiles=[]; // {name, rawText, classified}
+
+/* _state — the catch-all bucket for folio data that isn't chapter
+   text. Pronunciations, characters, writing-goal config, anything
+   else that needs to persist alongside the manuscript. Functions
+   like _pronGetAll / _chcharGetAll / _wgGetGoal lazily initialise
+   sub-properties on this object. _serialise picks fields out of it;
+   _deserialise rehydrates them. Without this declaration, every
+   `_state.x` write was going to an undefined global and silently
+   evaporating — which is why pronunciations never substituted
+   into chapter audio even though the modal Test button worked. */
+let _state = {};
 
 /* ── Default import schema ── */
 const SCHEMA_PRESETS={
@@ -13111,7 +13146,14 @@ document.addEventListener('click', function (e) {
   e.preventDefault();
   const release = (typeof _rlCurrent !== 'undefined' && _rlCurrent) ? _rlCurrent : null;
   const chIdx = parseInt(row.getAttribute('data-locked-ch') || '0', 10);
-  if (!release || !chIdx) return;
+  console.log('[serial-toc-click] toast-path state', {
+    hasRelease: !!release,
+    releaseSerial: !!(release && release.serial),
+    chIdx: chIdx,
+    dataLockedCh: row.getAttribute('data-locked-ch'),
+  });
+  if (!release) { console.log('[serial-toc-click] bailing — _rlCurrent missing'); return; }
+  if (!chIdx)   { console.log('[serial-toc-click] bailing — data-locked-ch missing/zero'); return; }
   let when = 'when it unlocks';
   try {
     const ms = (typeof _serialUnlockDate === 'function')
@@ -13122,8 +13164,11 @@ document.addEventListener('click', function (e) {
       when = 'on ' + d.toLocaleString();
     }
   } catch (e2) {}
+  console.log('[serial-toc-click] firing toast:', 'This chapter unlocks ' + when);
   if (typeof toastInfo === 'function') {
     toastInfo('This chapter unlocks ' + when, { icon: '🔒', duration: 4500 });
+  } else {
+    console.warn('[serial-toc-click] toastInfo missing — would have shown:', when);
   }
 }, true);
 function _serialClearLocks() {
@@ -16752,7 +16797,12 @@ function _apWordBoundaryRegex(word) {
 
 function _apBuildSSML(text) {
   const entries = _apSortedPronEntries();
-  if (!entries.length) return null;
+  // Always log so we can see when the glossary is unexpectedly empty
+  // (the most common silent failure of the pronunciation pipeline).
+  if (!entries.length) {
+    console.log('[ssml] build — NO ENTRIES in glossary. _state.pronunciations is empty.');
+    return null;
+  }
   // NFC-normalize the manuscript text so decomposed "A\u0301ine" and
   // composed "\u00C1ine" both end up canonical-composed. The author's
   // editor may produce one form; macOS / iOS-pasted Gaelic text often
