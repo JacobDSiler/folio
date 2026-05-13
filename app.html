@@ -12926,6 +12926,12 @@ window._serialMaybeRenderSubscribeForm = _serialMaybeRenderSubscribeForm;
 
 let _serialApplyRetries = 0;
 function _serialApplyLocks(release) {
+  // Editor mode never gets locked — locks are a reader experience.
+  // Owners need to see their full manuscript while editing.
+  if (typeof _readerMode === 'undefined' || !_readerMode) {
+    _serialClearLocks();
+    return;
+  }
   if (!release || !release.serial) {
     _serialClearLocks();
     return;
@@ -13157,6 +13163,42 @@ function _serialBuildLockCard(release, chIdx, chapter) {
     'background:var(--surface);border:.5px solid var(--border-mid);' +
     'border-radius:14px;text-align:center;font-family:var(--sans);' +
     'box-shadow:0 4px 20px rgba(0,0,0,0.06)';
+
+  // Build the per-mode call-to-action HTML.
+  //   paid    → Buy on Gumroad button (uses release.product slug)
+  //   free + notifyOnUnlock → inline subscribe form (single email + button)
+  //   free, no notifyOnUnlock → no CTA (countdown only, current behavior)
+  const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+  let ctaHTML = '';
+  if (release.priceMode === 'paid' && release.product) {
+    const buyUrl = 'https://gumroad.com/l/' + encodeURIComponent(release.product);
+    ctaHTML =
+      '<div style="margin-top:14px">' +
+        '<a href="' + buyUrl + '" target="_blank" rel="noopener" ' +
+          'style="display:inline-block;font-size:13px;font-weight:500;padding:9px 18px;border-radius:7px;background:var(--accent-ui,#0a7);color:#fff;text-decoration:none">' +
+          '💳 Read the rest now on Gumroad →' +
+        '</a>' +
+        '<div style="font-size:10.5px;color:var(--hint);margin-top:6px">' +
+          'Buying unlocks every chapter, no waiting on the schedule.' +
+        '</div>' +
+      '</div>';
+  } else if (release.serial && release.notifyOnUnlock && folioId) {
+    const formId = 'subForm_' + chIdx + '_' + Math.random().toString(36).slice(2, 6);
+    ctaHTML =
+      '<div style="margin-top:14px;padding:12px 14px;border:.5px dashed var(--border-mid);border-radius:8px;background:var(--bg)">' +
+        '<div style="font-size:11.5px;color:var(--text);margin-bottom:6px;font-weight:500">' +
+          '📨 Get notified when this chapter drops' +
+        '</div>' +
+        '<div id="' + formId + '" style="display:flex;gap:6px">' +
+          '<input type="email" placeholder="you@example.com" ' +
+            'style="flex:1;font-size:12px;padding:6px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);outline:none">' +
+          '<button onclick="_serialCardSubscribe(this, \'' + folioId + '\')" ' +
+            'style="font-size:11.5px;padding:6px 12px;border-radius:6px;border:none;background:var(--accent-ui,#0a7);color:#fff;cursor:pointer">Subscribe</button>' +
+        '</div>' +
+        '<div class="sub-card-status" style="font-size:10.5px;color:var(--hint);margin-top:6px;min-height:14px"></div>' +
+      '</div>';
+  }
+
   card.innerHTML =
     '<div style="font-size:30px;margin-bottom:12px;opacity:.55">🔒</div>' +
     '<div style="font-size:11px;color:var(--hint);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">Chapter ' + chIdx + '</div>' +
@@ -13166,9 +13208,47 @@ function _serialBuildLockCard(release, chIdx, chapter) {
       'Unlocks in <strong class="serial-countdown" data-serial-ch="' + chIdx + '">' +
       _serialFormatCountdown(_serialMsUntilUnlock(release, chIdx)) +
       '</strong></div>' +
-    '<div style="font-size:11.5px;color:var(--hint)">' + _esc(dateStr) + '</div>';
+    '<div style="font-size:11.5px;color:var(--hint)">' + _esc(dateStr) + '</div>' +
+    ctaHTML;
   return card;
 }
+
+// Inline subscribe handler for lock-card forms. Reuses the same
+// _subAdd path the inline subscribe-form (below the first lock
+// card) uses, so the result is one subscribers list per folio
+// regardless of which CTA the reader used.
+async function _serialCardSubscribe(btn, folioId) {
+  if (!btn || !folioId) return;
+  const wrap = btn.closest('.serial-lock-page');
+  if (!wrap) return;
+  const input = wrap.querySelector('input[type="email"]');
+  const status = wrap.querySelector('.sub-card-status');
+  if (!input || !status) return;
+  const email = (input.value || '').trim();
+  if (!_subEmailValid(email)) {
+    status.style.color = '#c04040';
+    status.textContent = 'Please enter a valid email address.';
+    return;
+  }
+  status.style.color = 'var(--hint)';
+  status.textContent = 'Subscribing…';
+  try {
+    if (typeof _subAdd === 'function') {
+      await _subAdd(folioId, email);
+    } else {
+      throw new Error('Subscribe path not available');
+    }
+    status.style.color = '#0a7';
+    status.textContent = 'Subscribed! You\'ll get an email when this chapter unlocks.';
+    input.value = '';
+    btn.disabled = true;
+    btn.textContent = '✓ Subscribed';
+  } catch (e) {
+    status.style.color = '#c04040';
+    status.textContent = (e && e.message) || 'Subscribe failed';
+  }
+}
+window._serialCardSubscribe = _serialCardSubscribe;
 
 // Use existing esc helper if present; else local fallback so this
 // works even if loaded standalone.
@@ -13810,7 +13890,9 @@ function _rdHydrate() {
     // How many chapters are released — used to lock down dropdown options
     // for serial releases. Non-serial releases always treat Infinity as
     // released, so nothing gets locked here.
-    const _serialRelease = (typeof _rlCurrent !== 'undefined' && _rlCurrent && _rlCurrent.serial) ? _rlCurrent : null;
+    // Locks only render in reader mode — the editor shouldn't see them.
+    const _inReader = (typeof _readerMode !== 'undefined' && _readerMode);
+    const _serialRelease = (_inReader && typeof _rlCurrent !== 'undefined' && _rlCurrent && _rlCurrent.serial) ? _rlCurrent : null;
     const _serialReleased = _serialRelease
       ? (typeof _serialReleasedCount === 'function' ? _serialReleasedCount(_serialRelease) : Infinity)
       : Infinity;
@@ -13917,12 +13999,11 @@ function _rdJumpToChapter(chid) {
   if (!bp || !scroller) return;
 
   // If this chapter is a serial-locked one, don't jump — toast the
-  // unlock date and stay put. (The TOC rows already short-circuit
-  // via the click listener on .toc-nav-row.serial-toc-locked, but
-  // the top-bar #rdChapSel dropdown reaches this function with a
-  // chid argument when its option is picked.)
+  // unlock date and stay put. Reader mode only — editor doesn't
+  // gate navigation.
   try {
-    const _serialRelease = (typeof _rlCurrent !== 'undefined' && _rlCurrent && _rlCurrent.serial) ? _rlCurrent : null;
+    const _inReader = (typeof _readerMode !== 'undefined' && _readerMode);
+    const _serialRelease = (_inReader && typeof _rlCurrent !== 'undefined' && _rlCurrent && _rlCurrent.serial) ? _rlCurrent : null;
     if (_serialRelease) {
       const _chapList = (typeof getChapters === 'function') ? getChapters() : [];
       let _chIdx = 0, _foundIdx = 0;
@@ -16644,9 +16725,15 @@ function _apApplyPronToText(text) {
 
 /* ── TTS API calls (user key required, never stored server-side) ── */
 async function _apGoogleTTS(text, voice, speed, apiKey) {
-  // Step 5 — build SSML when pronunciations exist. Send both fields
-  // so old workers that don't know about SSML still use the text path.
-  const ssml = _apBuildSSML(text);
+  // If the caller already built SSML (test-button path, where
+  // _pronTestFromModal wraps the word in its own <phoneme> tag),
+  // pass it through unchanged. Otherwise build SSML from the plain
+  // chapter text + glossary. Without this guard, _apBuildSSML
+  // wraps "Aine" inside the SSML it just received, producing
+  // nested <phoneme> tags — invalid SSML, characters read aloud.
+  const isPreBuilt = /^\s*<speak[\s>]/.test(text);
+  const ssml = isPreBuilt ? text : _apBuildSSML(text);
+  if (isPreBuilt) console.log('[google-tts] sending pre-built SSML:', text.slice(0, 200));
   const resp = await fetch(TTS_WORKER_URL + '/google', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
