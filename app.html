@@ -12523,6 +12523,17 @@ function _serialToggleEnabled() {
   if (!cb || !wrap) return;
   wrap.style.display = cb.checked ? '' : 'none';
   if (cb.checked) _serialUpdatePreview();
+  // Nudge: ticking serial mid-edit doesn't auto-save. Click Publish
+  // / Update release to commit the change. Easy to miss otherwise.
+  const wasSerial = !!(_rlCurrent && _rlCurrent.serial);
+  if (cb.checked !== wasSerial && typeof _rlSetStatus === 'function') {
+    _rlSetStatus(
+      cb.checked
+        ? 'Serial enabled. Click "Update release" to publish the change.'
+        : 'Serial disabled. Click "Update release" to publish the change.',
+      'var(--hint)'
+    );
+  }
 }
 window._serialToggleEnabled = _serialToggleEnabled;
 
@@ -12894,8 +12905,8 @@ function _serialMaybeRenderSubscribeForm(release) {
 }
 window._serialMaybeRenderSubscribeForm = _serialMaybeRenderSubscribeForm;
 
+let _serialApplyRetries = 0;
 function _serialApplyLocks(release) {
-  // Bail if not a serial release.
   if (!release || !release.serial) {
     _serialClearLocks();
     return;
@@ -12905,6 +12916,31 @@ function _serialApplyLocks(release) {
   const chapters = (typeof getChapters === 'function') ? getChapters() : [];
   const chapterIds = chapters.map(c => c.id);
   const released = _serialReleasedCount(release);
+
+  // Diagnostic + retry: log what _serialApplyLocks is operating on,
+  // and retry briefly if the preview's chapter pages haven't been
+  // painted yet. previewRendered usually fires by the time we get
+  // here, but page-load races (especially on reader links) can
+  // leave us with an empty #bookPreview.
+  try {
+    const dataChapPages = bp.querySelectorAll('[data-chapid]').length;
+    console.log('[serial] applyLocks', {
+      serial: release.serial,
+      firstReleaseAt: release.serialFirstReleaseAt,
+      cadence: release.serialCadence,
+      released: released,
+      totalChapters: chapters.length,
+      dataChapidPagesInBookPreview: dataChapPages,
+    });
+    if (dataChapPages === 0 && _serialApplyRetries < 8) {
+      _serialApplyRetries++;
+      console.log('[serial] no chapter pages yet; retrying in 250ms (attempt',
+        _serialApplyRetries, ')');
+      setTimeout(() => _serialApplyLocks(release), 250);
+      return;
+    }
+    _serialApplyRetries = 0;
+  } catch (e) {}
 
   // Strip prior lock state.
   bp.querySelectorAll('.serial-lock-page,.pw-hidden-page.serial-locked').forEach(el => {
@@ -13063,6 +13099,18 @@ async function _rlRefreshFromCloud() {
     _rlCurrent = null;
   }
   _rlUpdateButton();
+  // Re-fire serial locks + inline subscribe form whenever the
+  // release cache refreshes. Catches the case where this function
+  // is the FIRST place to learn the release is a serial — happens
+  // when the doc lookup raced previewRendered on load.
+  try {
+    if (_rlCurrent && _rlCurrent.serial) {
+      if (typeof _serialApplyLocks === 'function')
+        setTimeout(() => _serialApplyLocks(_rlCurrent), 100);
+      if (typeof _serialMaybeRenderSubscribeForm === 'function')
+        setTimeout(() => _serialMaybeRenderSubscribeForm(_rlCurrent), 200);
+    }
+  } catch (e) { console.warn('[serial] refresh-fire', e); }
 }
 
 let _rlLastProjId = _projId;
@@ -14066,14 +14114,48 @@ async function _rdAudioOpenDrawer() {
   _rdAudioTracks = tracks;
 
   const rows = tracks.map((t, i) => (
-    '<div class="rdad-row" data-key="' + _esc(t.key) + '" onclick="_rdAudioPlay(' + i + ')">' +
-      '<button class="rdad-pp" onclick="event.stopPropagation();_rdAudioPlay(' + i + ')">▶</button>' +
+    '<div class="rdad-row" data-key="' + _esc(t.key) + '" onclick="_rdAudioToggleRow(' + i + ')">' +
+      '<button class="rdad-pp" data-key="' + _esc(t.key) + '" onclick="event.stopPropagation();_rdAudioToggleRow(' + i + ')">▶</button>' +
       '<div class="rdad-tt">' + _esc(t.title || ('Track ' + (i + 1))) + '</div>' +
       '<div class="rdad-dur">' + _rdAudioFmtDur(t.durationSecs || 0) + '</div>' +
     '</div>'
   )).join('');
   body.innerHTML = rows;
 }
+
+// Click handler for a row's play button. Three behaviours:
+//   - this track is currently playing → pause it
+//   - this track is currently paused  → resume
+//   - different track                 → switch + play from start
+// _rdAudioPlay always restarts from the beginning, so calling it on
+// every click made the "pause" button just restart the same track.
+function _rdAudioToggleRow(idx) {
+  const t = _rdAudioTracks && _rdAudioTracks[idx];
+  if (!t) return;
+  const isActive = (_rdAudioCurrentEl && _rdAudioCurrentKey === t.key);
+  if (isActive) {
+    if (_rdAudioCurrentEl.paused) {
+      _rdAudioCurrentEl.play().catch(()=>{});
+    } else {
+      _rdAudioCurrentEl.pause();
+    }
+    _rdAudioRefreshRowIcons();
+  } else {
+    _rdAudioPlay(idx);
+  }
+}
+window._rdAudioToggleRow = _rdAudioToggleRow;
+
+function _rdAudioRefreshRowIcons() {
+  const body = document.getElementById('rdAudioBody');
+  if (!body) return;
+  const playingKey = (_rdAudioCurrentEl && !_rdAudioCurrentEl.paused) ? _rdAudioCurrentKey : null;
+  body.querySelectorAll('.rdad-pp').forEach(btn => {
+    const k = btn.getAttribute('data-key');
+    btn.textContent = (k === playingKey) ? '▮▮' : '▶';
+  });
+}
+window._rdAudioRefreshRowIcons = _rdAudioRefreshRowIcons;
 
 function _rdAudioCloseDrawer() {
   const d = document.getElementById('rdAudioDrawer');
@@ -14118,7 +14200,12 @@ async function _rdAudioPlay(idx) {
 
   const audio = new Audio(url);
   _rdAudioCurrentEl = audio;
+  // Repaint row icons when play state changes so every row's button
+  // reflects the live state (playing → ▮▮, otherwise → ▶).
+  audio.onplay  = () => { try { _rdAudioRefreshRowIcons(); } catch(e){} };
+  audio.onpause = () => { try { _rdAudioRefreshRowIcons(); } catch(e){} };
   audio.onended = () => {
+    try { _rdAudioRefreshRowIcons(); } catch(e){}
     // Auto-advance to next track
     const next = idx + 1;
     if (next < _rdAudioTracks.length) _rdAudioPlay(next);
@@ -16292,15 +16379,34 @@ function _apSortedPronEntries() {
 // Build an SSML wrap of the chunk for Google. Wraps each glossary word
 // in <phoneme alphabet="ipa" ph="..."> when an IPA exists, otherwise
 // falls back to substituting the phonetic respelling inline.
+// Strip the conventional slash brackets that IPA is often written
+// with ("/ˈaːnʲə/" or "ˈaːnʲə/"). They are not part of the IPA
+// itself; SSML's <phoneme ph="..."> attribute rejects them and the
+// whole SSML doc falls back to reading the literal characters.
+function _apCleanIpa(ipa) {
+  return String(ipa || '').trim().replace(/^\/+|\/+$/g, '').trim();
+}
+
+// Match a word inside text using Unicode-aware boundaries. The
+// built-in \b boundary is ASCII-only, so accented characters
+// (Áine, Niamh) and non-Latin scripts (Cyrillic, CJK) silently
+// fail to match. Lookaround on \p{L}\p{N} with the `u` flag is
+// the portable cross-script fix.
+function _apWordBoundaryRegex(word) {
+  const escaped = _apEscapeRegex(word);
+  return new RegExp('(?<![\\p{L}\\p{N}])' + escaped + '(?![\\p{L}\\p{N}])', 'giu');
+}
+
 function _apBuildSSML(text) {
   const entries = _apSortedPronEntries();
-  if (!entries.length) return null; // no SSML needed
+  if (!entries.length) return null;
   let s = _apEscSSML(text);
   for (const e of entries) {
     if (!e.ipa && !e.phonetic) continue;
-    const re = new RegExp('\\b' + _apEscapeRegex(e.word) + '\\b', 'gi');
+    const re = _apWordBoundaryRegex(e.word);
     if (e.ipa) {
-      const ipa = _apEscSSML(e.ipa);
+      const ipa = _apEscSSML(_apCleanIpa(e.ipa));
+      if (!ipa) continue;
       s = s.replace(re, m => '<phoneme alphabet="ipa" ph="' + ipa + '">' + _apEscSSML(m) + '</phoneme>');
     } else if (e.phonetic) {
       const phon = _apEscSSML(e.phonetic);
@@ -16319,8 +16425,8 @@ function _apApplyPronToText(text) {
   let out = text;
   for (const e of entries) {
     const sub = e.phonetic || null;
-    if (!sub) continue;  // pure-IPA entries can't be substituted into plain text
-    const re = new RegExp('\\b' + _apEscapeRegex(e.word) + '\\b', 'gi');
+    if (!sub) continue;
+    const re = _apWordBoundaryRegex(e.word);
     out = out.replace(re, sub);
   }
   return out;
