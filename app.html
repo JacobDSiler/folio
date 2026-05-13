@@ -3260,6 +3260,16 @@ async function _doAutoSave() {
   // Belt-and-braces gate — _scheduleAutoSave also early-returns,
   // but a few code paths call _doAutoSave directly.
   if (window._suspendAutoSave) return;
+  // Reader mode: never autosave. The reader doesn't own this folio
+  // (or even if they do, they're explicitly previewing as a reader)
+  // and an attempted save just yields permission-denied noise.
+  if (typeof _readerMode !== 'undefined' && _readerMode) return;
+  // Non-owner guard: even outside reader mode, if the loaded folio
+  // belongs to someone else (e.g. via ?folio= hand-construction), we
+  // can't write to it. Skip silently rather than toast.
+  if (typeof _loadedFolioOwnerUid !== 'undefined' &&
+      _loadedFolioOwnerUid && window._uid &&
+      _loadedFolioOwnerUid !== window._uid) return;
   if (!_fbReady || !_autoSaveDirty) return;
   // Don't autosave a totally empty folio. If it's empty we'd just
   // be creating an "Untitled folio" entry the user has to delete.
@@ -3895,7 +3905,11 @@ function _isPermissionError(e) {
 function _surfaceCloudError(e, contextLabel) {
   if (_isPermissionError(e)) {
     const ctx = contextLabel ? (' (' + contextLabel + ')') : '';
-    if (typeof toastWarning === 'function') {
+    // Reader mode: log only, don't toast. The reader didn't try to
+    // save — something else (e.g. presence ping, autosave race) did,
+    // and the reader can't action the message anyway.
+    const isReaderMode = (typeof _readerMode !== 'undefined' && _readerMode);
+    if (typeof toastWarning === 'function' && !isReaderMode) {
       toastWarning(
         'Save blocked by cloud rules' + ctx + '. ' +
         'Your in-memory work is safe and a local backup was just written. ' +
@@ -13010,6 +13024,11 @@ function _serialApplyLocks(release) {
   _serialDimTocRows(release, released);
 
   _serialStartTicker(release);
+
+  // Refresh the chapter dropdown options so locked chapters get
+  // the 🔒 prefix + disabled state in sync with the new released
+  // count. _rdHydrate is idempotent.
+  try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) {}
 }
 
 // Visually dim and lock the TOC entries for chapters past the
@@ -13788,13 +13807,29 @@ function _rdHydrate() {
     sel.innerHTML = '';
     const opt0 = document.createElement('option');
     opt0.value = ''; opt0.textContent = 'Chapters…'; sel.appendChild(opt0);
+    // How many chapters are released — used to lock down dropdown options
+    // for serial releases. Non-serial releases always treat Infinity as
+    // released, so nothing gets locked here.
+    const _serialRelease = (typeof _rlCurrent !== 'undefined' && _rlCurrent && _rlCurrent.serial) ? _rlCurrent : null;
+    const _serialReleased = _serialRelease
+      ? (typeof _serialReleasedCount === 'function' ? _serialReleasedCount(_serialRelease) : Infinity)
+      : Infinity;
     let chNum = 0;
     for (const c of chapters) {
       if (!c.title && c.type === 'chapter') continue;
       const opt = document.createElement('option');
       opt.value = c.id;
-      if (c.type === 'chapter') { chNum++; opt.textContent = 'Ch ' + chNum + ' · ' + (c.title || ''); }
-      else opt.textContent = (c.title || c.type);
+      if (c.type === 'chapter') {
+        chNum++;
+        const isLocked = (chNum > _serialReleased);
+        opt.textContent = (isLocked ? '🔒 ' : '') + 'Ch ' + chNum + ' · ' + (c.title || '');
+        if (isLocked) {
+          opt.disabled = true;
+          opt.dataset.lockedCh = String(chNum);
+        }
+      } else {
+        opt.textContent = (c.title || c.type);
+      }
       sel.appendChild(opt);
     }
   }
@@ -13880,6 +13915,40 @@ function _rdJumpToChapter(chid) {
   const bp = document.getElementById('bookPreview');
   const scroller = document.getElementById('previewArea');
   if (!bp || !scroller) return;
+
+  // If this chapter is a serial-locked one, don't jump — toast the
+  // unlock date and stay put. (The TOC rows already short-circuit
+  // via the click listener on .toc-nav-row.serial-toc-locked, but
+  // the top-bar #rdChapSel dropdown reaches this function with a
+  // chid argument when its option is picked.)
+  try {
+    const _serialRelease = (typeof _rlCurrent !== 'undefined' && _rlCurrent && _rlCurrent.serial) ? _rlCurrent : null;
+    if (_serialRelease) {
+      const _chapList = (typeof getChapters === 'function') ? getChapters() : [];
+      let _chIdx = 0, _foundIdx = 0;
+      for (const c of _chapList) {
+        if (c.type === 'chapter') _chIdx++;
+        if (c.id === chid) { _foundIdx = _chIdx; break; }
+      }
+      const _released = (typeof _serialReleasedCount === 'function')
+        ? _serialReleasedCount(_serialRelease) : Infinity;
+      if (_foundIdx > _released) {
+        let when = 'when it unlocks';
+        try {
+          const ms = (typeof _serialUnlockDate === 'function')
+            ? _serialUnlockDate(_serialRelease, _foundIdx) : null;
+          if (ms) when = 'on ' + new Date(ms).toLocaleString();
+        } catch (e) {}
+        if (typeof toastInfo === 'function') {
+          toastInfo('This chapter unlocks ' + when, { icon: '🔒', duration: 4500 });
+        }
+        // Reset the dropdown so the user can pick again
+        const sel = document.getElementById('rdChapSel');
+        if (sel) sel.value = '';
+        return;
+      }
+    }
+  } catch (e) {}
 
   // Target the chapter's FIRST paragraph directly. data-chid is stamped on
   // every paragraph of every chapter and is unambiguous — unlike the page-
