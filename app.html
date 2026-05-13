@@ -4562,6 +4562,41 @@ async function loadFolioById(id) {
     const data = snap.data();
     _loadedFolioOwnerUid = data.uid || null;
 
+    // Populate the release cache from the same doc snapshot before
+    // we deserialise — otherwise the previewRendered serial-locks
+    // handler runs while _rlCurrent is still null and the reader
+    // ends up seeing the full unlocked manuscript.
+    _rlCurrent = (data.release && data.release.published) ? data.release : null;
+
+    // ── Ownership gate ─────────────────────────────────────
+    // If the editor (not reader) view is being asked to open a
+    // folio whose uid doesn't match the signed-in user, that's a
+    // leaked / bookmarked link. Bounce to reader mode if the folio
+    // is published; refuse otherwise. Defense in depth against the
+    // 'click ← Editor on a friend's share link' attack vector.
+    const _ownsThis = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
+    if (!_readerMode && !_ownsThis) {
+      _hideSaving();
+      const _isPublished = !!(data.release && data.release.published);
+      if (_isPublished) {
+        try {
+          const u = new URL(window.location.href);
+          u.searchParams.delete('folio');
+          u.searchParams.delete('project');
+          u.searchParams.set('read', id);
+          window.location.replace(u.toString());
+        } catch (e) { window.location.search = '?read=' + encodeURIComponent(id); }
+        return;
+      }
+      // Not published — visitor has no business in editor view.
+      setStatus("This folio isn't yours and isn't published.");
+      if (typeof toastWarning === 'function')
+        toastWarning("You can't open someone else's draft folio. Use a reader share link instead.",
+          { icon: '🔒', duration: 5500 });
+      try { localStorage.removeItem('folio_last_open'); } catch (e) {}
+      return;
+    }
+
     // Close writing mode / manuscript view before switching folios
     if (document.getElementById('writingMode')?.classList.contains('active')) {
       // Force-close without syncing — we're discarding current state
@@ -4575,7 +4610,14 @@ async function loadFolioById(id) {
     }
 
     _projId = id;
-    localStorage.setItem('folio_last_open', id);
+    // Only remember this folio as 'last open' when we own it. Anyone
+    // else viewing via a reader link should not have it auto-load in
+    // editor mode the next time they visit /app.html.
+    if (_ownsThis) {
+      try { localStorage.setItem('folio_last_open', id); } catch (e) {}
+    } else {
+      try { localStorage.removeItem('folio_last_open'); } catch (e) {}
+    }
     _autoSaveDirty = false; // don't auto-save until user makes changes
     document.getElementById('projName').value = data.name || '';
 
@@ -4593,6 +4635,22 @@ async function loadFolioById(id) {
     // its own retry loop to handle the case where the chapter
     // paragraphs haven't been painted yet at this exact moment.
     try { setTimeout(_deepLinkApply, 250); } catch (e) {}
+    // Serial-release boot. If this folio is a published serial,
+    // apply lock cards and render the subscribe form. Both calls
+    // are safe no-ops when the release isn't a serial — they
+    // check release.serial themselves.
+    try {
+      if (_rlCurrent && _rlCurrent.serial) {
+        if (typeof _serialApplyLocks === 'function')
+          setTimeout(() => _serialApplyLocks(_rlCurrent), 300);
+        if (typeof _serialMaybeRenderSubscribeForm === 'function')
+          setTimeout(() => _serialMaybeRenderSubscribeForm(_rlCurrent), 400);
+      }
+      // Audio-bundle button visibility — surface the 🎧 reader
+      // button when the release carries audio (any mode).
+      if (_rlCurrent && typeof _rdAudioMaybeShowButton === 'function')
+        _rdAudioMaybeShowButton(_rlCurrent);
+    } catch (e) { console.warn('[load] serial/audio boot', e); }
 
     // Belt-and-braces: ensure spinner is gone and preview is rendered
     // (guards against any race where _deserialise's internal render was skipped)
@@ -12606,7 +12664,7 @@ async function _rlPublish() {
     product:     _rlMode === 'paid' ? productId : null,
     price:       _rlMode === 'paid' ? priceNum  : 0,
     currency:    currency,
-    audioBundle: _rlMode === 'paid' ? audioBundle : false,
+    audioBundle: audioBundle,  // any release mode can attach audio (free / paid / private / serial)
     previewSections: _rlMode === 'paid' ? previewN : 0,
     // Serial fields (null/false-coerced for non-serial releases so
     // upgrades stay clean).
@@ -13395,6 +13453,19 @@ function _rdMaybeActivate() {
 
 function _rdHydrate() {
   if (!_readerMode) return;
+  // Hide the ← Editor button for non-owners. The owner can still
+  // flip back to editing their own preview; everyone else would
+  // see the editor load the very book they're meant to be reading
+  // (the URL-strip + reload trick that prompted this fix).
+  try {
+    const _back = document.getElementById('rdBack');
+    if (_back) {
+      const _isOwner = !!(typeof _loadedFolioOwnerUid !== 'undefined' &&
+                           _loadedFolioOwnerUid && window._uid &&
+                           _loadedFolioOwnerUid === window._uid);
+      _back.style.display = _isOwner ? '' : 'none';
+    }
+  } catch (e) {}
   // Title
   const titleEl = document.getElementById('rdTitle');
   const subEl = document.getElementById('rdSub');
@@ -17494,11 +17565,20 @@ window._apOnImportFile       = _apOnImportFile;
         Readers can read this many sections before the paywall appears.
       </p>
 
-      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:6px 0 0;cursor:pointer">
-        <input type="checkbox" id="rlAudioBundle" style="margin:0">
-        <span>Include audiobook in the bundle (if generated)</span>
-      </label>
     </div>
+
+    <!-- Audiobook attachment — available for every release mode, not
+         just paid. For free releases, the audiobook drawer in the
+         reader unlocks immediately. For paid releases, it's bundled
+         with the Gumroad purchase. For serial releases, each chapter's
+         audio unlocks alongside the text chapter. -->
+    <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:6px 0 4px;cursor:pointer">
+      <input type="checkbox" id="rlAudioBundle" style="margin:0">
+      <span><strong>Include the audiobook</strong> with this release <span style="opacity:.7;font-weight:400">(if generated in the Audio panel)</span></span>
+    </label>
+    <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:2px 0 12px 24px">
+      Readers see a 🎧 button in the reader bar; opens an in-browser player synced to chapters. Free releases unlock immediately; paid releases require the Gumroad license; serial releases unlock chapter-by-chapter alongside the text.
+    </p>
 
     <!-- Serial release — progressive chapter unlock by date/cadence -->
     <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:14px 0 0;cursor:pointer">

@@ -220,7 +220,17 @@ Paid mode adds fields for:
 - **Gumroad product id** (the slug after `gumroad.com/l/`)
 - **Price** and **currency** (USD / EUR / GBP / CAD / AUD)
 - **Free preview sections** (0–99): how many chapters readers can read before the paywall appears.
-- **Include audiobook in the bundle** — checkbox; if the folio has generated audio, the purchase unlocks both.
+
+### Attaching audio to any release
+
+A separate **Include the audiobook with this release** checkbox lives below the paid-fields container, available for *every* release mode. When ticked:
+
+- **Free** release → readers see a 🎧 button in the reader bar; tracks play immediately.
+- **Paid** release → tracks are bundled with the Gumroad purchase; locked until the buyer's license is verified.
+- **Serial** release → each chapter's audio unlocks alongside its text chapter (driven by the same cadence).
+- **Private** release → tracks are available to anyone with the link.
+
+**Caveat**: audio tracks currently live in the author's browser-side IndexedDB (the same `folio_audio` store the editor uses). For cross-device reader playback the tracks need to upload to a cloud store. This is **WIP** — see Roadmap.
 
 The reader URL is shown in the modal once published; copy it with the 📋 button. The published URL is stable across edits — readers always see the latest content.
 
@@ -392,6 +402,17 @@ The body subdoc rule denies the write. Most likely fix: ensure `bodyPayload` car
 **Reader link shows the Night Garden demo on someone else's device**
 The deployed `_rdMaybeActivate` is calling `loadFolio` (non-existent) instead of `loadFolioById`. Hard-refresh the deployed version; if the issue persists, redeploy after the fix described in the commit history (March 2026).
 
+**Reader can click "← Editor" and edit my book**
+Fixed via three layers of defense:
+1. The `rdBack` button is hidden in `_rdHydrate` unless `_loadedFolioOwnerUid === window._uid`.
+2. `loadFolioById` adds an ownership gate — if a non-owner lands in editor mode (no `?read=`) for a folio they don't own, it redirects to `?read=ID` if published, refuses with a 🔒 toast otherwise.
+3. `folio_last_open` only gets written when the loader actually owns the folio, so reader-mode visits don't poison the editor's auto-restore path on the next visit.
+
+**Serial release shows the full book / no subscribe form**
+Two issues compounded:
+1. `_rlCurrent` was populated by a setInterval polling `_projId`, which fires *after* `previewRendered` already ran with `_rlCurrent === null` — so the serial-locks handler had nothing to act on. Fixed by populating `_rlCurrent = data.release` synchronously in `loadFolioById` before deserialise/render.
+2. `_serialMaybeRenderSubscribeForm` only ran after `_serialApplyLocks` succeeded, which required step 1. With locks now appearing on first render, the form auto-mounts next to the first lock card. The load tail also calls it directly as a belt-and-braces safety.
+
 **Cloud save reports success but the body never updates**
 Check Firestore rules — `match /body/{bodyDoc}` must allow write for the owner, and the body payload must include `uid`. The current shape is `get(/folio_projects/{projectId}).data.uid == request.auth.uid`.
 
@@ -413,6 +434,7 @@ The `folio_local_backup` is set before sign-in to preserve state; after the OAut
 
 ### Planned (next loops)
 
+- **Cloud-side audiobook tracks** — current `folio_audio` IDB store is per-device. To make audio playable for readers on other devices, tracks need to upload to Cloud Storage (Firebase Storage already wired in the auth init) keyed by `folio_projects/{id}/audio/{trackKey}`. Author uploads once; readers stream.
 - **Per-folio `betaPeersVisible` setting** — author toggles whether betas see each other's feedback. Needs a fifth scope or a `peersHidden` flag plus matching rules.
 - **Per-page funnel sharing for paid books** — share a single chapter or page as a free teaser, with a Gumroad CTA to unlock the rest. Different from `previewSections` (which is a fixed prefix from the start); this is "share any single chunk." Probably uses `?upto=` or `?only=` URL params.
 - **Copy-link UI for chapter/paragraph** — currently console-only via `_chCopyDeepLink()`. Needs a small "Copy link to this paragraph" affordance on hover or right-click.
