@@ -3482,6 +3482,20 @@ async function _buildCloudSavePayload(name, opts) {
 const _LB_KEY            = 'folio_local_backup';
 const _LB_DISMISS_KEY    = 'folio_local_backup_banner_dismissed';
 
+// Cached "what we last loaded from cloud" — set by loadFolioById. Used
+// by _refreshLocalBackupUI to decide whether the local backup actually
+// contains newer-than-cloud edits, or just mirrors what's already on
+// screen. A backup that matches the loaded folio is noise; a backup
+// that's newer (offline edits that didn't reach cloud, or cloud-save
+// failures) is the real signal.
+let _loadedFolioId        = null;   // id of the folio currently rendered
+let _loadedFolioUpdatedAt = null;   // ms since epoch from cloud doc
+
+// Grace period for clock skew between client and server. Without this,
+// a backup written ~1s after the cloud save lands looks "newer" and
+// the banner shows for no reason.
+const _LB_GRACE_MS = 60 * 1000;  // 1 minute
+
 function _readLocalBackup() {
   try {
     const raw = localStorage.getItem(_LB_KEY);
@@ -3528,6 +3542,28 @@ function _lbWasDismissedThisSession(backupId) {
 // on page load, after every save attempt (success or failure), and
 // from inside the recovery dialog after each action so the UI stays
 // in sync with localStorage without polling.
+// "Does this backup represent newer edits than what's currently
+// loaded?" Returns true when the backup is for a different folio
+// (always worth surfacing — user may want to switch), or when the
+// backup's savedAt is meaningfully newer than the loaded cloud doc's
+// updatedAt. Same-folio + same-or-older backups are noise and stay
+// hidden, which fixes the "the banner keeps showing even though I'm
+// looking at the exact thing it would restore" problem.
+function _lbBackupIsMeaningful(backup) {
+  if (!backup) return false;
+  // Different folio than the one rendered → user may want to switch.
+  if (_loadedFolioId && backup.id && backup.id !== _loadedFolioId) return true;
+  // Same folio (or no folio loaded yet). Compare timestamps.
+  if (_loadedFolioUpdatedAt == null) {
+    // We don't know what the cloud version is yet — better to show
+    // (errs on the side of surfacing). Once load resolves, this
+    // function gets re-called and will hide if appropriate.
+    return true;
+  }
+  if (!backup.savedAt || !isFinite(backup.savedAt)) return false;
+  return (backup.savedAt - _loadedFolioUpdatedAt) > _LB_GRACE_MS;
+}
+
 function _refreshLocalBackupUI() {
   const pill   = document.getElementById('localBackupPill');
   const banner = document.getElementById('localBackupBanner');
@@ -3550,17 +3586,21 @@ function _refreshLocalBackupUI() {
     return;
   }
 
-  // Pill is always shown when a backup exists; the user can always
-  // click it to open the dialog and review.
+  // The backup-is-meaningful gate: a backup that exactly mirrors the
+  // loaded cloud state is noise — restoring it would be a no-op (or
+  // worse, a regression if the user edited cloud-side in another tab).
+  // Suppress both pill and banner in that case.
+  if (!_lbBackupIsMeaningful(backup)) {
+    if (pill)   pill.style.display = 'none';
+    if (banner) banner.style.display = 'none';
+    return;
+  }
+
+  // Pill is shown whenever the backup is meaningful — persistent
+  // shortcut to the recovery dialog.
   if (pill) pill.style.display = '';
 
-  // Banner: show if not dismissed for this session AND the backup
-  // looks like it's worth surfacing. Cheap "worth surfacing" check:
-  //   - Backup is for a different folio than what's loaded, OR
-  //   - Backup is for the same folio but the in-memory _projId
-  //     hasn't been initialised yet (page just loaded), OR
-  //   - The user just had a save error (caller forces show via
-  //     _showLocalBackupBanner()).
+  // Banner: show if not dismissed for this session.
   if (banner) {
     if (_lbWasDismissedThisSession(backup.id || '*')) {
       banner.style.display = 'none';
@@ -3684,6 +3724,33 @@ async function _restoreLocalBackup() {
     );
     if (!ok) return;
   }
+
+  // Stronger warning: if this backup is for the same folio that's
+  // currently loaded AND the loaded cloud version is newer than the
+  // backup, restoring would REVERT the cloud doc to an older state.
+  // That's almost always a regression rather than a recovery, so the
+  // confirm message names what's at stake.
+  try {
+    if (backup.id && backup.id === _loadedFolioId &&
+        _loadedFolioUpdatedAt != null && backup.savedAt != null &&
+        (_loadedFolioUpdatedAt - backup.savedAt) > _LB_GRACE_MS) {
+      const cloudWhen = _lbFormatRelativeTime(_loadedFolioUpdatedAt);
+      const backupWhen = _lbFormatRelativeTime(backup.savedAt);
+      const ok = confirm(
+        'This backup is OLDER than what’s currently in the cloud.\n\n' +
+        '  Cloud version saved ' + cloudWhen + '\n' +
+        '  Backup saved        ' + backupWhen + '\n\n' +
+        'Restoring will replace the newer cloud version with this older ' +
+        'backup. That’s usually a mistake — if you’re trying to ' +
+        'recover lost work, the cloud copy already has the latest. ' +
+        'Continue anyway?'
+      );
+      if (!ok) {
+        _lbStatus('Restore cancelled.', 'var(--hint)');
+        return;
+      }
+    }
+  } catch (e) {}
 
   try {
     _lbStatus('Restoring…');
@@ -4561,6 +4628,13 @@ async function loadFolioById(id) {
     if (!snap.exists()) { _hideSaving(); setStatus('Folio not found'); return; }
     const data = snap.data();
     _loadedFolioOwnerUid = data.uid || null;
+    // Track the loaded folio's cloud updatedAt so the local-backup UI
+    // can tell when a backup actually contains newer-than-cloud edits.
+    // Firestore returns a Timestamp; convert to ms since epoch (or null).
+    _loadedFolioUpdatedAt = (data.updatedAt && data.updatedAt.toMillis)
+        ? data.updatedAt.toMillis()
+        : (data.updatedAt && data.updatedAt.seconds ? data.updatedAt.seconds * 1000 : null);
+    _loadedFolioId = id;
 
     // Populate the release cache from the same doc snapshot before
     // we deserialise — otherwise the previewRendered serial-locks
@@ -4631,6 +4705,10 @@ async function loadFolioById(id) {
     // an onSnapshot subscription so collaborator/beta/reader edits
     // flow in real-time. Safe to call on every load — idempotent.
     try { _annAttachCloudSync(id); } catch (e) { console.warn('[ann] attach sync failed', e); }
+    // Refresh the local-backup pill/banner — the backup-is-meaningful
+    // gate compares against the cloud updatedAt we just captured, so
+    // running this after the load makes the noise-suppression correct.
+    try { if (typeof _refreshLocalBackupUI === 'function') _refreshLocalBackupUI(); } catch (e) {}
     // Run the URL-anchor protocol after the preview renders. Uses
     // its own retry loop to handle the case where the chapter
     // paragraphs haven't been painted yet at this exact moment.
@@ -17512,8 +17590,119 @@ window._apImportTrack        = _apImportTrack;
 window._apOnImportFile       = _apOnImportFile;
 
 </script>
+<!-- Audio / Audiobook export panel -->
+<div id="audioPanel" aria-hidden="true" role="dialog" aria-labelledby="apTitle">
+  <div class="ap-box">
+    <div class="ap-hd">
+      <h3 id="apTitle">🎙 Audio Export</h3>
+      <button class="ap-close" onclick="closeAudioPanel()" aria-label="Close">×</button>
+    </div>
 
+    <label>Provider</label>
+    <div class="ap-prov">
+      <button type="button" id="apProvGoogle"      onclick="_apSetProvider('google')">Google TTS</button>
+      <button type="button" id="apProvElevenlabs"  onclick="_apSetProvider('elevenlabs')">ElevenLabs</button>
+    </div>
+    <div id="apSyncHint" style="font-size:10.5px;color:var(--hint);margin:6px 0 2px">Settings (incl. API keys) sync to your Folio account when signed in.</div>
 
+    <div class="ap-row">
+      <div>
+        <label>Voice</label>
+        <select id="apVoice" onchange="_apSaveSettings()"></select>
+      </div>
+      <div>
+        <label>Speed</label>
+        <select id="apSpeed" onchange="_apSaveSettings()">
+          <option value="0.85">0.85×</option>
+          <option value="0.9">0.9×</option>
+          <option value="0.95">0.95×</option>
+          <option value="1.0" selected>1.0×</option>
+          <option value="1.05">1.05×</option>
+          <option value="1.1">1.1×</option>
+          <option value="1.2">1.2×</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="ap-key-row" id="apGoogleRow">
+      <label>Google Cloud TTS API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span> · <a href="/api-keys-guide.html#google" target="_blank" style="color:var(--accent-ui);text-decoration:none;border-bottom:.5px dotted var(--accent-ui)">Need help getting one?</a></label>
+      <input type="password" id="apGoogleKey" placeholder="AIza…" oninput="_apOnGoogleKey()" autocomplete="off">
+      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Create a restricted key for <em>Cloud Text-to-Speech API</em> only in the <a href="https://console.cloud.google.com/apis/credentials" target="_blank" style="color:var(--accent-ui)">Google Cloud Console</a>. Keys are kept in your browser and sent per-request to the Folio TTS worker — never stored server-side. <a href="/api-keys-guide.html#google" target="_blank" style="color:var(--accent-ui)">Step-by-step guide →</a></div>
+    </div>
+    <div class="ap-key-row" id="apElRow">
+      <label>ElevenLabs API Key <span style="opacity:.6;font-weight:400">(stored locally only)</span> · <a href="/api-keys-guide.html#elevenlabs" target="_blank" style="color:var(--accent-ui);text-decoration:none;border-bottom:.5px dotted var(--accent-ui)">Need help getting one?</a></label>
+      <input type="password" id="apElKey" placeholder="sk-…" oninput="_apOnElKey()" autocomplete="off">
+      <label style="margin-top:10px">Model</label>
+      <select id="apElModel" onchange="_apOnElModel()">
+        <option value="eleven_multilingual_v2">Multilingual v2 — highest quality (free tier ✓)</option>
+        <option value="eleven_turbo_v2_5">Turbo v2.5 — fast &amp; low-latency (free tier ✓)</option>
+        <option value="eleven_flash_v2_5">Flash v2.5 — cheapest / fastest (free tier ✓)</option>
+        <option value="eleven_monolingual_v1">Monolingual v1 — legacy (paid tier only)</option>
+      </select>
+      <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Get your key at <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" style="color:var(--accent-ui)">elevenlabs.io</a>. It is sent per-request to the Folio TTS worker and never stored on the server. <a href="/api-keys-guide.html#elevenlabs" target="_blank" style="color:var(--accent-ui)">Step-by-step guide →</a> · <a href="/api-keys-guide.html#custom-voices" target="_blank" style="color:var(--accent-ui)">Custom voices →</a></div>
+    </div>
+
+    <div class="ap-tracks" id="apTracks">
+      <div class="ap-empty">Loading tracks…</div>
+    </div>
+
+    <!-- Hidden file picker — each row's 📎 button triggers this. -->
+    <input type="file" id="apImportFile" accept=".mp3,audio/mpeg,audio/mp3" style="display:none" onchange="_apOnImportFile(event)">
+
+    <!-- Create a new custom audio segment (intro / intermission / outro / etc.) -->
+    <button type="button" class="ap-add-seg-btn" onclick="_apOpenSegModal()">
+      + Add audio segment (intro, intermission, outro…)
+    </button>
+
+    <div id="apEstimate" style="font-size:11.5px;color:var(--text);margin-top:10px;padding:8px 10px;background:var(--bg);border-radius:7px;line-height:1.5"></div>
+
+    <div class="ap-progress" id="apProgress"></div>
+
+    <div class="ap-footer">
+      <button type="button" class="ap-btn primary" id="apGenAll" onclick="_apGenerateAllRemaining()">▶▶ Generate All Remaining</button>
+      <button type="button" class="ap-btn"        id="apZipAll" onclick="_apDownloadZip()">↓ Download All as ZIP</button>
+    </div>
+    <div class="ap-concat">
+      <button type="button" class="ap-btn" id="apConcat" onclick="_apConcatAll()">🎧 Export Audiobook (MP3 with chapters)</button>
+    </div>
+  </div>
+</div>
+
+<div id="audioSegModal" role="dialog" aria-hidden="true" aria-labelledby="segTitle">
+  <div class="seg-box">
+    <h3 id="segTitle">Audio segment</h3>
+    <div class="seg-hint">
+      Use for intros, outros, intermissions, chapter teasers, anything you want spoken <em>between</em> the written chapters.
+      Segments are generated with the same voice and speed as the main book (panel defaults) and included in the audiobook exports at the position you choose.
+    </div>
+
+    <label>Name</label>
+    <input type="text" id="segNameInput" placeholder="Intro / Intermission 1 / Afterword">
+
+    <label>Position</label>
+    <div class="seg-pos-row">
+      <select id="segPosMode" onchange="_apSegOnPosMode()">
+        <option value="start">At the start of the book</option>
+        <option value="end">At the end of the book</option>
+        <option value="before">Before a specific section</option>
+        <option value="after">After a specific section</option>
+      </select>
+      <select id="segPosTarget">
+        <option value="">Select a section…</option>
+      </select>
+    </div>
+
+    <label>Text (will be spoken via the active TTS voice)</label>
+    <textarea id="segTextInput" placeholder="Welcome to Embers of Elekra. A novel by J.D. Siler. Chapter one, The Marmalade Problem, begins now."></textarea>
+    <div style="font-size:10.5px;color:var(--hint);margin-top:4px">Character count: <span id="segCharCount">0</span></div>
+
+    <div class="seg-footer">
+      <button type="button" class="danger" id="segDeleteBtn" onclick="_apSegDelete()" style="display:none">Delete segment</button>
+      <button type="button" onclick="_apSegCancel()">Cancel</button>
+      <button type="button" class="primary" onclick="_apSegSave()">Save segment</button>
+    </div>
+  </div>
+</div>
 
 <!-- Character editor modal (Step 8) -->
 <div id="charModal" role="dialog" aria-hidden="true" aria-labelledby="charModalTitle" onclick="if(event.target===this)_charCloseModal()">
