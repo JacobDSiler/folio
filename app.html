@@ -13172,15 +13172,35 @@ function _serialBuildLockCard(release, chIdx, chapter) {
   let ctaHTML = '';
   if (release.priceMode === 'paid' && release.product) {
     const buyUrl = 'https://gumroad.com/l/' + encodeURIComponent(release.product);
+    const subId = 'subForm_' + chIdx + '_' + Math.random().toString(36).slice(2, 6);
+    // Paid lock = primary Buy (the conversion), secondary Subscribe
+    // (the email-capture-net for non-buyers — covers "I'm not buying
+    // today but want to know when the next book lands"). Subscribe
+    // only renders when the release has notifyOnUnlock turned on AND
+    // we have a folioId to attach the subscriber to.
     ctaHTML =
-      '<div style="margin-top:14px">' +
+      '<div style="margin-top:16px;display:flex;flex-direction:column;gap:10px;align-items:center">' +
         '<a href="' + buyUrl + '" target="_blank" rel="noopener" ' +
-          'style="display:inline-block;font-size:13px;font-weight:500;padding:9px 18px;border-radius:7px;background:var(--accent-ui,#0a7);color:#fff;text-decoration:none">' +
+          'style="display:inline-block;font-size:13.5px;font-weight:600;padding:10px 22px;border-radius:8px;background:var(--accent-ui,#0a7);color:#fff;text-decoration:none">' +
           '💳 Read the rest now on Gumroad →' +
         '</a>' +
-        '<div style="font-size:10.5px;color:var(--hint);margin-top:6px">' +
-          'Buying unlocks every chapter, no waiting on the schedule.' +
+        '<div style="font-size:10.5px;color:var(--hint);max-width:380px">' +
+          'Buying unlocks every chapter immediately — no waiting on the schedule.' +
         '</div>' +
+        (release.notifyOnUnlock && folioId
+          ? (
+              '<div style="width:100%;max-width:400px;margin-top:6px;padding-top:12px;border-top:.5px dashed var(--border-mid)">' +
+                '<div style="font-size:11px;color:var(--hint);margin-bottom:6px;letter-spacing:.04em">OR — JUST WANT TO HEAR WHEN THIS UNLOCKS?</div>' +
+                '<div id="' + subId + '" style="display:flex;gap:6px">' +
+                  '<input type="email" placeholder="you@example.com" ' +
+                    'style="flex:1;font-size:12px;padding:7px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--bg);color:var(--text);outline:none">' +
+                  '<button onclick="_serialCardSubscribe(this, \'' + folioId + '\')" ' +
+                    'style="font-size:11.5px;padding:7px 14px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;font-weight:500">Subscribe</button>' +
+                '</div>' +
+                '<div class="sub-card-status" style="font-size:10.5px;color:var(--hint);margin-top:6px;min-height:14px"></div>' +
+              '</div>'
+            )
+          : '') +
       '</div>';
   } else if (release.serial && release.notifyOnUnlock && folioId) {
     const formId = 'subForm_' + chIdx + '_' + Math.random().toString(36).slice(2, 6);
@@ -16669,14 +16689,54 @@ function _apCleanIpa(ipa) {
   return String(ipa || '').trim().replace(/^\/+|\/+$/g, '').trim();
 }
 
-// Match a word inside text using Unicode-aware boundaries. The
-// built-in \b boundary is ASCII-only, so accented characters
-// (Áine, Niamh) and non-Latin scripts (Cyrillic, CJK) silently
-// fail to match. Lookaround on \p{L}\p{N} with the `u` flag is
-// the portable cross-script fix.
+// Per-letter accent variants for Latin script. Each entry lists
+// the lowercase character + every diacritic variant of it. With the
+// regex `i` flag, the lowercase set also matches the uppercase
+// equivalents, so we don't need to list uppercase separately.
+const _AP_ACCENT_VARIANTS = {
+  'a': 'aàáâãäåāăąǎ',
+  'e': 'eèéêëēĕėęě',
+  'i': 'iìíîïĩīĭįı',
+  'o': 'oòóôõöøōŏőǒ',
+  'u': 'uùúûüũūŭůűų',
+  'y': 'yýÿŷȳ',
+  'n': 'nñńňņ',
+  'c': 'cçćčĉċ',
+  'd': 'dďđ',
+  'g': 'gğġģǧĝ',
+  'h': 'hĥħ',
+  'j': 'jĵǰ',
+  'k': 'kķǩ',
+  'l': 'lĺļľłŀ',
+  'r': 'rŕřŗ',
+  's': 'sśšşŝș',
+  't': 'tťţŧț',
+  'w': 'wŵẁẃ',
+  'z': 'zźžżẑ',
+};
+
+function _apAccentClass(ch) {
+  const low = ch.toLowerCase();
+  const variants = _AP_ACCENT_VARIANTS[low];
+  if (!variants) return _apEscapeRegex(ch);
+  // Build [aàáâã…] character class. The `i` flag handles upper-case
+  // folding so we only enumerate lowercase here.
+  return '[' + variants.split('').map(c => _apEscapeRegex(c)).join('') + ']';
+}
+
+function _apAccentInsensitivePattern(word) {
+  // Code-point-iterate so surrogate pairs aren't split, then map
+  // each letter to its accent class.
+  return Array.from(String(word)).map(_apAccentClass).join('');
+}
+
+// Match a word inside text using Unicode-aware boundaries PLUS
+// accent-insensitive Latin matching. The built-in \b is ASCII-only;
+// `i` folds case but not diacritics. So glossary key "Aine" needs to
+// match "Áine" / "Aine" / "AINE" / "áine" / etc. all in one regex.
 function _apWordBoundaryRegex(word) {
-  const escaped = _apEscapeRegex(word);
-  return new RegExp('(?<![\\p{L}\\p{N}])' + escaped + '(?![\\p{L}\\p{N}])', 'giu');
+  const pat = _apAccentInsensitivePattern(word);
+  return new RegExp('(?<![\\p{L}\\p{N}])' + pat + '(?![\\p{L}\\p{N}])', 'giu');
 }
 
 function _apBuildSSML(text) {
@@ -16733,7 +16793,15 @@ async function _apGoogleTTS(text, voice, speed, apiKey) {
   // nested <phoneme> tags — invalid SSML, characters read aloud.
   const isPreBuilt = /^\s*<speak[\s>]/.test(text);
   const ssml = isPreBuilt ? text : _apBuildSSML(text);
-  if (isPreBuilt) console.log('[google-tts] sending pre-built SSML:', text.slice(0, 200));
+  // Diagnostic: log what's actually going to Google. Truncated to
+  // keep the console readable on long chapters. If pronunciations
+  // aren't being applied, this will show whether the SSML carries
+  // the <phoneme> tags or just plain text.
+  if (ssml) {
+    console.log('[google-tts] SSML body (first 400 chars):', ssml.slice(0, 400));
+  } else {
+    console.log('[google-tts] sending plain text (no SSML, first 200 chars):', text.slice(0, 200));
+  }
   const resp = await fetch(TTS_WORKER_URL + '/google', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
