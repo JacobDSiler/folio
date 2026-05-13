@@ -230,7 +230,45 @@ A separate **Include the audiobook with this release** checkbox lives below the 
 - **Serial** release → each chapter's audio unlocks alongside its text chapter (driven by the same cadence).
 - **Private** release → tracks are available to anyone with the link.
 
-**Caveat**: audio tracks currently live in the author's browser-side IndexedDB (the same `folio_audio` store the editor uses). For cross-device reader playback the tracks need to upload to a cloud store. This is **WIP** — see Roadmap.
+### How audio reaches the reader
+
+Audio tracks are generated and stored in the author's browser-side IndexedDB (`folio_audio` store) by the editor's Audio panel. On every publish where the "Include the audiobook" box is ticked, the publish flow:
+
+1. Walks the local audio store for this folio and uploads each blob to Firebase Storage at `folio_audio/{folioId}/{trackKey}`.
+2. Captures each track's download URL plus metadata (title, duration, section type, voice, etc.) into a manifest array.
+3. Writes the manifest to `release.audioManifest` on the parent Firestore doc, alongside `audioBundle: true`.
+
+The publish modal's status line shows live progress ("Uploading audiobook 3/12 — Chapter 3…"). On any per-track failure the publish aborts cleanly with the error surfaced — no partial state lands on disk.
+
+The reader's audiobook drawer prefers `release.audioManifest` over the local IDB. Phones / fresh browsers / friends stream from the manifest URLs; the owner falls back to IDB when previewing their own work before publish (or for legacy releases that predate the manifest).
+
+**Storage rules** — once you ship this, add this block in Firebase Console → Storage → Rules:
+
+```
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /folio_audio/{folioId}/{trackKey} {
+      // Read: owner of the folio always; anyone authed when the
+      // matching parent doc has release.published == true.
+      allow read: if
+        (request.auth != null
+         && request.auth.uid ==
+              firestore.get(/databases/(default)/documents/folio_projects/$(folioId)).data.uid)
+        ||
+        (request.auth != null
+         && firestore.get(/databases/(default)/documents/folio_projects/$(folioId)).data.release != null
+         && firestore.get(/databases/(default)/documents/folio_projects/$(folioId)).data.release.published == true);
+
+      // Write / delete: folio owner only.
+      allow write, delete: if request.auth != null
+                           && request.auth.uid ==
+                                firestore.get(/databases/(default)/documents/folio_projects/$(folioId)).data.uid;
+    }
+  }
+}
+```
+
+**Delta uploads** (skip unchanged tracks via `textHash` compare) are a known optimization but not in Phase 1. Full re-upload on every publish; tractable for typical audiobooks. If you have a 10-hour audiobook and that becomes onerous, that's the optimization to chase next.
 
 The reader URL is shown in the modal once published; copy it with the 📋 button. The published URL is stable across edits — readers always see the latest content.
 
@@ -434,7 +472,7 @@ The `folio_local_backup` is set before sign-in to preserve state; after the OAut
 
 ### Planned (next loops)
 
-- **Cloud-side audiobook tracks** — current `folio_audio` IDB store is per-device. To make audio playable for readers on other devices, tracks need to upload to Cloud Storage (Firebase Storage already wired in the auth init) keyed by `folio_projects/{id}/audio/{trackKey}`. Author uploads once; readers stream.
+- **Audio delta upload** — current pattern re-uploads every track on every publish, even unchanged ones. Compare `textHash` per track against the prior `release.audioManifest` entry and skip uploads that match. Big win for long audiobooks where the author re-publishes after editing one chapter.
 - **Per-folio `betaPeersVisible` setting** — author toggles whether betas see each other's feedback. Needs a fifth scope or a `peersHidden` flag plus matching rules.
 - **Per-page funnel sharing for paid books** — share a single chapter or page as a free teaser, with a Gumroad CTA to unlock the rest. Different from `previewSections` (which is a fixed prefix from the start); this is "share any single chunk." Probably uses `?upto=` or `?only=` URL params.
 - **Copy-link UI for chapter/paragraph** — currently console-only via `_chCopyDeepLink()`. Needs a small "Copy link to this paragraph" affordance on hover or right-click.
