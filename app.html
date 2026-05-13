@@ -13093,7 +13093,18 @@ function _serialDimTocRows(release, released) {
 // locked TOC row instead of letting the existing _rdJumpToChapter
 // handler take them to the hidden chapter.
 document.addEventListener('click', function (e) {
-  const row = e.target && e.target.closest && e.target.closest('.toc-nav-row.serial-toc-locked');
+  // First check if the click is on or within ANY TOC row, so we can
+  // log how it's being classified. Helps diagnose the case where the
+  // locked-row toast doesn't appear on click.
+  const anyRow = e.target && e.target.closest && e.target.closest('.toc-nav-row');
+  const row = anyRow && anyRow.classList.contains('serial-toc-locked') ? anyRow : null;
+  if (anyRow) {
+    console.log('[serial-toc-click] click on TOC row', {
+      chid: anyRow.getAttribute('data-chapid'),
+      classes: anyRow.className,
+      isLocked: !!row,
+    });
+  }
   if (!row) return;
   // Stop the normal TOC click handler from firing.
   e.stopPropagation();
@@ -13187,7 +13198,7 @@ function _serialBuildLockCard(release, chIdx, chapter) {
         '<div style="font-size:10.5px;color:var(--hint);max-width:380px">' +
           'Buying unlocks every chapter immediately — no waiting on the schedule.' +
         '</div>' +
-        (release.notifyOnUnlock && folioId
+        (folioId
           ? (
               '<div style="width:100%;max-width:400px;margin-top:6px;padding-top:12px;border-top:.5px dashed var(--border-mid)">' +
                 '<div style="font-size:11px;color:var(--hint);margin-bottom:6px;letter-spacing:.04em">OR — JUST WANT TO HEAR WHEN THIS UNLOCKS?</div>' +
@@ -13202,7 +13213,7 @@ function _serialBuildLockCard(release, chIdx, chapter) {
             )
           : '') +
       '</div>';
-  } else if (release.serial && release.notifyOnUnlock && folioId) {
+  } else if (release.serial && folioId) {  // every free serial lock card shows the subscribe form — author's notifyOnUnlock choice doesn't gate email capture
     const formId = 'subForm_' + chIdx + '_' + Math.random().toString(36).slice(2, 6);
     ctaHTML =
       '<div style="margin-top:14px;padding:12px 14px;border:.5px dashed var(--border-mid);border-radius:8px;background:var(--bg)">' +
@@ -16742,28 +16753,49 @@ function _apWordBoundaryRegex(word) {
 function _apBuildSSML(text) {
   const entries = _apSortedPronEntries();
   if (!entries.length) return null;
-  let s = _apEscSSML(text);
+  // NFC-normalize the manuscript text so decomposed "A\u0301ine" and
+  // composed "\u00C1ine" both end up canonical-composed. The author's
+  // editor may produce one form; macOS / iOS-pasted Gaelic text often
+  // produces the other. Without this, the regex silently misses
+  // every match across the boundary.
+  const textN = (typeof text === 'string') ? text.normalize('NFC') : String(text || '');
+  let s = _apEscSSML(textN);
   const matchSummary = [];
   for (const e of entries) {
     if (!e.ipa && !e.phonetic) continue;
-    const re = _apWordBoundaryRegex(e.word);
-    // Count matches before replacing so we can log the result.
-    const matches = (text.match(re) || []).length;
+    // Normalize the search word too, in case THE GLOSSARY is in the
+    // opposite normalization form from the manuscript.
+    const wordN = (e.word || '').normalize('NFC');
+    const re = _apWordBoundaryRegex(wordN);
+    const matches = (textN.match(re) || []).length;
     if (e.ipa) {
       const ipa = _apEscSSML(_apCleanIpa(e.ipa));
       if (!ipa) {
         matchSummary.push({ word: e.word, matches, used: 'skipped (ipa empty after cleanup)' });
         continue;
       }
-      s = s.replace(re, m => '<phoneme alphabet="ipa" ph="' + ipa + '">' + _apEscSSML(m) + '</phoneme>');
-      matchSummary.push({ word: e.word, matches, used: 'ipa→phoneme', ph: ipa });
+      // Phonetic-respelling fallback: SSML <phoneme> uses the tag's
+      // text content as the fallback when the voice can't synthesize
+      // the IPA phonemes (e.g. an English voice on Irish ʲ). If the
+      // user has a phonetic respelling set, use it as fallback;
+      // otherwise fall back to the matched word as-written.
+      const fallbackTxt = e.phonetic ? _apEscSSML(e.phonetic) : null;
+      s = s.replace(re, m => {
+        const fb = fallbackTxt != null ? fallbackTxt : _apEscSSML(m);
+        return '<phoneme alphabet="ipa" ph="' + ipa + '">' + fb + '</phoneme>';
+      });
+      matchSummary.push({
+        word: e.word, matches,
+        used: 'ipa→phoneme' + (fallbackTxt ? ' (with phonetic fallback)' : ''),
+        ph: ipa, fallback: fallbackTxt || '(word)'
+      });
     } else if (e.phonetic) {
       const phon = _apEscSSML(e.phonetic);
       s = s.replace(re, phon);
       matchSummary.push({ word: e.word, matches, used: 'phonetic→text', sub: phon });
     }
   }
-  console.log('[ssml] build', { entries: entries.length, matchSummary });
+  console.log('[ssml] build', { entries: entries.length, textLen: textN.length, matchSummary });
   return '<speak>' + s + '</speak>';
 }
 
@@ -16773,13 +16805,21 @@ function _apBuildSSML(text) {
 function _apApplyPronToText(text) {
   const entries = _apSortedPronEntries();
   if (!entries.length) return text;
-  let out = text;
+  // NFC-normalize so composed/decomposed accents don't cause
+  // silent match failures. See _apBuildSSML for the rationale.
+  let out = (typeof text === 'string') ? text.normalize('NFC') : String(text || '');
+  const subs = [];
   for (const e of entries) {
     const sub = e.phonetic || null;
     if (!sub) continue;
-    const re = _apWordBoundaryRegex(e.word);
+    const wordN = (e.word || '').normalize('NFC');
+    const re = _apWordBoundaryRegex(wordN);
+    const before = out.length;
+    const matches = (out.match(re) || []).length;
     out = out.replace(re, sub);
+    subs.push({ word: e.word, matches, sub });
   }
+  if (subs.length) console.log('[el-pron] substitutions', subs);
   return out;
 }
 
