@@ -12948,29 +12948,130 @@ function _serialApplyLocks(release) {
   });
   bp.querySelectorAll('.serial-lock-page').forEach(el => el.remove());
 
-  // Walk pages; for each chapter past `released` insert a lock card.
+  // Walk pages.
+  //
+  // KEY FACT (subtle): pageWrap stamps data-chapid ONLY on the FIRST
+  // page of each chapter (see line ~8427: `pg===0?ch.id:null`). Pages
+  // 2..N of a chapter carry no attribute. So we can't just check for
+  // data-chapid on every page — we have to track which chapter the
+  // current page belongs to as we iterate, and inherit the lock state
+  // across non-data-chapid pages until we hit the NEXT chapter's
+  // first page.
+  //
+  // The pages before the first chapter (cover, copyright, TOC, etc.)
+  // never enter a locked-chapter state and stay visible.
   const pages = Array.from(bp.children);
-  let chCounter = 0;       // 1-based index of chapter encountered
+  let chCounter = 0;
+  let currentChapterLocked = false;
   let firstLockedChIdx = null;
   for (let i = 0; i < pages.length; i++) {
     const p = pages[i];
     const chid = p.getAttribute && p.getAttribute('data-chapid');
-    if (!chid || !chapterIds.includes(chid)) continue;
-    chCounter++;
-    if (chCounter <= released) continue;
-    // Locked: hide this page, and (only on the FIRST locked page
-    // for this chapter) inject a lock card before it. Subsequent
-    // pages of the same chapter just hide.
-    p.classList.add('pw-hidden-page', 'serial-locked');
-    if (firstLockedChIdx !== chCounter) {
-      const card = _serialBuildLockCard(release, chCounter, chapters[chCounter - 1]);
-      bp.insertBefore(card, p);
-      firstLockedChIdx = chCounter;
+
+    if (chid && chapterIds.includes(chid)) {
+      // First page of a (new) chapter — recompute lock state.
+      chCounter++;
+      currentChapterLocked = (chCounter > released);
+      if (currentChapterLocked && firstLockedChIdx !== chCounter) {
+        const card = _serialBuildLockCard(release, chCounter, chapters[chCounter - 1]);
+        bp.insertBefore(card, p);
+        firstLockedChIdx = chCounter;
+      }
+    }
+
+    // Hide every page inside a locked chapter — including the pages
+    // 2..N that have no data-chapid. This is the fix for "the lock
+    // card shows but the chapter text still appears underneath it".
+    if (currentChapterLocked) {
+      p.classList.add('pw-hidden-page', 'serial-locked');
     }
   }
 
+  // Also gate the TOC rows so locked chapters look the part. Refresh
+  // is idempotent; safe to call on every applyLocks pass.
+  _serialDimTocRows(release, released);
+
   _serialStartTicker(release);
 }
+
+// Visually dim and lock the TOC entries for chapters past the
+// release cutoff. The TOC rows live alongside the rest of the
+// preview pages; we walk them and key on data-chapid. A locked
+// row gets a 🔒 prefix, reduced opacity, and a click-to-toast
+// handler that explains the unlock date.
+function _serialDimTocRows(release, released) {
+  const bp = document.getElementById('bookPreview');
+  if (!bp) return;
+  // First clear any prior decoration so re-applies don't double-up
+  bp.querySelectorAll('.toc-nav-row.serial-toc-locked').forEach(row => {
+    row.classList.remove('serial-toc-locked');
+    row.style.opacity = '';
+    row.style.cursor = '';
+    row.removeAttribute('data-locked-ch');
+    // Re-strip leading lock glyph if we previously added one
+    const first = row.querySelector('span');
+    if (first && first.textContent && first.textContent.startsWith('🔒 ')) {
+      first.textContent = first.textContent.slice(2).trimStart();
+    }
+  });
+
+  const chapters = (typeof getChapters === 'function') ? getChapters() : [];
+  // Map chapter id → 1-based chapter index (only counts type=='chapter')
+  const chIdToIdx = new Map();
+  let idx = 0;
+  for (const c of chapters) {
+    if (c.type === 'chapter') {
+      idx++;
+      chIdToIdx.set(c.id, idx);
+    }
+  }
+
+  const rows = bp.querySelectorAll('.toc-nav-row[data-chapid]');
+  rows.forEach(row => {
+    const chid = row.getAttribute('data-chapid');
+    const chIdx = chIdToIdx.get(chid);
+    if (!chIdx) return;
+    if (chIdx <= released) return; // unlocked, leave alone
+
+    row.classList.add('serial-toc-locked');
+    row.style.opacity = '0.5';
+    row.style.cursor = 'not-allowed';
+    row.setAttribute('data-locked-ch', String(chIdx));
+    // Prefix the label with a small lock glyph so the disabled state
+    // reads at a glance.
+    const first = row.querySelector('span');
+    if (first && first.textContent && !first.textContent.startsWith('🔒 ')) {
+      first.textContent = '🔒 ' + first.textContent;
+    }
+  });
+}
+
+// Click handler — toast the unlock date when a reader clicks a
+// locked TOC row instead of letting the existing _rdJumpToChapter
+// handler take them to the hidden chapter.
+document.addEventListener('click', function (e) {
+  const row = e.target && e.target.closest && e.target.closest('.toc-nav-row.serial-toc-locked');
+  if (!row) return;
+  // Stop the normal TOC click handler from firing.
+  e.stopPropagation();
+  e.preventDefault();
+  const release = (typeof _rlCurrent !== 'undefined' && _rlCurrent) ? _rlCurrent : null;
+  const chIdx = parseInt(row.getAttribute('data-locked-ch') || '0', 10);
+  if (!release || !chIdx) return;
+  let when = 'when it unlocks';
+  try {
+    const ms = (typeof _serialUnlockDate === 'function')
+      ? _serialUnlockDate(release, chIdx)
+      : null;
+    if (ms) {
+      const d = new Date(ms);
+      when = 'on ' + d.toLocaleString();
+    }
+  } catch (e2) {}
+  if (typeof toastInfo === 'function') {
+    toastInfo('This chapter unlocks ' + when, { icon: '🔒', duration: 4500 });
+  }
+}, true);
 function _serialClearLocks() {
   const bp = document.getElementById('bookPreview');
   if (bp) {
