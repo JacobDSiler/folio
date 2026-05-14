@@ -29,7 +29,7 @@
  * Caller is responsible for chunking input text ≤ 4500 chars per /google call.
  */
 
-const DEFAULT_ORIGIN = 'https://folio.jacobsiler.com';
+const DEFAULT_ORIGIN = 'https://www.onfolio.press';
 
 /**
  * Parse ALLOWED_ORIGIN into an array of allowed origins.
