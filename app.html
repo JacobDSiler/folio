@@ -12224,11 +12224,20 @@ function _serialFormatDate(d) {
    so the wiring can be tested without sending real emails.
    ══════════════════════════════════════════════════════════════════ */
 
-// Email transport flag + worker URL. Default false so a fresh
-// deploy doesn't accidentally email subscribers. Flip to true once
-// folio-email-worker is deployed and FOLIO_EMAIL_WORKER_URL points
-// at it. See docs/SERIALS.md for the full activation checklist.
-window.FOLIO_EMAIL_ENABLED    = window.FOLIO_EMAIL_ENABLED    || false;
+// Email transport flag + worker URL.
+//
+// FOLIO_EMAIL_ENABLED now defaults to TRUE — the folio-email worker
+// is deployed and the serial-release feature is live. When false,
+// _sendNewChapterEmail only logs a console stub and never POSTs to
+// the worker (which is why released chapters sent no email while
+// this was false). To temporarily disable live sends without a
+// code change, set `window.FOLIO_EMAIL_ENABLED = false` in the
+// console before releasing.
+//
+// The worker still needs RESEND_API_KEY + FROM_EMAIL set in its
+// Cloudflare dashboard env vars — flipping this flag only makes the
+// CLIENT call the worker; the worker itself must be configured.
+window.FOLIO_EMAIL_ENABLED    = (window.FOLIO_EMAIL_ENABLED === false) ? false : true;
 window.FOLIO_EMAIL_WORKER_URL = window.FOLIO_EMAIL_WORKER_URL || 'https://folio-email.jacobdsiler.workers.dev';
 
 // Random unsubscribe token. Long enough to be unguessable, short
@@ -12494,23 +12503,36 @@ async function _serialReleaseNextChapter(targetCount /* optional */) {
       toastSuccess('Released through Ch ' + next, { icon: '🔓', duration: 2400 });
     if (typeof _serialDashboardRefresh === 'function')
       _serialDashboardRefresh();
-    // W3 — fire stub emails (or real ones, when the flag flips).
-    if (updated.notifyOnUnlock && typeof _subList === 'function') {
+    // Notify subscribers. NOT gated on notifyOnUnlock anymore — the
+    // subscribe form on lock cards is always shown, so anyone who
+    // subscribed was promised "an email the moment it drops". If we
+    // collected the email, we honor it. notifyOnUnlock stays as
+    // informational metadata but no longer blocks the send.
+    if (typeof _subList === 'function') {
       try {
         const subs = await _subList(_projId);
+        console.log('[email] release Ch ' + next + ' — subscribers found:', subs.length,
+          '| FOLIO_EMAIL_ENABLED:', window.FOLIO_EMAIL_ENABLED);
         const meta = { title: updated.title, author: updated.author };
+        let sent = 0, failed = 0;
         for (const s of subs) {
-          try { await _sendNewChapterEmail(_projId, next, s, meta); }
-          catch (em) { console.warn('[email] send err', em); }
+          try {
+            const r = await _sendNewChapterEmail(_projId, next, s, meta);
+            if (r && r.ok) sent++; else { failed++; console.warn('[email] send not ok', s.email, r); }
+          } catch (em) { failed++; console.warn('[email] send err', s.email, em); }
         }
+        console.log('[email] release Ch ' + next + ' — sent:', sent, 'failed:', failed);
         if (subs.length && typeof toastInfo === 'function') {
           if (window.FOLIO_EMAIL_ENABLED) {
-            toastInfo('Notified ' + subs.length + ' subscriber' + (subs.length === 1 ? '' : 's'),
-              { icon: '📨', duration: 3000 });
+            toastInfo('Notified ' + sent + ' subscriber' + (sent === 1 ? '' : 's') +
+              (failed ? (' (' + failed + ' failed — see console)') : ''),
+              { icon: '📨', duration: 3500 });
           } else {
             toastInfo('Email worker disabled — ' + subs.length + ' sends logged to console',
               { icon: '📨', duration: 3500 });
           }
+        } else if (!subs.length && typeof toastInfo === 'function') {
+          toastInfo('Released — no subscribers to notify yet.', { duration: 2800 });
         }
       } catch (em2) { console.warn('[email] outer', em2); }
     }
@@ -12960,6 +12982,7 @@ function _serialMaybeRenderSubscribeForm(release) {
 window._serialMaybeRenderSubscribeForm = _serialMaybeRenderSubscribeForm;
 
 let _serialApplyRetries = 0;
+let _serialLastLockKey = null;  // idempotency key: released-count + chapter-id list
 function _serialApplyLocks(release) {
   // Editor mode never gets locked — locks are a reader experience.
   // Owners need to see their full manuscript while editing.
@@ -12976,6 +12999,22 @@ function _serialApplyLocks(release) {
   const chapters = (typeof getChapters === 'function') ? getChapters() : [];
   const chapterIds = chapters.map(c => c.id);
   const released = _serialReleasedCount(release);
+
+  // Idempotency guard. _serialApplyLocks runs repeatedly (load races,
+  // previewRendered, the 60s ticker, refresh-from-cloud). Each run
+  // tears down and rebuilds every lock card — including the email
+  // input inside it. If the browser autofill dropdown is open when a
+  // rebuild happens, the suggestion the user clicks lands on the old
+  // detached input and silently does nothing. So: if the lock state
+  // hasn't actually changed since the last successful apply AND the
+  // lock cards are still in the DOM, skip the rebuild entirely.
+  const _lockKey = released + '|' + chapterIds.join(',');
+  const _existingCards = bp.querySelectorAll('.serial-lock-page').length;
+  if (_serialLastLockKey === _lockKey && _existingCards > 0) {
+    // Nothing changed and the cards are still present — leave them
+    // (and any in-progress email-field input) untouched.
+    return;
+  }
 
   // Diagnostic + retry: log what _serialApplyLocks is operating on,
   // and retry briefly if the preview's chapter pages haven't been
@@ -13070,6 +13109,10 @@ function _serialApplyLocks(release) {
   // the 🔒 prefix + disabled state in sync with the new released
   // count. _rdHydrate is idempotent.
   try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) {}
+
+  // Record the lock key so the idempotency guard at the top of this
+  // function can skip a redundant rebuild next time.
+  _serialLastLockKey = _lockKey;
 }
 
 // Visually dim and lock the TOC entries for chapters past the
@@ -13275,6 +13318,9 @@ async function _serialModalSubscribe(btn, folioId) {
 window._serialModalSubscribe = _serialModalSubscribe;
 
 function _serialClearLocks() {
+  // Reset the idempotency key — after a clear, the next apply must
+  // rebuild from scratch.
+  _serialLastLockKey = null;
   const bp = document.getElementById('bookPreview');
   if (bp) {
     bp.querySelectorAll('.serial-lock-page').forEach(el => el.remove());
