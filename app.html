@@ -13154,23 +13154,126 @@ document.addEventListener('click', function (e) {
   });
   if (!release) { console.log('[serial-toc-click] bailing — _rlCurrent missing'); return; }
   if (!chIdx)   { console.log('[serial-toc-click] bailing — data-locked-ch missing/zero'); return; }
+  // Open the lock CTA modal — title, unlock date, subscribe form,
+  // and (for paid releases) the Buy-on-Gumroad button.
+  const chTitle = (row.querySelector('span') ? row.querySelector('span').textContent : '')
+    .replace(/^🔒\s*/, '').trim();
+  _serialShowLockModal(release, chIdx, chTitle);
+}, true);
+
+// ── Lock CTA modal ─────────────────────────────────────────────────
+// One reusable modal, built once and reshown. Opened from a locked
+// TOC row click. Shows the chapter title + unlock date, a subscribe
+// email form, and — for paid releases — a Buy-on-Gumroad button.
+function _serialShowLockModal(release, chIdx, chTitle) {
+  let modal = document.getElementById('serialLockModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'serialLockModal';
+    modal.style.cssText =
+      'position:fixed;inset:0;z-index:300;display:none;align-items:center;' +
+      'justify-content:center;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px)';
+    // Backdrop click closes.
+    modal.addEventListener('click', function (ev) {
+      if (ev.target === modal) _serialCloseLockModal();
+    });
+    document.body.appendChild(modal);
+  }
+
+  const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+  const isPaid  = release.priceMode === 'paid' && release.product;
+  const buyUrl  = isPaid ? ('https://gumroad.com/l/' + encodeURIComponent(release.product)) : null;
+
   let when = 'when it unlocks';
   try {
-    const ms = (typeof _serialUnlockDate === 'function')
-      ? _serialUnlockDate(release, chIdx)
-      : null;
-    if (ms) {
-      const d = new Date(ms);
-      when = 'on ' + d.toLocaleString();
-    }
-  } catch (e2) {}
-  console.log('[serial-toc-click] firing toast:', 'This chapter unlocks ' + when);
-  if (typeof toastInfo === 'function') {
-    toastInfo('This chapter unlocks ' + when, { icon: '🔒', duration: 4500 });
-  } else {
-    console.warn('[serial-toc-click] toastInfo missing — would have shown:', when);
+    const ms = (typeof _serialUnlockDate === 'function') ? _serialUnlockDate(release, chIdx) : null;
+    if (ms) when = 'on ' + new Date(ms).toLocaleString();
+  } catch (e) {}
+
+  const inputId = 'serialLockModalEmail';
+  modal.innerHTML =
+    '<div style="background:var(--surface,#fff);border-radius:14px;max-width:440px;width:92%;' +
+      'padding:28px 26px 22px;box-shadow:0 12px 48px rgba(0,0,0,0.4);font-family:var(--sans);' +
+      'color:var(--text,#1a1a1a);text-align:center;position:relative">' +
+      '<button onclick="_serialCloseLockModal()" aria-label="Close" ' +
+        'style="position:absolute;top:12px;right:14px;background:none;border:none;' +
+        'font-size:20px;cursor:pointer;color:var(--hint,#888);line-height:1">×</button>' +
+      '<div style="font-size:34px;margin-bottom:10px;opacity:.55">🔒</div>' +
+      '<div style="font-size:11px;color:var(--hint,#888);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px">Chapter ' + chIdx + '</div>' +
+      '<div style="font-family:\'Playfair Display\',Georgia,serif;font-size:22px;font-weight:700;margin-bottom:10px">' +
+        _esc(chTitle || ('Chapter ' + chIdx)) + '</div>' +
+      '<div style="font-size:12.5px;color:var(--muted,#666);margin-bottom:18px">This chapter unlocks ' + _esc(when) + '.</div>' +
+      (isPaid
+        ? ('<a href="' + buyUrl + '" target="_blank" rel="noopener" ' +
+             'style="display:block;font-size:13.5px;font-weight:600;padding:11px 18px;border-radius:8px;' +
+             'background:var(--accent-ui,#0a7);color:#fff;text-decoration:none;margin-bottom:8px">' +
+             '💳 Read it all now on Gumroad →</a>' +
+           '<div style="font-size:10.5px;color:var(--hint,#888);margin-bottom:16px">' +
+             'Buying unlocks every chapter immediately.</div>' +
+           '<div style="font-size:11px;color:var(--hint,#888);letter-spacing:.04em;margin-bottom:8px;' +
+             'border-top:.5px dashed var(--border-mid,#ccc);padding-top:14px">' +
+             'OR — JUST WANT TO HEAR WHEN IT UNLOCKS?</div>')
+        : ('<div style="font-size:12px;color:var(--text);margin-bottom:8px;font-weight:500">' +
+             '📨 Get notified the moment it drops</div>')) +
+      (folioId
+        ? ('<div style="display:flex;gap:6px;max-width:340px;margin:0 auto">' +
+             '<input type="email" id="' + inputId + '" name="' + inputId + '" autocomplete="email" ' +
+               'placeholder="you@example.com" ' +
+               'style="flex:1;font-size:12.5px;padding:8px 10px;border-radius:7px;border:.5px solid var(--border-mid,#ccc);' +
+               'background:var(--bg,#faf9f7);color:var(--text);outline:none">' +
+             '<button onclick="_serialModalSubscribe(this, \'' + folioId + '\')" ' +
+               'style="font-size:12px;font-weight:500;padding:8px 16px;border-radius:7px;border:none;' +
+               'background:var(--accent-ui,#0a7);color:#fff;cursor:pointer;white-space:nowrap">Subscribe</button>' +
+           '</div>' +
+           '<div class="serial-lock-modal-status" style="font-size:11px;color:var(--hint,#888);margin-top:8px;min-height:15px"></div>')
+        : '') +
+    '</div>';
+
+  modal.style.display = 'flex';
+}
+window._serialShowLockModal = _serialShowLockModal;
+
+function _serialCloseLockModal() {
+  const modal = document.getElementById('serialLockModal');
+  if (modal) modal.style.display = 'none';
+}
+window._serialCloseLockModal = _serialCloseLockModal;
+
+// Subscribe handler for the lock CTA modal. Mirrors _serialCardSubscribe
+// but targets the modal's own input/status nodes.
+async function _serialModalSubscribe(btn, folioId) {
+  if (!btn || !folioId) return;
+  const modal = document.getElementById('serialLockModal');
+  if (!modal) return;
+  const input  = modal.querySelector('#serialLockModalEmail');
+  const status = modal.querySelector('.serial-lock-modal-status');
+  if (!input || !status) return;
+  const email = (input.value || '').trim();
+  if (!_subEmailValid(email)) {
+    status.style.color = '#c04040';
+    status.textContent = 'Please enter a valid email address.';
+    return;
   }
-}, true);
+  status.style.color = 'var(--hint)';
+  status.textContent = 'Subscribing…';
+  try {
+    if (typeof _subAdd === 'function') {
+      await _subAdd(folioId, email);
+    } else {
+      throw new Error('Subscribe path not available');
+    }
+    status.style.color = '#0a7';
+    status.textContent = 'Subscribed! You\'ll get an email when chapters unlock.';
+    input.value = '';
+    btn.disabled = true;
+    btn.textContent = '✓ Done';
+  } catch (e) {
+    status.style.color = '#c04040';
+    status.textContent = (e && e.message) || 'Subscribe failed';
+  }
+}
+window._serialModalSubscribe = _serialModalSubscribe;
+
 function _serialClearLocks() {
   const bp = document.getElementById('bookPreview');
   if (bp) {
@@ -13248,7 +13351,8 @@ function _serialBuildLockCard(release, chIdx, chapter) {
               '<div style="width:100%;max-width:400px;margin-top:6px;padding-top:12px;border-top:.5px dashed var(--border-mid)">' +
                 '<div style="font-size:11px;color:var(--hint);margin-bottom:6px;letter-spacing:.04em">OR — JUST WANT TO HEAR WHEN THIS UNLOCKS?</div>' +
                 '<div id="' + subId + '" style="display:flex;gap:6px">' +
-                  '<input type="email" placeholder="you@example.com" ' +
+                  '<input type="email" id="' + subId + '_email" name="' + subId + '_email" ' +
+                    'autocomplete="email" placeholder="you@example.com" ' +
                     'style="flex:1;font-size:12px;padding:7px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--bg);color:var(--text);outline:none">' +
                   '<button onclick="_serialCardSubscribe(this, \'' + folioId + '\')" ' +
                     'style="font-size:11.5px;padding:7px 14px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;font-weight:500">Subscribe</button>' +
@@ -13266,7 +13370,8 @@ function _serialBuildLockCard(release, chIdx, chapter) {
           '📨 Get notified when this chapter drops' +
         '</div>' +
         '<div id="' + formId + '" style="display:flex;gap:6px">' +
-          '<input type="email" placeholder="you@example.com" ' +
+          '<input type="email" id="' + formId + '_email" name="' + formId + '_email" ' +
+            'autocomplete="email" placeholder="you@example.com" ' +
             'style="flex:1;font-size:12px;padding:6px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);outline:none">' +
           '<button onclick="_serialCardSubscribe(this, \'' + folioId + '\')" ' +
             'style="font-size:11.5px;padding:6px 12px;border-radius:6px;border:none;background:var(--accent-ui,#0a7);color:#fff;cursor:pointer">Subscribe</button>' +
