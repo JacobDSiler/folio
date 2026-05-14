@@ -6,9 +6,14 @@
  * just unlocked"; this worker formats it into HTML + plain-text and
  * forwards the actual send to Resend.
  *
- * This worker never stores subscribers, never persists email
- * content. It's a stateless adapter: takes JSON in, makes one HTTP
- * call to Resend, returns the result.
+ * It ALSO runs a scheduled (cron) job — see the SCHEDULED CRON block
+ * further down — that closes the "scheduled unlocks email nobody" gap:
+ * cadence-based chapter unlocks are computed client-side, so without a
+ * server tick a chapter that unlocks on a schedule notifies no one.
+ *
+ * The /send + /test paths never store anything. The cron path reads
+ * Firestore (serial releases + subscribers) but only writes one field
+ * back: release.serialEmailedThrough, its own high-water mark.
  *
  * Endpoints
  *   GET  /                 Health check.
@@ -27,6 +32,20 @@
  *                          }
  *                          → { ok: true, id }
  *                            or { error } with 4xx/5xx status.
+ *   GET  /cron-run?key=…   Manually trigger the scheduled job (the
+ *                          same work the cron tick does). Disabled
+ *                          unless CRON_TRIGGER_KEY is set; ?key must
+ *                          match it. Handy for testing without
+ *                          waiting for the hourly tick.
+ *                          → { ok: true, summary }
+ *
+ * Scheduled handler (Cloudflare Cron Trigger)
+ *   On each tick the worker reads Firestore, finds published serial
+ *   releases whose cadence has unlocked a chapter that hasn't been
+ *   emailed yet (tracked by release.serialEmailedThrough), and emails
+ *   every subscriber once per newly-crossed chapter.
+ *   Add the trigger in the dashboard: Workers → folio-email →
+ *   Settings → Triggers → Cron Triggers → e.g. "0 * * * *" (hourly).
  *
  * Bindings (set in Cloudflare dashboard → Settings → Variables):
  *
@@ -42,6 +61,27 @@
  *
  *   ALLOWED_ORIGIN     Plain text, CSV OK.
  *                      Defaults to https://www.onfolio.press
+ *                      The first entry is also used as the base URL
+ *                      for reader / unsubscribe links in cron emails.
+ *
+ *   ── Cron-only bindings (only needed for the scheduled handler) ──
+ *
+ *   GCP_SERVICE_ACCOUNT  Secret.  The FULL service-account JSON key
+ *                      (the file Google Cloud hands you), pasted as
+ *                      one secret. Used to authenticate to the
+ *                      Firestore REST API. The service account needs
+ *                      the "Cloud Datastore User" IAM role.
+ *
+ *   FIRESTORE_PROJECT_ID  Plain.  Optional — overrides the project_id
+ *                      found inside GCP_SERVICE_ACCOUNT. Normally you
+ *                      can leave this unset.
+ *
+ *   CRON_TRIGGER_KEY   Secret.  Optional — any random string. When
+ *                      set, enables GET /cron-run?key=… for manual
+ *                      testing. Leave unset in normal operation.
+ *
+ *   APP_PATH           Plain.   Optional — path of the reader app.
+ *                      Defaults to /app.html.
  *
  * Security notes
  *   • Origin allowlist is CORS-only — it doesn't stop server-side
@@ -52,6 +92,9 @@
  *     calls THIS worker; the worker calls Resend.
  *   • Email validation is best-effort. Resend will reject malformed
  *     addresses with a 422 which we pass through.
+ *   • The service account authenticates to Firestore via Google IAM,
+ *     NOT Firestore security rules — so the rules don't need to open
+ *     up. The SA just needs the "Cloud Datastore User" role.
  */
 
 const DEFAULT_ORIGIN = 'https://www.onfolio.press';
@@ -206,9 +249,334 @@ async function sendViaResend(env, payload) {
   return data; // { id: '...' }
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+   SCHEDULED CRON — serial chapter auto-unlock emails
+   ───────────────────────────────────────────────────────────────────
+   The Folio app computes cadence-based chapter unlocks purely
+   client-side: a reader who loads the page after the unlock time just
+   sees the chapter. Nothing "fires" at the unlock moment, so a
+   chapter that unlocks on a SCHEDULE (vs. the author's manual
+   "Release next chapter now" button) emails nobody.
+
+   This handler closes that gap. On each tick it:
+     1. Lists every folio_projects doc.
+     2. Keeps the ones that are a published serial.
+     3. Computes how many chapters SHOULD be unlocked now — the same
+        math as the app's _serialReleasedCount — capped at the doc's
+        chapterCount.
+     4. Compares that against release.serialEmailedThrough, a
+        high-water mark this worker owns.
+     5. Emails every subscriber once per newly-crossed chapter.
+     6. Bumps serialEmailedThrough so nothing is emailed twice.
+
+   FIRST CONTACT with a serial that has no serialEmailedThrough field
+   yet is a BASELINE run: it records the current count and sends
+   nothing. That way switching the cron on doesn't blast every
+   already-released chapter to every existing subscriber.
+
+   Firestore access uses a Google service account (GCP_SERVICE_ACCOUNT,
+   the full SA JSON pasted in as a secret). Service accounts
+   authenticate via Google IAM, not Firestore security rules, so the
+   rules don't need to change — the SA just needs the "Cloud Datastore
+   User" role.
+   ═══════════════════════════════════════════════════════════════════ */
+
+const GOOGLE_TOKEN_URI = 'https://oauth2.googleapis.com/token';
+const FIRESTORE_SCOPE  = 'https://www.googleapis.com/auth/datastore';
+
+/* base64url helpers for the service-account JWT */
+function b64url(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64urlStr(str) {
+  return b64url(new TextEncoder().encode(str));
+}
+
+/* PEM (PKCS8) → ArrayBuffer for crypto.subtle.importKey */
+function pemToArrayBuffer(pem) {
+  const body = String(pem || '')
+    .replace(/-----BEGIN [^-]+-----/g, '')
+    .replace(/-----END [^-]+-----/g, '')
+    .replace(/\s+/g, '');
+  const bin = atob(body);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return buf.buffer;
+}
+
+/* Mint a short-lived OAuth2 access token for the service account.
+   Signs a JWT assertion with the SA private key (RS256) and exchanges
+   it at Google's token endpoint for a bearer token scoped to Firestore. */
+async function getAccessToken(env) {
+  const raw = env.GCP_SERVICE_ACCOUNT;
+  if (!raw) throw new Error('GCP_SERVICE_ACCOUNT not configured');
+  let sa;
+  try { sa = JSON.parse(raw); }
+  catch (e) { throw new Error('GCP_SERVICE_ACCOUNT is not valid JSON'); }
+  if (!sa.client_email || !sa.private_key) {
+    throw new Error('GCP_SERVICE_ACCOUNT missing client_email / private_key');
+  }
+  const now    = Math.floor(Date.now() / 1000);
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const claims = {
+    iss:   sa.client_email,
+    scope: FIRESTORE_SCOPE,
+    aud:   sa.token_uri || GOOGLE_TOKEN_URI,
+    iat:   now,
+    exp:   now + 3600,
+  };
+  const unsigned =
+    b64urlStr(JSON.stringify(header)) + '.' + b64urlStr(JSON.stringify(claims));
+  const key = await crypto.subtle.importKey(
+    'pkcs8',
+    pemToArrayBuffer(sa.private_key),
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(unsigned)
+  );
+  const jwt = unsigned + '.' + b64url(new Uint8Array(sig));
+
+  const resp = await fetch(sa.token_uri || GOOGLE_TOKEN_URI, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=' +
+          encodeURIComponent(jwt),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data.access_token) {
+    throw new Error('Token exchange failed: ' +
+      (data.error_description || data.error || resp.status));
+  }
+  return { token: data.access_token, projectId: sa.project_id };
+}
+
+/* ── Firestore REST: decode typed values ──────────────────────── */
+function fsDecodeValue(v) {
+  if (v == null) return null;
+  if ('nullValue'      in v) return null;
+  if ('booleanValue'   in v) return v.booleanValue;
+  if ('integerValue'   in v) return Number(v.integerValue);
+  if ('doubleValue'    in v) return v.doubleValue;
+  if ('stringValue'    in v) return v.stringValue;
+  if ('timestampValue' in v) return v.timestampValue;
+  if ('mapValue'       in v) return fsDecodeFields((v.mapValue && v.mapValue.fields) || {});
+  if ('arrayValue'     in v) return ((v.arrayValue && v.arrayValue.values) || []).map(fsDecodeValue);
+  return null;
+}
+function fsDecodeFields(fields) {
+  const out = {};
+  for (const k in fields) out[k] = fsDecodeValue(fields[k]);
+  return out;
+}
+
+/* ── Firestore REST: list a collection (handles pagination) ───── */
+async function fsList(projectId, token, collPath) {
+  const base = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+               '/databases/(default)/documents/' + collPath;
+  const docs = [];
+  let pageToken = '';
+  do {
+    const url = base + '?pageSize=300' +
+                (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : '');
+    const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      throw new Error('Firestore list ' + collPath + ' failed: ' +
+        ((data.error && data.error.message) || r.status));
+    }
+    for (const d of (data.documents || [])) {
+      const id = (d.name || '').split('/').pop();
+      docs.push({ id: id, name: d.name, data: fsDecodeFields(d.fields || {}) });
+    }
+    pageToken = data.nextPageToken || '';
+  } while (pageToken);
+  return docs;
+}
+
+/* ── Firestore REST: bump release.serialEmailedThrough ────────────
+   Uses a nested field path in updateMask so ONLY that one sub-field
+   changes — the rest of the release map is left untouched. */
+async function fsPatchEmailedThrough(projectId, token, folioId, value) {
+  const url = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+    '/databases/(default)/documents/folio_projects/' + encodeURIComponent(folioId) +
+    '?updateMask.fieldPaths=' + encodeURIComponent('release.serialEmailedThrough') +
+    '&currentDocument.exists=true';
+  const body = {
+    fields: {
+      release: {
+        mapValue: {
+          fields: {
+            serialEmailedThrough: { integerValue: String(value) },
+          },
+        },
+      },
+    },
+  };
+  const r = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': 'Bearer ' + token,
+      'Content-Type':  'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const data = await r.json().catch(() => ({}));
+    throw new Error('Firestore patch ' + folioId + ' failed: ' +
+      ((data.error && data.error.message) || r.status));
+  }
+}
+
+/* ── Serial unlock math — mirrors the app's _serial* helpers ──── */
+function serialCadenceMs(release) {
+  if (!release || !release.serial) return 0;
+  const cad = release.serialCadence || 'weekly';
+  const day = 24 * 60 * 60 * 1000;
+  if (cad === 'weekly')   return  7 * day;
+  if (cad === 'biweekly') return 14 * day;
+  if (cad === 'monthly')  return 30 * day;
+  if (cad === 'custom') {
+    const d = Number(release.serialCadenceCustom);
+    return (isFinite(d) && d > 0) ? d * day : 7 * day;
+  }
+  return 7 * day;
+}
+function serialAutoReleasedCount(release, now) {
+  if (!release || !release.serial || !release.serialFirstReleaseAt) return 0;
+  const start = Number(release.serialFirstReleaseAt);
+  if (!isFinite(start) || now < start) return 0;
+  const cMs = serialCadenceMs(release);
+  if (cMs <= 0) return 0;
+  return Math.floor((now - start) / cMs) + 1;
+}
+function serialReleasedCount(release, now) {
+  if (!release || !release.serial) return 0;
+  const auto   = serialAutoReleasedCount(release, now);
+  const manual = Number(release.serialReleasedThrough) || 0;
+  return Math.max(auto, manual);
+}
+
+/* ── The scheduled job ────────────────────────────────────────── */
+async function runCron(env) {
+  const summary = {
+    folios: 0, serials: 0, baselined: 0,
+    foliosEmailed: 0, sent: 0, failed: 0, errors: [],
+  };
+  const PER_RUN_SEND_CAP = 200;  // safety brake against a runaway burst
+
+  const auth = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || auth.projectId;
+  if (!projectId) {
+    throw new Error('No Firestore project id — set FIRESTORE_PROJECT_ID or ' +
+      'use a full service-account JSON (which carries project_id).');
+  }
+
+  const appBase = allowedOrigins(env)[0] || DEFAULT_ORIGIN;
+  const appPath = env.APP_PATH || '/app.html';
+  const now = Date.now();
+
+  const folios = await fsList(projectId, auth.token, 'folio_projects');
+  summary.folios = folios.length;
+
+  for (const folio of folios) {
+    try {
+      const release = folio.data && folio.data.release;
+      if (!release || !release.published || !release.serial) continue;
+      summary.serials++;
+
+      const total = Number(folio.data.chapterCount) || 0;
+      let releasedNow = serialReleasedCount(release, now);
+      if (total > 0) releasedNow = Math.min(releasedNow, total);
+      if (releasedNow < 0) releasedNow = 0;
+
+      // First contact (no high-water mark yet) → baseline, send nothing.
+      const hasMark =
+        Object.prototype.hasOwnProperty.call(release, 'serialEmailedThrough') &&
+        release.serialEmailedThrough != null;
+      if (!hasMark) {
+        await fsPatchEmailedThrough(projectId, auth.token, folio.id, releasedNow);
+        summary.baselined++;
+        console.log('[cron] baselined', folio.id,
+          '→ serialEmailedThrough =', releasedNow);
+        continue;
+      }
+
+      const emailedThrough = Number(release.serialEmailedThrough) || 0;
+      if (releasedNow <= emailedThrough) continue;  // nothing newly crossed
+
+      // Subscribers for this folio.
+      const subs = (await fsList(
+        projectId, auth.token, 'folio_projects/' + folio.id + '/subscribers'
+      )).map(s => s.data).filter(s => s && s.email);
+
+      console.log('[cron]', folio.id, 'crossed Ch',
+        (emailedThrough + 1) + '..' + releasedNow,
+        '| subscribers:', subs.length);
+
+      if (subs.length === 0) {
+        // Nobody to email — still advance the mark so it isn't reconsidered.
+        await fsPatchEmailedThrough(projectId, auth.token, folio.id, releasedNow);
+        continue;
+      }
+
+      let folioSent = 0, capped = false;
+      for (let ch = emailedThrough + 1; ch <= releasedNow && !capped; ch++) {
+        for (const sub of subs) {
+          if (summary.sent >= PER_RUN_SEND_CAP) {
+            summary.errors.push('per-run send cap hit (' + PER_RUN_SEND_CAP + ')');
+            capped = true;
+            break;
+          }
+          const payload = {
+            folioId:      folio.id,
+            chapterIndex: ch,
+            chapterTitle: 'Chapter ' + ch,   // titles live in the body subdoc;
+                                             // matches the app's manual path,
+                                             // which also sends "Chapter N".
+            folioTitle:   release.title  || 'Untitled',
+            folioAuthor:  release.author || '',
+            readerUrl:    appBase + appPath + '?read=' + encodeURIComponent(folio.id),
+            unsubscribeUrl: sub.unsubscribeToken
+              ? (appBase + appPath +
+                 '?unsubscribe=' + encodeURIComponent(sub.unsubscribeToken) +
+                 '&folio=' + encodeURIComponent(folio.id))
+              : '',
+            to: sub.email,
+          };
+          try {
+            await sendViaResend(env, payload);
+            summary.sent++; folioSent++;
+          } catch (e) {
+            summary.failed++;
+            console.warn('[cron] send failed', folio.id, 'Ch' + ch,
+              sub.email, e && e.message);
+          }
+        }
+      }
+
+      summary.foliosEmailed++;
+      // Advance the high-water mark so these chapters never re-send.
+      await fsPatchEmailedThrough(projectId, auth.token, folio.id, releasedNow);
+      console.log('[cron]', folio.id, 'sent', folioSent,
+        '→ serialEmailedThrough =', releasedNow);
+    } catch (e) {
+      summary.errors.push(folio.id + ': ' + (e && e.message || e));
+      console.error('[cron] folio error', folio.id, e);
+    }
+  }
+
+  console.log('[cron] run complete', JSON.stringify(summary));
+  return summary;
+}
+
 /* ── Handler ──────────────────────────────────────────────────── */
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: corsHeaders(request, env) });
     }
@@ -307,7 +675,45 @@ export default {
       }
     }
 
+    // ── Manual cron trigger (testing only) ─────────────────────
+    // GET /cron-run?key=<CRON_TRIGGER_KEY>
+    // Runs the scheduled job on demand so you don't have to wait for
+    // the hourly tick. Disabled entirely unless CRON_TRIGGER_KEY is
+    // set; ?key must match it exactly.
+    if (request.method === 'GET' && path === '/cron-run') {
+      if (!env.CRON_TRIGGER_KEY) {
+        return errorJson('Manual cron trigger disabled (set CRON_TRIGGER_KEY to enable)',
+                         403, request, env);
+      }
+      if (url.searchParams.get('key') !== env.CRON_TRIGGER_KEY) {
+        return errorJson('Bad or missing ?key', 403, request, env);
+      }
+      try {
+        const summary = await runCron(env);
+        return json({ ok: true, summary }, 200, request, env);
+      } catch (e) {
+        return errorJson('Cron run failed: ' + (e.message || 'unknown'),
+                         502, request, env);
+      }
+    }
+
     // ── Fallthrough — unknown route ────────────────────────────
     return errorJson('Not found: ' + request.method + ' ' + path, 404, request, env);
+  },
+
+  // ── Scheduled (Cron Trigger) handler ─────────────────────────
+  // Wired up in the dashboard: Workers → folio-email → Settings →
+  // Triggers → Cron Triggers. "0 * * * *" runs it hourly. Errors are
+  // swallowed (logged, not thrown) so one bad run doesn't wedge the
+  // schedule — check `wrangler tail` or the worker's logs to see
+  // the [cron] output.
+  async scheduled(event, env, ctx) {
+    try {
+      const summary = await runCron(env);
+      console.log('[cron] scheduled tick OK', JSON.stringify(summary));
+    } catch (e) {
+      console.error('[cron] scheduled tick FAILED',
+        e && (e.stack || e.message || e));
+    }
   },
 };
