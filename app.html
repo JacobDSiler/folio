@@ -16813,36 +16813,38 @@ function _apBuildSSML(text) {
   const matchSummary = [];
   for (const e of entries) {
     if (!e.ipa && !e.phonetic) continue;
-    // Normalize the search word too, in case THE GLOSSARY is in the
-    // opposite normalization form from the manuscript.
     const wordN = (e.word || '').normalize('NFC');
     const re = _apWordBoundaryRegex(wordN);
     const matches = (textN.match(re) || []).length;
-    if (e.ipa) {
+
+    // Decision tree:
+    //   1. If a phonetic respelling is set, substitute that directly
+    //      into the text. Works on EVERY voice and every TTS provider
+    //      — plain text, no SSML magic required. This is the most
+    //      reliable lever.
+    //   2. If only IPA is set (no phonetic), use the SSML phoneme tag.
+    //      Reliability depends on the voice — Standard voices ignore
+    //      it, Wavenet/Neural2 honor it (mostly), and some IPA chars
+    //      (Irish ʲ etc.) aren't in every voice's repertoire.
+    //   3. Neither set: already filtered out above.
+    if (e.phonetic) {
+      const phon = _apEscSSML(e.phonetic);
+      s = s.replace(re, phon);
+      matchSummary.push({ word: e.word, matches, used: 'phonetic→text (preferred over IPA when both set)', sub: phon, hadIpa: !!e.ipa });
+    } else if (e.ipa) {
       const ipa = _apEscSSML(_apCleanIpa(e.ipa));
       if (!ipa) {
         matchSummary.push({ word: e.word, matches, used: 'skipped (ipa empty after cleanup)' });
         continue;
       }
-      // Phonetic-respelling fallback: SSML <phoneme> uses the tag's
-      // text content as the fallback when the voice can't synthesize
-      // the IPA phonemes (e.g. an English voice on Irish ʲ). If the
-      // user has a phonetic respelling set, use it as fallback;
-      // otherwise fall back to the matched word as-written.
-      const fallbackTxt = e.phonetic ? _apEscSSML(e.phonetic) : null;
-      s = s.replace(re, m => {
-        const fb = fallbackTxt != null ? fallbackTxt : _apEscSSML(m);
-        return '<phoneme alphabet="ipa" ph="' + ipa + '">' + fb + '</phoneme>';
-      });
+      s = s.replace(re, m =>
+        '<phoneme alphabet="ipa" ph="' + ipa + '">' + _apEscSSML(m) + '</phoneme>'
+      );
       matchSummary.push({
         word: e.word, matches,
-        used: 'ipa→phoneme' + (fallbackTxt ? ' (with phonetic fallback)' : ''),
-        ph: ipa, fallback: fallbackTxt || '(word)'
+        used: 'ipa→phoneme (no phonetic fallback set — add one for reliability)',
+        ph: ipa
       });
-    } else if (e.phonetic) {
-      const phon = _apEscSSML(e.phonetic);
-      s = s.replace(re, phon);
-      matchSummary.push({ word: e.word, matches, used: 'phonetic→text', sub: phon });
     }
   }
   console.log('[ssml] build', { entries: entries.length, textLen: textN.length, matchSummary });
@@ -16883,10 +16885,19 @@ async function _apGoogleTTS(text, voice, speed, apiKey) {
   // nested <phoneme> tags — invalid SSML, characters read aloud.
   const isPreBuilt = /^\s*<speak[\s>]/.test(text);
   const ssml = isPreBuilt ? text : _apBuildSSML(text);
-  // Diagnostic: log what's actually going to Google. Truncated to
-  // keep the console readable on long chapters. If pronunciations
-  // aren't being applied, this will show whether the SSML carries
-  // the <phoneme> tags or just plain text.
+  // Voice name + a quick heuristic on whether this voice is likely
+  // to honor the SSML <phoneme> tag. Standard voices silently
+  // ignore phoneme. Wavenet / Neural2 / Studio / News usually honor
+  // it, with the caveat that non-English IPA characters may still
+  // be unsupported. If the user reports "IPA not working" and this
+  // says 'Standard' or 'unknown', the voice is the bottleneck.
+  const _voiceName = String(voice || '(none)');
+  let _phonemeLikely = 'unknown';
+  if (/Standard/i.test(_voiceName))      _phonemeLikely = 'no (Standard voices ignore phoneme tag)';
+  else if (/Wavenet|Neural2|Studio|News|Polyglot/i.test(_voiceName))
+                                          _phonemeLikely = 'yes (Wavenet/Neural2/Studio/News)';
+  console.log('[google-tts] voice:', _voiceName, '| <phoneme> support:', _phonemeLikely);
+
   if (ssml) {
     console.log('[google-tts] SSML body (first 400 chars):', ssml.slice(0, 400));
   } else {
