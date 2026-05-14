@@ -13115,6 +13115,47 @@ function _serialApplyLocks(release) {
   _serialLastLockKey = _lockKey;
 }
 
+// Generic "how many chapters are freely readable right now" for ANY
+// release type. The TOC-dimming, the reader chapter dropdown, and
+// _rdJumpToChapter all key on this so paid folios get the same lock
+// treatment serial folios already had.
+//
+//   serial            → time/cadence-gated count (_serialReleasedCount)
+//   paid (non-serial) → the free-preview chapters; Infinity if the
+//                       reader holds a valid purchase token
+//   free / private    → Infinity (nothing locked)
+function _lockReleasedCount(release) {
+  if (!release) return Infinity;
+  if (release.serial) {
+    return (typeof _serialReleasedCount === 'function')
+      ? _serialReleasedCount(release) : Infinity;
+  }
+  if (release.priceMode === 'paid') {
+    // Purchased? Everything's unlocked.
+    const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+    if (typeof _pwGetToken === 'function' && typeof _pwIsValid === 'function'
+        && _pwIsValid(_pwGetToken(folioId))) {
+      return Infinity;
+    }
+    return Number(release.previewSections) || 0;
+  }
+  return Infinity;  // free / private non-serial — nothing locked
+}
+window._lockReleasedCount = _lockReleasedCount;
+
+// Apply (or clear) TOC-row locking for ANY release type. Thin wrapper
+// over _serialDimTocRows that computes the released count generically.
+function _lockApplyTocRows(release) {
+  if (typeof _serialDimTocRows !== 'function') return;
+  // Reader mode only — the editor never shows locks.
+  if (typeof _readerMode === 'undefined' || !_readerMode) {
+    _serialDimTocRows(release, Infinity);  // clears any stale dimming
+    return;
+  }
+  _serialDimTocRows(release, _lockReleasedCount(release));
+}
+window._lockApplyTocRows = _lockApplyTocRows;
+
 // Visually dim and lock the TOC entries for chapters past the
 // release cutoff. The TOC rows live alongside the rest of the
 // preview pages; we walk them and key on data-chapid. A locked
@@ -13724,6 +13765,10 @@ function _pwShowGate(releaseId, release) {
   gate.dataset.releaseId = releaseId;
   gate.dataset.product   = (release && release.product) || '';
 
+  // Dim the TOC rows too — full gate means 0 free chapters, so
+  // every chapter row gets the lock treatment.
+  try { setTimeout(() => _lockApplyTocRows(release), 60); } catch (e) {}
+
   document.getElementById('pwStatus').textContent = '';
   document.getElementById('pwKey').value = '';
   gate.classList.add('open');
@@ -13799,6 +13844,11 @@ async function _pwCheckAccess(folioId) {
     if (release && release.serial && typeof _serialApplyLocks === 'function') {
       setTimeout(() => _serialApplyLocks(release), 50);
     }
+    // Purchased — clear any TOC-row dimming. _lockReleasedCount
+    // returns Infinity once the token is valid, so this un-dims
+    // every row (and, for a paid serial, the serial-locks pass
+    // above re-applies the cadence layer).
+    try { setTimeout(() => _lockApplyTocRows(release), 60); } catch (e) {}
     // W1 — surface the audio button if this release ships an audiobook.
     if (typeof _rdAudioMaybeShowButton === 'function') _rdAudioMaybeShowButton(release);
     return true;
@@ -13867,6 +13917,13 @@ function _pwShowPreview(releaseId, release, numChapters) {
   } else {
     bp.appendChild(cta);
   }
+
+  // Paid folios get the same TOC-lock treatment serial folios have:
+  // 🔒-prefix + dim the rows past the free-preview cutoff, and the
+  // document-level click handler routes locked-row clicks to the
+  // CTA modal (which already shows the Gumroad buy button for paid
+  // releases). Small delay so the TOC page is painted.
+  try { setTimeout(() => _lockApplyTocRows(release), 60); } catch (e) {}
 }
 
 function _pwHidePreview() {
@@ -14118,10 +14175,13 @@ function _rdHydrate() {
     // for serial releases. Non-serial releases always treat Infinity as
     // released, so nothing gets locked here.
     // Locks only render in reader mode — the editor shouldn't see them.
+    // Covers BOTH serial (cadence-gated) and paid (preview-gated)
+    // releases via the generic _lockReleasedCount.
     const _inReader = (typeof _readerMode !== 'undefined' && _readerMode);
-    const _serialRelease = (_inReader && typeof _rlCurrent !== 'undefined' && _rlCurrent && _rlCurrent.serial) ? _rlCurrent : null;
-    const _serialReleased = _serialRelease
-      ? (typeof _serialReleasedCount === 'function' ? _serialReleasedCount(_serialRelease) : Infinity)
+    const _lockRelease = (_inReader && typeof _rlCurrent !== 'undefined' && _rlCurrent &&
+                          (_rlCurrent.serial || _rlCurrent.priceMode === 'paid')) ? _rlCurrent : null;
+    const _serialReleased = _lockRelease
+      ? (typeof _lockReleasedCount === 'function' ? _lockReleasedCount(_lockRelease) : Infinity)
       : Infinity;
     let chNum = 0;
     for (const c of chapters) {
@@ -14230,7 +14290,9 @@ function _rdJumpToChapter(chid) {
   // gate navigation.
   try {
     const _inReader = (typeof _readerMode !== 'undefined' && _readerMode);
-    const _serialRelease = (_inReader && typeof _rlCurrent !== 'undefined' && _rlCurrent && _rlCurrent.serial) ? _rlCurrent : null;
+    // Cover serial AND paid releases — both gate chapter access.
+    const _serialRelease = (_inReader && typeof _rlCurrent !== 'undefined' && _rlCurrent &&
+                            (_rlCurrent.serial || _rlCurrent.priceMode === 'paid')) ? _rlCurrent : null;
     if (_serialRelease) {
       const _chapList = (typeof getChapters === 'function') ? getChapters() : [];
       let _chIdx = 0, _foundIdx = 0;
@@ -14238,8 +14300,8 @@ function _rdJumpToChapter(chid) {
         if (c.type === 'chapter') _chIdx++;
         if (c.id === chid) { _foundIdx = _chIdx; break; }
       }
-      const _released = (typeof _serialReleasedCount === 'function')
-        ? _serialReleasedCount(_serialRelease) : Infinity;
+      const _released = (typeof _lockReleasedCount === 'function')
+        ? _lockReleasedCount(_serialRelease) : Infinity;
       if (_foundIdx > _released) {
         let when = 'when it unlocks';
         try {
