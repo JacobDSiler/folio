@@ -44,7 +44,7 @@
  *     attackers.
  */
 
-const DEFAULT_ORIGIN   = 'https://folio.jacobsiler.com';
+const DEFAULT_ORIGIN   = 'https://www.onfolio.press';
 const JWT_DEFAULT_DAYS = 30;
 const GUMROAD_VERIFY   = 'https://api.gumroad.com/v2/licenses/verify';
 

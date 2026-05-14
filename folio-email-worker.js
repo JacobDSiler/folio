@@ -33,12 +33,15 @@
  *   RESEND_API_KEY     Secret.  Your Resend API key (re_…).
  *                      Get one at https://resend.com/api-keys
  *
- *   FROM_EMAIL         Plain.   Verified sender address. Must be
- *                      a domain you've verified in Resend.
- *                      Example: "Folio <serials@folio.jacobsiler.com>"
+ *   FROM_EMAIL         Plain.   Verified sender address. Must be on
+ *                      a domain you've verified in Resend. The
+ *                      jacobsiler.com domain is verified, so any
+ *                      address @jacobsiler.com works without adding
+ *                      a new domain. Example:
+ *                        "Folio <serials@jacobsiler.com>"
  *
  *   ALLOWED_ORIGIN     Plain text, CSV OK.
- *                      Defaults to https://folio.jacobsiler.com
+ *                      Defaults to https://www.onfolio.press
  *
  * Security notes
  *   • Origin allowlist is CORS-only — it doesn't stop server-side
@@ -51,7 +54,7 @@
  *     addresses with a 422 which we pass through.
  */
 
-const DEFAULT_ORIGIN = 'https://folio.jacobsiler.com';
+const DEFAULT_ORIGIN = 'https://www.onfolio.press';
 const RESEND_API     = 'https://api.resend.com/emails';
 
 /* ── CORS + response helpers ──────────────────────────────────── */
@@ -234,6 +237,77 @@ export default {
       const okRate = await checkRateLimit(request, { cap: 5, bucket: 'test' });
       if (!okRate) return errorJson('Rate limited (5/hr per IP for /test)', 429, request, env);
 
+      // Sample payload — mirrors the shape POST /send expects, so a
+      // successful /test proves the whole Resend path (key, FROM_EMAIL,
+      // DKIM/SPF, template render) without needing a real release.
+      const sampleBase = allowedOrigins(env)[0] || DEFAULT_ORIGIN;
       const samplePayload = {
         folioId:        'test-folio',
-        chapterIn
+        chapterIndex:   3,
+        chapterTitle:   'A Test Chapter',
+        folioTitle:     'Folio Email Smoke Test',
+        folioAuthor:    'Folio',
+        readerUrl:      sampleBase + '/app.html?read=test-folio',
+        unsubscribeUrl: sampleBase + '/app.html?unsubscribe=sample&folio=test-folio',
+        to:             to,
+      };
+      try {
+        const result = await sendViaResend(env, samplePayload);
+        return json({
+          ok:   true,
+          id:   result && result.id,
+          to:   to,
+          from: env.FROM_EMAIL,
+          note: 'Sample email sent. Check the inbox (and the spam folder).',
+        }, 200, request, env);
+      } catch (e) {
+        return errorJson('Send failed: ' + (e.message || 'unknown'),
+                         e.status || 502, request, env);
+      }
+    }
+
+    // ── Real send endpoint ─────────────────────────────────────
+    // POST /send
+    //   { folioId, chapterIndex, chapterTitle, folioTitle,
+    //     folioAuthor, readerUrl, unsubscribeUrl, to }
+    // The Folio app calls this once per subscriber when a chapter
+    // unlocks. Rate-limited by source IP (60/hr) — the origin
+    // allowlist is CORS-only and doesn't stop server-side callers,
+    // so the IP cap is the real abuse brake.
+    if (request.method === 'POST' && path === '/send') {
+      const okRate = await checkRateLimit(request, { cap: 60, bucket: 'send' });
+      if (!okRate) {
+        return errorJson('Rate limited (60/hr per IP)', 429, request, env);
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch (e) {
+        return errorJson('Body must be valid JSON', 400, request, env);
+      }
+      if (!payload || typeof payload !== 'object') {
+        return errorJson('Body must be a JSON object', 400, request, env);
+      }
+
+      const to = String(payload.to || '').trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+        return errorJson('Missing or invalid "to" address', 400, request, env);
+      }
+      payload.to = to;
+
+      // chapterIndex / chapterTitle are expected but not hard-required —
+      // buildEmail() falls back to "Chapter N" if the title is missing.
+      try {
+        const result = await sendViaResend(env, payload);
+        return json({ ok: true, id: result && result.id }, 200, request, env);
+      } catch (e) {
+        return errorJson('Send failed: ' + (e.message || 'unknown'),
+                         e.status || 502, request, env);
+      }
+    }
+
+    // ── Fallthrough — unknown route ────────────────────────────
+    return errorJson('Not found: ' + request.method + ' ' + path, 404, request, env);
+  },
+};
