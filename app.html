@@ -13609,6 +13609,18 @@ async function _rlRefreshFromCloud() {
       if (typeof _serialMaybeRenderSubscribeForm === 'function')
         setTimeout(() => _serialMaybeRenderSubscribeForm(_rlCurrent), 200);
     }
+    // Paid (non-serial) folios: if this refresh is the first to learn the
+    // release is paid, prime the _pwReapply cache and re-assert gating so
+    // the TOC locks + chapter dropdown don't have to wait on a render.
+    if (_rlCurrent && _rlCurrent.priceMode === 'paid' && !_rlCurrent.serial &&
+        typeof _readerMode !== 'undefined' && _readerMode) {
+      if (typeof _pwActiveRelease !== 'undefined' && !_pwActiveRelease) {
+        _pwActiveRelease = _rlCurrent;
+        _pwActiveFolioId = _projId;
+      }
+      if (typeof _pwReapply === 'function')
+        setTimeout(() => _pwReapply(), 120);
+    }
   } catch (e) { console.warn('[serial] refresh-fire', e); }
 }
 
@@ -13826,14 +13838,27 @@ async function _pwSubmitKey() {
   }
 }
 
+// Cached release + folioId from the last _pwCheckAccess so _pwReapply
+// can re-run paid gating synchronously on every previewRendered (the
+// same way _serialApplyLocks re-runs for serials).
+let _pwActiveRelease = null;
+let _pwActiveFolioId = null;
+
 // Check gating on reader-mode boot. Returns true when access is granted.
 async function _pwCheckAccess(folioId) {
   const release = await _pwFetchRelease(folioId);
   if (!release || release.priceMode !== 'paid') {
     // Free or private — no gate. Ensure any stale unlocked flag is cleared.
     document.documentElement.removeAttribute('data-paid-unlocked');
+    _pwActiveRelease = null;
+    _pwActiveFolioId = null;
     return true;
   }
+
+  // Cache the release so _pwReapply can re-assert gating after every
+  // preview re-render without an async Firestore refetch.
+  _pwActiveRelease = release;
+  _pwActiveFolioId = folioId;
 
   // Paid release. Check for a valid cached token.
   const cached = _pwGetToken(folioId);
@@ -13864,6 +13889,46 @@ async function _pwCheckAccess(folioId) {
   return false;
 }
 
+// Re-apply paid gating after a preview re-render. A render rebuilds
+// #bookPreview from scratch — wiping the page-hiding, the CTA card, and
+// the TOC-row lock decoration. Serials survive because _serialApplyLocks
+// re-runs on previewRendered; paid folios need the same hook. _pwReapply
+// is synchronous and uses the release cached by the last _pwCheckAccess,
+// so there is no async refetch per render.
+function _pwReapply() {
+  const release = _pwActiveRelease;
+  if (!release || release.priceMode !== 'paid') return;
+  const folioId = _pwActiveFolioId ||
+    (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+  const cached = _pwGetToken(folioId);
+  if (_pwIsValid(cached)) {
+    // Buyer — nothing hidden, no TOC dimming, full chapter dropdown.
+    _pwHidePreview();
+    document.documentElement.setAttribute('data-paid-unlocked', '1');
+    try { _lockApplyTocRows(release); } catch (e) {}
+    try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) {}
+    return;
+  }
+  const previewN = Number((release && release.previewSections) || 0) || 0;
+  if (previewN > 0) {
+    // _pwShowPreview is idempotent — no-ops if its CTA card survived.
+    _pwShowPreview(folioId, release, previewN);
+  } else {
+    // 0-preview paid folio: the full gate. Don't re-show it if it's
+    // already open (re-showing clears the license-key input); just
+    // re-assert the TOC dimming the render wiped.
+    const _gate = document.getElementById('pwGate');
+    if (_gate && _gate.classList.contains('open')) {
+      try { _lockApplyTocRows(release); } catch (e) {}
+    } else {
+      _pwShowGate(folioId, release);
+    }
+  }
+  // Chapter dropdown needs its own refresh so locked rows get the lock.
+  try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) {}
+}
+window._pwReapply = _pwReapply;
+
 // Free serial release? Apply locks even without going through the
 // pwGate path. Hook into the reader's renderPreview observer.
 window.addEventListener('previewRendered', () => {
@@ -13872,6 +13937,14 @@ window.addEventListener('previewRendered', () => {
     if (r && r.serial && r.priceMode !== 'paid' &&
         typeof _serialApplyLocks === 'function') {
       _serialApplyLocks(r);
+    }
+    // Paid (non-serial) folios: re-assert the paywall layer (page-hiding,
+    // CTA card, TOC-row locks, chapter-dropdown locks) that this render
+    // just wiped. Without this the locks only show for the ~150ms before
+    // the next render repaints #bookPreview clean.
+    if (r && r.priceMode === 'paid' && r.serial !== true &&
+        typeof _pwReapply === 'function') {
+      _pwReapply();
     }
     // W1 — surface audio button (shows locked on paid+preview, unlocked on free)
     if (r && typeof _rdAudioMaybeShowButton === 'function') _rdAudioMaybeShowButton(r);
@@ -13883,6 +13956,18 @@ window.addEventListener('previewRendered', () => {
 function _pwShowPreview(releaseId, release, numChapters) {
   const bp = document.getElementById('bookPreview');
   if (!bp) return;
+
+  // Idempotency: if the CTA card for this release is already present and
+  // pages are already hidden, #bookPreview wasn't wiped — skip the rebuild
+  // so a spurious call can't tear down a license-key input mid-type. A
+  // real re-render removes .pw-preview-cta, so this guard never blocks the
+  // rebuild that actually matters.
+  const _existingCta = bp.querySelector('.pw-preview-cta');
+  if (_existingCta && _existingCta.dataset.releaseId === releaseId &&
+      bp.querySelector('.pw-hidden-page')) {
+    try { _lockApplyTocRows(release); } catch (e) {}
+    return;
+  }
 
   // Clean up any previous preview state
   _pwHidePreview();
