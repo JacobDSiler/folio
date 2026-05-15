@@ -7987,6 +7987,60 @@ function _imgClickMarker(el){
 }
 window._imgClickMarker = _imgClickMarker;
 
+/* ── Image prefetch for binary exports (PDF / DOCX) ─────────────────
+   Walks S.images, fetches each image's bytes + dataURL + natural
+   dimensions once at export start so the actual export render can be
+   synchronous. Returns Map<id, {bytes, dataUrl, w, h, mime}>; missing
+   or failed entries are simply absent (the exporter falls back to a
+   placeholder for those). */
+async function _imgPrefetchForExport(){
+  const out = new Map();
+  if (!Array.isArray(S.images) || !S.images.length) return out;
+  for (const im of S.images){
+    if (!im || !im.id) continue;
+    const src = im.url || im.data;
+    if (!src) continue;
+    try {
+      let bytes, dataUrl, mime;
+      if (typeof src === 'string' && src.indexOf('data:') === 0){
+        const m = /^data:([^;,]+)?(;base64)?,/.exec(src);
+        mime = (m && m[1]) || im.type || 'image/jpeg';
+        const isB64 = !!(m && m[2]);
+        const body = src.slice(m ? m[0].length : 0);
+        bytes = isB64 ? _base64ToBytes(body)
+                      : new TextEncoder().encode(decodeURIComponent(body));
+        dataUrl = src;
+      } else {
+        const r = await fetch(src);
+        if (!r.ok) throw new Error('fetch ' + r.status);
+        const blob = await r.blob();
+        mime = blob.type || im.type || 'image/jpeg';
+        bytes = new Uint8Array(await blob.arrayBuffer());
+        dataUrl = await new Promise(res => {
+          const fr = new FileReader();
+          fr.onload  = () => res(fr.result);
+          fr.onerror = () => res('');
+          fr.readAsDataURL(blob);
+        });
+      }
+      let w = im.w, h = im.h;
+      if (!w || !h){
+        await new Promise(res => {
+          const probe = new Image();
+          probe.onload  = () => { w = probe.naturalWidth; h = probe.naturalHeight; res(); };
+          probe.onerror = () => res();
+          probe.src = dataUrl;
+        });
+      }
+      out.set(im.id, { bytes, dataUrl, w: w || 800, h: h || 600, mime });
+    } catch (e){
+      console.warn('[img] prefetch failed for', im.id, e && (e.message || e));
+    }
+  }
+  return out;
+}
+window._imgPrefetchForExport = _imgPrefetchForExport;
+
 // Context-menu entry. Inserts after the right-clicked preview paragraph.
 function _ctxInsertImage(){
   const el = _ctxTarget;
@@ -9348,12 +9402,84 @@ async function exportPDF(returnBlob=false){
       const newPage=()=>{doc.addPage();addBg();pageNum++;addHeader();_pageBlank=true;};
       const markUsed=()=>{_pageBlank=false;};
 
+      // Prefetch image bytes for inline-image markers (real PDF embed
+      // below). _imgCache is Map<id, {bytes,dataUrl,w,h,mime}>; a
+      // missing entry falls back to a "[Image: …]" placeholder inside
+      // flowParas.
+      const _imgCache = await _imgPrefetchForExport();
+
       // Core text renderer — flows paragraphs across pages cleanly.
       // Font must be set (via setBody) before calling this.
       const flowParas=(paras,startY,wrapWidth,xLeft)=>{
         let y=startY;
         const lh=fsize*lspace*0.352;
         paras.forEach((para,pi)=>{
+          const _eim=_imgParseLine(para);
+          if(_eim){
+            const _cap=_eim.caption||'';
+            const _ic=_imgCache.get(_eim.id);
+            if(!_ic){
+              // Prefetch failed for this id — placeholder text.
+              setBody(); doc.setTextColor(...txR); doc.setFontSize(9);
+              doc.text('[Image'+(_cap?': '+_cap:'')+']', pw/2, y, {align:'center'});
+              markUsed(); y += lh*1.8; setBody();
+              return;
+            }
+            const _fmt=(_ic.mime && _ic.mime.indexOf('png')>=0) ? 'PNG' : 'JPEG';
+            const _ratio=_ic.h/_ic.w;
+            if(_eim.size==='page'){
+              // Own page — full-page or full-bleed.
+              if(!_pageBlank){ addPageNum(); newPage(); }
+              if(_eim.bleed){
+                const _pR=ph/pw;
+                let _iw,_ih,_ix,_iy;
+                if(_ratio > _pR){ _iw=pw; _ih=pw*_ratio; _ix=0; _iy=(ph-_ih)/2; }
+                else            { _ih=ph; _iw=ph/_ratio; _ix=(pw-_iw)/2; _iy=0; }
+                try{ doc.addImage(_ic.dataUrl,_fmt,_ix,_iy,_iw,_ih); }catch(_){}
+              } else {
+                const _aW=pw-mg*2;
+                const _aH=yBottom-yStart-(_cap?(lh*1.8):0);
+                let _iw,_ih;
+                if(_ratio > _aH/_aW){ _ih=_aH; _iw=_ih/_ratio; }
+                else                { _iw=_aW; _ih=_iw*_ratio; }
+                const _ix=mg+(_aW-_iw)/2;
+                const _iy=yStart+(_aH-_ih)/2;
+                try{ doc.addImage(_ic.dataUrl,_fmt,_ix,_iy,_iw,_ih); }catch(_){}
+                if(_cap){
+                  setBody(); doc.setTextColor(...txR); doc.setFontSize(9);
+                  try{ doc.setFont(PDF_FONT,'italic'); }catch(_){}
+                  doc.text(_cap, pw/2, _iy+_ih+6, {align:'center', maxWidth:_aW});
+                  try{ doc.setFont(PDF_FONT,'normal'); }catch(_){}
+                }
+              }
+              markUsed();
+              addPageNum(); newPage(); y=yStart; setBody();
+              return;
+            }
+            // Inline: small / medium / full — flows in the text column.
+            const _frac=_eim.size==='small'?0.4:_eim.size==='medium'?0.66:1.0;
+            const _iw=wrapWidth*_frac;
+            const _ih=_iw*_ratio;
+            const _capH=_cap?lh*1.6:0;
+            const _blockH=_ih+_capH+lh*0.6;
+            if(y+_blockH>yBottom){ addPageNum(); newPage(); y=yStart; setBody(); }
+            let _ix;
+            if(_eim.align==='left')       _ix=xLeft;
+            else if(_eim.align==='right') _ix=xLeft+(wrapWidth-_iw);
+            else                          _ix=xLeft+(wrapWidth-_iw)/2;
+            try{ doc.addImage(_ic.dataUrl,_fmt,_ix,y,_iw,_ih); }catch(_){}
+            y += _ih + lh*0.4;
+            if(_cap){
+              setBody(); doc.setTextColor(...txR); doc.setFontSize(8);
+              try{ doc.setFont(PDF_FONT,'italic'); }catch(_){}
+              doc.text(_cap, xLeft+wrapWidth/2, y, {align:'center', maxWidth:wrapWidth});
+              try{ doc.setFont(PDF_FONT,'normal'); }catch(_){}
+              y += _capH;
+            }
+            y += lh*0.4;
+            markUsed();
+            return;
+          }
           if(para==='__SCENE_BREAK__'){
             // If scene break falls in last 4 lines of page, absorb it —
             // don't push a lone '* * *' onto the next page.
@@ -9505,7 +9631,7 @@ async function exportPDF(returnBlob=false){
         setBody();
         const paras=ch.content.split('\n').filter(p=>p.trim());
         // Drop cap on first paragraph of chapters that have a title
-        if(dropCap&&paras.length&&paras[0]!=='__SCENE_BREAK__'&&(ch.title||cn)){
+        if(dropCap&&paras.length&&paras[0]!=='__SCENE_BREAK__'&&!_imgParseLine(paras[0])&&(ch.title||cn)){
           // Peel outer Gutenberg-style _..._ / *...* so the drop
           // cap picks a real letter rather than the markdown
           // marker (same fix as the preview paginator).
@@ -9638,6 +9764,15 @@ async function exportEPUB(){
       const label=cn?`Chapter ${cn}${ch.title?' — '+ch.title:''}`:ch.title||`Chapter ${i+1}`;
       const paras=ch.content.split('\n').filter(p=>p.trim());
       const bodyParas=paras.map((p,pi)=>{
+        const _eim=_imgParseLine(p);
+        if(_eim){
+          const _im=_imgById(_eim.id);
+          const _src=_im?(_im.url||''):'';
+          const _cap=_eim.caption||'';
+          return _src
+            ? `<figure style="margin:1.2em 0;text-align:center"><img src="${esc(_src)}" alt="${esc(_cap)}" style="max-width:100%;height:auto">${_cap?`<figcaption style="font-style:italic;color:#666;font-size:.92em;margin-top:.3em">${esc(_cap)}</figcaption>`:''}</figure>`
+            : `<p style="text-align:center;font-style:italic;color:#888">[Image${_cap?': '+esc(_cap):''}]</p>`;
+        }
         if(p==='__SCENE_BREAK__') return `<p class="scene-break">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`;
         const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
         const dc=(pi===0&&ch.title)?' drop-cap':'';
@@ -9682,7 +9817,7 @@ async function exportMOBI(){
     bodyChapters.forEach((ch,i)=>{
       const cn=chapterNumber(i+1);const label=cn?`Chapter ${cn}${ch.title?' — '+ch.title:''}`:ch.title||`Chapter ${i+1}`;
       const paras=ch.content.split('\n').filter(p=>p.trim());
-      const bodyHTML=paras.map((p,pi)=>{if(p==='__SCENE_BREAK__') return`<p class="scene">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`;const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');return`<p class="${noInd?'noind':''}">${md(esc(p))}</p>`;}).join('');
+      const bodyHTML=paras.map((p,pi)=>{const _eim=_imgParseLine(p);if(_eim){const _im=_imgById(_eim.id);const _src=_im?(_im.url||''):'';const _cap=_eim.caption||'';return _src?`<figure style="margin:1.2em 0;text-align:center"><img src="${esc(_src)}" alt="${esc(_cap)}" style="max-width:100%;height:auto">${_cap?`<figcaption style="font-style:italic;color:#666;font-size:.92em;margin-top:.3em">${esc(_cap)}</figcaption>`:''}</figure>`:`<p class="scene">[Image${_cap?': '+esc(_cap):''}]</p>`;}if(p==='__SCENE_BREAK__') return`<p class="scene">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`;const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');return`<p class="${noInd?'noind':''}">${md(esc(p))}</p>`;}).join('');
       const fname=`ch${String(i+1).padStart(3,'0')}.html`;
       zip.file(fname,`<html><head><meta charset="UTF-8"/><title>${esc(label)}</title><link rel="stylesheet" href="style.css"/></head><body>${cn?`<p class="chnum">Chapter ${esc(String(cn))}</p>`:''}${ch.title?`<h2 class="chtitle">${esc(ch.title)}</h2>`:''}<p class="orn">${esc(orn)}</p>${bodyHTML}</body></html>`);
       spineItems.push({id:`ch${i+1}`,href:fname,label});
@@ -9702,7 +9837,10 @@ async function exportMOBI(){
 async function exportDOCX(){
   setExportState(true,'DOCX');
   try{
-    const{Document,Packer,Paragraph,TextRun,AlignmentType,PageBreak,Footer,PageNumber}=docx;
+    const{Document,Packer,Paragraph,TextRun,AlignmentType,PageBreak,Footer,PageNumber,ImageRun}=docx;
+    // Prefetch image bytes so the inline-image marker branch below can
+    // emit a real ImageRun instead of a "[Image: …]" placeholder.
+    const _imgCache = await _imgPrefetchForExport();
     const T=S.theme;const title=getV('bookTitle')||'Untitled';const author=getV('bookAuthor')||'Author';
     const subtitle=getV('bookSubtitle');const dedic=getV('dedication');const copy=getV('copyright');
     const bodyChapters=getChapters();const frontMatter=getFront();const backMatter=getBack();
@@ -9742,6 +9880,34 @@ async function exportDOCX(){
       children.push(new Paragraph({children:[new TextRun({text:orn,size:ptToHalfPt(13),color:accentHex})],alignment:AlignmentType.CENTER,spacing:{before:80,after:200}}));
       const paras=ch.content.split('\n').filter(p=>p.trim());
       paras.forEach((p,pi)=>{
+        const _eim=_imgParseLine(p);
+        if(_eim){
+          const _cap=_eim.caption||'';
+          const _ic=_imgCache.get(_eim.id);
+          if(_ic && _ic.bytes && _ic.bytes.byteLength){
+            // Real image embed via docx ImageRun.
+            const _frac=_eim.size==='small'?0.4:_eim.size==='medium'?0.66:1.0; // 'full'/'page' → full width
+            const _W=Math.round(600*_frac);                                    // ~6.25" column @ 96dpi
+            const _H=Math.max(1,Math.round(_W*(_ic.h/_ic.w)));
+            const _al=_eim.align==='left'?AlignmentType.LEFT:_eim.align==='right'?AlignmentType.RIGHT:AlignmentType.CENTER;
+            try{
+              children.push(new Paragraph({
+                children:[new ImageRun({data:_ic.bytes,transformation:{width:_W,height:_H}})],
+                alignment:_al,
+                spacing:{before:180,after:_cap?60:180},
+              }));
+              if(_cap) children.push(new Paragraph({
+                children:[new TextRun({text:_cap,italics:true,color:'666666',size:ptToHalfPt(10)})],
+                alignment:_al,
+                spacing:{before:0,after:180},
+              }));
+              return;
+            }catch(e){ console.warn('[docx] ImageRun failed',e); }
+          }
+          // Fallback: placeholder text (prefetch missed or ImageRun threw).
+          children.push(new Paragraph({children:[new TextRun({text:'[Image'+(_cap?': '+_cap:'')+']',italics:true,color:'888888',size:ptToHalfPt(10)})],alignment:AlignmentType.CENTER,spacing:{before:180,after:180}}));
+          return;
+        }
         if(p==='__SCENE_BREAK__'){children.push(new Paragraph({children:[new TextRun({text:`${orn}  ${orn}  ${orn}`,color:accentHex,size:ptToHalfPt(11)})],alignment:AlignmentType.CENTER,spacing:{before:180,after:180}}));return}
         const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
         const isDC=pi===0&&Boolean(ch.title);
@@ -9803,6 +9969,8 @@ function exportRTF(){
     front.forEach(sec=>{
       r+=para(sec.title,{bold:true,center:true,size:32,noInd:true,sb:480,sa:240});
       sec.content.split('\n').filter(p=>p.trim()).forEach((p,pi)=>{
+        const _eim=_imgParseLine(p);
+        if(_eim){r+=para(rs('[Image'+(_eim.caption?': '+_eim.caption:'')+']'),{center:true,size:18,color:2,noInd:true,sb:120,sa:120});return;}
         if(p==='__SCENE_BREAK__'){r+=para(rs(orn)+'   '+rs(orn)+'   '+rs(orn),{center:true,size:20,color:2,noInd:true,sb:160,sa:160});return;}
         r+=para(p,{noInd:pi===0});
       });
@@ -9817,6 +9985,8 @@ function exportRTF(){
       r+=para(rs(orn),{center:true,size:22,color:2,noInd:true,sa:200});
       const paras=ch.content.split('\n').filter(p=>p.trim());
       paras.forEach((p,pi)=>{
+        const _eim=_imgParseLine(p);
+        if(_eim){r+=para(rs('[Image'+(_eim.caption?': '+_eim.caption:'')+']'),{center:true,size:18,color:2,noInd:true,sb:120,sa:120});return;}
         if(p==='__SCENE_BREAK__'){r+=para(rs(orn)+'   '+rs(orn)+'   '+rs(orn),{center:true,size:20,color:2,noInd:true,sb:160,sa:160});return;}
         const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
         r+=para(p,{noInd});
@@ -9826,6 +9996,8 @@ function exportRTF(){
     back.forEach(sec=>{
       r+=para(sec.title,{bold:true,center:true,size:32,noInd:true,sb:480,sa:240});
       sec.content.split('\n').filter(p=>p.trim()).forEach((p,pi)=>{
+        const _eim=_imgParseLine(p);
+        if(_eim){r+=para(rs('[Image'+(_eim.caption?': '+_eim.caption:'')+']'),{center:true,size:18,color:2,noInd:true,sb:120,sa:120});return;}
         if(p==='__SCENE_BREAK__'){r+=para(rs(orn)+'   '+rs(orn)+'   '+rs(orn),{center:true,size:20,color:2,noInd:true,sb:160,sa:160});return;}
         r+=para(p,{noInd:pi===0});
       });
@@ -9866,6 +10038,8 @@ function exportMarkdown(){
     front.forEach(sec=>{
       md+='## '+sec.title+'\n\n';
       sec.content.split('\n').filter(p=>p.trim()).forEach(p=>{
+        const _eim=_imgParseLine(p);
+        if(_eim){const _im=_imgById(_eim.id);const _src=_im?(_im.url||''):'';const _cap=_eim.caption||'';md+=_src?('\n!['+_cap+']('+_src+')\n\n'+(_cap?'*'+_cap+'*\n\n':'')):('\n_[Image'+(_cap?': '+_cap:'')+']_\n\n');return;}
         if(p==='__SCENE_BREAK__'){md+='\n'+orn+' '+orn+' '+orn+'\n\n';return;}
         md+=p+'\n\n';
       });
@@ -9881,6 +10055,8 @@ function exportMarkdown(){
       else if(ch.title)     md+='# '+ch.title+'\n\n';
       md+=orn+'\n\n';
       ch.content.split('\n').filter(p=>p.trim()).forEach(p=>{
+        const _eim=_imgParseLine(p);
+        if(_eim){const _im=_imgById(_eim.id);const _src=_im?(_im.url||''):'';const _cap=_eim.caption||'';md+=_src?('\n!['+_cap+']('+_src+')\n\n'+(_cap?'*'+_cap+'*\n\n':'')):('\n_[Image'+(_cap?': '+_cap:'')+']_\n\n');return;}
         if(p==='__SCENE_BREAK__'){md+='\n'+orn+' '+orn+' '+orn+'\n\n';return;}
         md+=p+'\n\n';
       });
@@ -9889,6 +10065,8 @@ function exportMarkdown(){
     back.forEach(sec=>{
       md+='---\n\n## '+sec.title+'\n\n';
       sec.content.split('\n').filter(p=>p.trim()).forEach(p=>{
+        const _eim=_imgParseLine(p);
+        if(_eim){const _im=_imgById(_eim.id);const _src=_im?(_im.url||''):'';const _cap=_eim.caption||'';md+=_src?('\n!['+_cap+']('+_src+')\n\n'+(_cap?'*'+_cap+'*\n\n':'')):('\n_[Image'+(_cap?': '+_cap:'')+']_\n\n');return;}
         if(p==='__SCENE_BREAK__'){md+='\n'+orn+' '+orn+' '+orn+'\n\n';return;}
         md+=p+'\n\n';
       });
@@ -9997,6 +10175,8 @@ function exportHTML(){
       }
       const paras=sec.content.split('\n').filter(p=>p.trim());
       paras.forEach((p,pi)=>{
+        const _eim=_imgParseLine(p);
+        if(_eim){const _im=_imgById(_eim.id);const _src=_im?(_im.url||''):'';const _cap=_eim.caption||'';h+=_src?('<figure style="margin:1.2em 0;text-align:center"><img src="'+esc(_src)+'" alt="'+esc(_cap)+'" style="max-width:100%;height:auto">'+(_cap?'<figcaption style="font-style:italic;color:#666;font-size:.92em;margin-top:.3em">'+esc(_cap)+'</figcaption>':'')+'</figure>\n'):('<p style="text-align:center;font-style:italic;color:#888">[Image'+(_cap?': '+esc(_cap):'')+']</p>\n');return;}
         if(p==='__SCENE_BREAK__'){h+='<p class="sb">'+esc(orn)+' '+esc(orn)+' '+esc(orn)+'</p>\n';return;}
         const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
         const dc=dropCapOn&&pi===0&&sec.type==='chapter'&&Boolean(sec.title)?' dc':'';
@@ -10050,6 +10230,8 @@ function exportTXT(){
     front.forEach(sec=>{
       t+=centre(sec.title.toUpperCase())+'\n\n';
       sec.content.split('\n').filter(p=>p.trim()).forEach((p,pi)=>{
+        const _eim=_imgParseLine(p);
+        if(_eim){const _cap=_eim.caption||'';t+='\n    [Image'+(_cap?': '+_cap:'')+']\n\n';return;}
         if(p==='__SCENE_BREAK__'){t+='\n    * * *\n\n';return;}
         t+=wrap(p)+'\n\n';
       });
@@ -10065,6 +10247,8 @@ function exportTXT(){
       t+='\n\n';
       const paras=ch.content.split('\n').filter(p=>p.trim());
       paras.forEach((p,pi)=>{
+        const _eim=_imgParseLine(p);
+        if(_eim){const _cap=_eim.caption||'';t+='\n    [Image'+(_cap?': '+_cap:'')+']\n\n';return;}
         if(p==='__SCENE_BREAK__'){t+='\n    * * *\n\n';return;}
         const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
         t+=wrap(p,noInd?'':'    ')+'\n\n';
@@ -10075,6 +10259,8 @@ function exportTXT(){
     back.forEach(sec=>{
       t+=centre(sec.title.toUpperCase())+'\n\n';
       sec.content.split('\n').filter(p=>p.trim()).forEach((p,pi)=>{
+        const _eim=_imgParseLine(p);
+        if(_eim){const _cap=_eim.caption||'';t+='\n    [Image'+(_cap?': '+_cap:'')+']\n\n';return;}
         if(p==='__SCENE_BREAK__'){t+='\n    * * *\n\n';return;}
         t+=wrap(p)+'\n\n';
       });
@@ -10692,7 +10878,7 @@ function _msConfirmSplits() {
     let chTitle = g.title.trim();
     let contentParas = [...g.paras];
     if (g.paras.length) {
-      const firstPara = g.paras[0].replace(/__SCENE_BREAK__/g, '').trim();
+      const firstPara = g.paras[0].replace(/__SCENE_BREAK__/g, '').replace(/__IMG__.*$/, '').trim();
       // Detect heading-like first paragraph:
       //   - Matches "Chapter N", "Part N", "CHAPTER N", Roman numerals alone
       //   - Very short (< 40 chars) with no sentence-ending punctuation mid-text
@@ -12027,6 +12213,15 @@ window.addEventListener('beforeprint', () => {
   }
   function renderParas(paras, chTitle, isFirst) {
     return paras.map((p,pi)=>{
+      const _eim=_imgParseLine(p);
+      if(_eim){
+        const _im=_imgById(_eim.id);
+        const _src=_im?(_im.url||''):'';
+        const _cap=_eim.caption||'';
+        return _src
+          ? `<figure style="margin:1.2em 0;text-align:center"><img src="${esc(_src)}" alt="${esc(_cap)}" style="max-width:100%;height:auto">${_cap?`<figcaption style="font-style:italic;color:#666;font-size:.92em;margin-top:.3em">${esc(_cap)}</figcaption>`:''}</figure>`
+          : `<p class="sb">[Image${_cap?': '+esc(_cap):''}]</p>`;
+      }
       if(p==='__SCENE_BREAK__') return `<p class="sb">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`;
       const noInd=pi===0||(pi>0&&paras[pi-1]==='__SCENE_BREAK__');
       const dcOn=dropCapOn&&pi===0&&isFirst;
@@ -13064,6 +13259,11 @@ async function _serialReleaseNextChapter(targetCount /* optional */) {
   try {
     const updated = Object.assign({}, _rlCurrent, {
       serialReleasedThrough: next,
+      // Advance the cron's high-water mark too, so the next scheduled
+      // tick doesn't re-email subscribers for the chapter we're about
+      // to email directly below. (Without this, the manual + cron
+      // paths would each send the same chapter once.)
+      serialEmailedThrough: Math.max(Number(_rlCurrent.serialEmailedThrough) || 0, next),
       updatedAt: Date.now(),
     });
     const ref = window._fb.doc(window._db, 'folio_projects', _projId);
@@ -16667,7 +16867,7 @@ function _bmSnippet(chid, paraidx) {
   const paras = (ch.content || '').split('\n').filter(p => p.trim());
   const p = paras[paraidx] || '';
   // Strip markdown markers and trim to ~80 chars
-  const clean = p.replace(/\*\*/g, '').replace(/\*/g, '').replace(/__SCENE_BREAK__/g, '...').trim();
+  const clean = p.replace(/__IMG__.*$/, '[Image]').replace(/\*\*/g, '').replace(/\*/g, '').replace(/__SCENE_BREAK__/g, '...').trim();
   return clean.length > 80 ? clean.slice(0, 80) + '…' : clean;
 }
 
