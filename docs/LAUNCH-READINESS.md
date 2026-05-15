@@ -112,20 +112,17 @@ scopes into separate subcollections so rules *can* gate them (e.g.
 `annotations_public` readable by all, `annotations_private` owner-only).
 Needs a small design decision before it's coded.
 
-### B5 — Subscriber unsubscribe vs. locked-down rules
+### B5 — Subscriber unsubscribe vs. locked-down rules · DONE
 
-The public subscribe form needs anyone to be able to *create* a
-subscriber doc — fine. But the current in-app unsubscribe page *queries*
-the subscribers subcollection by token as an anonymous user, and
-`_subList` reads the whole subcollection. Safe rules must restrict
-subscriber reads to the owner (otherwise anyone can harvest every
-subscriber's email) — and that **breaks the current unsubscribe flow.**
-
-The clean fix: move unsubscribe server-side into the email worker, which
-already has Firestore access via its service account (added for the
-cron). Then the locked-down `subscribers` rule and the worker endpoint
-ship together. Until both are ready, the subscribers rule has to stay
-open — a known email-harvest risk.
+**Status: shipped.** The folio-email worker now exposes
+`GET /unsubscribe?token=…&folio=…`, which uses the service account to
+find + delete the matching subscriber doc and returns a styled
+confirmation page (rate-limited, 20/hr per IP). New chapter emails
+point straight at the worker; legacy `?unsubscribe=` app links forward
+to the worker too. With unsubscribe off the browser SDK, the
+`subscribers` Firestore rule is now `allow read, delete: if isUser(...)`
+— the email-harvest / arbitrary-delete risk is closed. Re-apply the
+updated `docs/firestore.rules` in the console to pick up the change.
 
 ---
 

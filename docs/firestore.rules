@@ -6,10 +6,11 @@
 // See docs/LAUNCH-READINESS.md → "Applying these rules" for how to
 // publish + test these in the Firebase console.
 //
-// ONE INTERIM RULE: `subscribers` read+delete are left OPEN on purpose
-// (see the comment in that block + audit item B5). Everything else is
-// locked down. Tighten subscribers the same day the email worker's
-// /unsubscribe endpoint ships.
+// All collections are owner-gated except where public read is needed
+// (published folios, their body, presence, and annotations). The
+// subscribers subcollection is locked down too — its unsubscribe link
+// now flows through the folio-email worker's /unsubscribe endpoint,
+// which uses a service account (IAM) rather than browser auth.
 // ───────────────────────────────────────────────────────────────────
 
 rules_version = '2';
@@ -106,18 +107,14 @@ service cloud.firestore {
                       && request.resource.data.email is string
                       && request.resource.data.email.size() < 320;
 
-        // INTERIM (audit B5) — read + delete are OPEN for now.
-        // The in-app unsubscribe page queries this subcollection by
-        // token and deletes as an anonymous user, and _subList reads it
-        // whole. Locking read to the owner breaks unsubscribe. The
-        // afternoon B5 task moves /unsubscribe into the email worker
-        // (which has Firestore access via its service account). Once
-        // that ships, REPLACE the next line with:
-        //     allow read, delete: if isUser(parentUid(id));
-        // Until then this is a known email-harvest / arbitrary-delete
-        // risk, scoped to subscriber docs only — everything else here
-        // is already locked down.
-        allow read, delete: if true;
+        // Locked down (audit B5 — done). Anonymous readers no longer
+        // touch this subcollection: the unsubscribe link in chapter
+        // emails now points at the folio-email worker's /unsubscribe
+        // endpoint, which uses a Google service account (IAM, not
+        // Firestore rules) to find + delete the matching doc. So
+        // read + delete here are strictly the owner's prerogative —
+        // closes the email-harvest / arbitrary-delete risk.
+        allow read, delete: if isUser(parentUid(id));
 
         // Updates are owner-only regardless.
         allow update: if isUser(parentUid(id));

@@ -32,6 +32,15 @@
  *                          }
  *                          → { ok: true, id }
  *                            or { error } with 4xx/5xx status.
+ *   GET  /unsubscribe       { ?token=<unsubscribeToken>&folio=<folioId> }
+ *                          Top-level navigation target for the
+ *                          unsubscribe link in chapter-release
+ *                          emails. Uses the service account to find
+ *                          + delete the matching subscriber doc and
+ *                          returns a styled HTML confirmation page.
+ *                          Rate-limited (20/hr per IP). This lets
+ *                          the Firestore subscribers rule lock down
+ *                          to owner-only-read (audit item B5).
  *   GET  /cron-run?key=…   Manually trigger the scheduled job (the
  *                          same work the cron tick does). Disabled
  *                          unless CRON_TRIGGER_KEY is set; ?key must
@@ -432,6 +441,58 @@ async function fsPatchEmailedThrough(projectId, token, folioId, value) {
   }
 }
 
+/* ── Firestore REST: delete a doc by its full resource name ──────
+   `name` is the value from fsList()'s doc.name, e.g.
+   "projects/<proj>/databases/(default)/documents/folio_projects/<id>/subscribers/<sid>".
+   A 404 is treated as success — if the doc is already gone, the
+   unsubscribe goal is achieved. */
+async function fsDelete(projectId, token, name) {
+  const r = await fetch('https://firestore.googleapis.com/v1/' + name, {
+    method: 'DELETE',
+    headers: { 'Authorization': 'Bearer ' + token },
+  });
+  if (!r.ok && r.status !== 404) {
+    const data = await r.json().catch(() => ({}));
+    throw new Error('Firestore delete failed: ' +
+      ((data.error && data.error.message) || r.status));
+  }
+}
+
+/* ── Confirmation HTML for the /unsubscribe page ────────────────
+   Returned as a real top-level page (user clicked an email link),
+   styled to match Folio's palette. state: 'ok' | 'already' | 'error'. */
+function unsubHtml(env, state, message) {
+  const appBase = allowedOrigins(env)[0] || DEFAULT_ORIGIN;
+  const icon =
+    state === 'ok'      ? '✓' :
+    state === 'already' ? '✉' :
+                          '⚠';
+  const head =
+    state === 'ok'      ? 'Unsubscribed' :
+    state === 'already' ? 'Already unsubscribed' :
+                          'Unsubscribe error';
+  return '<!doctype html><html lang="en"><head>' +
+    '<meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<title>' + esc(head) + ' · Folio</title>' +
+    '<style>' +
+      'body{font-family:Georgia,"Times New Roman",serif;max-width:520px;margin:0 auto;padding:48px 24px;color:#222;background:#faf8f3;line-height:1.6}' +
+      '.box{background:#fff;padding:36px 32px;border-radius:14px;border:1px solid #e8dfc8;box-shadow:0 12px 30px rgba(0,0,0,.06);text-align:center}' +
+      '.icon{font-size:42px;margin-bottom:12px;color:#c98c2a}' +
+      'h1{font-family:"Playfair Display",Georgia,serif;font-size:24px;font-weight:700;margin:0 0 12px;color:#1a1504}' +
+      'p{font-size:15.5px;color:#444;margin:0 0 16px}' +
+      '.btn{display:inline-block;margin-top:14px;padding:10px 20px;border-radius:8px;background:#c98c2a;color:#fff;text-decoration:none;font-family:"Inter",system-ui,sans-serif;font-size:13.5px;font-weight:500}' +
+      '.btn:hover{background:#b07919}' +
+      '.muted{color:#888;font-size:12.5px;margin-top:24px}' +
+    '</style></head><body><div class="box">' +
+    '<div class="icon">' + icon + '</div>' +
+    '<h1>' + esc(head) + '</h1>' +
+    '<p>' + esc(message) + '</p>' +
+    '<a class="btn" href="' + esc(appBase) + '">Back to Folio</a>' +
+    '<p class="muted">Folio · folio@jacobsiler.com</p>' +
+    '</div></body></html>';
+}
+
 /* ── Serial unlock math — mirrors the app's _serial* helpers ──── */
 function serialCadenceMs(release) {
   if (!release || !release.serial) return 0;
@@ -638,82 +699,4 @@ export default {
     // POST /send
     //   { folioId, chapterIndex, chapterTitle, folioTitle,
     //     folioAuthor, readerUrl, unsubscribeUrl, to }
-    // The Folio app calls this once per subscriber when a chapter
-    // unlocks. Rate-limited by source IP (60/hr) — the origin
-    // allowlist is CORS-only and doesn't stop server-side callers,
-    // so the IP cap is the real abuse brake.
-    if (request.method === 'POST' && path === '/send') {
-      const okRate = await checkRateLimit(request, { cap: 60, bucket: 'send' });
-      if (!okRate) {
-        return errorJson('Rate limited (60/hr per IP)', 429, request, env);
-      }
-
-      let payload;
-      try {
-        payload = await request.json();
-      } catch (e) {
-        return errorJson('Body must be valid JSON', 400, request, env);
-      }
-      if (!payload || typeof payload !== 'object') {
-        return errorJson('Body must be a JSON object', 400, request, env);
-      }
-
-      const to = String(payload.to || '').trim();
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
-        return errorJson('Missing or invalid "to" address', 400, request, env);
-      }
-      payload.to = to;
-
-      // chapterIndex / chapterTitle are expected but not hard-required —
-      // buildEmail() falls back to "Chapter N" if the title is missing.
-      try {
-        const result = await sendViaResend(env, payload);
-        return json({ ok: true, id: result && result.id }, 200, request, env);
-      } catch (e) {
-        return errorJson('Send failed: ' + (e.message || 'unknown'),
-                         e.status || 502, request, env);
-      }
-    }
-
-    // ── Manual cron trigger (testing only) ─────────────────────
-    // GET /cron-run?key=<CRON_TRIGGER_KEY>
-    // Runs the scheduled job on demand so you don't have to wait for
-    // the hourly tick. Disabled entirely unless CRON_TRIGGER_KEY is
-    // set; ?key must match it exactly.
-    if (request.method === 'GET' && path === '/cron-run') {
-      if (!env.CRON_TRIGGER_KEY) {
-        return errorJson('Manual cron trigger disabled (set CRON_TRIGGER_KEY to enable)',
-                         403, request, env);
-      }
-      if (url.searchParams.get('key') !== env.CRON_TRIGGER_KEY) {
-        return errorJson('Bad or missing ?key', 403, request, env);
-      }
-      try {
-        const summary = await runCron(env);
-        return json({ ok: true, summary }, 200, request, env);
-      } catch (e) {
-        return errorJson('Cron run failed: ' + (e.message || 'unknown'),
-                         502, request, env);
-      }
-    }
-
-    // ── Fallthrough — unknown route ────────────────────────────
-    return errorJson('Not found: ' + request.method + ' ' + path, 404, request, env);
-  },
-
-  // ── Scheduled (Cron Trigger) handler ─────────────────────────
-  // Wired up in the dashboard: Workers → folio-email → Settings →
-  // Triggers → Cron Triggers. "0 * * * *" runs it hourly. Errors are
-  // swallowed (logged, not thrown) so one bad run doesn't wedge the
-  // schedule — check `wrangler tail` or the worker's logs to see
-  // the [cron] output.
-  async scheduled(event, env, ctx) {
-    try {
-      const summary = await runCron(env);
-      console.log('[cron] scheduled tick OK', JSON.stringify(summary));
-    } catch (e) {
-      console.error('[cron] scheduled tick FAILED',
-        e && (e.stack || e.message || e));
-    }
-  },
-};
+    // The Folio app 

@@ -13069,11 +13069,18 @@ async function _subUnsubscribeByToken(folioId, token) {
   }
 }
 
-// Build the unsubscribe URL for a given token. Today: same origin,
-// uses ?unsubscribe= and ?folio= params handled by the boot path.
+// Build the unsubscribe URL for a given token.
+// Server-side unsubscribe — the folio-email worker has Firestore
+// access via its service account, so the link works even after the
+// subscribers Firestore rule has been locked down to owner-only-read
+// (audit B5). Older emails that linked at the app are still handled
+// by _subUnsubscribeBoot below, which forwards them to the worker.
 function _subUnsubscribeUrl(folioId, token) {
-  const u = new URL(window.location.origin + window.location.pathname);
-  u.searchParams.set('unsubscribe', token);
+  const base = (typeof window.FOLIO_EMAIL_WORKER_URL === 'string' && window.FOLIO_EMAIL_WORKER_URL)
+    ? window.FOLIO_EMAIL_WORKER_URL
+    : 'https://folio-email.jacobdsiler.workers.dev';
+  const u = new URL(base + '/unsubscribe');
+  u.searchParams.set('token', token);
   u.searchParams.set('folio', folioId);
   return u.toString();
 }
@@ -13164,57 +13171,27 @@ async function _subSubmit(folioId) {
 // Unsubscribe page boot. If ?unsubscribe=<token>&folio=<id> is
 // present, hijack the page render with a confirmation overlay.
 async function _subUnsubscribeBoot() {
+  // Legacy email-link forwarder. Older emails point at the app with
+  // ?unsubscribe=<token>&folio=<id>; new emails go straight to the
+  // worker. When we see the legacy params we redirect to the worker
+  // immediately — it does the actual unsubscribe server-side via its
+  // service account, so this still works after the subscribers
+  // Firestore rule locks down to owner-only-read (audit B5).
   let p;
   try { p = new URLSearchParams(window.location.search); } catch (e) { return; }
   const token = p.get('unsubscribe');
   const folioId = p.get('folio');
   if (!token || !folioId) return;
-
-  // Inject a centred overlay. This runs after fb-ready so the
-  // _fb helpers are ready.
-  const mount = () => {
-    let overlay = document.getElementById('subUnsubOverlay');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.id = 'subUnsubOverlay';
-      overlay.style.cssText =
-        'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(10,8,5,.72);' +
-        'backdrop-filter:blur(4px);z-index:300;display:flex;align-items:center;justify-content:center;';
-      overlay.innerHTML =
-        '<div style="background:var(--surface);border-radius:14px;padding:32px;max-width:440px;width:92%;text-align:center;border:.5px solid var(--border-mid)">' +
-          '<div id="subUnsubBody">' +
-            '<div style="font-size:32px;margin-bottom:12px">📨</div>' +
-            '<h2 style="font-size:16px;margin:0 0 12px">Unsubscribing…</h2>' +
-            '<p style="font-size:12.5px;color:var(--hint);margin:0">Removing your email from this serial\'s notification list.</p>' +
-          '</div>' +
-        '</div>';
-      document.body.appendChild(overlay);
-    }
-    _subUnsubscribeByToken(folioId, token).then(ok => {
-      const body = document.getElementById('subUnsubBody');
-      if (!body) return;
-      if (ok) {
-        body.innerHTML =
-          '<div style="font-size:32px;margin-bottom:12px">✅</div>' +
-          '<h2 style="font-size:16px;margin:0 0 12px">Unsubscribed</h2>' +
-          '<p style="font-size:12.5px;color:var(--text);margin:0 0 14px">You\'ll no longer receive emails about new chapters from this serial.</p>' +
-          '<a href="' + window.location.origin + window.location.pathname + '?read=' + encodeURIComponent(folioId) +
-            '" style="display:inline-block;padding:7px 14px;border-radius:6px;background:var(--accent-ui);color:#fff;text-decoration:none;font-size:12px">Back to the book</a>';
-      } else {
-        body.innerHTML =
-          '<div style="font-size:32px;margin-bottom:12px">⚠</div>' +
-          '<h2 style="font-size:16px;margin:0 0 12px">Already unsubscribed</h2>' +
-          '<p style="font-size:12.5px;color:var(--hint);margin:0">This email was already removed (or the token has expired).</p>';
-      }
-    });
-  };
-
-  if (typeof _fbReady !== 'undefined' && _fbReady) {
-    mount();
-  } else {
-    window.addEventListener('fb-ready', mount, { once: true });
-    // Also paint the spinner immediately so the user has feedback
-    setTimeout(mount, 100);
+  try {
+    const base = (typeof window.FOLIO_EMAIL_WORKER_URL === 'string' && window.FOLIO_EMAIL_WORKER_URL)
+      ? window.FOLIO_EMAIL_WORKER_URL
+      : 'https://folio-email.jacobdsiler.workers.dev';
+    const u = new URL(base + '/unsubscribe');
+    u.searchParams.set('token', token);
+    u.searchParams.set('folio', folioId);
+    window.location.replace(u.toString());
+  } catch (e) {
+    console.warn('[unsub] forward failed', e);
   }
 }
 // Boot the unsubscribe handler at DOM-ready (it's idempotent and
