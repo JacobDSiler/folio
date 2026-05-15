@@ -7889,6 +7889,295 @@ async function _imgUploadToCloud(folioId){
 window._imgUploadToCloud=_imgUploadToCloud;
 window._imgById=_imgById;
 
+/* ── Inline-image markers (Stage B) ─────────────────────────────────
+   An inline image is a single line in a chapter's content of the form
+     __IMG__{"id":"img_..","size":"medium","align":"center",...}
+   mirroring the __SCENE_BREAK__ sentinel. The renderer turns it into
+   an image block; _audioCleanText drops it; paragraph editing is
+   unaffected (markers are non-empty lines, so filtered/raw paragraph
+   indices stay consistent). */
+function _imgNormMeta(m){
+  m = m || {};
+  const size  = (['small','medium','full','page'].indexOf(m.size) >= 0) ? m.size : 'medium';
+  const align = (['left','center','right'].indexOf(m.align) >= 0) ? m.align : 'center';
+  return {
+    id:      m.id || null,
+    size:    size,
+    align:   align,
+    bleed:   (size === 'page') ? !!m.bleed : false,
+    caption: (typeof m.caption === 'string') ? m.caption : '',
+  };
+}
+function _imgMarkerLine(meta){ return '__IMG__' + JSON.stringify(_imgNormMeta(meta)); }
+function _imgParseLine(line){
+  if (typeof line !== 'string') return null;
+  const t = line.trim();
+  if (t.lastIndexOf('__IMG__', 0) !== 0) return null;   // startsWith, ES5-safe
+  try { return _imgNormMeta(JSON.parse(t.slice(7))); }
+  catch (e) { return null; }
+}
+window._imgParseLine = _imgParseLine;
+
+// Map a filtered (non-empty) paragraph index to its raw split('\n')
+// index. Returns -1 if not found. Mirrors _onParaBlur's walk.
+function _imgFilteredToRaw(lines, filteredIdx){
+  let count = -1;
+  for (let i = 0; i < lines.length; i++){
+    if (lines[i].trim()){
+      count++;
+      if (count === filteredIdx) return i;
+    }
+  }
+  return -1;
+}
+function _imgInsertMarker(chId, afterFilteredIdx, meta){
+  const ch = chapters.find(c => c.id === chId);
+  if (!ch) return false;
+  const lines = (ch.content || '').split('\n');
+  const markerLine = _imgMarkerLine(meta);
+  if (afterFilteredIdx < 0){
+    lines.unshift(markerLine);
+  } else {
+    const raw = _imgFilteredToRaw(lines, afterFilteredIdx);
+    lines.splice((raw < 0 ? lines.length - 1 : raw) + 1, 0, markerLine);
+  }
+  ch.content = lines.join('\n');
+  if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+  try { renderPreview(); } catch (e) {}
+  return true;
+}
+function _imgUpdateMarker(chId, filteredIdx, meta){
+  const ch = chapters.find(c => c.id === chId);
+  if (!ch) return false;
+  const lines = (ch.content || '').split('\n');
+  const raw = _imgFilteredToRaw(lines, filteredIdx);
+  if (raw < 0 || !_imgParseLine(lines[raw])) return false;
+  lines[raw] = _imgMarkerLine(meta);
+  ch.content = lines.join('\n');
+  if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+  try { renderPreview(); } catch (e) {}
+  return true;
+}
+function _imgRemoveMarker(chId, filteredIdx){
+  const ch = chapters.find(c => c.id === chId);
+  if (!ch) return false;
+  const lines = (ch.content || '').split('\n');
+  const raw = _imgFilteredToRaw(lines, filteredIdx);
+  if (raw < 0 || !_imgParseLine(lines[raw])) return false;
+  lines.splice(raw, 1);
+  ch.content = lines.join('\n');
+  if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+  try { renderPreview(); } catch (e) {}
+  return true;
+}
+
+// Click handler stamped on rendered inline images in edit mode.
+function _imgClickMarker(el){
+  if (typeof _editMode === 'undefined' || !_editMode) return;
+  const chId = el && el.dataset && el.dataset.chid;
+  const paraIdx = el && el.dataset ? parseInt(el.dataset.paraidx, 10) : NaN;
+  if (!chId || isNaN(paraIdx)) return;
+  const ch = chapters.find(c => c.id === chId);
+  if (!ch) return;
+  const lines = (ch.content || '').split('\n');
+  const raw = _imgFilteredToRaw(lines, paraIdx);
+  const meta = (raw >= 0) ? _imgParseLine(lines[raw]) : null;
+  if (!meta) return;
+  _imgOpenModal({ mode: 'edit', chId: chId, editParaIdx: paraIdx, meta: meta });
+}
+window._imgClickMarker = _imgClickMarker;
+
+// Context-menu entry. Inserts after the right-clicked preview paragraph.
+function _ctxInsertImage(){
+  const el = _ctxTarget;
+  if (typeof _ctxClose === 'function') _ctxClose();
+  if (!el) return;
+  if (el.tagName === 'TEXTAREA' || !el.dataset || !el.dataset.chid){
+    if (typeof toastInfo === 'function')
+      toastInfo('To place an image, turn on Edit mode and right-click a paragraph in the page preview.', { duration: 3800 });
+    return;
+  }
+  const chId = el.dataset.chid;
+  const paraIdx = parseInt(el.dataset.paraidx, 10);
+  _imgOpenModal({ mode: 'insert', chId: chId, afterParaIdx: isNaN(paraIdx) ? -1 : paraIdx });
+}
+window._ctxInsertImage = _ctxInsertImage;
+
+/* ── Insert / edit modal ────────────────────────────────────────── */
+let _imgModalState = null;
+
+function _imgCloseModal(){
+  const m = document.getElementById('imgInsertModal');
+  if (m) m.style.display = 'none';
+  _imgModalState = null;
+}
+window._imgCloseModal = _imgCloseModal;
+
+function _imgOpenModal(opts){
+  opts = opts || {};
+  const meta = _imgNormMeta(opts.mode === 'edit' ? opts.meta : {});
+  _imgModalState = {
+    mode:         opts.mode || 'insert',
+    chId:         opts.chId || null,
+    afterParaIdx: (opts.afterParaIdx == null ? -1 : opts.afterParaIdx),
+    editParaIdx:  (opts.editParaIdx  == null ? -1 : opts.editParaIdx),
+    selectedId:   meta.id,
+    size:         meta.size,
+    align:        meta.align,
+    bleed:        meta.bleed,
+    caption:      meta.caption,
+  };
+  let modal = document.getElementById('imgInsertModal');
+  if (!modal){
+    modal = document.createElement('div');
+    modal.id = 'imgInsertModal';
+    modal.style.cssText =
+      'position:fixed;inset:0;z-index:320;display:none;align-items:center;' +
+      'justify-content:center;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px)';
+    modal.addEventListener('click', function(ev){ if (ev.target === modal) _imgCloseModal(); });
+    document.body.appendChild(modal);
+  }
+  modal.style.display = 'flex';
+  _imgRenderModal();
+}
+window._imgOpenModal = _imgOpenModal;
+
+function _imgRenderModal(){
+  const modal = document.getElementById('imgInsertModal');
+  if (!modal || !_imgModalState) return;
+  const st = _imgModalState;
+  const editing = st.mode === 'edit';
+  const esc2 = (typeof esc === 'function') ? esc : function(x){ return String(x == null ? '' : x); };
+  const lib = Array.isArray(S.images) ? S.images : [];
+  const grid = lib.map(function(im){
+    const sel = im.id === st.selectedId;
+    return '<button type="button" onclick="_imgModalPick(\'' + im.id + '\')" ' +
+      'style="border:2px solid ' + (sel ? 'var(--accent-ui,#c98c2a)' : 'transparent') +
+      ';border-radius:8px;padding:0;background:none;cursor:pointer;width:84px;height:84px;overflow:hidden;flex:0 0 auto">' +
+      '<img src="' + _imgSrc(im) + '" style="width:100%;height:100%;object-fit:cover;display:block"></button>';
+  }).join('');
+  const lbl = function(t, extra){
+    return '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;' +
+      'color:var(--hint,#888);margin:12px 0 6px">' + t +
+      (extra ? ' <span style="font-weight:400;text-transform:none;letter-spacing:0">' + extra + '</span>' : '') + '</div>';
+  };
+  const optBtn = function(group, val, label){
+    const on = st[group] === val;
+    return '<button type="button" onclick="_imgModalSet(\'' + group + '\',\'' + val + '\')" ' +
+      'style="flex:1;padding:7px 4px;border-radius:7px;border:1px solid var(--border-mid,#ccc);cursor:pointer;font-size:11.5px;' +
+      (on ? 'background:var(--accent-ui,#c98c2a);color:#fff;border-color:var(--accent-ui,#c98c2a)'
+          : 'background:var(--surface,#fff);color:var(--text,#222)') + '">' + label + '</button>';
+  };
+  modal.innerHTML =
+    '<div style="background:var(--surface,#fff);color:var(--text,#222);border-radius:14px;max-width:480px;' +
+      'width:94%;max-height:88vh;overflow:auto;padding:20px 22px;box-shadow:0 18px 50px rgba(0,0,0,.4)">' +
+      '<div style="font-size:15px;font-weight:600;margin-bottom:4px">' + (editing ? 'Edit image' : 'Insert image') + '</div>' +
+      '<div style="font-size:11.5px;color:var(--hint,#888);margin-bottom:8px">' +
+        (editing ? 'Update how this image sits on the page, or remove it.'
+                 : 'Pick an image, choose how it sits on the page, then insert it.') + '</div>' +
+      lbl('Image') +
+      '<div style="display:flex;flex-wrap:wrap;gap:7px;max-height:200px;overflow:auto">' + grid +
+        '<button type="button" onclick="_imgModalUpload()" style="width:84px;height:84px;border:1.5px dashed ' +
+        'var(--border-mid,#ccc);border-radius:8px;background:none;cursor:pointer;color:var(--hint,#888);font-size:11px;flex:0 0 auto">+ Upload</button>' +
+      '</div>' +
+      (lib.length ? '' : '<div style="font-size:11px;color:var(--hint,#888);margin-top:6px">No images yet — upload one to begin.</div>') +
+      lbl('Size') +
+      '<div style="display:flex;gap:6px">' +
+        optBtn('size','small','Small') + optBtn('size','medium','Medium') +
+        optBtn('size','full','Full width') + optBtn('size','page','Full page') + '</div>' +
+      '<label style="display:flex;align-items:center;gap:7px;margin-top:9px;font-size:12px;' +
+        (st.size === 'page' ? '' : 'opacity:.45;pointer-events:none') + '">' +
+        '<input type="checkbox" ' + (st.bleed ? 'checked' : '') +
+        ' onchange="_imgModalSet(\'bleed\',this.checked)"> Full bleed (edge to edge, no margins)</label>' +
+      lbl('Alignment', '(for Small / Medium)') +
+      '<div style="display:flex;gap:6px">' +
+        optBtn('align','left','Left') + optBtn('align','center','Center') + optBtn('align','right','Right') + '</div>' +
+      lbl('Caption', '(optional)') +
+      '<input type="text" value="' + esc2(st.caption) + '" placeholder="A caption for this image" ' +
+        'oninput="_imgModalSet(\'caption\',this.value)" style="width:100%;box-sizing:border-box;padding:7px 9px;' +
+        'border-radius:7px;border:1px solid var(--border-mid,#ccc);font-size:12.5px;background:var(--bg,#fff);color:var(--text,#222)">' +
+      '<div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">' +
+        (editing ? '<button type="button" onclick="_imgModalRemove()" style="margin-right:auto;padding:7px 13px;' +
+          'border-radius:7px;border:1px solid #d9534f;background:none;color:#d9534f;cursor:pointer;font-size:12px">Remove</button>' : '') +
+        '<button type="button" onclick="_imgCloseModal()" style="padding:7px 14px;border-radius:7px;' +
+          'border:1px solid var(--border-mid,#ccc);background:none;color:var(--text,#222);cursor:pointer;font-size:12px">Cancel</button>' +
+        '<button type="button" onclick="_imgModalConfirm()" style="padding:7px 16px;border-radius:7px;border:none;' +
+          'background:var(--accent-ui,#c98c2a);color:#fff;cursor:pointer;font-size:12px;font-weight:600">' +
+          (editing ? 'Update' : 'Insert') + '</button>' +
+      '</div>' +
+    '</div>';
+}
+
+function _imgModalSet(key, val){
+  if (!_imgModalState) return;
+  _imgModalState[key] = val;
+  if (key === 'size' && val !== 'page') _imgModalState.bleed = false;
+  // Caption edits skip the re-render so the input keeps focus.
+  if (key !== 'caption') _imgRenderModal();
+}
+window._imgModalSet = _imgModalSet;
+
+function _imgModalPick(id){
+  if (!_imgModalState) return;
+  _imgModalState.selectedId = id;
+  _imgRenderModal();
+}
+window._imgModalPick = _imgModalPick;
+
+function _imgModalUpload(){
+  const fi = document.createElement('input');
+  fi.type = 'file'; fi.accept = 'image/*';
+  fi.onchange = function(e){
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = function(ev){
+      const img = { id: _imgGenId(), name: f.name, type: f.type, data: ev.target.result };
+      try {
+        const probe = new Image();
+        probe.onload = function(){ img.w = probe.naturalWidth || 0; img.h = probe.naturalHeight || 0; };
+        probe.src = ev.target.result;
+      } catch (_) {}
+      if (!Array.isArray(S.images)) S.images = [];
+      S.images.push(img);
+      _imgRefreshCover();
+      try { if (typeof renderImgList === 'function') renderImgList(); } catch (_) {}
+      if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+      if (_imgModalState) _imgModalState.selectedId = img.id;
+      _imgRenderModal();
+    };
+    r.readAsDataURL(f);
+  };
+  fi.click();
+}
+window._imgModalUpload = _imgModalUpload;
+
+function _imgModalConfirm(){
+  const st = _imgModalState;
+  if (!st) return;
+  if (!st.selectedId){
+    if (typeof toastInfo === 'function') toastInfo('Pick an image first', { duration: 2400 });
+    return;
+  }
+  const meta = _imgNormMeta({ id: st.selectedId, size: st.size, align: st.align, bleed: st.bleed, caption: st.caption });
+  const ok = (st.mode === 'edit')
+    ? _imgUpdateMarker(st.chId, st.editParaIdx, meta)
+    : _imgInsertMarker(st.chId, st.afterParaIdx, meta);
+  if (ok && typeof toastSuccess === 'function')
+    toastSuccess(st.mode === 'edit' ? 'Image updated' : 'Image inserted', { icon: '\U0001F5BC', duration: 2000 });
+  _imgCloseModal();
+}
+window._imgModalConfirm = _imgModalConfirm;
+
+function _imgModalRemove(){
+  const st = _imgModalState;
+  if (!st) return;
+  const ok = _imgRemoveMarker(st.chId, st.editParaIdx);
+  if (ok && typeof toastInfo === 'function') toastInfo('Image removed', { duration: 2000 });
+  _imgCloseModal();
+}
+window._imgModalRemove = _imgModalRemove;
+
 const dz=document.getElementById('dropzone');
 dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('dragover')});
 dz.addEventListener('dragleave',()=>dz.classList.remove('dragover'));
@@ -8237,6 +8526,63 @@ function renderPreview(){
     return `<div class="book-page"${chapAttr} style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;top:${contentT}px;left:${mg}px;right:${mg}px;bottom:${contentB}px;overflow:hidden;display:flex;flex-direction:column">${inner}</div></div>`;
   };
 
+  // ── Inline-image rendering (Stage B) ────────────────────────────
+  // Closures so they reach the render-scope geometry + pageWrap. The
+  // global _imgParseLine turns a content line into a meta object;
+  // these turn that meta into a measured height / HTML block.
+  // size small|medium|full flow inline; page (optionally bleed) takes
+  // its own page.
+  const _imgMeasureHeight = (meta, cw, chH) => {
+    if (meta.size === 'page') return chH;
+    const frac = meta.size === 'small' ? 0.4 : meta.size === 'medium' ? 0.66 : 1.0;
+    const dispW = cw * frac;
+    const im = (typeof _imgById === 'function') ? _imgById(meta.id) : null;
+    const ar = (im && im.w && im.h) ? (im.h / im.w) : 0.66;
+    let h = dispW * ar;
+    if (meta.caption) h += fsize * ptScale * 2.2;
+    h += 2 * (2.5 * MM);
+    return Math.min(h, chH);
+  };
+  const _imgRenderInline = (meta, cw, chId, paraIdx) => {
+    const im = (typeof _imgById === 'function') ? _imgById(meta.id) : null;
+    const src = im ? _imgSrc(im) : '';
+    const fp = meta.size === 'small' ? 40 : meta.size === 'medium' ? 66 : 100;
+    const ai = meta.align === 'left' ? 'flex-start' : meta.align === 'right' ? 'flex-end' : 'center';
+    const cap = meta.caption
+      ? `<div style="font-family:${font};font-size:${pt(fsize*0.78)};color:${T.text}99;font-style:italic;text-align:center;margin-top:${mm(1)};max-width:${fp}%">${esc(meta.caption)}</div>`
+      : '';
+    const inner = src
+      ? `<img src="${src}" style="width:${fp}%;height:auto;object-fit:contain;border-radius:${mm(0.6)};display:block">`
+      : `<div style="width:${fp}%;padding:${mm(6)} 0;box-sizing:border-box;background:${T.divider}22;border:1px dashed ${T.divider};text-align:center;font-family:${font};font-size:${pt(fsize*0.72)};color:${T.text}88">image not found</div>`;
+    const ed = (typeof _editMode !== 'undefined' && _editMode);
+    const eda = ed ? ` data-imgmarker="1" data-chid="${chId}" data-paraidx="${paraIdx}" onclick="_imgClickMarker(this)" title="Click to edit this image"` : '';
+    return `<div class="folio-inline-img"${eda} style="display:flex;flex-direction:column;align-items:${ai};margin:${mm(2.5)} 0${ed?';cursor:pointer':''}">${inner}${cap}</div>`;
+  };
+  const _imgRenderFullPage = (meta, pn, anchorId, markerChId, paraIdx) => {
+    const im = (typeof _imgById === 'function') ? _imgById(meta.id) : null;
+    const src = im ? _imgSrc(im) : '';
+    const ed = (typeof _editMode !== 'undefined' && _editMode);
+    const eda = ed ? ` data-imgmarker="1" data-chid="${markerChId}" data-paraidx="${paraIdx}" onclick="_imgClickMarker(this)" title="Click to edit this image"` : '';
+    const edc = ed ? 'cursor:pointer;' : '';
+    if (meta.bleed) {
+      const chapAttr = anchorId ? ` id="chap-${anchorId}" data-chapid="${anchorId}"` : '';
+      const capO = meta.caption
+        ? `<div style="position:absolute;left:0;right:0;bottom:0;padding:${mm(4)} ${mg}px ${mm(3)};background:linear-gradient(to top,${T.bg}cc,transparent);font-family:${font};font-size:${pt(fsize*0.8)};color:${T.text};font-style:italic;text-align:center">${esc(meta.caption)}</div>`
+        : '';
+      const el = src
+        ? `<img src="${src}"${eda} style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;${edc}">`
+        : `<div${eda} style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:${T.divider}33;font-family:${font};color:${T.text}88;${edc}">image not found</div>`;
+      return `<div class="book-page"${chapAttr} style="width:${pw}px;height:${ph}px;position:relative;overflow:hidden;background:${T.bg}">${el}${capO}</div>`;
+    }
+    const cap = meta.caption
+      ? `<div style="font-family:${font};font-size:${pt(fsize*0.8)};color:${T.text}99;font-style:italic;text-align:center;margin-top:${mm(2)};flex-shrink:0">${esc(meta.caption)}</div>`
+      : '';
+    const el = src
+      ? `<img src="${src}"${eda} style="max-width:100%;max-height:100%;object-fit:contain;${edc}">`
+      : `<div${eda} style="flex:1;display:flex;align-items:center;justify-content:center;background:${T.divider}22;border:1px dashed ${T.divider};font-family:${font};color:${T.text}88;${edc}">image not found</div>`;
+    return pageWrap(`<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:0">${el}</div>${cap}`, pn, false, anchorId);
+  };
+
   // Cover
   if(coverPos==='full'&&S.coverImg){
     pagesHTML+=`<div class="book-page" style="width:${pw}px;height:${ph}px;position:relative;overflow:hidden;"><img src="${S.coverImg}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"><div style="position:absolute;inset:0;background:linear-gradient(to top,${T.bg}dd 0%,transparent 55%)"></div><div style="position:absolute;bottom:${mg}px;left:${mg}px;right:${mg}px;text-align:center"><div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(H_BOOK_TITLE)};font-weight:700;color:${T.text};line-height:1.2">${esc(title)}</div>${subtitle?`<div style="font-family:${font};font-size:${pt(H_SUBTITLE)};color:${T.text}99;margin-top:${mm(1.6)};font-style:italic">${esc(subtitle)}</div>`:''}<div style="font-family:${font};font-size:${pt(H_AUTHOR)};color:${T.text}88;margin-top:${mm(2.6)};letter-spacing:0.12em">— ${esc(author)} —</div></div></div>`;
@@ -8339,6 +8685,8 @@ function renderPreview(){
       const paras=ch.content.split('\n').filter(p=>p.trim());
       const ps=paras.map(p=>{
         if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${pt(H_SCENE_BREAK)};color:${accent};margin:${mm(2)} 0;opacity:0.6">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
+        const _fmi=_imgParseLine(p);
+        if(_fmi) return _imgRenderInline(_fmi, pw-mg*2, ch.id, paras.indexOf(p));
         return `<p class="preview-editable" data-chid="${ch.id}" data-paraidx="${paras.indexOf(p)}"
           contenteditable="${_editMode}" spellcheck="true"
           onblur="if(_editMode)_onParaBlur(this)"
@@ -8544,6 +8892,8 @@ function renderPreview(){
       // of a chapter that has a title block).
       const paraHeights = normParas.map((p, i) => {
         if (p === '__SCENE_BREAK__') return sceneBreakHeightPx();
+        const _phm = _imgParseLine(p);
+        if (_phm) return _imgMeasureHeight(_phm, contentW, contentH);
         const isFirstOfChapter = (i === 0 && !!(ch.title || chNum));
         return paraHeightPx(p, { isFirst: isFirstOfChapter });
       });
@@ -8553,6 +8903,23 @@ function renderPreview(){
           const needed = paraHeights[origIdx];
           if (usedPx + needed > pageContentPx && currentPage.length > 0) flushPage();
           currentPage.push(p);
+          usedPx += needed;
+          return;
+        }
+        const _ilm = _imgParseLine(p);
+        if (_ilm) {
+          // Inline image marker. small/medium/full flow as an atomic
+          // block (like a scene break); page (optionally bleed) takes
+          // a whole page to itself.
+          const _imgItem = { __imgMeta: _ilm, paraIdx: origIdx };
+          if (_ilm.size === 'page') {
+            flushPage();
+            pages.push([_imgItem]);
+            return;
+          }
+          const needed = paraHeights[origIdx];
+          if (usedPx + needed > pageContentPx && currentPage.length > 0) flushPage();
+          currentPage.push(_imgItem);
           usedPx += needed;
           return;
         }
@@ -8622,10 +8989,34 @@ function renderPreview(){
       if(pages.length===0) pages.push([]);
       _measureCleanup();
 
+      // Title-block placement. Normally it sits atop pages[0]; but if
+      // the chapter opens on a standalone full-page image there's no
+      // room for it there, so the title gets its own leading page.
+      const _isFullPageSlice = (slc) => !!(slc && slc.length === 1 &&
+        slc[0] && slc[0].__imgMeta && slc[0].__imgMeta.size === 'page');
+      let _titleHTML = titleBlock;
+      let _chIdUsed  = false;
+      if (_titleHTML && pages.length && _isFullPageSlice(pages[0])) {
+        pagesHTML += pageWrap(_titleHTML, pageNum++, false, ch.id);
+        _titleHTML = ''; _chIdUsed = true;
+      }
       for(let pg=0;pg<pages.length;pg++){
         const slice=pages[pg];
+        // Standalone full-page / full-bleed image — renders as its own page.
+        if (_isFullPageSlice(slice)) {
+          const _it = slice[0];
+          const _anchor = _chIdUsed ? null : ch.id;
+          _chIdUsed = true;
+          pagesHTML += _imgRenderFullPage(_it.__imgMeta, pageNum, _anchor, ch.id, _it.paraIdx);
+          pageNum++;
+          continue;
+        }
         const parasHTML=slice.map((p,pi)=>{
           if(p==='__SCENE_BREAK__') return `<div style="text-align:center;font-size:${pt(H_SCENE_BREAK)};color:${accent};margin:${Math.round(8*MM)}px 0;opacity:0.65">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
+          // Inline image marker — render an image block instead of a <p>.
+          if (p && typeof p === 'object' && p.__imgMeta) {
+            return _imgRenderInline(p.__imgMeta, contentW, ch.id, p.paraIdx);
+          }
           // Slice item is either a plain string (full paragraph that fit
           // whole on this page) or a continuation object (tail of a
           // paragraph that started on the previous page). Continuations
@@ -8654,7 +9045,10 @@ function renderPreview(){
             onkeydown="if(_editMode&&!this.classList.contains('para-cont')&&event.key==='Tab'){event.preventDefault();const s=this.selectionStart??0,e=this.selectionEnd??0,t=this.innerText;document.execCommand('insertText',false,event.shiftKey?'':' '.repeat(4));}else if(_editMode&&!this.classList.contains('para-cont')&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
             style="${paraStyle}">${dc}</p>`;
         }).join('');
-        pagesHTML+=pageWrap((pg===0?titleBlock:'')+parasHTML,pageNum,false,pg===0?ch.id:null);
+        const _useTitle = _titleHTML; _titleHTML = '';
+        const _anchor = _chIdUsed ? null : ch.id;
+        _chIdUsed = true;
+        pagesHTML+=pageWrap(_useTitle+parasHTML,pageNum,false,_anchor);
         pageNum++;
       }
     }
@@ -16750,6 +17144,7 @@ window._audioManifestEntry = _audioManifestEntry;
 /* ── Text processing (critical — get this right) ───────────── */
 function _audioCleanText(raw) {
   return (raw || '')
+    .replace(/^[ \t]*__IMG__.*$/gm, '')
     .replace(/__SCENE_BREAK__/g, '...')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
@@ -18809,6 +19204,10 @@ window._apOnImportFile       = _apOnImportFile;
   <button class="ctx-item has-sub" id="ctxDingbat" onmouseenter="_ctxDingbatOpen(this)" type="button">
     <span>✦</span>
     <span>Insert ornament</span>
+  </button>
+  <button class="ctx-item" id="ctxInsertImage" onclick="_ctxInsertImage()" type="button">
+    <span>🖼</span>
+    <span>Insert image</span>
   </button>
   <div class="ctx-sep"></div>
   <button class="ctx-item" id="ctxFind" onclick="_ctxFind()" type="button" style="display:none">
