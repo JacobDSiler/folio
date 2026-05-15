@@ -40,6 +40,17 @@ service firebase.storage {
       allow write, delete: if isOwner(folioId);
     }
 
+    // Cover / chapter / inline images — written by the app at
+    //   folio_images/<folioId>/<imageId>
+    // Same visibility model as audio: readable by the owner or by
+    // anyone once the folio is published (so reader-mode and inline
+    // illustrations load without owner auth), writable only by the
+    // owner. The published branch intentionally omits the auth check.
+    match /folio_images/{folioId}/{imageId} {
+      allow read: if isPublished(folioId) || isOwner(folioId);
+      allow write, delete: if isOwner(folioId);
+    }
+
     // Lulu print-job PDFs — written at
     //   folio-lulu/<stamp>-interior.pdf  and  ...-cover.pdf
     // These are transient uploads with a flat, non-prefixed name, so
