@@ -697,6 +697,45 @@ footer{
 /* selection */
 ::selection{background:var(--accent-pale);color:var(--ink)}
 
+/* ── About Folio ─────────────────────────────────────────────
+   Explicit purpose statement + Google sign-in scope disclosure
+   for the OAuth consent-screen verification reviewers. Keep this
+   section's body short, factual, and brand-named "Folio" — the
+   reviewer is checking that the name + purpose are obvious. */
+.about-folio{
+  padding:72px 24px;
+  background:var(--surface-2);
+  border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border);
+}
+.about-inner{max-width:760px;margin:0 auto}
+.about-folio .about-eyebrow{
+  font-family:var(--ui);font-size:11px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--hint);font-weight:500;margin-bottom:12px;
+}
+.about-folio .about-h{
+  font-family:var(--serif);font-size:34px;font-weight:700;line-height:1.15;
+  letter-spacing:-0.015em;color:var(--ink);margin-bottom:18px;
+}
+.about-folio .about-body{
+  font-family:var(--body);font-size:17px;line-height:1.62;color:var(--text);
+  margin-bottom:14px;
+}
+.about-folio .about-body strong{color:var(--ink)}
+.about-folio .about-body em{color:var(--accent);font-style:italic}
+.about-folio .about-links{
+  font-family:var(--ui);font-size:13px;color:var(--muted);margin-top:22px;
+}
+.about-folio .about-links a{
+  color:var(--muted);text-decoration:underline;text-underline-offset:3px;
+}
+.about-folio .about-links a:hover{color:var(--accent)}
+@media (max-width:700px){
+  .about-folio{padding:56px 22px}
+  .about-folio .about-h{font-size:26px}
+  .about-folio .about-body{font-size:15.5px}
+}
+
 </style>
 <script>
 // ─────────────────────────────────────────────────────────────────
@@ -725,6 +764,7 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
       <span>Folio</span>
     </a>
     <div class="nav-links">
+      <a href="#about">About</a>
       <a href="#features">Features</a>
       <a href="#workflow">How it works</a>
       <a href="#showcase">Showcase</a>
@@ -742,9 +782,9 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 <!-- ═══════════════════════════════════════════════════════════ HERO ════ -->
 <section class="hero">
   <div>
-    <span class="eyebrow">A book studio in your browser</span>
+    <span class="eyebrow">Folio · a book studio in your browser</span>
     <h1>
-      Write, typeset, and release <span class="italic">beautiful books</span> — in your browser, for free.
+      <span style="color:var(--accent);font-style:normal">Folio</span> — write, typeset, and release <span class="italic">beautiful books</span> in your browser, for free.
     </h1>
     <p class="lede">Folio is an end-to-end home for authors. Draft a chapter, see it set in print-grade type instantly, narrate it in dozens of voices, and ship it to readers — free or paid. No software. No setup. No royalties to a platform you can't see.</p>
     <div class="hero-cta">
@@ -797,6 +837,37 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
     <div class="demo-caption">
       <b id="demoPhaseLabel">Drafting</b> <span id="demoPhaseHint" style="margin-left:8px">— plain text becomes a print-ready page in real time.</span>
     </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════════ ABOUT ════ -->
+<!-- Explicit purpose statement + Google sign-in scope disclosure for the
+     OAuth consent-screen verification reviewers. The brand name "Folio"
+     here must match exactly what the OAuth consent screen displays. -->
+<section class="about-folio" id="about" aria-label="About Folio">
+  <div class="about-inner">
+    <p class="about-eyebrow">About</p>
+    <h2 class="about-h">What Folio is</h2>
+    <p class="about-body">
+      <strong>Folio</strong> is a web-based publishing studio for authors. You write your
+      manuscript in the browser, watch it set in print-grade type as you type, generate
+      narration in dozens of voices, and ship the finished book to readers — as a free
+      serial, a paid Gumroad book, or a downloadable file in PDF, EPUB, DOCX, MOBI,
+      RTF, TXT, HTML, or Markdown.
+    </p>
+    <p class="about-body">
+      Signing in is optional. When you choose to sign in with Google, Folio uses only
+      your basic Google profile — your name and email address — to identify your
+      account so your work autosaves to the cloud and stays in sync across your
+      devices. Folio does <em>not</em> read, write, scan, or share anything else in
+      your Google account, and never accesses Gmail, Drive, Calendar, or any other
+      Google service. You can also use Folio anonymously without signing in.
+    </p>
+    <p class="about-links">
+      <a href="privacy.html">Privacy Policy</a> ·
+      <a href="terms.html">Terms of Service</a> ·
+      <a href="mailto:folio@jacobsiler.com">folio@jacobsiler.com</a>
+    </p>
   </div>
 </section>
 
