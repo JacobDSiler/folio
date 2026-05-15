@@ -53,44 +53,50 @@ These were re-read against the actual code and hold up:
 
 Ordered by priority.
 
-### B1 — Firestore + Storage security rules
+### B1 — Firestore + Storage security rules · RULES NOW FINALISED
 
-**The single most important item.** There is no `firestore.rules` or
-`storage.rules` file in the repo, and no complete documented ruleset.
-Whatever rules are live exist only in the Firebase console and cannot be
-verified from here.
+**The single most important item.** There was no `firestore.rules` or
+`storage.rules` in the repo, and no complete documented ruleset — the
+live rules existed only in the Firebase console, unverifiable.
 
 For a public launch the rules must guarantee: a non-owner can read a
 *published* folio (reader mode needs this) but **cannot** read an
 unpublished manuscript, and cannot write to or delete any folio they
-don't own. Right now that guarantee is unproven — and the reader-mode
-code explicitly assumes rules were *loosened* to allow public reads, so
-the risk is that they were loosened too far.
+don't own.
 
-Draft rules have been written to `docs/firestore.rules` and
-`docs/storage.rules` as a starting point. They need review and live
-testing (load a published reader link logged out; confirm a guessed
-unpublished id is denied) before they're trustworthy.
+**Status: done, pending apply + test.** Every Firestore and Storage call
+site in `app.html` was read and mapped, and a complete, verified ruleset
+is now in `docs/firestore.rules` and `docs/storage.rules`. The
+verification caught two real bugs in the first draft — a `lulu_jobs` rule
+that referenced the wrong `resource` object (would have broken reading
+job history) and an over-strict `uid`-unchanged check (would have blocked
+release-publishing, since the `{release: …}` merge-write omits `uid`).
+One rule — `subscribers` read/delete — is deliberately left open as a
+same-day interim; see B5. The remaining step is applying the rules in the
+console and testing — see "Applying these rules" below.
 
-### B2 — Cover image and chapter images are not saved
+### B2 — Cover / chapter images may not be saved · NEEDS VERIFICATION
 
-`_serialise` does not include `S.images` or `S.coverImg`. Any author who
-adds a cover or chapter art **loses all of it on the next cloud
-save→reload.** This is guaranteed, silent data loss — and cover art is
-something most authors will use immediately. Code fix in `app.html`:
-add both to `_serialise`, rehydrate in `_deserialise`. (Watch the 1 MiB
-body cap — images may push some folios near it; may need to confirm
-images belong in the body blob vs. Storage.)
+**Flagged from prior context — not yet confirmed against current code.**
+The concern: `_serialise` may not include `S.images` / `S.coverImg`, which
+would mean an author who adds a cover or chapter art loses it on the next
+cloud save→reload. If real, that's guaranteed silent data loss. **The
+first step of the midday loop is to verify this against the actual
+`_serialise` / `_deserialise` code** — then fix if confirmed (add both
+fields, rehydrate on load; watch the 1 MiB body cap — images may belong
+in Storage rather than the body blob).
 
-### B3 — Autosave failures are silent
+### B3 — Autosave failures may be silent · NEEDS VERIFICATION
 
-`_doAutoSave`'s failure path only does a `console.warn`. An author can
-edit for an hour with every autosave failing and see nothing but a
-subtle "● Unsaved" pill. They will believe their work is saved when it
-isn't. (Permission errors *are* surfaced loudly — but network, quota,
-and transient errors fall through to the silent path.) Code fix in
-`app.html`: make a failed autosave visible — a toast and/or a persistent
-banner, and keep the cloud badge red.
+**Flagged from prior context — not yet confirmed against current code.**
+The concern: `_doAutoSave`'s failure path may only `console.warn`, so an
+author could edit for an hour with every autosave failing and see nothing
+but a subtle "● Unsaved" pill. Permission errors are known to be surfaced
+loudly (`_surfaceCloudError`) — the open question is whether network /
+quota / transient failures fall through silently. **Verify against the
+actual `_doAutoSave` catch path in the midday loop**, then — if confirmed
+— make a failed autosave visible (toast + persistent banner, keep the
+cloud badge red).
 
 ### B4 — Private annotations leak to every reader
 
@@ -155,15 +161,19 @@ Recommendation: **(1) + (2) for launch** — accept it, document it for
 authors — and put (3) on the post-launch roadmap if paid folios become a
 real revenue stream.
 
-### D2 — Non-atomic cloud write
+### D2 — Non-atomic cloud write · VERIFIED
 
-The parent doc is written before the body subdoc, and there's no
-transaction and no rollback. A crash *between* the two writes leaves the
-cloud folio internally inconsistent (parent says `chapterCount: 12`,
-body is stale). The user's data isn't lost — the local backup is written
-first — but the cloud doc is left wrong, and the body write currently
-gets *zero* retries. Worth a small hardening pass (retry the body write;
-consider a consistency flag) but it's a lower-tier risk than B1–B5.
+Confirmed by reading `_writeFolioCloud`. The parent doc is written first
+(with one retry on transient errors), then the body subdoc — but the body
+write is a single `setDoc` with **no retry at all** (`app.html` ~line
+4004), no transaction, and no rollback. A crash or a body-write failure
+after the parent succeeds leaves the cloud folio internally inconsistent:
+the parent's metadata (e.g. `chapterCount`) runs ahead of the body's
+content. The user's own data isn't lost — the local backup is written
+first — but the cloud doc sits in a one-version drift until the next
+successful save. Worth a small hardening pass (retry the body write to
+match the parent; consider a consistency flag). Lower-tier than B1–B5;
+folded into the midday loop.
 
 ---
 
@@ -220,6 +230,47 @@ reload, confirm it survives. Subscribe + unsubscribe end to end. Trigger
 the cron once more. Then ship.
 
 ---
+
+## Applying these rules (B1)
+
+The rules live in `docs/firestore.rules` and `docs/storage.rules`. They
+go in through the Firebase console — no Firebase CLI needed.
+
+**Apply:**
+
+1. **Firestore.** Firebase console → your project → **Firestore Database**
+   → **Rules** tab. Select all, paste the contents of
+   `docs/firestore.rules`, click **Publish**.
+2. **Storage.** Console → **Storage** → **Rules** tab. Paste
+   `docs/storage.rules`, **Publish**.
+
+Both take effect within seconds. The console's Rules Playground can
+dry-run individual reads/writes if you want to sanity-check before
+publishing.
+
+**Test (do all of these — a few minutes):**
+
+- **Published reader link, logged out.** Open a `?read=<publishedId>`
+  link in a private/incognito window. The book must load — text, and
+  audio if it has any. This proves public reads work.
+- **Unpublished folio is sealed.** In that same logged-out window, try a
+  `?read=<id>` for a folio you have *not* published. It must fail to
+  load (permission denied), not show the manuscript.
+- **No cross-account writes.** Signed in as a different account, confirm
+  you cannot edit or delete a folio you don't own. (The app's ownership
+  gate should bounce you, but the rule is the real backstop.)
+- **Your own editing still works.** Signed in as yourself: create a
+  folio, edit, autosave, publish a release, add an annotation, generate
+  a version — all should succeed.
+- **Subscribe + unsubscribe still work.** On a published serial,
+  subscribe with the lock-card form, then use the unsubscribe link in
+  the email. Both must work — the `subscribers` rule is the interim-open
+  one (B5); this confirms the interim is doing its job until the email
+  worker's `/unsubscribe` endpoint replaces it this afternoon.
+
+If the published reader link fails after applying, the most likely cause
+is that the published folio's `release.published` field isn't actually
+`true` — check the doc in the console.
 
 ## Appendix — findings → code locations
 
