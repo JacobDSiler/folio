@@ -491,6 +491,86 @@ async function handleTeaserContent(request, env) {
   }
 }
 
+/* POST /verify-code  { folioId, code }
+   Custom-provider unlock. Author sets a shared passphrase in
+   release.unlockCode via the release modal; buyer pastes the same
+   string into the paywall gate after paying through the author's
+   external checkout (PayPal, Stripe, Ko-fi, anything). Worker
+   constant-time compares, issues a JWT shaped exactly like the
+   Gumroad /verify token so the rest of the worker (and the client)
+   treat the buyer identically. */
+async function handleVerifyCode(request, env) {
+  if (!env.PAYWALL_JWT_SECRET) {
+    return errorJson('Server not configured (missing PAYWALL_JWT_SECRET)', 500, request, env);
+  }
+  if (!env.GCP_SERVICE_ACCOUNT) {
+    return errorJson('Server not configured (missing GCP_SERVICE_ACCOUNT)', 500, request, env);
+  }
+  let body;
+  try { body = await request.json(); } catch (e) {
+    return errorJson('Invalid JSON body', 400, request, env);
+  }
+  const folioId = ((body && body.folioId) || '').trim();
+  const code    = ((body && body.code)    || '').trim();
+  if (!folioId) return errorJson('Missing folioId', 400, request, env);
+  if (!code)    return errorJson('Missing code',    400, request, env);
+  try {
+    const sa = await getAccessToken(env);
+    const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+    if (!projectId) return errorJson('No Firestore project id', 500, request, env);
+    const parent = await fsGet(projectId, sa.token,
+      'folio_projects/' + encodeURIComponent(folioId));
+    if (!parent || !parent.release || !parent.release.published) {
+      return errorJson('Folio not found or not published', 404, request, env);
+    }
+    if (parent.release.provider !== 'custom') {
+      return errorJson('This folio is not configured for custom-code unlock', 400, request, env);
+    }
+    const expected = String(parent.release.unlockCode || '').trim();
+    if (!expected) {
+      return errorJson('This folio has no unlock code set', 400, request, env);
+    }
+    // Constant-time compare. Length first; then XOR-fold.
+    if (code.length !== expected.length) {
+      return errorJson('Unlock code is incorrect', 403, request, env);
+    }
+    let diff = 0;
+    for (let i = 0; i < code.length; i++) {
+      diff |= code.charCodeAt(i) ^ expected.charCodeAt(i);
+    }
+    if (diff !== 0) {
+      return errorJson('Unlock code is incorrect', 403, request, env);
+    }
+    // Match — issue JWT with the same shape /verify produces, so
+    // /paid-content's v.payload.release === folioId check passes.
+    const now  = Math.floor(Date.now() / 1000);
+    const days = 30;
+    const exp  = now + (days * 86400);
+    const sub  = await sha256ShortHex(code + '::' + folioId, 8);
+    const payload = {
+      sub,
+      release:    folioId,
+      product:    null,
+      provider:   'custom',
+      purchaseId: null,
+      email:      null,
+      iat: now,
+      exp,
+    };
+    const token = await signJWT(payload, env.PAYWALL_JWT_SECRET);
+    return json({
+      ok: true,
+      token,
+      expiresAt: exp,
+      email: null,
+      daysValid: days,
+      via: 'custom-code',
+    }, 200, request, env);
+  } catch (e) {
+    return errorJson('Verify failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+}
+
 /* ── Dispatcher ───────────────────────────────────────────────────────────────────── */
 export default {
   async fetch(request, env) {
@@ -510,6 +590,7 @@ export default {
           'POST /check          { token }',
           'GET  /check?token=…',
           'GET  /paid-content?folio=…    (Authorization: Bearer <jwt>)',
+          'POST /verify-code   { folioId, code }  (custom-provider unlock)',
           'GET  /teaser-content?folio=…  (anonymous; serves chapters flagged in release.teasers)',
         ],
       }, 200, request, env);
@@ -518,6 +599,7 @@ export default {
     if (path === '/verify'        && request.method === 'POST') return handleVerify(request, env);
     if (path === '/check'         && (request.method === 'POST' || request.method === 'GET')) return handleCheck(request, env);
     if (path === '/paid-content'  && request.method === 'GET')  return handlePaidContent(request, env);
+    if (path === '/verify-code'   && request.method === 'POST') return handleVerifyCode(request, env);
     if (path === '/teaser-content' && request.method === 'GET')  return handleTeaserContent(request, env);
 
     return errorJson('Not found: ' + path, 404, request, env);
