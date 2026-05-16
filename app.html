@@ -13554,7 +13554,7 @@ function _rlSetMode(mode) {
   if (hint) {
     hint.textContent =
       (mode === 'paid')
-        ? 'Readers land on a gate screen and buy on Gumroad to unlock. Paste your Gumroad product id below.'
+        ? 'Readers land on a gate screen and buy from your checkout link to unlock. Pick a payment provider below.'
       : (mode === 'free')
         ? 'Anyone with the link can read. Good for public releases, newsletter giveaways, and posting on social.'
         : 'Only people you share the exact link with can open the book. Use this for editors or beta readers.';
@@ -13673,6 +13673,11 @@ function openReleaseModal() {
     const currField1  = document.getElementById('rlCurrency');
     const audioChk1   = document.getElementById('rlAudioBundle');
     if (prodField1)  prodField1.value  = _rlCurrent.product  || '';
+    const _coUrl1 = document.getElementById('rlCheckoutUrl');
+    const _unCo1  = document.getElementById('rlUnlockCode');
+    if (_coUrl1) _coUrl1.value = _rlCurrent.checkoutUrl || '';
+    if (_unCo1)  _unCo1.value  = _rlCurrent.unlockCode  || '';
+    try { _rlSetProvider(_rlCurrent.provider === 'custom' ? 'custom' : 'gumroad'); } catch (e) {}
     if (priceField1) priceField1.value = (_rlCurrent.price != null ? String(_rlCurrent.price) : '');
     if (currField1)  currField1.value  = _rlCurrent.currency || 'USD';
     if (audioChk1)   audioChk1.checked = !!_rlCurrent.audioBundle;
@@ -13711,6 +13716,11 @@ function openReleaseModal() {
     const currField2  = document.getElementById('rlCurrency');
     const audioChk2   = document.getElementById('rlAudioBundle');
     if (prodField2)  prodField2.value  = '';
+    const _coUrl2 = document.getElementById('rlCheckoutUrl');
+    const _unCo2  = document.getElementById('rlUnlockCode');
+    if (_coUrl2) _coUrl2.value = '';
+    if (_unCo2)  _unCo2.value  = '';
+    try { _rlSetProvider('gumroad'); } catch (e) {}
     if (priceField2) priceField2.value = '';
     if (currField2)  currField2.value  = 'USD';
     if (audioChk2)   audioChk2.checked = false;
@@ -13762,6 +13772,10 @@ async function _rlPublish() {
   let productId  = (document.getElementById('rlProductId') && document.getElementById('rlProductId').value || '').trim();
   const _gmMatch = productId.match(/\/l\/([^\/?#]+)/);
   if (_gmMatch) productId = _gmMatch[1];
+  // Multi-provider: which payment provider is the author using?
+  const provider    = (typeof _rlProvider !== 'undefined' && _rlProvider === 'custom') ? 'custom' : 'gumroad';
+  const checkoutUrl = (document.getElementById('rlCheckoutUrl') && document.getElementById('rlCheckoutUrl').value || '').trim();
+  const unlockCode  = (document.getElementById('rlUnlockCode')  && document.getElementById('rlUnlockCode').value  || '').trim();
   const priceRaw   = (document.getElementById('rlPrice')     && document.getElementById('rlPrice').value     || '').trim();
   const currency   = (document.getElementById('rlCurrency')  && document.getElementById('rlCurrency').value) || 'USD';
   const audioBundle = !!(document.getElementById('rlAudioBundle') && document.getElementById('rlAudioBundle').checked);
@@ -13770,7 +13784,13 @@ async function _rlPublish() {
   const priceNum   = priceRaw === '' ? 0 : Number(priceRaw);
 
   if (_rlMode === 'paid') {
-    if (!productId) { _rlSetStatus('Please enter the Gumroad product id.', '#c04040'); return; }
+    if (provider === 'custom') {
+      if (!checkoutUrl) { _rlSetStatus('Please enter your checkout URL (PayPal / Stripe / Ko-fi / …).', '#c04040'); return; }
+      if (!/^https?:\/\//i.test(checkoutUrl)) { _rlSetStatus('Checkout URL must start with https:// or http://.', '#c04040'); return; }
+      if (!unlockCode || unlockCode.length < 6) { _rlSetStatus('Please set an unlock code (6+ characters).', '#c04040'); return; }
+    } else {
+      if (!productId) { _rlSetStatus('Please enter the Gumroad product id (or full URL).', '#c04040'); return; }
+    }
     if (!isFinite(priceNum) || priceNum < 0) { _rlSetStatus('Please enter a valid price.', '#c04040'); return; }
   }
 
@@ -13797,7 +13817,14 @@ async function _rlPublish() {
     author:      author || null,
     description: desc || null,
     priceMode:   _rlMode,
-    product:     _rlMode === 'paid' ? productId : null,
+    // Multi-provider: stash the provider choice + its config so the
+    // reader-side CTA + worker /verify-code can branch on it. Gumroad
+    // path stays exactly as it was (product slug + Gumroad license
+    // verify); the "custom" path swaps in checkoutUrl + unlockCode.
+    provider:    _rlMode === 'paid' ? provider : null,
+    checkoutUrl: _rlMode === 'paid' && provider === 'custom' ? checkoutUrl : null,
+    unlockCode:  _rlMode === 'paid' && provider === 'custom' ? unlockCode  : null,
+    product:     _rlMode === 'paid' && provider === 'gumroad' ? productId : null,
     price:       _rlMode === 'paid' ? priceNum  : 0,
     currency:    currency,
     audioBundle: audioBundle,  // any release mode can attach audio (free / paid / private / serial)
@@ -14243,8 +14270,8 @@ function _serialShowLockModal(release, chIdx, chTitle) {
   }
 
   const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
-  const isPaid  = release.priceMode === 'paid' && release.product;
-  const buyUrl  = isPaid ? _pwGumroadURL(release.product) : null;
+  const isPaid  = release.priceMode === 'paid' && (release.product || release.checkoutUrl);
+  const buyUrl  = isPaid ? _pwBuyURL(release) : null;
 
   let when = 'when it unlocks';
   try {
@@ -14394,8 +14421,8 @@ function _serialBuildLockCard(release, chIdx, chapter) {
   //   free, no notifyOnUnlock → no CTA (countdown only, current behavior)
   const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
   let ctaHTML = '';
-  if (release.priceMode === 'paid' && release.product) {
-    const buyUrl = _pwGumroadURL(release.product);
+  if (release.priceMode === 'paid' && (release.product || release.checkoutUrl)) {
+    const buyUrl = _pwBuyURL(release);
     const subId = 'subForm_' + chIdx + '_' + Math.random().toString(36).slice(2, 6);
     // Paid lock = primary Buy (the conversion), secondary Subscribe
     // (the email-capture-net for non-buyers — covers "I'm not buying
@@ -14708,6 +14735,69 @@ async function _pwVerifyKey(releaseId, product, licenseKey) {
   return data;
 }
 
+/* Custom-provider unlock: send (folioId, code) to the paywall
+   worker's /verify-code endpoint. On success the worker returns
+   a JWT shaped exactly like the Gumroad /verify token. */
+async function _pwVerifyCode(releaseId, code) {
+  const resp = await fetch(PAYWALL_WORKER_URL + '/verify-code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folioId: releaseId, code }),
+  });
+  let data = {};
+  try { data = await resp.json(); } catch (e) {}
+  if (!resp.ok || !data.ok) {
+    throw new Error((data && data.error) || 'Unlock failed (' + resp.status + ')');
+  }
+  return data;
+}
+
+/* Multi-provider release toggle. Authors choose either
+   - "gumroad": product-id field + Gumroad license verify (the API path), or
+   - "custom":  any checkout URL (PayPal / Stripe / Ko-fi / Lemon Squeezy)
+                + a shared unlock code. The worker /verify-code endpoint
+                constant-time-compares the buyer-pasted code against
+                release.unlockCode and issues the same shape of JWT the
+                Gumroad path issues, so the rest of the paywall is
+                identical for both providers. */
+function _rlSetProvider(p) {
+  const which = (p === 'custom') ? 'custom' : 'gumroad';
+  const gBox = document.getElementById('rlGumroadFields');
+  const cBox = document.getElementById('rlCustomFields');
+  if (gBox) gBox.style.display = (which === 'gumroad') ? '' : 'none';
+  if (cBox) cBox.style.display = (which === 'custom')  ? '' : 'none';
+  const gBtn = document.getElementById('rlProvGumroad');
+  const cBtn = document.getElementById('rlProvCustom');
+  const ACTIVE = '2px solid var(--accent-ui,#0a7)';
+  const NORMAL = '1px solid var(--border-mid)';
+  if (gBtn) { gBtn.style.border = (which === 'gumroad') ? ACTIVE : NORMAL; gBtn.style.fontWeight = (which === 'gumroad') ? '600' : '500'; }
+  if (cBtn) { cBtn.style.border = (which === 'custom')  ? ACTIVE : NORMAL; cBtn.style.fontWeight = (which === 'custom')  ? '600' : '500'; }
+  const hint = document.getElementById('rlProvHint');
+  if (hint) {
+    hint.textContent = (which === 'custom')
+      ? 'Use ANY payment vendor (PayPal, Stripe, Ko-fi, Lemon Squeezy…). After someone pays, email them the unlock code; they paste it on the paywall.'
+      : 'Buyers verify automatically through Gumroad\'s license API.';
+  }
+  _rlProvider = which;
+}
+window._rlSetProvider = _rlSetProvider;
+let _rlProvider = 'gumroad';
+
+/* Build the "Buy" URL for the reader. Branches on release.provider:
+     - custom:   release.checkoutUrl (whatever the author pasted)
+     - gumroad:  release.product → https://gumroad.com/l/<slug>
+   Defensive about missing fields so a half-configured release just
+   falls back to gumroad.com landing rather than a broken link. */
+function _pwBuyURL(release) {
+  if (!release) return '#';
+  if (release.provider === 'custom') {
+    const u = (release.checkoutUrl || '').trim();
+    return u || '#';
+  }
+  return _pwGumroadURL(release.product);
+}
+window._pwBuyURL = _pwBuyURL;
+
 function _pwGumroadURL(product) {
   if (!product) return 'https://gumroad.com/';
   // Accept either raw short id or a full gumroad URL. If it looks like a URL, pass through.
@@ -14749,11 +14839,12 @@ function _pwShowGate(releaseId, release) {
   else       coverEl.style.backgroundImage = '';
 
   const buy = document.getElementById('pwBuy');
-  buy.href = _pwGumroadURL(release && release.product);
+  if (buy) buy.href = _pwBuyURL(release);
 
-  // Stash releaseId + product on the form for _pwSubmitKey to read
+  // Stash releaseId + provider + product on the form for _pwSubmitKey to read
   gate.dataset.releaseId = releaseId;
   gate.dataset.product   = (release && release.product) || '';
+  gate.dataset.provider  = (release && release.provider) || 'gumroad';
 
   // Dim the TOC rows too — full gate means 0 free chapters, so
   // every chapter row gets the lock treatment.
@@ -14781,26 +14872,31 @@ async function _pwSubmitKey() {
   if (!gate || !input || !status) return;
 
   const releaseId = gate.dataset.releaseId || _readerFolioId || _projId;
+  const provider  = gate.dataset.provider || 'gumroad';
   const product   = gate.dataset.product;
   const key       = (input.value || '').trim();
 
   status.className = 'pw-status';
   if (!key) {
-    status.textContent = 'Paste your Gumroad license key.';
+    status.textContent = (provider === 'custom')
+      ? 'Paste the unlock code your author sent you.'
+      : 'Paste your Gumroad license key.';
     status.classList.add('error');
     return;
   }
-  if (!product) {
+  if (provider === 'gumroad' && !product) {
     status.textContent = 'Release is missing its Gumroad product id (author misconfig).';
     status.classList.add('error');
     return;
   }
 
   btn.disabled = true;
-  status.textContent = 'Verifying with Gumroad...';
+  status.textContent = (provider === 'custom') ? 'Verifying unlock code...' : 'Verifying with Gumroad...';
 
   try {
-    const result = await _pwVerifyKey(releaseId, product, key);
+    const result = (provider === 'custom')
+      ? await _pwVerifyCode(releaseId, key)
+      : await _pwVerifyKey(releaseId, product, key);
     _pwStoreToken(releaseId, result.token, result.expiresAt, result.email);
     status.classList.add('ok');
     status.textContent = 'Unlocked! ' + (result.email ? '(' + result.email + ')' : '');
@@ -15024,6 +15120,8 @@ function _pwBuildPreviewCta(releaseId, release) {
   wrap.className = 'pw-preview-cta';
   wrap.dataset.releaseId = releaseId;
   wrap.dataset.product   = (release && release.product) || '';
+  wrap.dataset.provider  = (release && release.provider) || 'gumroad';
+  const _isCustom = wrap.dataset.provider === 'custom';
 
   const coverHtml = cover
     ? '<div class="pwpc-cover" style="background-image:url(&quot;' + _pwEscAttr(cover) + '&quot;)"></div>'
@@ -15037,13 +15135,13 @@ function _pwBuildPreviewCta(releaseId, release) {
         '<div class="pwpc-title">' + _pwEsc(title) + '</div>' +
         (author ? '<div style="font-size:11.5px;color:var(--muted);margin-bottom:6px">by ' + _pwEsc(author) + '</div>' : '') +
         (priceStr ? '<div class="pwpc-price">' + priceStr + '</div>' : '') +
-        '<a class="pwpc-buy" href="' + _pwEscAttr(_pwGumroadURL(release && release.product)) + '" target="_blank" rel="noopener">Buy on Gumroad &rarr;</a>' +
+        '<a class="pwpc-buy" href="' + _pwEscAttr(_pwBuyURL(release)) + '" target="_blank" rel="noopener">' + ((release && release.provider === 'custom') ? 'Buy &amp; get unlock code &rarr;' : 'Buy on Gumroad &rarr;') + '</a>' +
       '</div>' +
     '</div>' +
     '<div class="pwpc-have">' +
-      '<div class="pwpc-have-lbl">Already bought? Paste your license key:</div>' +
+      '<div class="pwpc-have-lbl">' + (_isCustom ? 'Have an unlock code? Paste it here:' : 'Already bought? Paste your license key:') + '</div>' +
       '<div class="pwpc-row2">' +
-        '<input type="text" class="pwpc-key" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false">' +
+        '<input type="text" class="pwpc-key" placeholder="' + (_isCustom ? 'your-unlock-code' : 'XXXX-XXXX-XXXX-XXXX') + '" autocomplete="off" spellcheck="false">' +
         '<button type="button" class="pwpc-unlock">Unlock</button>' +
       '</div>' +
       '<div class="pwpc-status"></div>' +
@@ -15055,21 +15153,25 @@ function _pwBuildPreviewCta(releaseId, release) {
     const input  = wrap.querySelector('.pwpc-key');
     const status = wrap.querySelector('.pwpc-status');
     const key = (input.value || '').trim();
+    const _prov = wrap.dataset.provider || 'gumroad';
+    const _isCustomBtn = _prov === 'custom';
     status.className = 'pwpc-status';
     if (!key) {
-      status.textContent = 'Paste your Gumroad license key.';
+      status.textContent = _isCustomBtn ? 'Paste your unlock code.' : 'Paste your Gumroad license key.';
       status.classList.add('error');
       return;
     }
-    if (!wrap.dataset.product) {
+    if (!_isCustomBtn && !wrap.dataset.product) {
       status.textContent = 'Release is missing its Gumroad product id (author misconfig).';
       status.classList.add('error');
       return;
     }
     btn.disabled = true;
-    status.textContent = 'Verifying with Gumroad...';
+    status.textContent = _isCustomBtn ? 'Verifying unlock code...' : 'Verifying with Gumroad...';
     try {
-      const result = await _pwVerifyKey(wrap.dataset.releaseId, wrap.dataset.product, key);
+      const result = _isCustomBtn
+        ? await _pwVerifyCode(wrap.dataset.releaseId, key)
+        : await _pwVerifyKey(wrap.dataset.releaseId, wrap.dataset.product, key);
       _pwStoreToken(wrap.dataset.releaseId, result.token, result.expiresAt, result.email);
       status.classList.add('ok');
       status.textContent = 'Unlocked! Loading the rest of the book...';
@@ -15697,15 +15799,15 @@ async function _rdAudioOpenDrawer() {
 
   // Locked state — paid release, no valid JWT
   if (!_rdAudioPaidUnlocked(release)) {
-    const buy = (release.product
-      ? _pwGumroadURL(release.product)
+    const buy = ((release.product || release.checkoutUrl)
+      ? _pwBuyURL(release)
       : null);
     body.innerHTML =
       '<div class="rdad-locked">' +
         '<div class="rdad-icon">🔒</div>' +
         '<div><strong>Includes audiobook</strong></div>' +
-        '<div style="margin-top:6px;color:var(--hint)">Unlock with your Gumroad license to listen.</div>' +
-        (buy ? '<a class="rdad-cta" href="' + buy + '" target="_blank" rel="noopener">Get it on Gumroad →</a>' : '') +
+        '<div style="margin-top:6px;color:var(--hint)">' + ((release && release.provider === 'custom') ? 'Unlock with your code to listen.' : 'Unlock with your Gumroad license to listen.') + '</div>' +
+        (buy ? '<a class="rdad-cta" href="' + buy + '" target="_blank" rel="noopener">' + ((release && release.provider === 'custom') ? 'Buy &amp; get unlock code →' : 'Get it on Gumroad →') + '</a>' : '') +
       '</div>';
     return;
   }
@@ -19802,9 +19904,41 @@ window._apOnImportFile       = _apOnImportFile;
 
     <!-- Paid-mode fields, shown only when priceMode === 'paid' -->
     <div id="rlPaidFields" style="display:none;padding:12px;background:var(--bg);border-radius:8px;border:.5px solid var(--border-mid);margin-bottom:10px">
-      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Gumroad product id</label>
-      <input type="text" id="rlProductId" placeholder="abc123 (the slug after gumroad.com/l/)"
+      <!-- Payment provider toggle: Gumroad (license-key API verify)
+           or any-other-vendor (PayPal, Stripe checkout, Ko-fi,
+           Lemon Squeezy, etc.) via a shared unlock code the author
+           emails buyers after checkout. -->
+      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 6px">How are you taking payment?</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+        <button type="button" id="rlProvGumroad" onclick="_rlSetProvider('gumroad')" class="rl-prov"
+          style="flex:1;min-width:140px;padding:8px;border-radius:7px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Gumroad <span style="opacity:.6;font-weight:400">(auto-verify)</span></button>
+        <button type="button" id="rlProvCustom" onclick="_rlSetProvider('custom')" class="rl-prov"
+          style="flex:1;min-width:140px;padding:8px;border-radius:7px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Custom URL <span style="opacity:.6;font-weight:400">(any vendor)</span></button>
+      </div>
+      <p id="rlProvHint" style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:0 0 10px">
+        Buyers verify automatically through Gumroad's license API.
+      </p>
+
+      <!-- Gumroad sub-fields (default) -->
+      <div id="rlGumroadFields">
+      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Gumroad product id or URL</label>
+      <input type="text" id="rlProductId" placeholder="abc123  (or https://you.gumroad.com/l/abc123)"
         style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:8px">
+      </div>
+
+      <!-- Custom-URL sub-fields (PayPal, Stripe, Ko-fi, Lemon Squeezy, …) -->
+      <div id="rlCustomFields" style="display:none">
+        <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Checkout URL <span style="opacity:.6;font-weight:400">(where buyers pay)</span></label>
+        <input type="url" id="rlCheckoutUrl" placeholder="https://paypal.me/you/9.99  or  https://buy.stripe.com/…  or  https://ko-fi.com/…"
+          style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:8px">
+
+        <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Shared unlock code <span style="opacity:.6;font-weight:400">(send this to buyers after checkout)</span></label>
+        <input type="text" id="rlUnlockCode" placeholder="e.g. embers-2026  (any string, 6+ chars)"
+          style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:8px;font-family:var(--mono,ui-monospace,monospace)">
+        <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:0 0 6px">
+          After someone pays through your checkout URL, email them this code. They paste it on the paywall page to unlock the book for 30 days. Pick anything memorable but not guessable — change it occasionally if you suspect a leak.
+        </p>
+      </div>
 
       <div style="display:flex;gap:8px;margin-bottom:8px">
         <div style="flex:1">

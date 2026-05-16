@@ -204,6 +204,54 @@ in Cloudflare too, and re-apply `docs/firestore.rules` in the Firebase
 console so the new `body/paid` rule takes effect. Re-save any existing
 paid folio once to migrate it to the split layout.
 
+### Multi-provider paywall — Gumroad **or** any other vendor · DONE
+
+**Status: shipped.** Authors are no longer locked into Gumroad. The
+release modal's paid section now opens with a provider toggle:
+
+- **Gumroad (auto-verify)** — the path you already had. Author pastes a
+  product slug (or full URL); buyers paste their Gumroad license key on
+  the paywall and the worker verifies via Gumroad's API.
+- **Custom URL (any vendor)** — author pastes ANY checkout link
+  (PayPal, Stripe Checkout, Ko-fi, Lemon Squeezy, Patreon — anything)
+  PLUS sets a shared **unlock code** (6+ chars). After someone pays
+  through the external checkout, the author emails them the code; the
+  buyer pastes it on the paywall and the worker constant-time compares
+  against `release.unlockCode`, issuing a JWT shaped identically to the
+  Gumroad path's so the rest of the system Just Works.
+
+Worker side: new `POST /verify-code` endpoint reads `release.unlockCode`
+via the service account, constant-time compares (length first, then
+XOR-fold) against the buyer-pasted code, and on match issues the same
+30-day JWT. The paid-content fetch + teaser-content + unlock-state
+client code are entirely provider-agnostic — they only see "JWT exists
+and is valid".
+
+Client side: `_rlSetProvider`, `_pwBuyURL(release)`, `_pwVerifyCode`.
+All five `_pwGumroadURL(release.product)` call sites route through
+`_pwBuyURL(release)` now, so the buyer's "Buy" button leads to whichever
+URL the author chose. Labels and placeholders branch on provider:
+Gumroad shows "Paste your Gumroad license key" / "XXXX-XXXX-XXXX-XXXX";
+custom shows "Paste your unlock code" / "your-unlock-code".
+
+**True statements about the custom-provider path:**
+
+- The buyer-typed code is never compared in the browser; the comparison
+  happens server-side, constant-time, against a Firestore document the
+  anonymous reader cannot read directly.
+- A successful unlock issues a 30-day HMAC-signed JWT (same secret +
+  signing path as Gumroad). The JWT is scoped to a specific folio.
+- The same `body/paid` server-gate protects the content regardless of
+  which provider issued the JWT.
+
+**Honestly remaining:** a shared unlock code is a shared secret — one
+chatty buyer could leak it. Mitigations the author controls: rotate the
+code periodically (just edit the release and republish), keep it
+unguessable, and prefer Gumroad for high-volume titles where the
+per-buyer-key path matters. The 30-day JWT expiry is per-buyer, so
+rotating the code revokes future unlocks without ejecting existing
+buyers mid-window.
+
 ### D1 — Paywall is not DRM (original write-up, retained for context)
 
 This is a positioning decision, not a bug. As built, the paywall is
