@@ -150,6 +150,9 @@ try {
 
 </script>
 <style>
+/* Universal :active feedback for buttons (so users see the press
+   without us hand-writing :active rules everywhere). */
+button:not([disabled]):active { transform: translateY(1px); filter: brightness(.93); transition: none !important; }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 /* ══════════════════════════════════════════════════════════════════
    Light-mode palette (Bug 5 contrast pass — 2026-05-06)
@@ -7121,6 +7124,7 @@ function _csvParse(text) {
   return rows;
 }
 function _csvDownload(filename, csvText) {
+  console.log('[csv] download:', filename, 'bytes:', (csvText && csvText.length) || 0);
   try {
     const blob = new Blob(['\uFEFF' + csvText], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -7392,9 +7396,15 @@ function _pronExportCSV() {
       e.note || '', e.speakerOverride || '',
     ]);
   });
+  console.log('[pron] export — entries:', rows.length - 1);
   if (rows.length === 1) {
-    if (typeof toastInfo === 'function')
+    if (typeof toastWarning === 'function') {
+      toastWarning('No pronunciations to export yet — add one with "+ Add pronunciation" first, or import a CSV.', { duration: 3600, icon:'🗣' });
+    } else if (typeof toastInfo === 'function') {
       toastInfo('No pronunciations to export yet', { duration: 2400 });
+    } else {
+      alert('No pronunciations to export yet. Add one with the + Add pronunciation button first.');
+    }
     return;
   }
   const folioName = (document.getElementById('projName')?.value || 'folio').trim();
@@ -13593,7 +13603,7 @@ function _rlRenderTeasers() {
     const note = isPreview ? ' <span style="opacity:.55;font-size:11px">(in free preview)</span>' : '';
     const idAttr = escAttr(c.id);
     const copyBtn = (isTeaser && !isPreview && folioId)
-      ? '<button type="button" onclick="_rlCopyTeaserLink(\'' + idAttr.replace(/'/g, '%27') + '\')" ' +
+      ? '<button type="button" onclick="_rlCopyTeaserLink(\'' + idAttr.replace(/'/g, '%27') + '\', event)" ' +
         'style="font-size:11px;padding:2px 9px;border:.5px solid var(--accent-ui);background:none;color:var(--accent-ui);border-radius:6px;cursor:pointer;font-family:inherit">Copy link</button>'
       : '';
     return '<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:.5px solid var(--border-mid);cursor:' + (isPreview?'not-allowed':'pointer') + ';opacity:' + (isPreview?'.55':'1') + '">' +
@@ -13606,14 +13616,14 @@ function _rlRenderTeasers() {
 }
 window._rlRenderTeasers = _rlRenderTeasers;
 
-function _rlCopyTeaserLink(chId) {
+function _rlCopyTeaserLink(chId, ev) {
   // The URL pattern matches the existing ?read= reader; the &teaser=
   // param is currently informational (the reader fetches teaser content
   // automatically for any paid folio with release.teasers entries).
-  // Future v1.1: auto-scroll to the teaser chapter on load.
   const origin = (window.location && window.location.origin) || 'https://www.onfolio.press';
   const folioId = (typeof _projId !== 'undefined' && _projId) ? _projId : '';
   const url = origin + '/app.html?read=' + encodeURIComponent(folioId) + '&teaser=' + encodeURIComponent(chId);
+  const btn = (ev && ev.currentTarget) || null;
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(url);
@@ -13621,6 +13631,7 @@ function _rlCopyTeaserLink(chId) {
       const ta = document.createElement('textarea'); ta.value = url; document.body.appendChild(ta);
       ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
     }
+    _btnFlashCopied(btn);
     if (typeof toastSuccess === 'function') toastSuccess('Preview link copied', { icon: '🔗', duration: 1800 });
   } catch (e) { console.warn('[funnel] copy failed', e); }
 }
@@ -13935,20 +13946,51 @@ async function _rlUnpublish() {
   }
 }
 
-function _rlCopyUrl() {
+/* Tiny visual-feedback helper: briefly swap a button's text to "✓"
+   + dim its background. Restores after ~1.2 s. No-op if button is
+   null. Used by every "copy to clipboard" button so the user has a
+   confirm beyond the (sometimes-missed) toast. */
+function _btnFlashCopied(btn) {
+  if (!btn) return;
+  if (btn.dataset._flashing === '1') return;
+  btn.dataset._flashing = '1';
+  const origHTML = btn.innerHTML;
+  const origBg   = btn.style.background;
+  const origColor= btn.style.color;
+  const origBord = btn.style.border;
+  btn.innerHTML = '✓ Copied';
+  btn.style.background = 'var(--accent-ui,#0a7)';
+  btn.style.color = '#fff';
+  btn.style.border = '1px solid var(--accent-ui,#0a7)';
+  setTimeout(() => {
+    btn.innerHTML = origHTML;
+    btn.style.background = origBg;
+    btn.style.color = origColor;
+    btn.style.border = origBord;
+    btn.dataset._flashing = '';
+  }, 1200);
+}
+window._btnFlashCopied = _btnFlashCopied;
+
+function _rlCopyUrl(ev) {
   const url = _rlUrl();
   if (!url) return;
+  const btn = (ev && ev.currentTarget) || document.querySelector('#rlUrlBox button');
   const write = (navigator.clipboard && navigator.clipboard.writeText)
     ? navigator.clipboard.writeText(url)
     : Promise.reject();
   write.then(
-    () => { if (typeof toastSuccess === 'function') toastSuccess('Reader link copied', { icon:'📋', duration: 1600 }); },
+    () => {
+      _btnFlashCopied(btn);
+      if (typeof toastSuccess === 'function') toastSuccess('Reader link copied', { icon:'📋', duration: 1600 });
+    },
     () => {
       // Fallback: select text manually
       const ta = document.createElement('textarea');
       ta.value = url; document.body.appendChild(ta); ta.select();
       try { document.execCommand('copy'); } catch(e){}
       document.body.removeChild(ta);
+      _btnFlashCopied(btn);
       if (typeof toastSuccess === 'function') toastSuccess('Reader link copied', { icon:'📋', duration: 1600 });
     }
   );
@@ -20042,7 +20084,7 @@ window._apOnImportFile       = _apOnImportFile;
       <div style="font-size:10.5px;color:var(--hint);letter-spacing:.02em;margin-bottom:4px">Reader link</div>
       <div style="display:flex;gap:8px;align-items:center">
         <code id="rlUrlText" style="flex:1;font-family:var(--mono,ui-monospace,monospace);font-size:12px;color:var(--text);word-break:break-all;line-height:1.4"></code>
-        <button type="button" onclick="_rlCopyUrl()"
+        <button type="button" onclick="_rlCopyUrl(event)"
           style="font-size:11.5px;padding:6px 10px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap">📋 Copy</button>
       </div>
     </div>
