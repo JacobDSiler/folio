@@ -2048,8 +2048,8 @@ html[data-reader] #readerBar { display: flex; }
         <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
           <span>Pronunciations</span>
           <span style="display:flex;align-items:center;gap:6px;font-size:10px;color:var(--hint);text-transform:none;letter-spacing:0;font-weight:400">
-            <button onclick="_pronImportCSV()" title="Import pronunciations from CSV" style="background:none;border:none;color:var(--hint);cursor:pointer;font-size:11px;padding:2px 5px;border-radius:4px;text-transform:none;letter-spacing:0;font-weight:400">↑ CSV</button>
-            <button onclick="_pronExportCSV()" title="Export pronunciations to CSV" style="background:none;border:none;color:var(--hint);cursor:pointer;font-size:11px;padding:2px 5px;border-radius:4px;text-transform:none;letter-spacing:0;font-weight:400">↓ CSV</button>
+            <button onclick="_pronImportCSV()" title="Import pronunciations from a CSV file (word, ipa, phonetic, note, speakerOverride)" style="background:var(--bg);border:.5px solid var(--border-mid);color:var(--text);cursor:pointer;font-size:11.5px;padding:3px 9px;border-radius:6px;text-transform:none;letter-spacing:0;font-weight:500">↑ Import CSV</button>
+            <button onclick="_pronExportCSV()" title="Export your pronunciations to a CSV file you can edit in a spreadsheet" style="background:var(--bg);border:.5px solid var(--border-mid);color:var(--text);cursor:pointer;font-size:11.5px;padding:3px 9px;border-radius:6px;text-transform:none;letter-spacing:0;font-weight:500">↓ Export CSV</button>
             <span style="opacity:.6">audio only</span>
           </span>
         </div>
@@ -4190,6 +4190,34 @@ async function _readDocState(data, folioId) {
               console.warn('[D1] paid-content worker returned', _r.status);
             }
           } catch (e) { console.warn('[D1] paid-content fetch failed:', e); }
+        }
+      }
+      // FUNNEL: non-owner who didn't get any paid content (no JWT,
+      // expired, or buyer-fetch failed) — fetch teaser chapters the
+      // author flagged as public. Keyed by chapter id and merged into
+      // the same state.chapters loop below.
+      let _teaserMap = null;
+      if (!_isOwner && !_paidDoc &&
+          Array.isArray(data.release.teasers) && data.release.teasers.length > 0) {
+        try {
+          const _url = (typeof PAYWALL_WORKER_URL === 'string' && PAYWALL_WORKER_URL)
+            ? PAYWALL_WORKER_URL
+            : 'https://folio-paywall.jacobdsiler.workers.dev';
+          const _r = await fetch(_url + '/teaser-content?folio=' + encodeURIComponent(folioId));
+          if (_r.ok) {
+            const _j = await _r.json().catch(() => ({}));
+            if (_j && _j.ok && _j.chapters) _teaserMap = _j.chapters;
+          } else {
+            console.warn('[funnel] teaser-content worker returned', _r.status);
+          }
+        } catch (e) { console.warn('[funnel] teaser fetch failed:', e); }
+        if (_teaserMap && Array.isArray(state.chapters)) {
+          state.chapters = state.chapters.map(c => {
+            if (c && c.type === 'chapter' && _teaserMap[c.id] != null) {
+              return Object.assign({}, c, { content: _teaserMap[c.id] });
+            }
+            return c;
+          });
         }
       }
       if (_paidDoc) {
@@ -13533,6 +13561,71 @@ function _rlSetMode(mode) {
   }
 }
 
+/* ── Funnel: teaser-chapter checklist for paid releases ─────────
+   release.teasers: [chapterId, ...] lists chapters the author flags as
+   public hooks. The paywall worker's /teaser-content endpoint serves
+   them to anonymous readers; _pwShowPreview keeps the pages visible;
+   _rdJumpToChapter allows nav to them. The release modal renders one
+   checkbox per chapter (chapters inside the free preview are
+   pre-disabled because they're already visible) and offers a
+   Copy-link button per ticked teaser. */
+function _rlRenderTeasers() {
+  const container = document.getElementById('rlTeasers');
+  if (!container) return;
+  const previewN = parseInt((document.getElementById('rlPreviewN') || {}).value || '0', 10) || 0;
+  const currentTeasers = (_rlCurrent && Array.isArray(_rlCurrent.teasers)) ? _rlCurrent.teasers : [];
+  const teaserSet = new Set(currentTeasers);
+  const chs = (Array.isArray(chapters) ? chapters : []).filter(c => c && c.type === 'chapter');
+  if (chs.length === 0) {
+    container.innerHTML = '<div style="font-size:11.5px;color:var(--hint);padding:6px 2px">No chapters yet — add some, then come back.</div>';
+    return;
+  }
+  const folioId = (typeof _projId !== 'undefined' && _projId) ? _projId : '';
+  const escAttr = (typeof esc === 'function')
+    ? esc
+    : function(x){ return String(x == null ? '' : x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
+  let chNum = 0;
+  const rows = chs.map(c => {
+    chNum++;
+    const isPreview = chNum <= previewN;
+    const isTeaser  = teaserSet.has(c.id);
+    const titleStr  = escAttr(c.title || ('Chapter ' + chNum));
+    const note = isPreview ? ' <span style="opacity:.55;font-size:11px">(in free preview)</span>' : '';
+    const idAttr = escAttr(c.id);
+    const copyBtn = (isTeaser && !isPreview && folioId)
+      ? '<button type="button" onclick="_rlCopyTeaserLink(\'' + idAttr.replace(/'/g, '%27') + '\')" ' +
+        'style="font-size:11px;padding:2px 9px;border:.5px solid var(--accent-ui);background:none;color:var(--accent-ui);border-radius:6px;cursor:pointer;font-family:inherit">Copy link</button>'
+      : '';
+    return '<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:.5px solid var(--border-mid);cursor:' + (isPreview?'not-allowed':'pointer') + ';opacity:' + (isPreview?'.55':'1') + '">' +
+      '<input type="checkbox" class="rl-teaser-cb" value="' + idAttr + '" ' + (isTeaser?'checked':'') + ' ' + (isPreview?'disabled':'') + '>' +
+      '<span style="flex:1">Ch ' + chNum + ' · ' + titleStr + note + '</span>' +
+      copyBtn +
+      '</label>';
+  }).join('');
+  container.innerHTML = rows;
+}
+window._rlRenderTeasers = _rlRenderTeasers;
+
+function _rlCopyTeaserLink(chId) {
+  // The URL pattern matches the existing ?read= reader; the &teaser=
+  // param is currently informational (the reader fetches teaser content
+  // automatically for any paid folio with release.teasers entries).
+  // Future v1.1: auto-scroll to the teaser chapter on load.
+  const origin = (window.location && window.location.origin) || 'https://www.onfolio.press';
+  const folioId = (typeof _projId !== 'undefined' && _projId) ? _projId : '';
+  const url = origin + '/app.html?read=' + encodeURIComponent(folioId) + '&teaser=' + encodeURIComponent(chId);
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url);
+    } else {
+      const ta = document.createElement('textarea'); ta.value = url; document.body.appendChild(ta);
+      ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    }
+    if (typeof toastSuccess === 'function') toastSuccess('Preview link copied', { icon: '🔗', duration: 1800 });
+  } catch (e) { console.warn('[funnel] copy failed', e); }
+}
+window._rlCopyTeaserLink = _rlCopyTeaserLink;
+
 function openReleaseModal() {
   const panel = document.getElementById('releasePanel');
   if (!panel) {
@@ -13552,6 +13645,9 @@ function openReleaseModal() {
   // half-rendered or invisible.
   panel.style.display = 'flex';
   panel.setAttribute('aria-hidden', 'false');
+  // Funnel: render the teaser-chapter checklist after the synchronous
+  // hydration below has populated the previewN field + _rlCurrent.
+  setTimeout(() => { try { if (typeof _rlRenderTeasers === 'function') _rlRenderTeasers(); } catch (e) {} }, 60);
 
   // Hydrate fields from current folio metadata + existing release
   const titleField  = document.getElementById('rlTitleField');
@@ -13707,6 +13803,13 @@ async function _rlPublish() {
     audioBundle: audioBundle,  // any release mode can attach audio (free / paid / private / serial)
     audioManifest: (_rlCurrent && _rlCurrent.audioManifest) || null,  // overwritten by upload below if audioBundle is true
     previewSections: _rlMode === 'paid' ? previewN : 0,
+    // Funnel: chapters flagged as public teasers via the release-modal
+    // checklist. The paywall worker's /teaser-content endpoint serves
+    // these to anonymous readers; _pwShowPreview keeps them visible
+    // alongside the free preview.
+    teasers: _rlMode === 'paid'
+      ? Array.from(document.querySelectorAll('#rlTeasers .rl-teaser-cb:checked')).map(el => el.value)
+      : [],
     // Serial fields (null/false-coerced for non-serial releases so
     // upgrades stay clean).
     serial:               serialEnabled,
@@ -14847,33 +14950,41 @@ function _pwShowPreview(releaseId, release, numChapters) {
   // Clean up any previous preview state
   _pwHidePreview();
 
-  // Trim: hide all pages from the (N+1)th chapter onward
-  // We count pages whose data-chapid matches a chapter-type section id.
+  // Per-page visibility (audit D1 funnel). A chapter is VISIBLE if
+  // it's inside the free preview OR if its id is in release.teasers.
+  // data-chapid is only stamped on the FIRST page of each chapter, so
+  // we track the current chapter's visibility as we iterate.
   const chapterIds = new Set(
     (typeof getChapters === 'function' ? getChapters() : []).map(c => c.id)
   );
+  const teaserSet = new Set(Array.isArray(release && release.teasers) ? release.teasers : []);
   const pages = Array.from(bp.children);
   let seenChapters = 0;
-  let cutoff = -1;
+  let currentVisible = true;
   for (let i = 0; i < pages.length; i++) {
     const chid = pages[i].getAttribute && pages[i].getAttribute('data-chapid');
     if (chid && chapterIds.has(chid)) {
-      if (seenChapters >= numChapters) { cutoff = i; break; }
       seenChapters++;
+      currentVisible = (seenChapters <= numChapters) || teaserSet.has(chid);
     }
-  }
-
-  // Hide everything from cutoff onward
-  if (cutoff !== -1) {
-    for (let i = cutoff; i < pages.length; i++) {
+    if (!currentVisible) {
       pages[i].classList.add('pw-hidden-page');
     }
   }
 
-  // Insert the CTA card after the last visible page
+  // Insert the CTA after the LAST visible page (may be a teaser deep
+  // in the book, not just the end of the contiguous free preview).
+  let _lastVisibleIdx = -1;
+  for (let i = pages.length - 1; i >= 0; i--) {
+    if (!pages[i].classList.contains('pw-hidden-page')) { _lastVisibleIdx = i; break; }
+  }
   const cta = _pwBuildPreviewCta(releaseId, release);
-  if (cutoff !== -1 && pages[cutoff]) {
-    bp.insertBefore(cta, pages[cutoff]);
+  if (_lastVisibleIdx >= 0 && pages[_lastVisibleIdx]) {
+    if (pages[_lastVisibleIdx].nextSibling) {
+      bp.insertBefore(cta, pages[_lastVisibleIdx].nextSibling);
+    } else {
+      bp.appendChild(cta);
+    }
   } else {
     bp.appendChild(cta);
   }
@@ -15262,7 +15373,11 @@ function _rdJumpToChapter(chid) {
       }
       const _released = (typeof _lockReleasedCount === 'function')
         ? _lockReleasedCount(_serialRelease) : Infinity;
-      if (_foundIdx > _released) {
+      // FUNNEL: teaser chapters are publicly readable even past the
+      // released-count gate. Skip the lock toast for them.
+      const _teasersList = Array.isArray(_serialRelease.teasers) ? _serialRelease.teasers : [];
+      const _isTeaser = _teasersList.indexOf(chid) >= 0;
+      if (!_isTeaser && _foundIdx > _released) {
         let when = 'when it unlocks';
         try {
           const ms = (typeof _serialUnlockDate === 'function')
@@ -19712,10 +19827,23 @@ window._apOnImportFile       = _apOnImportFile;
 
       <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:8px 0 4px">Free preview sections <span style="opacity:.6;font-weight:400">(0–99)</span></label>
       <input type="number" id="rlPreviewN" min="0" max="99" step="1" value="1"
+        oninput="try{if(typeof _rlRenderTeasers==='function')_rlRenderTeasers();}catch(e){}"
         style="width:120px;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
       <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:4px 0 8px">
         Readers can read this many sections before the paywall appears.
       </p>
+
+      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:12px 0 4px">
+        Teaser chapters <span style="opacity:.6;font-weight:400">(optional — share a hook from anywhere in the book)</span>
+      </label>
+      <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:0 0 6px">
+        Mark any paid chapter as a shareable teaser. Each gets a
+        <em>Copy link</em> button that produces a public URL unlocking
+        just that one chapter — perfect for a social-media hook or
+        newsletter excerpt. Free-preview chapters are visible to everyone
+        already and don't need to be teasers.
+      </p>
+      <div id="rlTeasers" style="max-height:200px;overflow:auto;border:.5px solid var(--border-mid);border-radius:7px;padding:4px 9px;background:var(--surface);font-size:12.5px"></div>
 
     </div>
 

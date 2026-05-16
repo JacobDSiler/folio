@@ -431,6 +431,66 @@ async function handlePaidContent(request, env) {
   }
 }
 
+/* GET /teaser-content?folio=<folioId>
+   Anonymous endpoint. Author flags chapters as public teasers in the
+   release modal (release.teasers: [chapterId, ...]). This endpoint
+   reads release.teasers + body/paid, decompresses the paid content
+   map, filters it to only the teaser chapter ids, and returns those.
+   Non-teaser paid content never leaves the worker. Used by the
+   "funnel" share-link flow: ?read=<id>&teaser=<chid>. */
+async function handleTeaserContent(request, env) {
+  if (!env.GCP_SERVICE_ACCOUNT) {
+    return errorJson('Server not configured (missing GCP_SERVICE_ACCOUNT)', 500, request, env);
+  }
+  const url = new URL(request.url);
+  const folioId = (url.searchParams.get('folio') || '').trim();
+  if (!folioId) return errorJson('Missing folio', 400, request, env);
+  try {
+    const sa = await getAccessToken(env);
+    const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+    if (!projectId) return errorJson('No Firestore project id', 500, request, env);
+    const parent = await fsGet(projectId, sa.token,
+      'folio_projects/' + encodeURIComponent(folioId));
+    if (!parent || !parent.release || !parent.release.published) {
+      return errorJson('Folio not found or not published', 404, request, env);
+    }
+    const teasers = Array.isArray(parent.release.teasers) ? parent.release.teasers : [];
+    if (teasers.length === 0) {
+      return json({ ok: true, chapters: {} }, 200, request, env);
+    }
+    const paid = await fsGet(projectId, sa.token,
+      'folio_projects/' + encodeURIComponent(folioId) + '/body/paid');
+    if (!paid) {
+      return json({ ok: true, chapters: {} }, 200, request, env);
+    }
+    let chapters = {};
+    if (paid.content_gz) {
+      try {
+        const bin = atob(paid.content_gz);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const txt = await new Response(
+          new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))
+        ).text();
+        const parsed = JSON.parse(txt);
+        chapters = (parsed && parsed.chapters) || {};
+      } catch (e) {
+        console.warn('[teaser] decompress failed', e);
+      }
+    } else if (paid.content && paid.content.chapters) {
+      chapters = paid.content.chapters;
+    }
+    const filtered = {};
+    for (const id of teasers) {
+      if (chapters[id] != null) filtered[id] = chapters[id];
+    }
+    return json({ ok: true, chapters: filtered }, 200, request, env);
+  } catch (e) {
+    return errorJson('Teaser fetch failed: ' + (e.message || 'unknown'),
+                     502, request, env);
+  }
+}
+
 /* ── Dispatcher ───────────────────────────────────────────────────────────────────── */
 export default {
   async fetch(request, env) {
@@ -450,6 +510,7 @@ export default {
           'POST /check          { token }',
           'GET  /check?token=…',
           'GET  /paid-content?folio=…    (Authorization: Bearer <jwt>)',
+          'GET  /teaser-content?folio=…  (anonymous; serves chapters flagged in release.teasers)',
         ],
       }, 200, request, env);
     }
@@ -457,6 +518,7 @@ export default {
     if (path === '/verify'        && request.method === 'POST') return handleVerify(request, env);
     if (path === '/check'         && (request.method === 'POST' || request.method === 'GET')) return handleCheck(request, env);
     if (path === '/paid-content'  && request.method === 'GET')  return handlePaidContent(request, env);
+    if (path === '/teaser-content' && request.method === 'GET')  return handleTeaserContent(request, env);
 
     return errorJson('Not found: ' + path, 404, request, env);
   },
