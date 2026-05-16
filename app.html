@@ -13658,7 +13658,14 @@ async function _rlPublish() {
   const desc   = (document.getElementById('rlDescField')   && document.getElementById('rlDescField').value   || '').trim();
 
   // Paid-mode fields
-  const productId  = (document.getElementById('rlProductId') && document.getElementById('rlProductId').value || '').trim();
+  // Accept either a raw slug ("Embers") or a full Gumroad URL
+  // (e.g. "https://jds1ler.gumroad.com/l/Embers" or
+  // "https://gumroad.com/l/Embers"). Gumroad's verify API takes
+  // product_id / product_permalink — never a URL — so we strip down
+  // to just the trailing slug before saving.
+  let productId  = (document.getElementById('rlProductId') && document.getElementById('rlProductId').value || '').trim();
+  const _gmMatch = productId.match(/\/l\/([^\/?#]+)/);
+  if (_gmMatch) productId = _gmMatch[1];
   const priceRaw   = (document.getElementById('rlPrice')     && document.getElementById('rlPrice').value     || '').trim();
   const currency   = (document.getElementById('rlCurrency')  && document.getElementById('rlCurrency').value) || 'USD';
   const audioBundle = !!(document.getElementById('rlAudioBundle') && document.getElementById('rlAudioBundle').checked);
@@ -14134,7 +14141,7 @@ function _serialShowLockModal(release, chIdx, chTitle) {
 
   const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
   const isPaid  = release.priceMode === 'paid' && release.product;
-  const buyUrl  = isPaid ? ('https://gumroad.com/l/' + encodeURIComponent(release.product)) : null;
+  const buyUrl  = isPaid ? _pwGumroadURL(release.product) : null;
 
   let when = 'when it unlocks';
   try {
@@ -14285,7 +14292,7 @@ function _serialBuildLockCard(release, chIdx, chapter) {
   const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
   let ctaHTML = '';
   if (release.priceMode === 'paid' && release.product) {
-    const buyUrl = 'https://gumroad.com/l/' + encodeURIComponent(release.product);
+    const buyUrl = _pwGumroadURL(release.product);
     const subId = 'subForm_' + chIdx + '_' + Math.random().toString(36).slice(2, 6);
     // Paid lock = primary Buy (the conversion), secondary Subscribe
     // (the email-capture-net for non-buyers — covers "I'm not buying
@@ -15576,7 +15583,7 @@ async function _rdAudioOpenDrawer() {
   // Locked state — paid release, no valid JWT
   if (!_rdAudioPaidUnlocked(release)) {
     const buy = (release.product
-      ? ('https://gumroad.com/l/' + encodeURIComponent(release.product))
+      ? _pwGumroadURL(release.product)
       : null);
     body.innerHTML =
       '<div class="rdad-locked">' +
