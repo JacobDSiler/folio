@@ -13123,6 +13123,46 @@ function _serialUnlockDate(release, chapterIndex /* 1-based */) {
   );
 }
 
+/* Author-friendly "next unlock" date for the dashboard and lock
+   cards. Differs from _serialUnlockDate in one case: when the
+   manual releasedThrough is ahead of the auto-from-time count,
+   the original-schedule slot for the next chapter is days or
+   weeks in the future even though the author set daily cadence.
+   In that case we project "one cadence step from now" at the
+   original release time-of-day, so the displayed countdown
+   matches the author's mental model. When auto >= manual the
+   original schedule is correct and we return that.
+
+   chapterIndex: 1-based, the chapter the author/reader is
+                 WAITING for (i.e. effective released + 1). */
+function _serialNextUnlockDate(release, chapterIndex, now) {
+  if (!release || !release.serial || !release.serialFirstReleaseAt) return null;
+  const t      = (now == null ? Date.now() : now);
+  const start  = Number(release.serialFirstReleaseAt);
+  const cMs    = _serialCadenceMs(release);
+  const auto   = _serialAutoReleasedCount(release, t);
+  const manual = Number(release.serialReleasedThrough) || 0;
+  // chapterIndex is what's waiting; ahead-of-auto means manual
+  // pushed past auto so chapterIndex > auto + 1.
+  if (manual > auto && chapterIndex > auto + 1) {
+    // Project "one cadence step from now" but snap to the
+    // hour:minute of the original release time-of-day. This
+    // way a daily-at-20:00 schedule still shows 20:00 even if
+    // the author bumped chapters at noon.
+    const origin = new Date(start);
+    const next   = new Date(t + cMs);
+    next.setHours(origin.getHours(), origin.getMinutes(), 0, 0);
+    // If snapping pushed us into the past (e.g. now is 02:00
+    // and origin is 20:00 of the same day), bump by one more
+    // cadence step so we never display a past time.
+    if (next.getTime() < t) next.setTime(next.getTime() + cMs);
+    return next;
+  }
+  // Original-schedule slot is in the future (or in the past but
+  // close — auto hasn't caught up yet). Return that.
+  return new Date(start + Math.max(0, chapterIndex - 1) * cMs);
+}
+
 function _serialFormatCountdown(ms) {
   if (ms <= 0) return 'now';
   const s = Math.floor(ms / 1000);
@@ -13543,7 +13583,7 @@ function _serialDashboardRefresh() {
   const nextIdx  = released + 1;
   const allOut   = released >= totalCh && totalCh > 0;
   const nextDate = (!allOut && totalCh > 0)
-                   ? _serialUnlockDate(_rlCurrent, nextIdx) : null;
+                   ? _serialNextUnlockDate(_rlCurrent, nextIdx) : null;
   const nextStr  = nextDate ? _serialFormatDate(nextDate) : '—';
   el.style.display = '';
   el.innerHTML =
@@ -14325,7 +14365,7 @@ function _serialShowLockModal(release, chIdx, chTitle) {
 
   let when = 'when it unlocks';
   try {
-    const ms = (typeof _serialUnlockDate === 'function') ? _serialUnlockDate(release, chIdx) : null;
+    const ms = (typeof _serialNextUnlockDate === 'function') ? _serialNextUnlockDate(release, chIdx) : null;
     if (ms) when = 'on ' + new Date(ms).toLocaleString();
   } catch (e) {}
 
