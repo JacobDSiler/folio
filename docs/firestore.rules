@@ -60,10 +60,22 @@ service cloud.firestore {
       // the incoming data can't be relied on here.
       allow update, delete: if isUser(resource.data.uid);
 
-      // Manuscript body subdoc — same visibility as the parent folio,
-      // owner-only writes.
+      // Manuscript body subdocs.
+      //   body/main — free preview / non-paid content. Same visibility
+      //               as the parent folio (owner OR published).
+      //   body/paid — paid chapter content (audit D1). OWNER-ONLY
+      //               from Firestore; non-owners get permission-denied
+      //               on a direct read. The paywall worker fetches it
+      //               via a service account on a license-verified
+      //               request (see folio-paywall-worker.js
+      //               /paid-content), so a buyer holding a valid JWT
+      //               can still receive paid content — but no
+      //               anonymous reader can.
+      // Writes (both docs) are owner-only.
       match /body/{doc} {
-        allow read:  if folioVisible(id);
+        allow read:  if doc == 'paid'
+                       ? isUser(parentUid(id))
+                       : folioVisible(id);
         allow write: if isUser(parentUid(id));
       }
 

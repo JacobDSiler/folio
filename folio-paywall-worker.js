@@ -266,7 +266,162 @@ async function handleCheck(request, env) {
   return json({ ok: true, payload: result.payload }, 200, request, env);
 }
 
-/* ── Dispatcher ───────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════════════
+   PAID CONTENT — Firestore-gated chapter content delivery (audit D1)
+   ────────────────────────────────────────────────────────────────────
+   Before D1, paid chapters shipped to every reader's browser inside
+   body/main and were merely hidden with a CSS class. Now they live in
+   folio_projects/{folioId}/body/paid, which the Firestore rule
+   restricts to owner-only reads. The /paid-content endpoint below is
+   the ONLY non-owner path to that content: it verifies the buyer's
+   HMAC-signed license JWT, confirms the JWT is scoped to the requested
+   folio, and (if both check out) uses a Google service account to
+   fetch body/paid via Firestore's REST API.
+
+   New env bindings (alongside PAYWALL_JWT_SECRET / ALLOWED_ORIGIN):
+     GCP_SERVICE_ACCOUNT   Secret. Full SA JSON (same value used by
+                           folio-email-worker for cron + unsubscribe).
+                           SA needs the "Cloud Datastore User" IAM role.
+     FIRESTORE_PROJECT_ID  Optional. Overrides the project_id in the
+                           SA JSON; usually leave unset.
+   ════════════════════════════════════════════════════════════════════ */
+
+const GOOGLE_TOKEN_URI = 'https://oauth2.googleapis.com/token';
+const FIRESTORE_SCOPE  = 'https://www.googleapis.com/auth/datastore';
+
+function b64urlStr(str) {
+  return b64urlEncode(new TextEncoder().encode(str));
+}
+function pemToArrayBuffer(pem) {
+  const body = String(pem || '')
+    .replace(/-----BEGIN [^-]+-----/g, '')
+    .replace(/-----END [^-]+-----/g, '')
+    .replace(/\s+/g, '');
+  const bin = atob(body);
+  const buf = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+  return buf.buffer;
+}
+
+/* Mint an OAuth2 access token for the service account (RS256-signed
+   assertion -> token exchange). Same flow as folio-email-worker. */
+async function getAccessToken(env) {
+  const raw = env.GCP_SERVICE_ACCOUNT;
+  if (!raw) throw new Error('GCP_SERVICE_ACCOUNT not configured');
+  let sa;
+  try { sa = JSON.parse(raw); }
+  catch (e) { throw new Error('GCP_SERVICE_ACCOUNT is not valid JSON'); }
+  if (!sa.client_email || !sa.private_key) {
+    throw new Error('GCP_SERVICE_ACCOUNT missing client_email / private_key');
+  }
+  const now    = Math.floor(Date.now() / 1000);
+  const header = { alg: 'RS256', typ: 'JWT' };
+  const claims = {
+    iss:   sa.client_email,
+    scope: FIRESTORE_SCOPE,
+    aud:   sa.token_uri || GOOGLE_TOKEN_URI,
+    iat:   now,
+    exp:   now + 3600,
+  };
+  const unsigned =
+    b64urlStr(JSON.stringify(header)) + '.' + b64urlStr(JSON.stringify(claims));
+  const key = await crypto.subtle.importKey(
+    'pkcs8',
+    pemToArrayBuffer(sa.private_key),
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false, ['sign']
+  );
+  const sig = await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5', key, new TextEncoder().encode(unsigned)
+  );
+  const jwt = unsigned + '.' + b64urlEncode(new Uint8Array(sig));
+  const resp = await fetch(sa.token_uri || GOOGLE_TOKEN_URI, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer&assertion=' +
+          encodeURIComponent(jwt),
+  });
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok || !data.access_token) {
+    throw new Error('Token exchange failed: ' +
+      (data.error_description || data.error || resp.status));
+  }
+  return { token: data.access_token, projectId: sa.project_id };
+}
+
+/* Firestore REST: decode typed values + fetch a single document. */
+function fsDecodeValue(v) {
+  if (v == null) return null;
+  if ('nullValue'      in v) return null;
+  if ('booleanValue'   in v) return v.booleanValue;
+  if ('integerValue'   in v) return Number(v.integerValue);
+  if ('doubleValue'    in v) return v.doubleValue;
+  if ('stringValue'    in v) return v.stringValue;
+  if ('timestampValue' in v) return v.timestampValue;
+  if ('mapValue'       in v) return fsDecodeFields((v.mapValue && v.mapValue.fields) || {});
+  if ('arrayValue'     in v) return ((v.arrayValue && v.arrayValue.values) || []).map(fsDecodeValue);
+  return null;
+}
+function fsDecodeFields(fields) {
+  const out = {};
+  for (const k in fields) out[k] = fsDecodeValue(fields[k]);
+  return out;
+}
+async function fsGet(projectId, token, docPath) {
+  const url = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+              '/databases/(default)/documents/' + docPath;
+  const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
+  if (r.status === 404) return null;
+  if (!r.ok) {
+    const data = await r.json().catch(() => ({}));
+    throw new Error('Firestore GET ' + docPath + ' failed: ' +
+      ((data.error && data.error.message) || r.status));
+  }
+  const doc = await r.json();
+  return fsDecodeFields(doc.fields || {});
+}
+
+/* GET /paid-content?folio=<folioId>
+   Authorization: Bearer <license JWT>
+   Returns { ok:true, body:{ content_gz | content } } on success.
+   401 if JWT missing/invalid/expired; 403 if it's for another folio;
+   404 if no body/paid exists; 500 misconfig; 502 Firestore fail. */
+async function handlePaidContent(request, env) {
+  if (!env.PAYWALL_JWT_SECRET) {
+    return errorJson('Server not configured (missing PAYWALL_JWT_SECRET)', 500, request, env);
+  }
+  if (!env.GCP_SERVICE_ACCOUNT) {
+    return errorJson('Server not configured (missing GCP_SERVICE_ACCOUNT)', 500, request, env);
+  }
+  const url = new URL(request.url);
+  const folioId = (url.searchParams.get('folio') || '').trim();
+  if (!folioId) return errorJson('Missing folio', 400, request, env);
+  const authHdr = request.headers.get('Authorization') || '';
+  const jwt = authHdr.replace(/^Bearer\s+/i, '').trim();
+  if (!jwt) return errorJson('Missing license token', 401, request, env);
+  const v = await verifyJWT(jwt, env.PAYWALL_JWT_SECRET);
+  if (!v.ok) return errorJson('License invalid: ' + v.reason, 401, request, env);
+  if (v.payload && v.payload.release && v.payload.release !== folioId) {
+    return errorJson('License is for a different folio', 403, request, env);
+  }
+  try {
+    const sa = await getAccessToken(env);
+    const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+    if (!projectId) return errorJson('No Firestore project id', 500, request, env);
+    const doc = await fsGet(projectId, sa.token,
+      'folio_projects/' + encodeURIComponent(folioId) + '/body/paid');
+    if (!doc) return json({ ok: false, reason: 'no-paid-content' }, 404, request, env);
+    const out = {};
+    if (doc.content_gz != null) out.content_gz = doc.content_gz;
+    if (doc.content    != null) out.content    = doc.content;
+    return json({ ok: true, body: out }, 200, request, env);
+  } catch (e) {
+    return errorJson('Paid content fetch failed: ' + (e.message || 'unknown'),
+                     502, request, env);
+  }
+}
+
+/* ── Dispatcher ───────────────────────────────────────────────────────────────────── */
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
@@ -281,15 +436,17 @@ export default {
         service: 'folio-paywall',
         stateless: true,
         endpoints: [
-          'POST /verify  { releaseId, product, licenseKey, days? }',
-          'POST /check   { token }',
+          'POST /verify         { releaseId, product, licenseKey, days? }',
+          'POST /check          { token }',
           'GET  /check?token=…',
+          'GET  /paid-content?folio=…    (Authorization: Bearer <jwt>)',
         ],
       }, 200, request, env);
     }
 
-    if (path === '/verify' && request.method === 'POST') return handleVerify(request, env);
-    if (path === '/check'  && (request.method === 'POST' || request.method === 'GET')) return handleCheck(request, env);
+    if (path === '/verify'        && request.method === 'POST') return handleVerify(request, env);
+    if (path === '/check'         && (request.method === 'POST' || request.method === 'GET')) return handleCheck(request, env);
+    if (path === '/paid-content'  && request.method === 'GET')  return handlePaidContent(request, env);
 
     return errorJson('Not found: ' + path, 404, request, env);
   },
