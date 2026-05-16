@@ -7475,7 +7475,16 @@ function _pronTestFromModal() {
   // Use whichever is set — IPA preferred for Google, phonetic for ElevenLabs.
   const provider = (typeof _apProvider !== 'undefined') ? _apProvider : 'google';
   let testText;
-  if (provider === 'google' && ipa) {
+  if (provider === 'google' && phon) {
+    // Mirror the chapter-audio path EXACTLY: <sub alias="aw nyuh">Aine</sub>.
+    // The bare-phonetic test path used to send "AW-nyuh" alone, which Google
+    // read as two syllables — but in the chapter it would mangle the same
+    // string as an acronym. Authors should hear the chapter sound.
+    const phonNorm = _apPhonForSSML(phon);
+    testText = '<speak><sub alias="' + _apEscSSML(phonNorm) + '">' +
+      _apEscSSML(word) + '</sub></speak>';
+    console.log('[pron-test] SSML being sent (sub alias):', testText);
+  } else if (provider === 'google' && ipa) {
     // Clean the IPA the same way the chapter-generation path does:
     // strip surrounding slashes (Google's <phoneme ph="..."> rejects
     // them and falls back to reading the literal characters).
@@ -7484,7 +7493,8 @@ function _pronTestFromModal() {
       _apEscSSML(cleanIpa) + '">' + _apEscSSML(word) + '</phoneme></speak>';
     console.log('[pron-test] SSML being sent:', testText);
   } else if (phon) {
-    testText = phon;
+    // Non-Google providers (ElevenLabs): send the normalized phonetic.
+    testText = _apPhonForSSML(phon);
   } else if (ipa) {
     // Phonetic-only fallback for ElevenLabs when only IPA is set —
     // ElevenLabs won't pronounce IPA-as-text well, but at least
@@ -18224,6 +18234,32 @@ function _apCleanIpa(ipa) {
   return String(ipa || '').trim().replace(/^\/+|\/+$/g, '').trim();
 }
 
+/* Normalize a phonetic respelling for safe TTS consumption.
+   The author writes "AW-nyuh" in the glossary to hint stress and
+   syllable breaks. That reads correctly in isolation (the test
+   modal sends just "AW-nyuh"), but spliced into a sentence like
+   "Then Aine looked up..." Google's TTS sees a capitalized
+   hyphenated token embedded in prose and falls back to its
+   acronym heuristic, spelling the letters. Lowercasing and
+   replacing hyphens with spaces yields "aw nyuh" — two normal
+   English-shaped syllables that the TTS reads correctly in
+   any context. Also collapses runs of whitespace and strips
+   wrapping quotes. */
+function _apPhonForSSML(phon) {
+  let p = String(phon || '').trim();
+  // strip wrapping straight or smart quotes
+  p = p.replace(/^[\u0022\u0027\u201C\u201D\u2018\u2019]+/, '')
+       .replace(/[\u0022\u0027\u201C\u201D\u2018\u2019]+$/, '');
+  // lowercase the stress-marker capitals so it reads as a word, not an acronym
+  p = p.toLowerCase();
+  // hyphens and underscores between syllables → spaces
+  p = p.replace(/[\-_]+/g, ' ');
+  // collapse multiple spaces
+  p = p.replace(/\s+/g, ' ').trim();
+  return p;
+}
+window._apPhonForSSML = _apPhonForSSML;
+
 // Per-letter accent variants for Latin script. Each entry lists
 // the lowercase character + every diacritic variant of it. With the
 // regex `i` flag, the lowercase set also matches the uppercase
@@ -18307,9 +18343,18 @@ function _apBuildSSML(text) {
     //      (Irish ʲ etc.) aren't in every voice's repertoire.
     //   3. Neither set: already filtered out above.
     if (e.phonetic) {
-      const phon = _apEscSSML(e.phonetic);
-      s = s.replace(re, phon);
-      matchSummary.push({ word: e.word, matches, used: 'phonetic→text (preferred over IPA when both set)', sub: phon, hadIpa: !!e.ipa });
+      // <sub alias="..."> keeps the original word visible to the
+      // TTS parser (so prosody + capitalization for proper nouns
+      // stay correct) while substituting the normalized phonetic
+      // for pronunciation. Normalizing "AW-nyuh" → "aw nyuh"
+      // sidesteps the acronym heuristic that mangles mixed-case
+      // hyphenated tokens in sentence context.
+      const phonNorm = _apPhonForSSML(e.phonetic);
+      const phonAttr = _apEscSSML(phonNorm);
+      s = s.replace(re, m =>
+        '<sub alias="' + phonAttr + '">' + _apEscSSML(m) + '</sub>'
+      );
+      matchSummary.push({ word: e.word, matches, used: 'phonetic→sub-alias (normalized for TTS)', sub: phonNorm, hadIpa: !!e.ipa });
     } else if (e.ipa) {
       const ipa = _apEscSSML(_apCleanIpa(e.ipa));
       if (!ipa) {
@@ -18341,11 +18386,15 @@ function _apApplyPronToText(text) {
   let out = (typeof text === 'string') ? text.normalize('NFC') : String(text || '');
   const subs = [];
   for (const e of entries) {
-    const sub = e.phonetic || null;
+    if (!e.phonetic) continue;
+    // ElevenLabs doesn't honor SSML <sub> reliably across all
+    // models, so we still text-substitute — but using the
+    // normalized phonetic ("aw nyuh" rather than "AW-nyuh") so
+    // its TTS treats it as syllables, not an acronym.
+    const sub = _apPhonForSSML(e.phonetic);
     if (!sub) continue;
     const wordN = (e.word || '').normalize('NFC');
     const re = _apWordBoundaryRegex(wordN);
-    const before = out.length;
     const matches = (out.match(re) || []).length;
     out = out.replace(re, sub);
     subs.push({ word: e.word, matches, sub });
