@@ -174,6 +174,16 @@ async function gumroadVerifyOnce(productField, productValue, licenseKey) {
 // Try product_id first (current API); fall back to product_permalink for
 // older Gumroad products. User pastes whatever their Gumroad settings show.
 async function gumroadVerify(productValue, licenseKey) {
+  // Defensive normalisation: if the user pasted a full Gumroad URL
+  // (e.g. https://x.gumroad.com/l/Embers) into the release modal's
+  // product field, the Gumroad verify API will reject it — it takes a
+  // product_id / product_permalink, not a URL. Strip down to the
+  // trailing /l/<slug> when present. The Folio client now does this
+  // on save too, but checking here protects already-saved values.
+  if (productValue && /^https?:\/\//i.test(productValue)) {
+    const m = productValue.match(/\/l\/([^\/?#]+)/);
+    if (m) productValue = m[1];
+  }
   const first = await gumroadVerifyOnce('product_id', productValue, licenseKey);
   if (first.data && first.data.success) return { ok: true, data: first.data, via: 'product_id' };
 
