@@ -138,6 +138,35 @@ updated `docs/firestore.rules` in the console to pick up the change.
 
 ## Risks & decisions (your call, not blockers)
 
+### Funnel — per-chapter teaser sharing for paid books · NEW
+
+Authors can now flag any paid chapter as a public teaser via the
+release modal. Mechanic:
+
+- **Release modal** — new "Teaser chapters" checklist in the paid
+  section. Free-preview chapters are auto-disabled (they're already
+  public). Each ticked teaser exposes a **Copy link** button that
+  generates `https://www.onfolio.press/app.html?read=<id>&teaser=<chid>`.
+- **Storage** — `release.teasers: [chapterId, ...]` on the release
+  object, set on publish.
+- **Worker** — new `GET /teaser-content?folio=<id>` (anonymous) on the
+  paywall worker. Reads the release, decompresses body/paid via the
+  service account, filters to only the teaser chapter ids, returns them.
+  Non-teaser paid content stays in body/paid untouched.
+- **Reader** — `_readDocState` now has a third branch: non-owner with
+  no valid JWT but the folio has teasers → fetch `/teaser-content`
+  and merge those chapters into the in-memory state.
+- **Paywall preview UI** — `_pwShowPreview` was rewritten from a
+  single-cutoff hider to a per-page visibility decision: a chapter is
+  visible if it's in the free preview OR in `release.teasers`. The
+  buy-CTA card now lands after the LAST visible page rather than at a
+  contiguous cutoff (because teasers can be scattered).
+- **Chapter nav** — `_rdJumpToChapter` allows navigation to teaser
+  chapters even past the released-count gate.
+
+This gives authors a true funnel: share a great hook chapter from the
+middle of the book, viewers read it, hit "Buy on Gumroad" at the end.
+
 ### D1 — Paywall is now server-gated · DONE
 
 **Status: shipped.** Paid chapter content no longer reaches a
