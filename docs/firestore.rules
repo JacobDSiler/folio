@@ -80,14 +80,25 @@ service cloud.firestore {
       }
 
       // Annotations.
-      // NOTE (audit B4): these rules gate the COLLECTION but cannot do
-      // per-scope visibility — anyone who can read a published folio can
-      // read ALL its annotations, including the author's private /
-      // editorial notes. The real fix is structural (split scopes into
-      // separate subcollections). Until then this is a known
-      // confidentiality limitation, not a rules bug.
+      // Per-doc scope enforcement (audit B4 — fixed). The folio owner
+      // sees every annotation on their own folio; anyone else can read
+      // an annotation only if its scope is 'public' OR they personally
+      // authored it (uid match). Editor / collaborator / others'
+      // personal notes no longer leak.
+      //
+      // A LIST query is permitted only when it's constrained so every
+      // result satisfies one of those branches:
+      //   • Owner — no filter needed (parentUid(id) is collection-level).
+      //   • Non-owner — must query with either
+      //       where('scope','==','public')
+      //       where('uid','==', auth.uid)
+      // The Folio client splits its subscription accordingly in
+      // _annSubscribe / _annInitFromCloud.
       match /annotations/{aid} {
-        allow read:   if folioVisible(id);
+        allow read:   if isUser(parentUid(id))
+                      || resource.data.scope == 'public'
+                      || (request.auth != null
+                          && resource.data.uid == request.auth.uid);
         // Create: stamped with your own uid — or anything, if you own
         // the folio (covers the owner migrating legacy annotations).
         allow create: if isUser(request.resource.data.uid)

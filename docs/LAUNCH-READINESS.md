@@ -98,19 +98,29 @@ actual `_doAutoSave` catch path in the midday loop**, then — if confirmed
 — make a failed autosave visible (toast + persistent banner, keep the
 cloud badge red).
 
-### B4 — Private annotations leak to every reader
+### B4 — Private annotations leak to every reader · DONE
 
-`_annSubscribe` subscribes to the *entire* annotations subcollection
-with no filter. Every annotation — personal notes, editorial comments,
-collaborator notes — is downloaded into every reader's browser, and the
-scope filtering happens only in client-side JS. A reader who opens
-DevTools (or sets `?role=editor`) can read the author's private notes.
+**Status: shipped.** The fix turned out to be a single-subcollection
+per-doc rule rather than the structural split I'd flagged. The
+Firestore `annotations` rule is now:
 
-Rules alone can't fix this — Firestore rules can gate the collection but
-not per-scope visibility. The real fix is structural: split annotation
-scopes into separate subcollections so rules *can* gate them (e.g.
-`annotations_public` readable by all, `annotations_private` owner-only).
-Needs a small design decision before it's coded.
+    allow read: if isUser(parentUid(id))
+              || resource.data.scope == 'public'
+              || (request.auth != null
+                  && resource.data.uid == request.auth.uid);
+
+The folio owner sees everything (the `parentUid` branch is
+collection-level, so unfiltered lists are allowed for owners). For
+non-owners, every LIST query must be constrained so each result
+satisfies one of the per-doc branches. `_annSubscribe` and
+`_annInitFromCloud` were rewritten to run two restricted queries for
+non-owners — `where('scope','==','public')` and
+`where('uid','==', auth.uid)` — and merge the results into a shared
+id-keyed Map so a docChange from one query doesn't clobber the
+other's contribution. Editor / collaborator / others' personal
+annotations are never read into the browser, so the DevTools leak is
+closed. Re-apply `docs/firestore.rules` in the console to pick up
+the new rule.
 
 ### B5 — Subscriber unsubscribe vs. locked-down rules · DONE
 

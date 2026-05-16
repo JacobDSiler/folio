@@ -15895,7 +15895,7 @@ function _annSave(list) {
 // ─────────────────────────────────────────────────────────────────────
 
 let _annLastSaved = null;        // last-known list, for diff'ing in _annSave
-let _annCloudUnsubscribe = null; // active onSnapshot handle (one folio at a time)
+let _annCloudUnsubscribers = []; // active onSnapshot handles (non-owners use TWO — see _annSubscribe below)
 let _annLoopGuard = false;       // suppresses cloud-push during snapshot-driven _annSave
 
 function _annSyncableFolioId() {
@@ -15976,10 +15976,29 @@ function _annSyncToCloud(currentList) {
 async function _annInitFromCloud(folioId) {
   if (!folioId || !window._fb || !window._db) return;
   try {
-    const { collection, getDocs } = window._fb;
-    const snap = await getDocs(collection(window._db, 'folio_projects', folioId, 'annotations'));
-    const fromCloud = [];
-    snap.forEach(d => fromCloud.push(Object.assign({ id: d.id }, d.data())));
+    const { collection, getDocs, query, where } = window._fb;
+    const colRef = collection(window._db, 'folio_projects', folioId, 'annotations');
+    const byId = new Map();
+    const isOwner = !!(typeof _loadedFolioOwnerUid !== 'undefined' &&
+                       _loadedFolioOwnerUid && window._uid &&
+                       _loadedFolioOwnerUid === window._uid);
+    if (isOwner) {
+      // Owner — unrestricted list; the rule's parentUid(id) branch allows it.
+      const snap = await getDocs(colRef);
+      snap.forEach(d => byId.set(d.id, Object.assign({ id: d.id }, d.data())));
+    } else {
+      // Non-owner — split into two restricted queries the rule can verify:
+      // public annotations, and the reader's own annotations. Anything
+      // else (editor / collaborator / other readers' personal) is never
+      // read into the browser (audit B4).
+      const pubSnap = await getDocs(query(colRef, where('scope', '==', 'public')));
+      pubSnap.forEach(d => byId.set(d.id, Object.assign({ id: d.id }, d.data())));
+      if (window._uid) {
+        const mineSnap = await getDocs(query(colRef, where('uid', '==', window._uid)));
+        mineSnap.forEach(d => byId.set(d.id, Object.assign({ id: d.id }, d.data())));
+      }
+    }
+    const fromCloud = Array.from(byId.values());
 
     const local = _annLoad();
     const cloudIds = new Set(fromCloud.map(a => a.id));
@@ -16007,36 +16026,63 @@ async function _annInitFromCloud(folioId) {
   }
 }
 
-// Live subscription. Single-flight: attaches one onSnapshot per folio;
-// detaches the previous one whenever the active folio changes.
+// Live subscription. The folio owner gets a single unfiltered listen;
+// non-owners get TWO listens (public scope + their own annotations) so
+// every result satisfies the Firestore rule per-doc (audit B4 — closes
+// the unfiltered-snapshot leak). Both flows merge into a shared Map
+// keyed by doc id and flush together so neither query clobbers the
+// other's contribution.
 function _annSubscribe(folioId) {
-  // Tear down any prior subscription (folio switch, sign-out, etc.).
-  if (_annCloudUnsubscribe) {
-    try { _annCloudUnsubscribe(); } catch(e) {}
-    _annCloudUnsubscribe = null;
-  }
+  // Tear down any prior subscriptions (folio switch, sign-out, etc.).
+  for (const u of _annCloudUnsubscribers) { try { u(); } catch (e) {} }
+  _annCloudUnsubscribers = [];
   if (!folioId || !window._fb || !window._db) return;
   if (typeof window._fb.onSnapshot !== 'function' ||
       typeof window._fb.collection !== 'function') return;
   try {
-    const { collection, onSnapshot } = window._fb;
+    const { collection, onSnapshot, query, where } = window._fb;
     const colRef = collection(window._db, 'folio_projects', folioId, 'annotations');
-    _annCloudUnsubscribe = onSnapshot(colRef, snap => {
-      const fromCloud = [];
-      snap.forEach(d => fromCloud.push(Object.assign({ id: d.id }, d.data())));
-      // Cache-write WITHOUT cloud re-push.
+
+    const byId = new Map();
+    const flush = () => {
+      const merged = Array.from(byId.values());
       _annLoopGuard = true;
       try {
-        _annLastSaved = JSON.parse(JSON.stringify(fromCloud));
-        try { localStorage.setItem(_annFolioKey(), JSON.stringify(fromCloud)); } catch(e){}
+        _annLastSaved = JSON.parse(JSON.stringify(merged));
+        try { localStorage.setItem(_annFolioKey(), JSON.stringify(merged)); } catch (e) {}
       } finally {
         _annLoopGuard = false;
       }
       if (typeof _annRender === 'function') _annRender();
       if (typeof _annRenderSidebarList === 'function') _annRenderSidebarList();
-    }, err => {
-      console.warn('[ann] subscription error', err && err.code || err);
-    });
+    };
+    const onChange = (snap) => {
+      snap.docChanges().forEach(ch => {
+        const d = ch.doc;
+        if (ch.type === 'removed') byId.delete(d.id);
+        else byId.set(d.id, Object.assign({ id: d.id }, d.data()));
+      });
+      flush();
+    };
+    const onErr = (label) => (err) => {
+      console.warn('[ann] ' + label + ' subscription error', err && err.code || err);
+    };
+
+    const isOwner = !!(typeof _loadedFolioOwnerUid !== 'undefined' &&
+                       _loadedFolioOwnerUid && window._uid &&
+                       _loadedFolioOwnerUid === window._uid);
+    if (isOwner) {
+      _annCloudUnsubscribers.push(onSnapshot(colRef, onChange, onErr('all')));
+    } else {
+      _annCloudUnsubscribers.push(
+        onSnapshot(query(colRef, where('scope', '==', 'public')), onChange, onErr('public'))
+      );
+      if (window._uid) {
+        _annCloudUnsubscribers.push(
+          onSnapshot(query(colRef, where('uid', '==', window._uid)), onChange, onErr('mine'))
+        );
+      }
+    }
   } catch (e) {
     console.warn('[ann] subscribe failed', e);
   }
