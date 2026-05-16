@@ -699,4 +699,126 @@ export default {
     // POST /send
     //   { folioId, chapterIndex, chapterTitle, folioTitle,
     //     folioAuthor, readerUrl, unsubscribeUrl, to }
-    // The Folio app 
+    // The Folio app calls this once per subscriber when a chapter
+    // unlocks. Rate-limited by source IP (60/hr) — the origin
+    // allowlist is CORS-only and doesn't stop server-side callers,
+    // so the IP cap is the real abuse brake.
+    if (request.method === 'POST' && path === '/send') {
+      const okRate = await checkRateLimit(request, { cap: 60, bucket: 'send' });
+      if (!okRate) {
+        return errorJson('Rate limited (60/hr per IP)', 429, request, env);
+      }
+      let payload;
+      try {
+        payload = await request.json();
+      } catch (e) {
+        return errorJson('Body must be valid JSON', 400, request, env);
+      }
+      if (!payload || typeof payload !== 'object') {
+        return errorJson('Body must be a JSON object', 400, request, env);
+      }
+      const to = String(payload.to || '').trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+        return errorJson('Missing or invalid "to" address', 400, request, env);
+      }
+      payload.to = to;
+      try {
+        const result = await sendViaResend(env, payload);
+        return json({ ok: true, id: result && result.id }, 200, request, env);
+      } catch (e) {
+        return errorJson('Send failed: ' + (e.message || 'unknown'),
+                         e.status || 502, request, env);
+      }
+    }
+
+    // ── Unsubscribe endpoint (audit B5) ────────────────────────────
+    // GET (or POST) /unsubscribe?token=<unsubscribeToken>&folio=<folioId>
+    // Top-level navigation target for the unsubscribe link in
+    // chapter-release emails. Uses the service account to find +
+    // delete the matching subscriber doc and returns a styled HTML
+    // confirmation page. Rate-limited (20/hr per IP).
+    if ((request.method === 'GET' || request.method === 'POST') && path === '/unsubscribe') {
+      const okRate = await checkRateLimit(request, { cap: 20, bucket: 'unsub' });
+      if (!okRate) {
+        return new Response(
+          unsubHtml(env, 'error', 'Too many unsubscribe attempts from this network. Please wait an hour and try again.'),
+          { status: 429, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+        );
+      }
+      const tokenQ = (url.searchParams.get('token') || '').trim();
+      const folioId = (url.searchParams.get('folio') || '').trim();
+      if (!/^[a-f0-9]{16,64}$/i.test(tokenQ) || !folioId) {
+        return new Response(
+          unsubHtml(env, 'error', 'This unsubscribe link is malformed.'),
+          { status: 400, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+        );
+      }
+      try {
+        const auth = await getAccessToken(env);
+        const projectId = env.FIRESTORE_PROJECT_ID || auth.projectId;
+        if (!projectId) throw new Error('No Firestore project id');
+        const subs = await fsList(
+          projectId, auth.token,
+          'folio_projects/' + encodeURIComponent(folioId) + '/subscribers'
+        );
+        const match = subs.filter(s => s.data && s.data.unsubscribeToken === tokenQ);
+        if (match.length === 0) {
+          return new Response(
+            unsubHtml(env, 'already', 'You were already unsubscribed (or this link has expired). No further chapter emails will be sent.'),
+            { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+          );
+        }
+        for (const m of match) {
+          await fsDelete(projectId, auth.token, m.name);
+        }
+        console.log('[unsub] removed', match.length, 'subscriber(s) from', folioId);
+        return new Response(
+          unsubHtml(env, 'ok', 'You\'ve been unsubscribed. You won\'t receive any further chapter emails from this serial.'),
+          { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+        );
+      } catch (e) {
+        console.error('[unsub] failed', folioId, e && (e.stack || e.message || e));
+        return new Response(
+          unsubHtml(env, 'error', 'Unsubscribe failed: ' + (e.message || 'unknown error') + '. Please try again or email folio@jacobsiler.com.'),
+          { status: 502, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+        );
+      }
+    }
+
+    // ── Manual cron trigger (testing only) ─────────────────────
+    // GET /cron-run?key=<CRON_TRIGGER_KEY>
+    // Runs the scheduled job on demand so you don't have to wait for
+    // the hourly tick. Disabled entirely unless CRON_TRIGGER_KEY is
+    // set; ?key must match it exactly.
+    if (request.method === 'GET' && path === '/cron-run') {
+      if (!env.CRON_TRIGGER_KEY) {
+        return errorJson('Manual cron trigger disabled (set CRON_TRIGGER_KEY to enable)',
+                         403, request, env);
+      }
+      if (url.searchParams.get('key') !== env.CRON_TRIGGER_KEY) {
+        return errorJson('Bad or missing ?key', 403, request, env);
+      }
+      try {
+        const summary = await runCron(env);
+        return json({ ok: true, summary }, 200, request, env);
+      } catch (e) {
+        return errorJson('Cron run failed: ' + (e.message || 'unknown'),
+                         502, request, env);
+      }
+    }
+
+    // ── Fallthrough — unknown route ────────────────────────
+    return errorJson('Not found: ' + request.method + ' ' + path, 404, request, env);
+  },
+
+  // ── Scheduled (Cron Trigger) handler ─────────────────────
+  async scheduled(event, env, ctx) {
+    try {
+      const summary = await runCron(env);
+      console.log('[cron] scheduled tick OK', JSON.stringify(summary));
+    } catch (e) {
+      console.error('[cron] scheduled tick FAILED',
+        e && (e.stack || e.message || e));
+    }
+  },
+};

@@ -3436,6 +3436,43 @@ async function _buildCloudSavePayload(name, opts) {
       return im;
     });
   }
+
+  // PAID-CONTENT SPLIT (audit D1). For paid folios, paid chapter
+  // content must not land in body/main (non-owners can read body/main
+  // on a published folio). Blank those chapters in the body/main copy
+  // and emit them in a separate bodyPaidPayload destined for
+  // folio_projects/{id}/body/paid, which the rule locks to owner-only.
+  let bodyPaidPayload = null;
+  const _d1Release = (typeof _rlCurrent !== 'undefined' && _rlCurrent) ? _rlCurrent : null;
+  if (_d1Release && _d1Release.priceMode === 'paid' && Array.isArray(stateObj.chapters)) {
+    const _previewN = Number(_d1Release.previewSections) || 0;
+    const _paidContentMap = {};
+    let _chCount = 0;
+    stateObj.chapters = stateObj.chapters.map(c => {
+      if (!c || c.type !== 'chapter') return c;
+      _chCount++;
+      if (_chCount > _previewN) {
+        _paidContentMap[c.id] = c.content || '';
+        return Object.assign({}, c, { content: '' });
+      }
+      return c;
+    });
+    if (Object.keys(_paidContentMap).length > 0) {
+      const _paidJson = JSON.stringify({ chapters: _paidContentMap });
+      let _paidGz = null;
+      if (_supportsCompressionStream()) {
+        try { _paidGz = await _gzipToBase64(_paidJson); }
+        catch (e) { console.warn('[D1] paid body gzip failed:', e); }
+      }
+      bodyPaidPayload = {
+        uid: window._uid,
+        updatedAt: window._fb.serverTimestamp(),
+      };
+      if (_paidGz) bodyPaidPayload.content_gz = _paidGz;
+      else         bodyPaidPayload.content    = { chapters: _paidContentMap };
+    }
+  }
+
   const stateJson = JSON.stringify(stateObj);
   const chapterCount = (Array.isArray(stateObj.chapters) ? stateObj.chapters.length : 0);
   const wordCount = (typeof getWordCount === 'function')
@@ -3510,7 +3547,7 @@ async function _buildCloudSavePayload(name, opts) {
   if (opts.autoSaved) parentPayload.autoSaved = true;
   if (opts.copiedFrom) parentPayload.copiedFrom = opts.copiedFrom;
 
-  return { parentPayload: parentPayload, bodyPayload: bodyPayload, stateObj: stateObj };
+  return { parentPayload: parentPayload, bodyPayload: bodyPayload, bodyPaidPayload: bodyPaidPayload, stateObj: stateObj };
 }
 
 
@@ -4016,7 +4053,7 @@ window._surfaceCloudError = _surfaceCloudError;
 // didn't exist yet, and on any folio whose rules check the parent's uid
 // the body write couldn't satisfy them.)
 async function _writeFolioCloud(folioId, name, opts) {
-  const { parentPayload, bodyPayload } = await _buildCloudSavePayload(name, opts);
+  const { parentPayload, bodyPayload, bodyPaidPayload } = await _buildCloudSavePayload(name, opts);
   const parentRef = window._fb.doc(window._db, 'folio_projects', folioId);
   const bodyRef   = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'main');
 
@@ -4063,6 +4100,23 @@ async function _writeFolioCloud(folioId, name, opts) {
       throw e2;
     }
   }
+
+  // PAID-CONTENT SPLIT (audit D1). For paid folios, write the paid
+  // chapter content to body/paid (owner-only at the rules layer).
+  // For non-paid folios, best-effort delete any stale body/paid doc.
+  // Failures here are NON-FATAL — body/main + parent are already
+  // written, so the editor state on the cloud remains coherent and
+  // the next save retries.
+  try {
+    const _paidRef = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'paid');
+    if (bodyPaidPayload) {
+      try { await window._fb.setDoc(_paidRef, bodyPaidPayload); }
+      catch (e) { console.warn('[D1] body/paid setDoc failed:', e); }
+    } else {
+      // Cleanup if the folio changed paid → free/private (404 is fine).
+      try { await window._fb.deleteDoc(_paidRef); } catch (e) {}
+    }
+  } catch (e) { console.warn('[D1] body/paid step failed:', e); }
 }
 
 // Read state from either:
@@ -4071,6 +4125,7 @@ async function _writeFolioCloud(folioId, name, opts) {
 //   3. The parent doc's state field (oldest legacy)
 // folioId is optional — when omitted, only paths 2/3 are tried.
 async function _readDocState(data, folioId) {
+  let state = null;
   // Try the body subdoc first (new schema).
   if (folioId && window._fb && window._db) {
     try {
@@ -4081,23 +4136,89 @@ async function _readDocState(data, folioId) {
         if (b.state_gz && _supportsCompressionStream()) {
           try {
             const json = await _gunzipFromBase64(b.state_gz);
-            return JSON.parse(json);
+            state = JSON.parse(json);
           } catch (e) { console.warn('[FOLIO] body gunzip failed:', e); }
         }
-        if (b.state) return b.state;
+        if (!state && b.state) state = b.state;
       }
     } catch (e) { console.warn('[FOLIO] body fetch failed, falling back:', e); }
   }
   // Legacy: parent's state_gz field (intermediate schema between
   // 2026-05-06-compress-state and now).
-  if (data && data.state_gz && _supportsCompressionStream()) {
+  if (!state && data && data.state_gz && _supportsCompressionStream()) {
     try {
       const json = await _gunzipFromBase64(data.state_gz);
-      return JSON.parse(json);
+      state = JSON.parse(json);
     } catch (e) { console.warn('[FOLIO] parent gunzip failed, falling back:', e); }
   }
   // Oldest: parent's `state` object (pre-compression).
-  return (data && data.state) || null;
+  if (!state) state = (data && data.state) || null;
+
+  // PAID-CONTENT MERGE (audit D1). body/main only carries free-preview
+  // chapter content for paid folios; the paid chapter content lives
+  // in body/paid, which the Firestore rule restricts to owner-only.
+  //   • Owner: fetch body/paid via the SDK directly (rule allows it).
+  //   • Non-owner with a valid JWT: fetch via the paywall worker's
+  //     /paid-content endpoint, which HMAC-verifies the license and
+  //     uses a service account to read body/paid on the buyer's behalf.
+  //   • Non-owner without a JWT: skip — the paywall UI shows the buy
+  //     CTA. Paid chapter content stays empty.
+  if (state && data && data.release && data.release.priceMode === 'paid' && folioId) {
+    try {
+      const _isOwner = !!(window._uid && data.uid && data.uid === window._uid);
+      let _paidDoc = null;
+      if (_isOwner) {
+        try {
+          const _paidRef = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'paid');
+          const _paidSnap = await window._fb.getDoc(_paidRef);
+          if (_paidSnap.exists()) _paidDoc = _paidSnap.data();
+        } catch (e) { console.warn('[D1] owner body/paid fetch failed:', e); }
+      } else if (typeof _pwGetToken === 'function' && typeof _pwIsValid === 'function') {
+        const _tk = _pwGetToken(folioId);
+        if (_tk && _pwIsValid(_tk)) {
+          try {
+            const _url = (typeof PAYWALL_WORKER_URL === 'string' && PAYWALL_WORKER_URL)
+              ? PAYWALL_WORKER_URL
+              : 'https://folio-paywall.jacobdsiler.workers.dev';
+            const _r = await fetch(_url + '/paid-content?folio=' + encodeURIComponent(folioId), {
+              headers: { 'Authorization': 'Bearer ' + _tk.token },
+            });
+            if (_r.ok) {
+              const _j = await _r.json().catch(() => ({}));
+              if (_j && _j.ok && _j.body) _paidDoc = _j.body;
+            } else {
+              console.warn('[D1] paid-content worker returned', _r.status);
+            }
+          } catch (e) { console.warn('[D1] paid-content fetch failed:', e); }
+        }
+      }
+      if (_paidDoc) {
+        let _map = null;
+        if (_paidDoc.content_gz && _supportsCompressionStream()) {
+          try {
+            const _json = await _gunzipFromBase64(_paidDoc.content_gz);
+            const _parsed = JSON.parse(_json);
+            _map = _parsed && _parsed.chapters;
+          } catch (e) { console.warn('[D1] paid body gunzip failed:', e); }
+        }
+        if (!_map && _paidDoc.content && _paidDoc.content.chapters) {
+          _map = _paidDoc.content.chapters;
+        }
+        if (_map && Array.isArray(state.chapters)) {
+          state.chapters = state.chapters.map(c => {
+            if (c && c.type === 'chapter' && _map[c.id] != null) {
+              return Object.assign({}, c, { content: _map[c.id] });
+            }
+            return c;
+          });
+        }
+      }
+    } catch (e) {
+      console.warn('[D1] paid-content merge failed:', e);
+    }
+  }
+
+  return state;
 }
 
 window._gzipToBase64        = _gzipToBase64;

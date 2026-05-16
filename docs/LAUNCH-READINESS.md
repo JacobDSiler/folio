@@ -138,7 +138,44 @@ updated `docs/firestore.rules` in the console to pick up the change.
 
 ## Risks & decisions (your call, not blockers)
 
-### D1 — The paywall is not DRM
+### D1 — Paywall is now server-gated · DONE
+
+**Status: shipped.** Paid chapter content no longer reaches a
+non-buyer's browser. The body subdoc was split: `body/main` carries
+the manuscript with paid chapters' content blanked (only free preview
+chapters retain text); `body/paid` is owner-only at the Firestore rule
+layer and holds the paid chapter content keyed by chapter id. On save,
+`_buildCloudSavePayload` produces both payloads and `_writeFolioCloud`
+writes them (deleting `body/paid` when a folio changes paid → free).
+On load, `_readDocState` merges paid content back into the in-memory
+state — owner via the SDK directly (rule allows it), verified buyer
+via the paywall worker's new `/paid-content` endpoint (HMAC-verifies
+the JWT, fetches `body/paid` via the service account, returns the
+gzipped map). Non-buyers receive only the free preview from
+`body/main`; the existing paywall UI shows the buy CTA.
+
+**True statements you can now make about Folio's paid content:**
+
+- Paid chapter content is never delivered to a browser without a
+  license JWT that the paywall worker has HMAC-verified server-side.
+- Free-preview chapters are public; paid chapters live in a separate
+  Firestore document that anonymous reads cannot reach.
+- The license JWT is scoped to a specific folio at issuance time, so
+  one folio's license can't unlock another's paid content.
+
+**Honestly remaining (and true of all digital text):** once a paying
+reader's browser has rendered the content, they can copy, screenshot,
+or save it. License sharing (one buyer distributing their JWT) is the
+realistic abuse vector — the worker can rate-limit per-license fetches
+when/if that surfaces.
+
+**Required setup (Jacob's side):** add the `GCP_SERVICE_ACCOUNT`
+secret (same JSON used by the email worker) to the **paywall** worker
+in Cloudflare too, and re-apply `docs/firestore.rules` in the Firebase
+console so the new `body/paid` rule takes effect. Re-save any existing
+paid folio once to migrate it to the split layout.
+
+### D1 — Paywall is not DRM (original write-up, retained for context)
 
 This is a positioning decision, not a bug. As built, the paywall is
 honest-person protection only:
