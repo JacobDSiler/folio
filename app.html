@@ -5026,9 +5026,9 @@ async function loadFolioById(id) {
     if (_spinner) _spinner.remove();
     renderPreview();
 
-    // Switch to Chapters tab immediately so user sees their content
-    const chapBtn = document.querySelectorAll('.tab-btn')[1];
-    if (chapBtn) switchTab('chapters', chapBtn);
+    // Restore the author's last-selected tab (falls back to Chapters
+    // on first-ever load, preserving the original new-author behaviour).
+    _restoreLastTabOr('chapters');
 
     _hideSaving();
     setStatus(`Folio "${data.name}" loaded ✓`);
@@ -5543,9 +5543,41 @@ function switchTab(id,btn){
     document.getElementById('tab-'+t).style.display=(t===id)?'':'none';
   });
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
   if(id==='chapters') renderChapterList();
+  // Remember the choice so a refresh lands on the same tab.
+  try { localStorage.setItem('folio_lastTab', id); } catch (e) {}
 }
+
+/* Find the .tab-btn whose onclick targets a specific tab id.
+   We can't use the nth-child shortcut here because the icon-only
+   "Folio" tab uses different markup. */
+function _tabBtnFor(id) {
+  const all = document.querySelectorAll('.tab-btn');
+  for (const b of all) {
+    const oc = b.getAttribute('onclick') || '';
+    if (oc.indexOf("'" + id + "'") !== -1) return b;
+  }
+  return null;
+}
+window._tabBtnFor = _tabBtnFor;
+
+/* Restore the last-selected tab from localStorage, falling back
+   to a caller-supplied default. Used by the folio-load path so a
+   refresh lands on the author's last tab rather than always
+   jumping to Chapters. */
+function _restoreLastTabOr(defaultId) {
+  let id = defaultId || 'chapters';
+  try {
+    const saved = localStorage.getItem('folio_lastTab');
+    if (saved && ['import','chapters','details','design','type','images','project'].indexOf(saved) !== -1) {
+      id = saved;
+    }
+  } catch (e) {}
+  const btn = _tabBtnFor(id);
+  if (btn) switchTab(id, btn);
+}
+window._restoreLastTabOr = _restoreLastTabOr;
 
 /* ═══════════════════════════════════════════════
    SCHEMA MODAL
