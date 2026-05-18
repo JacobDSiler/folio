@@ -20346,6 +20346,8 @@ window._apOnImportFile       = _apOnImportFile;
   position: absolute;
   max-width: 360px;
   width: calc(100% - 32px);
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   background: var(--surface, #fff);
   color: var(--text, #1a1a1a);
   border-radius: 14px;
@@ -20355,6 +20357,34 @@ window._apOnImportFile       = _apOnImportFile;
   font-size: 13px;
   line-height: 1.55;
   transition: top .35s ease, left .35s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+#folioTour .ft-card .ft-row {
+  position: sticky;
+  bottom: -16px;
+  background: var(--surface, #fff);
+  padding: 6px 0 0;
+  margin-top: auto;
+  z-index: 1;
+}
+
+/* Bottom-sheet mode for narrow viewports — pins the card to the
+   bottom of the screen so the spotlight + the card never collide,
+   buttons stay visible, and content scrolls internally when long. */
+@media (max-width: 699px) {
+  #folioTour .ft-card {
+    max-width: none;
+    width: calc(100% - 16px);
+    max-height: 45vh;
+    border-radius: 14px 14px 10px 10px;
+    padding: 16px 16px 14px;
+    transition: none;
+  }
+  /* JS positions the card via inline styles. The media-query rule
+     just ensures the dimensions fit when the JS asks for bottom-
+     sheet placement. */
 }
 #folioTour .ft-kicker {
   font-size: 10.5px;
@@ -20575,7 +20605,7 @@ const _TOUR_STOPS_READER = [
     target: '#bookPreview',
     position: 'right',
     title: 'The pages',
-    body: 'Click anywhere on a page to turn it. Use <em>←</em> and <em>→</em> on your keyboard too. Everything you change about the reader (text size, fonts, bookmarks, notes) lives in your browser and syncs if you\'re signed in.',
+    body: 'Pages are stacked top-to-bottom — scroll with your mouse wheel, trackpad, or finger. Use the <em>Chapters</em> dropdown above to jump anywhere in the book, or <em>Home</em>/<em>End</em> on a keyboard to skip to the start or end. Everything you change (text size, fonts, bookmarks, notes) lives in your browser and syncs if you\'re signed in.',
   },
   {
     target: '#rdChapSel',
@@ -20685,12 +20715,27 @@ function _tourPosition() {
   if (!stop || !card || !spot || !tour) return;
   const vw = window.innerWidth;
   const vh = window.innerHeight;
+  // Mobile / narrow viewports: skip the side-of-target placement
+  // entirely and use a fixed bottom-sheet card. The spotlight +
+  // overlays still highlight the target above; the card stays
+  // pinned to the bottom of the screen so buttons are always
+  // reachable and the layout never spills.
+  const MOBILE = vw < 700;
   // Centered card if no target.
   if (!stop.target) {
     tour.classList.add('ft-no-spot');
+    if (MOBILE) {
+      card.style.width = '';
+      card.style.left  = '8px';
+      card.style.right = '8px';
+      card.style.top   = '';
+      card.style.bottom = '8px';
+      return;
+    }
     const cw = Math.min(360, vw - 32);
     card.style.width = cw + 'px';
-    // measure post-paint
+    card.style.right = '';
+    card.style.bottom = '';
     setTimeout(() => {
       const ch = card.offsetHeight;
       card.style.left = ((vw - cw) / 2) + 'px';
@@ -20703,7 +20748,18 @@ function _tourPosition() {
   if (!el) {
     // Target missing — treat as centered.
     tour.classList.add('ft-no-spot');
+    if (MOBILE) {
+      card.style.width = '';
+      card.style.left  = '8px';
+      card.style.right = '8px';
+      card.style.top   = '';
+      card.style.bottom = '8px';
+      return;
+    }
     const cw = Math.min(360, vw - 32);
+    card.style.width = cw + 'px';
+    card.style.right = '';
+    card.style.bottom = '';
     card.style.left = ((vw - cw) / 2) + 'px';
     card.style.top  = ((vh - card.offsetHeight) / 2) + 'px';
     return;
@@ -20732,6 +20788,18 @@ function _tourPosition() {
     if (dB) { dB.style.top = (sTop + sH) + 'px'; dB.style.left = '0'; dB.style.right = '0';  dB.style.bottom = '0'; }
     if (dL) { dL.style.top = sTop + 'px'; dL.style.left  = '0';       dL.style.width  = sLeft + 'px'; dL.style.height = sH + 'px'; }
     if (dR) { dR.style.top = sTop + 'px'; dR.style.left  = (sLeft + sW) + 'px'; dR.style.right = '0'; dR.style.height = sH + 'px'; }
+    if (MOBILE) {
+      // Bottom-sheet: full-width card pinned to the bottom of the screen.
+      card.style.width  = '';
+      card.style.left   = '8px';
+      card.style.right  = '8px';
+      card.style.top    = '';
+      card.style.bottom = '8px';
+      return;
+    }
+    // Reset bottom/right so desktop placement uses top/left.
+    card.style.right  = '';
+    card.style.bottom = '';
     // Position the card. Pick a side based on `position` + available space.
     const cw = Math.min(360, vw - 32);
     card.style.width = cw + 'px';
@@ -20751,8 +20819,13 @@ function _tourPosition() {
     else if (pos === 'top')    { top = r.top - gap - ch; left = clamp(r.left + r.width/2 - cw/2, 12, vw - cw - 12); }
     else if (pos === 'right')  { left = r.right + gap; top = clamp(r.top + r.height/2 - ch/2, 12, vh - ch - 12); }
     else                        { left = r.left - gap - cw; top = clamp(r.top + r.height/2 - ch/2, 12, vh - ch - 12); }
-    card.style.top  = top  + 'px';
-    card.style.left = left + 'px';
+    // Final hard clamp — guarantees the card stays fully on-screen
+    // even if the side-picker cascade couldn't find a perfect fit.
+    top  = clamp(top,  12, vh - ch - 12);
+    left = clamp(left, 12, vw - cw - 12);
+    card.style.width = cw + 'px';
+    card.style.top   = top  + 'px';
+    card.style.left  = left + 'px';
   }, 120);
 
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
@@ -20795,11 +20868,8 @@ function _tourMaybePrompt() {
   try {
     if (localStorage.getItem(seenKey) === '1') return;
     if (localStorage.getItem(promptKey) === '1') return;
-    if (!inReader) {
-      // Editor mode: only prompt once they actually have a folio open.
-      const hasName = (document.getElementById('projName') && document.getElementById('projName').value || '').trim();
-      if (!hasName) return;
-    }
+    // Don't prompt while the tour itself is already open.
+    if (window._tourActive) return;
   } catch (e) { return; }
   // Swap the prompt copy for reader mode.
   const msg = document.getElementById('ftpMsg');
@@ -20836,6 +20906,14 @@ document.addEventListener('keydown', function (e) {
    projName and the user to look around briefly. */
 window.addEventListener('folio-loaded', function () {
   setTimeout(_tourMaybePrompt, 4000);
+});
+
+/* Fallback: if folio-loaded never fires (offline / missing folio /
+   fresh visitor with no project), still surface the prompt after a
+   reasonable delay. The localStorage flags prevent duplicate prompts
+   when both timers fire on a successful load. */
+window.addEventListener('DOMContentLoaded', function () {
+  setTimeout(_tourMaybePrompt, 8000);
 });
 </script>
 </body>
