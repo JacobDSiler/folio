@@ -20306,26 +20306,41 @@ window._apOnImportFile       = _apOnImportFile;
 }
 #folioTour.open { display: block; }
 
-#folioTour .ft-dim {
+/* Four blur overlays around the spot — top / bottom / left / right.
+   The "spot" itself has no overlay, so it stays crystal clear while
+   the rest of the page is dim + blurred. Each overlay carries the
+   same blur/tint, positioned via inline styles by _tourPosition. */
+#folioTour .ft-dim,
+#folioTour .ft-dim-t,
+#folioTour .ft-dim-b,
+#folioTour .ft-dim-l,
+#folioTour .ft-dim-r {
   position: absolute;
-  inset: 0;
   background: rgba(10, 8, 5, 0.55);
-  backdrop-filter: blur(1px);
-  -webkit-backdrop-filter: blur(1px);
-  transition: opacity .25s;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: top .25s ease, left .25s ease, right .25s ease, bottom .25s ease, width .25s ease, height .25s ease;
 }
+/* The .ft-dim fallback covers the full screen when there's no target
+   (welcome/finish stops). The quadrant overlays are used for stops
+   anchored on a real element. */
+#folioTour .ft-dim   { inset: 0; }
+#folioTour.ft-no-spot .ft-dim-t,
+#folioTour.ft-no-spot .ft-dim-b,
+#folioTour.ft-no-spot .ft-dim-l,
+#folioTour.ft-no-spot .ft-dim-r { display: none; }
+#folioTour:not(.ft-no-spot) .ft-dim { display: none; }
 
-/* Spotlight ring around the highlighted element. Drawn as an outline
-   on an absolutely-positioned div placed over the target. */
+/* Spotlight ring drawn AROUND the (now transparent) cleared region
+   to give it a soft highlight glow that draws the eye. */
 #folioTour .ft-spot {
   position: absolute;
   border-radius: 10px;
-  box-shadow: 0 0 0 9999px rgba(10,8,5,0.55), 0 0 0 3px rgba(255,255,255,0.85), 0 0 24px rgba(255,255,255,0.5);
+  box-shadow: 0 0 0 3px rgba(255,255,255,0.85), 0 0 24px rgba(255,255,255,0.55);
   pointer-events: none;
   transition: top .35s ease, left .35s ease, width .35s ease, height .35s ease;
 }
 #folioTour.ft-no-spot .ft-spot { display: none; }
-#folioTour.ft-no-spot .ft-dim  { background: rgba(10, 8, 5, 0.55); }
 
 #folioTour .ft-card {
   position: absolute;
@@ -20429,7 +20444,6 @@ window._apOnImportFile       = _apOnImportFile;
   color: var(--text, #1a1a1a);
   max-width: 460px;
   width: calc(100% - 32px);
-  display: flex;
   align-items: center;
   gap: 14px;
 }
@@ -20455,7 +20469,11 @@ window._apOnImportFile       = _apOnImportFile;
 
 <!-- ══════ GUIDED TOUR ══════ -->
 <div id="folioTour" role="dialog" aria-modal="true" aria-labelledby="ftTitle" aria-hidden="true">
-  <div class="ft-dim" onclick="_tourSkip()"></div>
+  <div class="ft-dim"   onclick="_tourSkip()"></div>
+  <div class="ft-dim-t" id="ftDimT" onclick="_tourSkip()"></div>
+  <div class="ft-dim-b" id="ftDimB" onclick="_tourSkip()"></div>
+  <div class="ft-dim-l" id="ftDimL" onclick="_tourSkip()"></div>
+  <div class="ft-dim-r" id="ftDimR" onclick="_tourSkip()"></div>
   <div class="ft-spot" id="ftSpot"></div>
   <div class="ft-card" id="ftCard">
     <div class="ft-kicker" id="ftKicker">Step 1 of 7</div>
@@ -20551,7 +20569,7 @@ const _TOUR_STOPS_READER = [
   {
     target: null,
     title: 'Welcome — you\'re reading a Folio book',
-    body: 'Folio readers are full-featured: bookmarks, annotations, hover-pronunciations, audiobook playback, even chapter-by-chapter subscriptions for serial releases. The tour takes about a minute.',
+    body: 'Folio readers are full-featured: bookmarks, annotations, hover-pronunciations, audiobook playback, even free email alerts when the next chapter unlocks on a serial release. The tour takes about a minute.',
   },
   {
     target: '#bookPreview',
@@ -20575,7 +20593,7 @@ const _TOUR_STOPS_READER = [
     target: '#rdPronBtn',
     position: 'bottom',
     title: 'Pronunciation tips',
-    body: 'For books with names or words that look unfamiliar, toggle this on and hover over highlighted words — Folio shows the author\'s pronunciation hint. Great for Irish or fantasy novels.',
+    body: 'For any book with names or words that look unfamiliar — technical terms, foreign vocabulary, place names, period words, fantasy or sci-fi coinage, anything — toggle this on and hover over highlighted words to see the author\'s pronunciation hint.',
   },
   {
     target: '#rdBmBtn',
@@ -20593,7 +20611,7 @@ const _TOUR_STOPS_READER = [
     target: '#rdAudioBtn',
     position: 'bottom',
     title: 'Listen along',
-    body: 'If the author bundled an audiobook with this release, the 🎧 button opens a player synced to chapters. For paid books, your license unlocks the audio too.',
+    body: 'If the author bundled an audiobook with this release, the 🎧 button opens a player synced to chapters. For paid books, the same purchase unlocks the audio too — no extra step.',
   },
   {
     target: null,
@@ -20696,10 +20714,24 @@ function _tourPosition() {
     const r = el.getBoundingClientRect();
     // Inflate spotlight by 6px on each side.
     const pad = 6;
-    spot.style.top    = (r.top    - pad) + 'px';
-    spot.style.left   = (r.left   - pad) + 'px';
-    spot.style.width  = (r.width  + pad * 2) + 'px';
-    spot.style.height = (r.height + pad * 2) + 'px';
+    const sTop  = Math.max(0, r.top    - pad);
+    const sLeft = Math.max(0, r.left   - pad);
+    const sW    = r.width  + pad * 2;
+    const sH    = r.height + pad * 2;
+    spot.style.top    = sTop  + 'px';
+    spot.style.left   = sLeft + 'px';
+    spot.style.width  = sW    + 'px';
+    spot.style.height = sH    + 'px';
+    // Position four blur overlays around the spot so only the
+    // highlighted region stays crystal clear.
+    const dT = document.getElementById('ftDimT');
+    const dB = document.getElementById('ftDimB');
+    const dL = document.getElementById('ftDimL');
+    const dR = document.getElementById('ftDimR');
+    if (dT) { dT.style.top = '0';        dT.style.left  = '0';       dT.style.right = '0';  dT.style.height = sTop + 'px'; }
+    if (dB) { dB.style.top = (sTop + sH) + 'px'; dB.style.left = '0'; dB.style.right = '0';  dB.style.bottom = '0'; }
+    if (dL) { dL.style.top = sTop + 'px'; dL.style.left  = '0';       dL.style.width  = sLeft + 'px'; dL.style.height = sH + 'px'; }
+    if (dR) { dR.style.top = sTop + 'px'; dR.style.left  = (sLeft + sW) + 'px'; dR.style.right = '0'; dR.style.height = sH + 'px'; }
     // Position the card. Pick a side based on `position` + available space.
     const cw = Math.min(360, vw - 32);
     card.style.width = cw + 'px';
