@@ -28,6 +28,19 @@
       st.id = '__folio-boot-tab';
       st.textContent = css;
       document.head.appendChild(st);
+      // Safety net: once DOM is ready, convert the !important CSS
+      // into one-shot inline styles, then drop the stylesheet so
+      // future switchTab calls work normally.
+      document.addEventListener('DOMContentLoaded', function () {
+        try {
+          valid.forEach(function (t) {
+            var el = document.getElementById('tab-' + t);
+            if (el) el.style.display = (t === saved) ? '' : 'none';
+          });
+          var bs = document.getElementById('__folio-boot-tab');
+          if (bs) bs.parentNode.removeChild(bs);
+        } catch (e) {}
+      });
     } catch (e) {}
   })();
 </script>
@@ -5079,6 +5092,9 @@ async function loadFolioById(id) {
     _hideSaving();
     setStatus(`Folio "${data.name}" loaded ✓`);
     toastInfo(`Opened: ${data.name}`, { icon: '📖', duration: 2500, id: 'loaded' });
+    // Fire the long-dormant folio-loaded event so listeners (tour
+    // auto-prompt, pronunciation re-render, future hooks) can run.
+    try { window.dispatchEvent(new CustomEvent('folio-loaded', { detail: { id: id, name: data.name, mode: 'editor' } })); } catch (e) {}
     if (typeof _updateSaveCopyVisibility === 'function') _updateSaveCopyVisibility();
 
     // Background tasks — don't block the UI
@@ -5585,8 +5601,15 @@ let importSchema=JSON.parse(JSON.stringify(SCHEMA_PRESETS.default));
    TABS
 ═══════════════════════════════════════════════ */
 function switchTab(id,btn){
+  // Drop the boot-flicker stylesheet on first switch — its !important
+  // rules would otherwise override the inline display changes below.
+  try {
+    var _bs = document.getElementById('__folio-boot-tab');
+    if (_bs) _bs.parentNode.removeChild(_bs);
+  } catch (e) {}
   ['import','chapters','details','design','type','images','project'].forEach(t=>{
-    document.getElementById('tab-'+t).style.display=(t===id)?'':'none';
+    var el = document.getElementById('tab-'+t);
+    if (el) el.style.display = (t === id) ? '' : 'none';
   });
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   if (btn) btn.classList.add('active');
@@ -20045,6 +20068,7 @@ window._apOnImportFile       = _apOnImportFile;
   <button id="rdBmBtn"  onclick="_rdOpenDrawer('bookmarks')" title="Bookmarks">🔖</button>
   <button id="rdAnBtn"  onclick="_rdOpenDrawer('annotations')" title="Notes">✍</button>
   <button id="rdAudioBtn" onclick="_rdAudioToggleDrawer()" title="Audiobook">🎧</button>
+  <button id="rdTourBtn"  onclick="_tourStart()" title="Take the reader tour" style="background:none;border:none;font-size:14px;cursor:pointer;color:var(--hint);padding:4px 8px;border-radius:6px;margin-left:4px">?</button>
 </div>
 
 <div id="rdAudioDrawer" role="dialog" aria-label="Audiobook player">
@@ -20472,7 +20496,7 @@ window._apOnImportFile       = _apOnImportFile;
      window._tourActive             - true while tour is running
 */
 
-const _TOUR_STOPS = [
+const _TOUR_STOPS_EDITOR = [
   {
     target: null,
     title: 'Welcome to Folio',
@@ -20523,6 +20547,68 @@ const _TOUR_STOPS = [
   },
 ];
 
+const _TOUR_STOPS_READER = [
+  {
+    target: null,
+    title: 'Welcome — you\'re reading a Folio book',
+    body: 'Folio readers are full-featured: bookmarks, annotations, hover-pronunciations, audiobook playback, even chapter-by-chapter subscriptions for serial releases. The tour takes about a minute.',
+  },
+  {
+    target: '#bookPreview',
+    position: 'right',
+    title: 'The pages',
+    body: 'Click anywhere on a page to turn it. Use <em>←</em> and <em>→</em> on your keyboard too. Everything you change about the reader (text size, fonts, bookmarks, notes) lives in your browser and syncs if you\'re signed in.',
+  },
+  {
+    target: '#rdChapSel',
+    position: 'bottom',
+    title: 'Jump between chapters',
+    body: 'The dropdown shows every chapter in this book. Locked chapters in a serial release stay greyed out until their unlock date — no spoilers from the table of contents.',
+  },
+  {
+    target: '#rdTypoBtn',
+    position: 'bottom',
+    title: 'Make it comfortable',
+    body: 'Pick your font (Lora, Inter, Playfair, dyslexic-friendly), text size, and line height. Folio remembers your settings per device.',
+  },
+  {
+    target: '#rdPronBtn',
+    position: 'bottom',
+    title: 'Pronunciation tips',
+    body: 'For books with names or words that look unfamiliar, toggle this on and hover over highlighted words — Folio shows the author\'s pronunciation hint. Great for Irish or fantasy novels.',
+  },
+  {
+    target: '#rdBmBtn',
+    position: 'bottom',
+    title: 'Bookmarks',
+    body: 'Save your place — Folio jumps back to it next time you open the book. Sign in to sync bookmarks across devices.',
+  },
+  {
+    target: '#rdAnBtn',
+    position: 'bottom',
+    title: 'Highlight and annotate',
+    body: 'Select any text to highlight it, add a note, or copy a shareable link straight to that spot. Notes sync with your account.',
+  },
+  {
+    target: '#rdAudioBtn',
+    position: 'bottom',
+    title: 'Listen along',
+    body: 'If the author bundled an audiobook with this release, the 🎧 button opens a player synced to chapters. For paid books, your license unlocks the audio too.',
+  },
+  {
+    target: null,
+    title: 'Enjoy the read',
+    body: 'You can replay this tour any time — look for the <em>?</em> button on the reader bar.',
+  },
+];
+
+/* Pick which stops list to use based on whether we\'re in reader
+   mode (URL has ?read=) or editor mode. */
+function _tourStops() {
+  return (typeof _readerMode !== 'undefined' && _readerMode)
+    ? _TOUR_STOPS_READER : _TOUR_STOPS_EDITOR;
+}
+
 let _tourIdx = 0;
 let _tourResizeHandle = null;
 
@@ -20543,9 +20629,9 @@ function _tourStart() {
 window._tourStart = _tourStart;
 
 function _tourGo(i) {
-  if (i < 0 || i >= _TOUR_STOPS.length) return;
+  if (i < 0 || i >= _tourStops().length) return;
   _tourIdx = i;
-  const stop = _TOUR_STOPS[i];
+  const stop = _tourStops()[i];
   // Switch tab if the stop requests it.
   if (stop.tab && typeof switchTab === 'function') {
     try {
@@ -20554,16 +20640,16 @@ function _tourGo(i) {
     } catch (e) {}
   }
   // Update card text + nav state.
-  document.getElementById('ftKicker').textContent = 'Step ' + (i + 1) + ' of ' + _TOUR_STOPS.length;
+  document.getElementById('ftKicker').textContent = 'Step ' + (i + 1) + ' of ' + _tourStops().length;
   document.getElementById('ftTitle').textContent  = stop.title;
   document.getElementById('ftBody').innerHTML     = stop.body;
   document.getElementById('ftPrev').style.visibility = (i === 0) ? 'hidden' : '';
   document.getElementById('ftNext').textContent =
-    (i === _TOUR_STOPS.length - 1) ? 'Finish' : 'Next →';
+    (i === _tourStops().length - 1) ? 'Finish' : 'Next →';
   // Dots.
   const dots = document.getElementById('ftDots');
   dots.innerHTML = '';
-  for (let k = 0; k < _TOUR_STOPS.length; k++) {
+  for (let k = 0; k < _tourStops().length; k++) {
     const d = document.createElement('span');
     if (k === i) d.className = 'cur';
     dots.appendChild(d);
@@ -20574,7 +20660,7 @@ function _tourGo(i) {
 }
 
 function _tourPosition() {
-  const stop = _TOUR_STOPS[_tourIdx];
+  const stop = _tourStops()[_tourIdx];
   const card = document.getElementById('ftCard');
   const spot = document.getElementById('ftSpot');
   const tour = document.getElementById('folioTour');
@@ -20641,7 +20727,7 @@ function _tourPosition() {
 }
 
 function _tourNext() {
-  if (_tourIdx >= _TOUR_STOPS.length - 1) { _tourFinish(); return; }
+  if (_tourIdx >= _tourStops().length - 1) { _tourFinish(); return; }
   _tourGo(_tourIdx + 1);
 }
 window._tourNext = _tourNext;
@@ -20655,7 +20741,9 @@ function _tourFinish() {
   const t = document.getElementById('folioTour');
   if (t) { t.classList.remove('open'); t.setAttribute('aria-hidden', 'true'); }
   window._tourActive = false;
-  try { localStorage.setItem('folio_tour_seen', '1'); } catch (e) {}
+  const inReader = (typeof _readerMode !== 'undefined' && _readerMode);
+  const seenKey = inReader ? 'folio_tour_seen_reader' : 'folio_tour_seen';
+  try { localStorage.setItem(seenKey, '1'); } catch (e) {}
   if (_tourResizeHandle) {
     window.removeEventListener('resize', _tourResizeHandle);
     window.removeEventListener('scroll', _tourResizeHandle, true);
@@ -20667,16 +20755,28 @@ function _tourFinish() {
    least one folio in the cloud — i.e. they've crossed the threshold
    from "browsing" to "writing." */
 function _tourMaybePrompt() {
+  // Per-mode flags so a reader-mode visit doesn't suppress the
+  // editor-mode prompt (or vice versa).
+  const inReader = (typeof _readerMode !== 'undefined' && _readerMode);
+  const seenKey   = inReader ? 'folio_tour_seen_reader'   : 'folio_tour_seen';
+  const promptKey = inReader ? 'folio_tour_prompted_reader': 'folio_tour_prompted';
   try {
-    if (localStorage.getItem('folio_tour_seen') === '1') return;
-    if (localStorage.getItem('folio_tour_prompted') === '1') return;
-    // Only prompt if there's a real folio in progress.
-    const hasName = (document.getElementById('projName') && document.getElementById('projName').value || '').trim();
-    if (!hasName) return;
+    if (localStorage.getItem(seenKey) === '1') return;
+    if (localStorage.getItem(promptKey) === '1') return;
+    if (!inReader) {
+      // Editor mode: only prompt once they actually have a folio open.
+      const hasName = (document.getElementById('projName') && document.getElementById('projName').value || '').trim();
+      if (!hasName) return;
+    }
   } catch (e) { return; }
+  // Swap the prompt copy for reader mode.
+  const msg = document.getElementById('ftpMsg');
+  if (msg && inReader) {
+    msg.innerHTML = '<strong>New to Folio?</strong><br>Bookmarks, annotations, pronunciation tips, audiobook playback — let me show you the reader\'s features in 60 seconds.';
+  }
   const p = document.getElementById('folioTourPrompt');
   if (p) p.classList.add('open');
-  try { localStorage.setItem('folio_tour_prompted', '1'); } catch (e) {}
+  try { localStorage.setItem(promptKey, '1'); } catch (e) {}
 }
 window._tourMaybePrompt = _tourMaybePrompt;
 
@@ -20684,7 +20784,9 @@ function _tourPromptHide(markSeen) {
   const p = document.getElementById('folioTourPrompt');
   if (p) p.classList.remove('open');
   if (markSeen) {
-    try { localStorage.setItem('folio_tour_seen', '1'); } catch (e) {}
+    const inReader = (typeof _readerMode !== 'undefined' && _readerMode);
+    const seenKey = inReader ? 'folio_tour_seen_reader' : 'folio_tour_seen';
+    try { localStorage.setItem(seenKey, '1'); } catch (e) {}
   }
 }
 window._tourPromptHide = _tourPromptHide;
