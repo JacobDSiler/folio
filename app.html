@@ -2290,6 +2290,12 @@ html[data-reader] #readerBar { display: flex; }
         </div>
       </div>
 
+      <div class="section" id="tourLaunchSection">
+        <div class="section-title">Guided tour</div>
+        <p class="small-note" style="margin:0 0 6px">90-second walkthrough of Folio's main features.</p>
+        <button type="button" class="btn-sm" onclick="_tourStart()" style="font-size:11.5px;padding:6px 12px;border-radius:7px;border:.5px solid var(--border-mid);background:var(--bg);color:var(--text);cursor:pointer">🧭 Take the tour</button>
+      </div>
+
       <div class="section">
         <div class="section-title">Saved Versions</div>
         <div id="verList">
@@ -20263,5 +20269,440 @@ window._apOnImportFile       = _apOnImportFile;
   </div>
 </div>
 
+
+<style id="folio-tour-css">
+/* ══════ GUIDED TOUR — opt-in, dismissible, accessible from menu ══════ */
+#folioTour {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  pointer-events: auto;
+  font-family: var(--sans);
+}
+#folioTour.open { display: block; }
+
+#folioTour .ft-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 8, 5, 0.55);
+  backdrop-filter: blur(1px);
+  -webkit-backdrop-filter: blur(1px);
+  transition: opacity .25s;
+}
+
+/* Spotlight ring around the highlighted element. Drawn as an outline
+   on an absolutely-positioned div placed over the target. */
+#folioTour .ft-spot {
+  position: absolute;
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px rgba(10,8,5,0.55), 0 0 0 3px rgba(255,255,255,0.85), 0 0 24px rgba(255,255,255,0.5);
+  pointer-events: none;
+  transition: top .35s ease, left .35s ease, width .35s ease, height .35s ease;
+}
+#folioTour.ft-no-spot .ft-spot { display: none; }
+#folioTour.ft-no-spot .ft-dim  { background: rgba(10, 8, 5, 0.55); }
+
+#folioTour .ft-card {
+  position: absolute;
+  max-width: 360px;
+  width: calc(100% - 32px);
+  background: var(--surface, #fff);
+  color: var(--text, #1a1a1a);
+  border-radius: 14px;
+  border: .5px solid var(--border-mid, #ddd);
+  box-shadow: 0 16px 56px rgba(0,0,0,0.45);
+  padding: 18px 20px 16px;
+  font-size: 13px;
+  line-height: 1.55;
+  transition: top .35s ease, left .35s ease;
+}
+#folioTour .ft-kicker {
+  font-size: 10.5px;
+  color: var(--hint, #888);
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  margin-bottom: 4px;
+}
+#folioTour .ft-title {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 8px;
+}
+#folioTour .ft-body {
+  margin: 0 0 12px;
+  color: var(--text, #1a1a1a);
+}
+#folioTour .ft-body em { color: var(--accent-ui, #0a7); font-style: normal; font-weight: 600; }
+#folioTour .ft-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+#folioTour .ft-dots {
+  display: flex;
+  gap: 4px;
+}
+#folioTour .ft-dots span {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--border-mid, #ccc);
+}
+#folioTour .ft-dots span.cur { background: var(--accent-ui, #0a7); }
+#folioTour .ft-btns {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+#folioTour .ft-btn {
+  font-size: 11.5px;
+  padding: 6px 11px;
+  border-radius: 7px;
+  border: .5px solid var(--border-mid, #ccc);
+  background: var(--bg, #faf9f7);
+  color: var(--text, #1a1a1a);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background .12s;
+}
+#folioTour .ft-btn:hover { background: var(--surface, #fff); }
+#folioTour .ft-btn.primary {
+  background: var(--accent-ui, #0a7);
+  color: #fff;
+  border-color: var(--accent-ui, #0a7);
+}
+#folioTour .ft-btn.primary:hover { filter: brightness(.95); }
+#folioTour .ft-skip {
+  font-size: 10.5px;
+  color: var(--hint, #888);
+  background: none;
+  border: none;
+  padding: 6px 4px;
+  cursor: pointer;
+  font-family: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+#folioTour .ft-skip:hover { color: var(--text, #1a1a1a); }
+
+/* First-folio prompt — small toast-like card at the top of the screen. */
+#folioTourPrompt {
+  display: none;
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1900;
+  background: var(--surface, #fff);
+  border: .5px solid var(--border-mid, #ddd);
+  border-radius: 12px;
+  padding: 12px 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+  font-family: var(--sans);
+  font-size: 12.5px;
+  color: var(--text, #1a1a1a);
+  max-width: 460px;
+  width: calc(100% - 32px);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+#folioTourPrompt.open { display: flex; }
+#folioTourPrompt .ftp-msg { flex: 1; line-height: 1.45; }
+#folioTourPrompt .ftp-msg strong { font-weight: 600; }
+#folioTourPrompt .ftp-btn {
+  font-size: 11.5px;
+  padding: 6px 12px;
+  border-radius: 7px;
+  border: .5px solid var(--border-mid, #ccc);
+  background: var(--bg, #faf9f7);
+  color: var(--text, #1a1a1a);
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+#folioTourPrompt .ftp-btn.primary {
+  background: var(--accent-ui, #0a7); color: #fff; border-color: var(--accent-ui, #0a7);
+}
+#folioTourPrompt .ftp-btn:hover { filter: brightness(.96); }
+</style>
+
+<!-- ══════ GUIDED TOUR ══════ -->
+<div id="folioTour" role="dialog" aria-modal="true" aria-labelledby="ftTitle" aria-hidden="true">
+  <div class="ft-dim" onclick="_tourSkip()"></div>
+  <div class="ft-spot" id="ftSpot"></div>
+  <div class="ft-card" id="ftCard">
+    <div class="ft-kicker" id="ftKicker">Step 1 of 7</div>
+    <h3 class="ft-title" id="ftTitle">Welcome to Folio</h3>
+    <p class="ft-body" id="ftBody">Body</p>
+    <div class="ft-row">
+      <button type="button" class="ft-skip" onclick="_tourSkip()">Skip the tour</button>
+      <div class="ft-btns">
+        <div class="ft-dots" id="ftDots" aria-hidden="true"></div>
+        <button type="button" class="ft-btn" id="ftPrev" onclick="_tourPrev()">← Back</button>
+        <button type="button" class="ft-btn primary" id="ftNext" onclick="_tourNext()">Next →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- First-folio soft prompt -->
+<div id="folioTourPrompt" role="dialog" aria-labelledby="ftpMsg">
+  <div class="ftp-msg" id="ftpMsg">
+    <strong>Want a 90-second tour?</strong><br>
+    Folio quietly contains an audiobook generator, a paywall, serial releases, and more — let me show you around.
+  </div>
+  <button type="button" class="ftp-btn primary" onclick="_tourStart(); _tourPromptHide();">Show me</button>
+  <button type="button" class="ftp-btn" onclick="_tourPromptHide(true)">No thanks</button>
+</div>
+
+<script>
+/* ══════ GUIDED TOUR ENGINE ══════
+   Opt-in walkthrough of Folio's main features. Stops are declarative:
+   each {target, tab, title, body, position} points at a real DOM
+   element. The engine handles tab-switching, scrolling into view,
+   positioning the card on the appropriate side, and a spotlight
+   ring around the target.
+
+   Persistence:
+     localStorage.folio_tour_seen  - '1' once finished or skipped
+                                      (suppresses the auto-prompt)
+     window._tourActive             - true while tour is running
+*/
+
+const _TOUR_STOPS = [
+  {
+    target: null,
+    title: 'Welcome to Folio',
+    body: 'Folio is a one-stop writer\'s workspace: format your book, generate an audiobook, set up a paywall or a serial release, and publish — all from a single page. The tour takes about 90 seconds.',
+  },
+  {
+    target: '.tabs',
+    position: 'bottom',
+    title: 'Seven tabs hold everything',
+    body: 'Import a draft, organize chapters, pick a design and type, manage images, and the ☁ Folio tab handles cloud saves and your folio library.',
+  },
+  {
+    target: '#tab-import',
+    tab: 'import',
+    position: 'right',
+    title: 'Bring your manuscript in',
+    body: 'Drop a Word doc, PDF, Markdown, or plain text — Folio auto-splits chapters by heading. Already imported? You can keep editing in the <em>Chapters</em> tab.',
+  },
+  {
+    target: '#tab-type',
+    tab: 'type',
+    position: 'right',
+    title: 'Pronunciations + audiobooks',
+    body: 'Teach Folio how to say your character names (IPA or plain respelling), then click <em>Audio</em> below the export buttons. Bring your own Google or ElevenLabs API key — Folio never stores it.',
+  },
+  {
+    target: '#btnAUDIO',
+    position: 'top',
+    title: 'Generate your audiobook',
+    body: 'One click takes your chapters through TTS and stores the audio in your cloud Folio. Readers of paid books unlock the audiobook with their license; serial readers unlock chapter-by-chapter.',
+  },
+  {
+    target: '#btnRelease',
+    position: 'top',
+    title: 'Publish in one of three ways',
+    body: 'Free public reader, paid book (Gumroad <em>or</em> any payment vendor + unlock code), or a serial release — daily, weekly, or any custom cadence. The release modal handles it all.',
+  },
+  {
+    target: '#btnRelease',
+    position: 'top',
+    title: 'Funnel: turn chapters into ads',
+    body: 'Inside the release modal, mark any paid chapter as a public <em>teaser</em>. Each teaser gives you a shareable link to a single chapter — readers land on a buy button at the end. Perfect for social posts and newsletter excerpts.',
+  },
+  {
+    target: null,
+    title: 'You\'re set. Happy writing!',
+    body: 'You can replay this tour any time from the ☁ Folio tab. Questions? Check the menu or the docs. Now go put a book together.',
+  },
+];
+
+let _tourIdx = 0;
+let _tourResizeHandle = null;
+
+function _tourStart() {
+  _tourIdx = 0;
+  window._tourActive = true;
+  const t = document.getElementById('folioTour');
+  if (!t) return;
+  t.classList.add('open');
+  t.setAttribute('aria-hidden', 'false');
+  _tourGo(0);
+  // Reposition on resize / scroll so the spotlight tracks the target.
+  if (_tourResizeHandle) return;
+  _tourResizeHandle = () => { try { _tourPosition(); } catch (e) {} };
+  window.addEventListener('resize', _tourResizeHandle);
+  window.addEventListener('scroll', _tourResizeHandle, true);
+}
+window._tourStart = _tourStart;
+
+function _tourGo(i) {
+  if (i < 0 || i >= _TOUR_STOPS.length) return;
+  _tourIdx = i;
+  const stop = _TOUR_STOPS[i];
+  // Switch tab if the stop requests it.
+  if (stop.tab && typeof switchTab === 'function') {
+    try {
+      const btn = (typeof _tabBtnFor === 'function') ? _tabBtnFor(stop.tab) : null;
+      if (btn) switchTab(stop.tab, btn);
+    } catch (e) {}
+  }
+  // Update card text + nav state.
+  document.getElementById('ftKicker').textContent = 'Step ' + (i + 1) + ' of ' + _TOUR_STOPS.length;
+  document.getElementById('ftTitle').textContent  = stop.title;
+  document.getElementById('ftBody').innerHTML     = stop.body;
+  document.getElementById('ftPrev').style.visibility = (i === 0) ? 'hidden' : '';
+  document.getElementById('ftNext').textContent =
+    (i === _TOUR_STOPS.length - 1) ? 'Finish' : 'Next →';
+  // Dots.
+  const dots = document.getElementById('ftDots');
+  dots.innerHTML = '';
+  for (let k = 0; k < _TOUR_STOPS.length; k++) {
+    const d = document.createElement('span');
+    if (k === i) d.className = 'cur';
+    dots.appendChild(d);
+  }
+  // Position card + spotlight on a microtask so any tab-switch DOM
+  // changes are visible to getBoundingClientRect.
+  setTimeout(_tourPosition, 60);
+}
+
+function _tourPosition() {
+  const stop = _TOUR_STOPS[_tourIdx];
+  const card = document.getElementById('ftCard');
+  const spot = document.getElementById('ftSpot');
+  const tour = document.getElementById('folioTour');
+  if (!stop || !card || !spot || !tour) return;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  // Centered card if no target.
+  if (!stop.target) {
+    tour.classList.add('ft-no-spot');
+    const cw = Math.min(360, vw - 32);
+    card.style.width = cw + 'px';
+    // measure post-paint
+    setTimeout(() => {
+      const ch = card.offsetHeight;
+      card.style.left = ((vw - cw) / 2) + 'px';
+      card.style.top  = ((vh - ch) / 2) + 'px';
+    }, 0);
+    return;
+  }
+  tour.classList.remove('ft-no-spot');
+  const el = document.querySelector(stop.target);
+  if (!el) {
+    // Target missing — treat as centered.
+    tour.classList.add('ft-no-spot');
+    const cw = Math.min(360, vw - 32);
+    card.style.left = ((vw - cw) / 2) + 'px';
+    card.style.top  = ((vh - card.offsetHeight) / 2) + 'px';
+    return;
+  }
+  // Scroll the target into view first.
+  try { el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' }); } catch (e) {}
+  setTimeout(() => {
+    const r = el.getBoundingClientRect();
+    // Inflate spotlight by 6px on each side.
+    const pad = 6;
+    spot.style.top    = (r.top    - pad) + 'px';
+    spot.style.left   = (r.left   - pad) + 'px';
+    spot.style.width  = (r.width  + pad * 2) + 'px';
+    spot.style.height = (r.height + pad * 2) + 'px';
+    // Position the card. Pick a side based on `position` + available space.
+    const cw = Math.min(360, vw - 32);
+    card.style.width = cw + 'px';
+    const ch = card.offsetHeight || 220;
+    const gap = 14;
+    let pos = stop.position || 'bottom';
+    let top, left;
+    const tryBottom = r.bottom + gap + ch < vh - 12;
+    const tryTop    = r.top    - gap - ch > 12;
+    const tryRight  = r.right  + gap + cw < vw - 12;
+    const tryLeft   = r.left   - gap - cw > 12;
+    if (pos === 'bottom' && !tryBottom) pos = tryTop ? 'top' : (tryRight ? 'right' : 'left');
+    if (pos === 'top'    && !tryTop)    pos = tryBottom ? 'bottom' : (tryRight ? 'right' : 'left');
+    if (pos === 'right'  && !tryRight)  pos = tryLeft ? 'left'   : (tryBottom ? 'bottom' : 'top');
+    if (pos === 'left'   && !tryLeft)   pos = tryRight ? 'right' : (tryBottom ? 'bottom' : 'top');
+    if (pos === 'bottom') { top = r.bottom + gap; left = clamp(r.left + r.width/2 - cw/2, 12, vw - cw - 12); }
+    else if (pos === 'top')    { top = r.top - gap - ch; left = clamp(r.left + r.width/2 - cw/2, 12, vw - cw - 12); }
+    else if (pos === 'right')  { left = r.right + gap; top = clamp(r.top + r.height/2 - ch/2, 12, vh - ch - 12); }
+    else                        { left = r.left - gap - cw; top = clamp(r.top + r.height/2 - ch/2, 12, vh - ch - 12); }
+    card.style.top  = top  + 'px';
+    card.style.left = left + 'px';
+  }, 120);
+
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+}
+
+function _tourNext() {
+  if (_tourIdx >= _TOUR_STOPS.length - 1) { _tourFinish(); return; }
+  _tourGo(_tourIdx + 1);
+}
+window._tourNext = _tourNext;
+function _tourPrev() { _tourGo(_tourIdx - 1); }
+window._tourPrev = _tourPrev;
+
+function _tourSkip() { _tourFinish(); }
+window._tourSkip = _tourSkip;
+
+function _tourFinish() {
+  const t = document.getElementById('folioTour');
+  if (t) { t.classList.remove('open'); t.setAttribute('aria-hidden', 'true'); }
+  window._tourActive = false;
+  try { localStorage.setItem('folio_tour_seen', '1'); } catch (e) {}
+  if (_tourResizeHandle) {
+    window.removeEventListener('resize', _tourResizeHandle);
+    window.removeEventListener('scroll', _tourResizeHandle, true);
+    _tourResizeHandle = null;
+  }
+}
+
+/* First-folio soft prompt. Triggered once, after the user has at
+   least one folio in the cloud — i.e. they've crossed the threshold
+   from "browsing" to "writing." */
+function _tourMaybePrompt() {
+  try {
+    if (localStorage.getItem('folio_tour_seen') === '1') return;
+    if (localStorage.getItem('folio_tour_prompted') === '1') return;
+    // Only prompt if there's a real folio in progress.
+    const hasName = (document.getElementById('projName') && document.getElementById('projName').value || '').trim();
+    if (!hasName) return;
+  } catch (e) { return; }
+  const p = document.getElementById('folioTourPrompt');
+  if (p) p.classList.add('open');
+  try { localStorage.setItem('folio_tour_prompted', '1'); } catch (e) {}
+}
+window._tourMaybePrompt = _tourMaybePrompt;
+
+function _tourPromptHide(markSeen) {
+  const p = document.getElementById('folioTourPrompt');
+  if (p) p.classList.remove('open');
+  if (markSeen) {
+    try { localStorage.setItem('folio_tour_seen', '1'); } catch (e) {}
+  }
+}
+window._tourPromptHide = _tourPromptHide;
+
+/* ESC key dismisses the tour. */
+document.addEventListener('keydown', function (e) {
+  if (!window._tourActive) return;
+  if (e.key === 'Escape') { _tourSkip(); }
+  else if (e.key === 'ArrowRight') { _tourNext(); }
+  else if (e.key === 'ArrowLeft')  { _tourPrev(); }
+});
+
+/* Auto-prompt hook: 4s after folio-loaded, check the prompt
+   conditions. Plenty of time for the cloud-load handler to populate
+   projName and the user to look around briefly. */
+window.addEventListener('folio-loaded', function () {
+  setTimeout(_tourMaybePrompt, 4000);
+});
+</script>
 </body>
 </html>
