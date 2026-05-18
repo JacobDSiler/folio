@@ -6,6 +6,30 @@
   // recognizes the user as a returning author and bounces them straight back
   // into the editor instead of showing the marketing screen again.
   try { localStorage.setItem('folio_visited', '1'); } catch (e) {}
+
+  /* Boot-time tab restore — runs synchronously BEFORE paint so the
+     Import tab never flashes when the author had a different tab
+     selected. Reads localStorage.folio_lastTab and injects a <style>
+     block overriding the static `style="display:none"` on each
+     non-import tab div. The button `active` class is swapped in
+     a second inline script right after the buttons are parsed. */
+  (function bootRestoreTab() {
+    try {
+      var valid = ['import','chapters','details','design','type','images','project'];
+      var saved = localStorage.getItem('folio_lastTab') || '';
+      if (!saved || valid.indexOf(saved) === -1 || saved === 'import') return;
+      window.__folioBootTab = saved;
+      var css = '';
+      valid.forEach(function (t) {
+        if (t === saved) css += '#tab-' + t + '{display:block !important}';
+        else             css += '#tab-' + t + '{display:none !important}';
+      });
+      var st = document.createElement('style');
+      st.id = '__folio-boot-tab';
+      st.textContent = css;
+      document.head.appendChild(st);
+    } catch (e) {}
+  })();
 </script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1761,6 +1785,22 @@ html[data-reader] #readerBar { display: flex; }
     <button class="tab-btn" onclick="switchTab('images',this)">Images</button>
     <button class="tab-btn" onclick="switchTab('project',this)" style="display:flex;flex-direction:column;align-items:center;gap:1px;justify-content:center;padding:5px 3px"><span style="font-size:10px;line-height:1">☁</span><span style="font-size:10px">Folio</span></button>
   </div>
+  <script>
+    /* Pair to the head-block bootRestoreTab — once the buttons exist,
+       swap the .active class to the saved tab's button. */
+    (function () {
+      try {
+        var saved = window.__folioBootTab;
+        if (!saved) return;
+        var btns = document.querySelectorAll('.tab-btn');
+        for (var i = 0; i < btns.length; i++) {
+          var oc = btns[i].getAttribute('onclick') || '';
+          if (oc.indexOf("'" + saved + "'") !== -1) btns[i].classList.add('active');
+          else btns[i].classList.remove('active');
+        }
+      } catch (e) {}
+    })();
+  </script>
 
   <div class="sidebar-scroll">
 
