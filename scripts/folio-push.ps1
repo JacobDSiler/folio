@@ -208,13 +208,23 @@ try {
     }
     $status | ForEach-Object { Write-Host "  $_" }
 
-    # -- Confirm -----------------------------------------------------
-    Write-Host ""
-    $confirm = Read-Host "Commit and push to origin? (y/N)"
-    if ($confirm -notmatch '^(y|Y|yes|YES)$') {
-        Write-Host "Aborted. Files copied into repo but NOT committed." -ForegroundColor Yellow
-        Remove-Item $tmpCommitFile -ErrorAction SilentlyContinue
-        Stop-Here 0
+    # -- Auto-confirm (idempotent: if invoked, the answer is yes) ----
+    # The previous y/N prompt was redundant - running this script is
+    # already an explicit "yes" signal, and re-runs are safe (git only
+    # commits files whose contents actually differ from HEAD, and pushes
+    # a no-op-up-to-date branch are inert). Pass -NoConfirm or set
+    # $env:FOLIO_PUSH_CONFIRM=1 to bring the prompt back if needed.
+    if ($env:FOLIO_PUSH_CONFIRM -eq '1') {
+        Write-Host ""
+        $confirm = Read-Host "Commit and push to origin? (y/N)"
+        if ($confirm -notmatch '^(y|Y|yes|YES)$') {
+            Write-Host "Aborted. Files copied into repo but NOT committed." -ForegroundColor Yellow
+            Remove-Item $tmpCommitFile -ErrorAction SilentlyContinue
+            Stop-Here 0
+        }
+    } else {
+        Write-Host ""
+        Write-Host "Committing and pushing (set FOLIO_PUSH_CONFIRM=1 to add a prompt)..." -ForegroundColor DarkGray
     }
 
     # -- Commit + push -----------------------------------------------
