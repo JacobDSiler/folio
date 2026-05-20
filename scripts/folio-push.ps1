@@ -250,12 +250,34 @@ try {
     # Stage the scripts/ folder so iterations to this push script itself
     # (or its launcher) get committed automatically alongside the build.
     if (Test-Path (Join-Path $repoRoot 'scripts')) { $toAdd += 'scripts' }
+    # Stage .gitignore so changes to the ignore list ship too.
+    if (Test-Path (Join-Path $repoRoot '.gitignore')) { $toAdd += '.gitignore' }
     if ($toAdd.Count -eq 0) {
         Write-Host "Nothing to stage." -ForegroundColor Yellow
         Remove-Item $tmpCommitFile -ErrorAction SilentlyContinue
         Stop-Here 0
     }
     git add @toAdd
+
+    # Did anything actually land in the index? If the only changes in
+    # the repo were untracked files NOT in the whitelist above (stray
+    # exports, personal data, etc.), 'git add' stages nothing and a
+    # commit would fail with "nothing added to commit". Detect that
+    # and exit cleanly instead of erroring.
+    git diff --cached --quiet
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host ""
+        Write-Host "Nothing staged - all tracked Folio files already match HEAD." -ForegroundColor Yellow
+        $untracked = git status --porcelain --untracked-files=normal | Where-Object { $_ -match '^\?\?' }
+        if ($untracked) {
+            Write-Host "Untracked files exist but are intentionally NOT auto-committed:" -ForegroundColor DarkGray
+            $untracked | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
+            Write-Host "If one of those SHOULD be in the repo, 'git add' it by hand." -ForegroundColor DarkGray
+        }
+        Remove-Item $tmpCommitFile -ErrorAction SilentlyContinue
+        Stop-Here 0
+    }
+
     git commit -F $tmpCommitFile
     if ($LASTEXITCODE -ne 0) {
         Write-Host ""

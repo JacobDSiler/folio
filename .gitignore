@@ -1,3 +1,12 @@
 .folio-pending-commit.txt
 .DS_Store
 Thumbs.db
+
+# Stray / personal files that are not part of the Folio app.
+# The app repo ships index.html, app.html, the workers, docs, and
+# scripts — nothing else. These patterns keep one-off exports and
+# an author's personal data out of git so folio-push stays clean.
+Folio - Welcome (standalone).html
+*-pronunciations.csv
+*-characters.csv
+.git/index.lock
