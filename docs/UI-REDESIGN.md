@@ -200,4 +200,14 @@ on payment plumbing.
 ## 5. Status log
 
 - _May 2026_ — audit completed; 7→4 restructure and three-door
-  monetization model agreed. Implementation pending, Phase 1 next.
+  monetization model agreed.
+- _May 2026_ — **Phase 1 DONE.** Seven tab buttons collapsed to four
+  (Manuscript / Book / Audio / Folio). The pronunciation + cast
+  sections were physically moved out of the old Type tab into a new
+  `#tab-audio` div. `switchTab()` is now group-aware, with a
+  `_tabNormalize()` shim so every legacy `switchTab('chapters', …)`
+  call site keeps working unedited. Boot-restore, last-tab
+  persistence, and the editor tour stops were all updated. Every
+  element id preserved — no other JS affected.
+- _Next_ — Phase 2: lift the Generate-audiobook controls from the
+  Export footer into the Audio tab.
