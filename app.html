@@ -15,27 +15,41 @@
      a second inline script right after the buttons are parsed. */
   (function bootRestoreTab() {
     try {
-      var valid = ['import','chapters','details','design','type','images','project'];
+      // 4-group model — see _TAB_GROUPS in the main script.
+      var groups = {
+        manuscript: ['import','chapters'],
+        book:       ['details','design','type','images'],
+        audio:      ['audio'],
+        folio:      ['project'],
+      };
+      var legacy = {
+        import:'manuscript', chapters:'manuscript',
+        details:'book', design:'book', type:'book', images:'book',
+        project:'folio',
+      };
       var saved = localStorage.getItem('folio_lastTab') || '';
-      if (!saved || valid.indexOf(saved) === -1 || saved === 'import') return;
+      if (legacy[saved]) saved = legacy[saved];
+      // Manuscript is the HTML default — nothing to pre-paint.
+      if (!groups[saved] || saved === 'manuscript') return;
       window.__folioBootTab = saved;
+      var allDivs = ['import','chapters','details','design','type','images','project','audio'];
+      var showSet = groups[saved];
       var css = '';
-      valid.forEach(function (t) {
-        if (t === saved) css += '#tab-' + t + '{display:block !important}';
-        else             css += '#tab-' + t + '{display:none !important}';
+      allDivs.forEach(function (t) {
+        if (showSet.indexOf(t) !== -1) css += '#tab-' + t + '{display:block !important}';
+        else                          css += '#tab-' + t + '{display:none !important}';
       });
       var st = document.createElement('style');
       st.id = '__folio-boot-tab';
       st.textContent = css;
       document.head.appendChild(st);
       // Safety net: once DOM is ready, convert the !important CSS
-      // into one-shot inline styles, then drop the stylesheet so
-      // future switchTab calls work normally.
+      // into one-shot inline styles, then drop the stylesheet.
       document.addEventListener('DOMContentLoaded', function () {
         try {
-          valid.forEach(function (t) {
+          allDivs.forEach(function (t) {
             var el = document.getElementById('tab-' + t);
-            if (el) el.style.display = (t === saved) ? '' : 'none';
+            if (el) el.style.display = (showSet.indexOf(t) !== -1) ? '' : 'none';
           });
           var bs = document.getElementById('__folio-boot-tab');
           if (bs) bs.parentNode.removeChild(bs);
@@ -1790,13 +1804,10 @@ html[data-reader] #readerBar { display: flex; }
   <button id="darkModeBtn" onclick="toggleDarkMode()" title="Toggle dark mode" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 5px;color:var(--hint);border-radius:4px;transition:color .15s" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--hint)'">☽</button></div>
 
   <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('import',this)">Import</button>
-    <button class="tab-btn" onclick="switchTab('chapters',this)">Chapters</button>
-    <button class="tab-btn" onclick="switchTab('details',this)">Details</button>
-    <button class="tab-btn" onclick="switchTab('design',this)">Design</button>
-    <button class="tab-btn" onclick="switchTab('type',this)">Type</button>
-    <button class="tab-btn" onclick="switchTab('images',this)">Images</button>
-    <button class="tab-btn" onclick="switchTab('project',this)" style="display:flex;flex-direction:column;align-items:center;gap:1px;justify-content:center;padding:5px 3px"><span style="font-size:10px;line-height:1">☁</span><span style="font-size:10px">Folio</span></button>
+    <button class="tab-btn active" onclick="switchTab('manuscript',this)">Manuscript</button>
+    <button class="tab-btn" onclick="switchTab('book',this)">Book</button>
+    <button class="tab-btn" onclick="switchTab('audio',this)">Audio</button>
+    <button class="tab-btn" onclick="switchTab('folio',this)">☁ Folio</button>
   </div>
   <script>
     /* Pair to the head-block bootRestoreTab — once the buttons exist,
@@ -1879,7 +1890,7 @@ html[data-reader] #readerBar { display: flex; }
     </div>
 
     <!-- ── CHAPTERS TAB ── -->
-    <div id="tab-chapters" style="display:none">
+    <div id="tab-chapters">
       <div class="section">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <div class="section-title" style="margin-bottom:0">Chapter List</div>
@@ -2099,6 +2110,11 @@ html[data-reader] #readerBar { display: flex; }
         </div>
         <p class="small-note" style="margin-top:4px">Note: Left-aligned (not justified) text is generally recommended for large print and low-vision readers, as it preserves consistent word spacing.</p>
       </div>
+
+    </div>
+
+    <!-- ── AUDIO TAB ── -->
+    <div id="tab-audio" style="display:none">
 
       <div class="section" id="pronSection">
         <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
@@ -5600,20 +5616,51 @@ let importSchema=JSON.parse(JSON.stringify(SCHEMA_PRESETS.default));
 /* ═══════════════════════════════════════════════
    TABS
 ═══════════════════════════════════════════════ */
-function switchTab(id,btn){
+/* UI redesign Phase 1 — four logical tabs, each mapping to a list
+   of the underlying content divs. The 7 content divs were never
+   renamed, so every element id is stable and all other JS keeps
+   working untouched. */
+var _TAB_GROUPS = {
+  manuscript: ['tab-import', 'tab-chapters'],
+  book:       ['tab-details', 'tab-design', 'tab-type', 'tab-images'],
+  audio:      ['tab-audio'],
+  folio:      ['tab-project'],
+};
+var _ALL_TAB_DIVS = ['tab-import','tab-chapters','tab-details','tab-design',
+                     'tab-type','tab-audio','tab-images','tab-project'];
+
+/* Legacy-id shim. Old call sites pass switchTab('chapters', ...),
+   switchTab('project', ...), etc. Map each to its new group so
+   none of those call sites need editing. */
+function _tabNormalize(id) {
+  if (_TAB_GROUPS[id]) return id;
+  var map = {
+    import: 'manuscript', chapters: 'manuscript',
+    details: 'book', design: 'book', type: 'book', images: 'book',
+    project: 'folio', pronunciations: 'audio', cast: 'audio',
+  };
+  return map[id] || 'manuscript';
+}
+
+function switchTab(id, btn){
   // Drop the boot-flicker stylesheet on first switch — its !important
   // rules would otherwise override the inline display changes below.
   try {
     var _bs = document.getElementById('__folio-boot-tab');
     if (_bs) _bs.parentNode.removeChild(_bs);
   } catch (e) {}
-  ['import','chapters','details','design','type','images','project'].forEach(t=>{
-    var el = document.getElementById('tab-'+t);
-    if (el) el.style.display = (t === id) ? '' : 'none';
+  id = _tabNormalize(id);
+  var show = _TAB_GROUPS[id] || _TAB_GROUPS.manuscript;
+  _ALL_TAB_DIVS.forEach(function (divId) {
+    var el = document.getElementById(divId);
+    if (el) el.style.display = (show.indexOf(divId) !== -1) ? '' : 'none';
   });
+  // Highlight the right button. Derive it from the (normalized) id
+  // so a stale btn arg from a legacy call site can't mis-highlight.
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  if(id==='chapters') renderChapterList();
+  var activeBtn = (typeof _tabBtnFor === 'function' ? _tabBtnFor(id) : null) || btn;
+  if (activeBtn) activeBtn.classList.add('active');
+  if (id === 'manuscript') { try { renderChapterList(); } catch (e) {} }
   // Remember the choice so a refresh lands on the same tab.
   try { localStorage.setItem('folio_lastTab', id); } catch (e) {}
 }
@@ -5636,15 +5683,13 @@ window._tabBtnFor = _tabBtnFor;
    refresh lands on the author's last tab rather than always
    jumping to Chapters. */
 function _restoreLastTabOr(defaultId) {
-  let id = defaultId || 'chapters';
+  let id = defaultId || 'manuscript';
   try {
     const saved = localStorage.getItem('folio_lastTab');
-    if (saved && ['import','chapters','details','design','type','images','project'].indexOf(saved) !== -1) {
-      id = saved;
-    }
+    if (saved) id = saved;   // switchTab normalizes legacy/invalid ids
   } catch (e) {}
-  const btn = _tabBtnFor(id);
-  if (btn) switchTab(id, btn);
+  id = _tabNormalize(id);
+  switchTab(id, _tabBtnFor(id));
 }
 window._restoreLastTabOr = _restoreLastTabOr;
 
@@ -20574,22 +20619,22 @@ const _TOUR_STOPS_EDITOR = [
   {
     target: '.tabs',
     position: 'bottom',
-    title: 'Seven tabs hold everything',
-    body: 'Import a draft, organize chapters, pick a design and type, manage images, and the ☁ Folio tab handles cloud saves and your folio library.',
+    title: 'Four tabs hold everything',
+    body: '<em>Manuscript</em> is your import + chapters. <em>Book</em> is design, typography and cover. <em>Audio</em> is the audiobook studio. <em>Folio</em> handles cloud saves and your library.',
   },
   {
     target: '#tab-import',
-    tab: 'import',
+    tab: 'manuscript',
     position: 'right',
     title: 'Bring your manuscript in',
-    body: 'Drop a Word doc, PDF, Markdown, or plain text — Folio auto-splits chapters by heading. Already imported? You can keep editing in the <em>Chapters</em> tab.',
+    body: 'Drop a Word doc, PDF, Markdown, or plain text — Folio auto-splits chapters by heading. Your chapter list sits right below, in the same Manuscript tab.',
   },
   {
-    target: '#tab-type',
-    tab: 'type',
+    target: '#tab-audio',
+    tab: 'audio',
     position: 'right',
     title: 'Pronunciations + audiobooks',
-    body: 'Teach Folio how to say your character names (IPA or plain respelling), then click <em>Audio</em> below the export buttons. Bring your own Google or ElevenLabs API key — Folio never stores it.',
+    body: 'The Audio tab is your audiobook studio: teach Folio how to say character names (IPA or plain respelling), define your cast, and generate narration. Bring your own Google or ElevenLabs API key — Folio never stores it.',
   },
   {
     target: '#btnAUDIO',
