@@ -25,6 +25,13 @@
  * A future domain change is then just an ALLOWED_ORIGIN edit — no
  * code change — and multiple origins (www + apex + localhost) work
  * at once. (Matches the folio-paywall / folio-tts workers.)
+ *
+ * Shipping level: NOT hardcoded. The caller chooses (MAIL,
+ * PRIORITY_MAIL, GROUND, EXPEDITED, EXPRESS) — /cost takes a
+ * ?shipping= query param, /job takes a shipping_level body field.
+ * Both default to MAIL. MAIL is cheapest but is not offered for
+ * every destination; when Lulu rejects it the author can pick
+ * another level instead of being stuck.
  */
 
 const LULU_BASE         = 'https://api.lulu.com';
@@ -114,8 +121,8 @@ function handleRoot(request, env) {
     status: 'ok', worker: 'folio-publish-lulu',
     sandbox: env.LULU_SANDBOX === 'true',
     endpoints: [
-      'GET  /cost?pages=N&paper=white&quantity=1&country=IE',
-      'POST /job    — body: { source_url, metadata, shipping, quantity }',
+      'GET  /cost?pages=N&paper=white&quantity=1&country=IE&shipping=MAIL',
+      'POST /job    — body: { source_url, metadata, shipping, quantity, shipping_level }',
       'GET  /job/:id',
     ],
   }, 200, request, env);
@@ -142,6 +149,7 @@ async function handleCost(req, env) {
   const paper   = u.searchParams.get('paper') || 'white';
   const qty     = parseInt(u.searchParams.get('quantity') || '1');
   const country = (u.searchParams.get('country') || 'IE').toUpperCase();
+  const shipLevel = (u.searchParams.get('shipping') || 'MAIL').toUpperCase();
   if (pages < 24) return fail('pages must be >= 24', 400, req, env);
 
   const addr = COUNTRY_ADDRESSES[country] || DEFAULT_ADDRESS;
@@ -155,7 +163,7 @@ async function handleCost(req, env) {
     body: JSON.stringify({
       line_items: [{ page_count: pages, pod_package_id: pkg, quantity: qty }],
       shipping_address: { country_code: country, ...addr },
-      shipping_option: 'MAIL',
+      shipping_option: shipLevel,
     }),
   });
   if (!res.ok) return fail(`Cost calc failed: ${await res.text()}`, 502, req, env);
@@ -170,6 +178,7 @@ async function handleCost(req, env) {
     shipping_cost:    d.shipping_cost,
     total_cost:       d.total_cost_incl_tax,
     currency:         d.currency || 'USD',
+    shipping_level:   shipLevel,
     spine_inches:     spineIn,
     spine_note:       parseFloat(spineIn) < 0.25
       ? 'Spine too narrow for text (< 0.25 in)'
@@ -193,14 +202,14 @@ async function handleGetToken(request, env) {
   }, 200, request, env);
 }
 
-// POST /job — body JSON: { source_url, metadata, shipping, quantity }
+// POST /job — body JSON: { source_url, metadata, shipping, quantity, shipping_level }
 // source_url is a publicly accessible PDF URL (e.g. Firebase Storage download URL)
 async function handleJob(req, env) {
   let body;
   try { body = await req.json(); }
   catch { return fail('Expected JSON body', 400, req, env); }
 
-  const { source_url, cover_source_url, metadata: meta = {}, shipping = {}, quantity = 1 } = body;
+  const { source_url, cover_source_url, metadata: meta = {}, shipping = {}, quantity = 1, shipping_level } = body;
 
   if (!source_url)    return fail('source_url required', 400, req, env);
   if (!meta.title)    return fail('metadata.title required', 400, req, env);
@@ -226,7 +235,7 @@ async function handleJob(req, env) {
         postcode:     shipping.postcode,
         phone_number: shipping.phone || '',
       },
-      shipping_option_level: 'MAIL',
+      shipping_option_level: (shipping_level || 'MAIL'),
       line_items: [{
         title:          meta.title,
         quantity:        parseInt(quantity),
