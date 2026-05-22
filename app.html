@@ -11491,7 +11491,7 @@ function openLuluModal() {
   document.getElementById('lmCost').className = 'lm-cost';
   document.getElementById('lmSubmitBtn').disabled = false;
   // Restore shipping fields
-  ['lmName','lmStreet','lmCity','lmPost','lmPhone'].forEach(id => {
+  ['lmName','lmStreet','lmStreet2','lmCity','lmPost','lmPhone'].forEach(id => {
     const v = localStorage.getItem('folio_lulu_' + id);
     if (v) document.getElementById(id).value = v;
   });
@@ -11727,14 +11727,22 @@ async function _lmSubmit() {
 
   const name    = document.getElementById('lmName').value.trim();
   const street  = document.getElementById('lmStreet').value.trim();
+  const street2 = (document.getElementById('lmStreet2') && document.getElementById('lmStreet2').value.trim()) || '';
   const city    = document.getElementById('lmCity').value.trim();
   const post    = document.getElementById('lmPost').value.trim();
   const country = document.getElementById('lmCountry').value;
   const phone   = document.getElementById('lmPhone').value.trim();
   if (!name || !street || !city || !post) { _lmShowErr('Fill in all shipping fields'); return; }
+  // Lulu caps each address line at 30 chars. maxlength guards new
+  // input; this catches an over-long value restored from a prior
+  // session's localStorage.
+  if (street.length > 30 || street2.length > 30) {
+    _lmShowErr('Each address line is limited to 30 characters by Lulu. Shorten line 1 and put the rest on line 2.');
+    return;
+  }
 
   // Save address for next time
-  ['lmName','lmStreet','lmCity','lmPost','lmPhone'].forEach(_lmSaveField);
+  ['lmName','lmStreet','lmStreet2','lmCity','lmPost','lmPhone'].forEach(_lmSaveField);
   try { localStorage.setItem('folio_lulu_lmCountry', document.getElementById('lmCountry').value); } catch(e) {}
 
   const btn = document.getElementById('lmSubmitBtn');
@@ -11784,7 +11792,7 @@ async function _lmSubmit() {
           isbn:   getV('bookISBN') || '',
           paper:  document.getElementById('lmPaper').value,
         },
-        shipping: { name, street1: street, city, postcode: post, country_code: country, phone },
+        shipping: { name, street1: street, street2: street2, city, postcode: post, country_code: country, phone },
       }),
     });
     const jobData = await jobRes.json();
@@ -20304,8 +20312,9 @@ window._apOnImportFile       = _apOnImportFile;
     <label style="margin-top:14px">Ship to — full name</label>
     <input type="text" id="lmName" placeholder="Jane Author" autocomplete="name" oninput="_lmSaveField('lmName')">
 
-    <label>Street address</label>
-    <input type="text" id="lmStreet" placeholder="123 Main Street" autocomplete="street-address" oninput="_lmSaveField('lmStreet')">
+    <label>Street address <span style="opacity:.6;font-weight:400">(Lulu limits each line to 30 characters)</span></label>
+    <input type="text" id="lmStreet" placeholder="Address line 1" maxlength="30" autocomplete="address-line1" oninput="_lmSaveField('lmStreet')">
+    <input type="text" id="lmStreet2" placeholder="Address line 2 — apt, unit, etc. (optional)" maxlength="30" autocomplete="address-line2" oninput="_lmSaveField('lmStreet2')" style="margin-top:6px">
 
     <div class="lm-row">
       <div>

@@ -163,6 +163,7 @@ try {
     $srcGuide       = Join-Path $srcRoot 'serials-guide.html'
     $srcKeysGuide   = Join-Path $srcRoot 'api-keys-guide.html'
     $srcEmailWorker = Join-Path $srcRoot 'folio-email-worker.js'
+    $srcLuluWorker  = Join-Path $srcRoot 'folio-publish-lulu-worker.js'
     if (Test-Path $srcGuide) {
         Copy-Item -Force $srcGuide (Join-Path $repoRoot 'serials-guide.html')
         Write-Host "  serials-guide.html       -> repo root" -ForegroundColor DarkGray
@@ -174,6 +175,10 @@ try {
     if (Test-Path $srcEmailWorker) {
         Copy-Item -Force $srcEmailWorker (Join-Path $repoRoot 'folio-email-worker.js')
         Write-Host "  folio-email-worker.js    -> repo root" -ForegroundColor DarkGray
+    }
+    if (Test-Path $srcLuluWorker) {
+        Copy-Item -Force $srcLuluWorker (Join-Path $repoRoot 'folio-publish-lulu-worker.js')
+        Write-Host "  folio-publish-lulu-worker.js -> repo root" -ForegroundColor DarkGray
     }
 
     # Pull commit message into TEMP (not into the repo)
@@ -241,6 +246,7 @@ try {
     if (Test-Path (Join-Path $repoRoot 'folio-tts-worker.js'))      { $toAdd += 'folio-tts-worker.js' }
     if (Test-Path (Join-Path $repoRoot 'folio-paywall-worker.js'))  { $toAdd += 'folio-paywall-worker.js' }
     if (Test-Path (Join-Path $repoRoot 'folio-email-worker.js'))    { $toAdd += 'folio-email-worker.js' }
+    if (Test-Path (Join-Path $repoRoot 'folio-publish-lulu-worker.js')) { $toAdd += 'folio-publish-lulu-worker.js' }
     if (Test-Path (Join-Path $repoRoot 'privacy.html'))             { $toAdd += 'privacy.html' }
     if (Test-Path (Join-Path $repoRoot 'terms.html'))               { $toAdd += 'terms.html' }
     if (Test-Path (Join-Path $repoRoot 'serials-guide.html'))       { $toAdd += 'serials-guide.html' }
