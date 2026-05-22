@@ -20242,6 +20242,124 @@ window._apOnImportFile       = _apOnImportFile;
   </div>
 </div>
 
+<!-- ════════════════ PRINT & PUBLISH (POD) PANEL ════════════════
+     Reconstructed — the original markup was lost in a past file
+     truncation. openPOD() fills #podChecklist + #podProviders, and
+     (when the author has Lulu jobs) #podJobsList / #podJobsItems.
+     closePOD() hides it; a delegated backdrop-click handler also
+     closes it. -->
+<div id="podPanel" role="dialog" aria-modal="true" aria-labelledby="podTitle"
+  style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:250;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:560px;width:94%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:26px 28px 22px;font-family:var(--sans);color:var(--text)">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+      <h3 id="podTitle" style="font-size:15px;font-weight:600;margin:0;letter-spacing:-0.01em">📦 Print &amp; Publish</h3>
+      <button onclick="closePOD()" aria-label="Close" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint);padding:2px 6px;border-radius:4px">×</button>
+    </div>
+    <p style="font-size:12px;color:var(--muted);line-height:1.55;margin:0 0 16px">
+      Folio exports a print-ready PDF with embedded fonts. Pick a print-on-demand provider below to turn your manuscript into a paperback — readers order copies directly from them, and you keep the royalties.
+    </p>
+
+    <div style="font-size:11px;font-weight:600;color:var(--hint);text-transform:uppercase;letter-spacing:.04em;margin-bottom:7px">Readiness check</div>
+    <div id="podChecklist" style="display:flex;flex-direction:column;gap:6px;font-size:12px;line-height:1.5;margin-bottom:18px"></div>
+
+    <div style="font-size:11px;font-weight:600;color:var(--hint);text-transform:uppercase;letter-spacing:.04em;margin-bottom:7px">Print-on-demand providers</div>
+    <div id="podProviders" style="display:flex;flex-direction:column;gap:8px"></div>
+
+    <div id="podJobsList" style="display:none;margin-top:18px">
+      <div style="font-size:11px;font-weight:600;color:var(--hint);text-transform:uppercase;letter-spacing:.04em;margin-bottom:7px">Your Lulu print jobs</div>
+      <div id="podJobsItems" style="display:flex;flex-direction:column;gap:7px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ LULU ORDER MODAL ════════════════
+     Reconstructed — markup lost in the same truncation. The .lm-*
+     CSS rules survived; this restores the HTML they style.
+     openLuluModal() fills #lmCoverLinks + #lmSpineDisplay and
+     restores saved shipping fields; _lmGetCost() fills #lmCost;
+     _lmConfirmSubmit()/_lmSubmit() drive #lmSubmitBtn + #lmStatus. -->
+<div id="luluModal" role="dialog" aria-modal="true" aria-labelledby="lmTitle">
+  <div class="lm-box">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <h3 id="lmTitle" style="font-family:var(--sans);font-size:15px;font-weight:600;margin:0">🟠 Order copies via Lulu</h3>
+      <button onclick="closeLuluModal()" aria-label="Close" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint);padding:2px 6px">×</button>
+    </div>
+    <p style="font-family:var(--sans);font-size:11.5px;color:var(--muted);line-height:1.55;margin:0 0 4px">
+      Folio uploads your print-ready PDF to Lulu and creates a draft print job. Nothing is charged until you review and approve it on Lulu's developer portal.
+    </p>
+
+    <label>Paper</label>
+    <select id="lmPaper" onchange="try{_lmBuildCoverLinks();}catch(e){}">
+      <option value="white">White 60lb</option>
+      <option value="cream">Cream 60lb</option>
+    </select>
+
+    <label>Copies</label>
+    <input type="number" id="lmQty" min="1" max="100" value="1">
+
+    <p style="font-family:var(--sans);font-size:10.5px;color:var(--hint);margin:6px 0 0">
+      Spine width: <span id="lmSpineDisplay">—</span>
+    </p>
+
+    <label style="margin-top:14px">Ship to — full name</label>
+    <input type="text" id="lmName" placeholder="Jane Author" autocomplete="name" oninput="_lmSaveField('lmName')">
+
+    <label>Street address</label>
+    <input type="text" id="lmStreet" placeholder="123 Main Street" autocomplete="street-address" oninput="_lmSaveField('lmStreet')">
+
+    <div class="lm-row">
+      <div>
+        <label>City</label>
+        <input type="text" id="lmCity" placeholder="City" autocomplete="address-level2" oninput="_lmSaveField('lmCity')">
+      </div>
+      <div>
+        <label>Postal code</label>
+        <input type="text" id="lmPost" placeholder="Postcode" autocomplete="postal-code" oninput="_lmSaveField('lmPost')">
+      </div>
+    </div>
+
+    <div class="lm-row">
+      <div>
+        <label>Country</label>
+        <select id="lmCountry" onchange="try{localStorage.setItem('folio_lulu_lmCountry',this.value);}catch(e){}">
+          <option value="IE">Ireland</option>
+          <option value="GB">United Kingdom</option>
+          <option value="US">United States</option>
+          <option value="CA">Canada</option>
+          <option value="AU">Australia</option>
+          <option value="NZ">New Zealand</option>
+          <option value="DE">Germany</option>
+          <option value="FR">France</option>
+          <option value="ES">Spain</option>
+          <option value="IT">Italy</option>
+          <option value="NL">Netherlands</option>
+          <option value="SE">Sweden</option>
+        </select>
+      </div>
+      <div>
+        <label>Phone <span style="opacity:.6;font-weight:400">(optional)</span></label>
+        <input type="tel" id="lmPhone" placeholder="+353 …" autocomplete="tel" oninput="_lmSaveField('lmPhone')">
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button type="button" onclick="_lmGetCost()" style="flex:1;padding:9px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">💲 Get price</button>
+      <button type="button" onclick="_lmCopySpecs()" style="flex:1;padding:9px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">📐 Copy cover specs</button>
+    </div>
+
+    <div id="lmCost" class="lm-cost"></div>
+
+    <label style="margin-top:12px">Cover tools</label>
+    <p style="font-family:var(--sans);font-size:10.5px;color:var(--hint);line-height:1.5;margin:0 0 6px">
+      Lulu needs a cover PDF. Use any of these to make one at the right size — a generated placeholder is included automatically if you skip this.
+    </p>
+    <div id="lmCoverLinks" style="border:.5px solid var(--border-mid);border-radius:9px;overflow:hidden"></div>
+
+    <button type="button" id="lmSubmitBtn" class="lm-submit" onclick="_lmConfirmSubmit()">Submit print order</button>
+    <div id="lmStatus" class="lm-status"></div>
+  </div>
+</div>
+
 <!-- ════════════════ RELEASE MODAL ════════════════
      Reconstructed in full after a partial-file corruption truncated
      the original markup at the rlSerialFirst input. Element IDs and
