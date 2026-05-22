@@ -485,6 +485,14 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;heigh
 .fr-close:hover{color:#fff}
 .tabs{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:0.5px solid var(--border);flex-shrink:0}
 .tab-btn{padding:7px 3px;font-size:10.5px;font-family:var(--sans);border:none;background:transparent;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;transition:all 0.15s;white-space:nowrap;text-align:center;letter-spacing:-0.01em;width:100%}
+/* Phase 3 — collapsible "advanced" disclosure panels. */
+details.adv-disclosure{border-top:.5px solid var(--border);margin:6px 0 0}
+details.adv-disclosure>summary{cursor:pointer;list-style:none;padding:11px 2px;font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--hint);display:flex;align-items:center;gap:7px;user-select:none}
+details.adv-disclosure>summary::-webkit-details-marker{display:none}
+details.adv-disclosure>summary::before{content:'\25B8';font-size:9px;transition:transform .15s;color:var(--muted);flex-shrink:0}
+details.adv-disclosure[open]>summary::before{transform:rotate(90deg)}
+details.adv-disclosure>summary:hover{color:var(--text)}
+.adv-hint{font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);font-size:10px;opacity:.7}
 .tab-btn.active{color:var(--text);border-bottom-color:var(--accent-ui);background:#faf9f7}
 [data-dark] .tab-btn.active{background:rgba(232,222,206,0.06)}
 .tab-btn:hover:not(.active){color:var(--text);background:var(--bg)}
@@ -1999,6 +2007,8 @@ html[data-reader] #readerBar { display: flex; }
         <div class="section-title">Accent Color</div>
         <div class="color-row" id="colorRow"></div>
       </div>
+      <details class="adv-disclosure">
+        <summary>Advanced layout <span class="adv-hint">ornaments &amp; page size</span></summary>
       <div class="section">
         <div class="section-title">Chapter Ornaments</div>
         <div class="orn-grid" id="ornGrid"></div>
@@ -2021,12 +2031,20 @@ html[data-reader] #readerBar { display: flex; }
           <label class="toggle"><input type="checkbox" id="facingPages" onchange="renderPreview()"><span class="tog-track"></span></label>
         </div>
       </div>
+      </details>
+      <div class="section">
+        <div class="section-title">Defaults</div>
+        <p class="small-note" style="margin-bottom:7px">Save the current theme, fonts and layout as the starting point for every new folio you create on this device.</p>
+        <button class="btn-sm btn-ghost" onclick="_saveFolioDefaults()" title="Every new folio will start with the current theme, fonts and layout" style="width:100%;padding:8px 10px;font-size:11.5px">★ Use these settings for new folios</button>
+      </div>
     </div>
 
     <!-- ── TYPE TAB ── -->
     <div id="tab-type" style="display:none">
 
       <!-- Accessibility presets -->
+      <details class="adv-disclosure">
+        <summary>Accessibility &amp; low-vision <span class="adv-hint">large-print presets</span></summary>
       <div class="section">
         <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
           <span>Accessibility Presets</span>
@@ -2052,6 +2070,7 @@ html[data-reader] #readerBar { display: flex; }
         </div>
         <p class="small-note" style="margin-top:6px">Large Print (18pt+) meets NAVH/APH accessibility standards. Enhanced (24pt+) is suitable for significant low vision.</p>
       </div>
+      </details>
 
       <div class="section">
         <div class="section-title">Typography</div>
@@ -5324,6 +5343,9 @@ function newFolio() {
   ['bookTitle','bookAuthor','bookSubtitle','publisher','pubYear','dedication','copyright'].forEach(id=>{
     const el=document.getElementById(id); if(el) el.value='';
   });
+  // Phase 4 — start the new folio from the writer's saved defaults
+  // (theme / fonts / layout). No-op if none have been saved.
+  try { _applyFolioDefaults(); } catch (e) {}
   renderPreview();
   setStatus('New folio started');
 }
@@ -8119,6 +8141,78 @@ function buildOrnGrid(){
 function selectTheme(id){ S.theme=THEMES.find(t=>t.id===id); buildThemeGrid(); renderPreview(); }
 function selectAccent(c){ S.accent=c; buildColorRow(); renderPreview(); }
 function selectOrn(o){ S.ornament=o; buildOrnGrid(); renderPreview(); }
+
+/* ── Phase 4: global design defaults for new folios ──────────────
+   Capture / apply the canonical design+type fields — the exact set
+   _serialise persists in its design{} and type{} objects — to a
+   localStorage default so every new folio can start from the
+   writer's preferred look. */
+var _FOLIO_DEFAULTS_KEY = 'folio_design_defaults';
+
+function _saveFolioDefaults() {
+  try {
+    var gv = function (id) { var e = document.getElementById(id); return e ? e.value : ''; };
+    var d = {
+      themeId:     (typeof S !== 'undefined' && S.theme && S.theme.id) || '',
+      accent:      (typeof S !== 'undefined' && S.accent) || '',
+      ornament:    (typeof S !== 'undefined' && S.ornament) || '',
+      pageSize:    gv('pageSize'),
+      pageMargin:  gv('pageMargin'),
+      coverPos:    gv('coverPos'),
+      bodyFont:    gv('bodyFont'),
+      fontSize:    gv('fontSize'),
+      lineSpacing: gv('lineSpacing'),
+      paraIndent:  gv('paraIndent'),
+      chNumStyle:  gv('chNumStyle'),
+    };
+    localStorage.setItem(_FOLIO_DEFAULTS_KEY, JSON.stringify(d));
+    if (typeof toastSuccess === 'function')
+      toastSuccess('Saved — every new folio will start with this theme, fonts and layout.', { icon: '\u2605', duration: 3400 });
+  } catch (e) {
+    if (typeof toastWarning === 'function')
+      toastWarning('Could not save defaults on this device.', { duration: 2600 });
+  }
+}
+window._saveFolioDefaults = _saveFolioDefaults;
+
+function _applyFolioDefaults() {
+  var raw;
+  try { raw = localStorage.getItem(_FOLIO_DEFAULTS_KEY); } catch (e) { return; }
+  if (!raw) return;   // nothing saved — design simply carries over
+  var d;
+  try { d = JSON.parse(raw); } catch (e) { return; }
+  if (!d || typeof d !== 'object') return;
+  try {
+    if (d.themeId && typeof THEMES !== 'undefined') {
+      var t = THEMES.find(function (x) { return x.id === d.themeId; });
+      if (t && typeof S !== 'undefined') S.theme = t;
+    }
+    if (d.accent   && typeof S !== 'undefined') S.accent = d.accent;
+    if (d.ornament && typeof S !== 'undefined') S.ornament = d.ornament;
+    var sv = function (id, val) {
+      var e = document.getElementById(id);
+      if (e && val != null && val !== '') e.value = val;
+    };
+    sv('pageSize', d.pageSize);
+    sv('pageMargin', d.pageMargin);
+    sv('coverPos', d.coverPos);
+    sv('bodyFont', d.bodyFont);
+    sv('fontSize', d.fontSize);
+    sv('lineSpacing', d.lineSpacing);
+    sv('paraIndent', d.paraIndent);
+    sv('chNumStyle', d.chNumStyle);
+    if (typeof buildThemeGrid === 'function') buildThemeGrid();
+    if (typeof buildColorRow === 'function') buildColorRow();
+    if (typeof buildOrnGrid === 'function') buildOrnGrid();
+    var fo = document.getElementById('fontSizeOut'), fs = document.getElementById('fontSize');
+    if (fo && fs) fo.textContent = fs.value + 'pt';
+    var mo = document.getElementById('marginOut'), mv = document.getElementById('pageMargin');
+    if (mo && mv) mo.textContent = mv.value + 'mm';
+    if (typeof _updateFontPreview === 'function') _updateFontPreview();
+    if (typeof renderPreview === 'function') renderPreview();
+  } catch (e) { console.warn('[defaults] apply failed', e); }
+}
+window._applyFolioDefaults = _applyFolioDefaults;
 
 /* ═══════════════════════════════════════════════
    IMAGE HANDLING
