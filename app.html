@@ -11740,6 +11740,14 @@ async function _lmSubmit() {
     _lmShowErr('Each address line is limited to 30 characters by Lulu. Shorten line 1 and put the rest on line 2.');
     return;
   }
+  // If a second address line is used, end line 1 with a comma so
+  // Lulu renders "Line 1, Line 2" instead of running them together.
+  // Only when line 1 already lacks a trailing comma AND has room
+  // for one under Lulu's 30-character cap.
+  let street1Out = street;
+  if (street2 && !/,\s*$/.test(street1Out) && street1Out.length <= 29) {
+    street1Out = street1Out + ',';
+  }
 
   // Save address for next time
   ['lmName','lmStreet','lmStreet2','lmCity','lmPost','lmPhone'].forEach(_lmSaveField);
@@ -11792,7 +11800,7 @@ async function _lmSubmit() {
           isbn:   getV('bookISBN') || '',
           paper:  document.getElementById('lmPaper').value,
         },
-        shipping: { name, street1: street, street2: street2, city, postcode: post, country_code: country, phone },
+        shipping: { name, street1: street1Out, street2: street2, city, postcode: post, country_code: country, phone },
       }),
     });
     const jobData = await jobRes.json();
