@@ -2116,6 +2116,18 @@ html[data-reader] #readerBar { display: flex; }
     <!-- ── AUDIO TAB ── -->
     <div id="tab-audio" style="display:none">
 
+      <!-- Audiobook studio entry point (Phase 2 — lifted out of
+           the export footer; audio is a generation feature, not
+           an export format). -->
+      <div class="section">
+        <div class="section-title">Audiobook</div>
+        <p class="small-note" style="margin-bottom:9px">Turn your chapters into narrated audio. Folio uses Google or ElevenLabs text-to-speech — bring your own API key (Folio never stores it). For the best result, set up your pronunciations and cast below first.</p>
+        <button id="btnAUDIO" onclick="openAudioPanel()" title="Open the audiobook studio"
+          style="width:100%;display:flex;align-items:center;justify-content:center;gap:8px;font-size:13px;font-weight:600;padding:11px 14px;border-radius:8px;border:none;background:var(--accent-ui,#0a7);color:#fff;cursor:pointer;font-family:var(--sans)">
+          🎙 Open the audiobook studio
+        </button>
+      </div>
+
       <div class="section" id="pronSection">
         <div class="section-title" style="display:flex;justify-content:space-between;align-items:center">
           <span>Pronunciations</span>
@@ -2363,7 +2375,6 @@ html[data-reader] #readerBar { display: flex; }
         <button class="exp-btn" id="btnMD"   onclick="pickExport('MD','Markdown',exportMarkdown)"><span class="fmt">MD</span><span class="lbl">Markdown</span></button>
         <button class="exp-btn" id="btnHTML" onclick="pickExport('HTML','Web / ebook',exportHTML)"><span class="fmt">HTML</span><span class="lbl">HTML</span></button>
         <button class="exp-btn" id="btnTXT"  onclick="pickExport('TXT','Plain text',exportTXT)"><span class="fmt">TXT</span><span class="lbl">Text</span></button>
-        <button class="exp-btn" id="btnAUDIO" onclick="openAudioPanel()" title="Generate audiobook from your chapters"><span class="fmt">🎙</span><span class="lbl">Audio</span></button>
       </div>
     </div>
   </div>
@@ -20633,14 +20644,15 @@ const _TOUR_STOPS_EDITOR = [
     target: '#tab-audio',
     tab: 'audio',
     position: 'right',
-    title: 'Pronunciations + audiobooks',
-    body: 'The Audio tab is your audiobook studio: teach Folio how to say character names (IPA or plain respelling), define your cast, and generate narration. Bring your own Google or ElevenLabs API key — Folio never stores it.',
+    title: 'The Audio tab',
+    body: 'Everything for the audiobook lives here. Teach Folio how to say character names and unusual words in the Pronunciations list, and define your cast for per-character voices. These guide the narration.',
   },
   {
     target: '#btnAUDIO',
-    position: 'top',
+    tab: 'audio',
+    position: 'right',
     title: 'Generate your audiobook',
-    body: 'One click takes your chapters through TTS and stores the audio in your cloud Folio. Readers of paid books unlock the audiobook with their license; serial readers unlock chapter-by-chapter.',
+    body: 'This button opens the audiobook studio — Folio runs your chapters through text-to-speech and stores the narration in your cloud Folio. Readers of a paid book get the audiobook as part of their purchase; serial readers unlock it chapter by chapter.',
   },
   {
     target: '#btnRelease',
