@@ -209,5 +209,15 @@ on payment plumbing.
   call site keeps working unedited. Boot-restore, last-tab
   persistence, and the editor tour stops were all updated. Every
   element id preserved — no other JS affected.
-- _Next_ — Phase 2: lift the Generate-audiobook controls from the
-  Export footer into the Audio tab.
+- _May 2026_ — **Phase 2 DONE.** The audiobook entry point was
+  lifted out of the Export footer (where it was wedged among nine
+  export-format buttons) into a prominent "Audiobook" section at the
+  top of the Audio tab — a full-width "Open the audiobook studio"
+  button. The export grid now holds only true export formats. The
+  guided tour stops 4 and 5 were retargeted: stop 4 covers the
+  glossary, stop 5 switches into the Audio tab and highlights the new
+  studio button, which fixes the clipped-spotlight bug (the old
+  footer button could not be framed cleanly).
+- _Next_ — Phase 3: collapse the rarely-touched appearance knobs
+  (ornaments, page size, accessibility presets) under an "Advanced
+  appearance" disclosure.
