@@ -218,6 +218,27 @@ on payment plumbing.
   glossary, stop 5 switches into the Audio tab and highlights the new
   studio button, which fixes the clipped-spotlight bug (the old
   footer button could not be framed cleanly).
-- _Next_ — Phase 3: collapse the rarely-touched appearance knobs
-  (ornaments, page size, accessibility presets) under an "Advanced
-  appearance" disclosure.
+- _May 2026_ — **Phase 3 DONE.** The rarely-touched appearance knobs
+  were collapsed under native `<details>` disclosures: Chapter
+  Ornaments + Page Size under "Advanced layout" in the Book tab's
+  design area, and the Accessibility Presets under "Accessibility &
+  low-vision". Both collapsed by default, both clearly labelled —
+  nothing hidden, just de-emphasised. No JS, fully keyboard-accessible.
+- _May 2026_ — **Phase 5 was already done.** The audit assumed nine
+  always-visible export buttons, but the export footer already
+  collapses into a drawer behind a ▾ toggle, showing only the primary
+  format. No work needed.
+- _May 2026_ — **Phase 4 DONE.** Global design defaults. A new
+  "Defaults" section in the Book tab carries a "★ Use these settings
+  for new folios" button — `_saveFolioDefaults()` captures the
+  canonical design+type fields (theme, accent, ornament, page size,
+  margin, cover position, body font, size, line spacing, paragraph
+  indent, chapter-number style) into `localStorage`. `newFolio()`
+  calls `_applyFolioDefaults()`, so every new folio starts from the
+  writer's preferred look. No-op (design carries over as before) if
+  nothing has been saved — no regression.
+
+**All five phases of the restructure are complete.** Remaining
+redesign-adjacent work: the monetization gate scaffold + the "Pro —
+coming soon" email capture, to be done when launch timing calls for
+it (see section 4).
