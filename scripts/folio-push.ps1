@@ -164,6 +164,8 @@ try {
     $srcKeysGuide   = Join-Path $srcRoot 'api-keys-guide.html'
     $srcEmailWorker = Join-Path $srcRoot 'folio-email-worker.js'
     $srcLuluWorker  = Join-Path $srcRoot 'folio-publish-lulu-worker.js'
+    $srcShareWorker = Join-Path $srcRoot 'folio-share-worker.js'
+    $srcOgImage     = Join-Path $srcRoot 'og-default.png'
     if (Test-Path $srcGuide) {
         Copy-Item -Force $srcGuide (Join-Path $repoRoot 'serials-guide.html')
         Write-Host "  serials-guide.html       -> repo root" -ForegroundColor DarkGray
@@ -179,6 +181,14 @@ try {
     if (Test-Path $srcLuluWorker) {
         Copy-Item -Force $srcLuluWorker (Join-Path $repoRoot 'folio-publish-lulu-worker.js')
         Write-Host "  folio-publish-lulu-worker.js -> repo root" -ForegroundColor DarkGray
+    }
+    if (Test-Path $srcShareWorker) {
+        Copy-Item -Force $srcShareWorker (Join-Path $repoRoot 'folio-share-worker.js')
+        Write-Host "  folio-share-worker.js    -> repo root" -ForegroundColor DarkGray
+    }
+    if (Test-Path $srcOgImage) {
+        Copy-Item -Force $srcOgImage (Join-Path $repoRoot 'og-default.png')
+        Write-Host "  og-default.png           -> repo root" -ForegroundColor DarkGray
     }
 
     # Pull commit message into TEMP (not into the repo)
@@ -247,6 +257,8 @@ try {
     if (Test-Path (Join-Path $repoRoot 'folio-paywall-worker.js'))  { $toAdd += 'folio-paywall-worker.js' }
     if (Test-Path (Join-Path $repoRoot 'folio-email-worker.js'))    { $toAdd += 'folio-email-worker.js' }
     if (Test-Path (Join-Path $repoRoot 'folio-publish-lulu-worker.js')) { $toAdd += 'folio-publish-lulu-worker.js' }
+    if (Test-Path (Join-Path $repoRoot 'folio-share-worker.js'))        { $toAdd += 'folio-share-worker.js' }
+    if (Test-Path (Join-Path $repoRoot 'og-default.png'))               { $toAdd += 'og-default.png' }
     if (Test-Path (Join-Path $repoRoot 'privacy.html'))             { $toAdd += 'privacy.html' }
     if (Test-Path (Join-Path $repoRoot 'terms.html'))               { $toAdd += 'terms.html' }
     if (Test-Path (Join-Path $repoRoot 'serials-guide.html'))       { $toAdd += 'serials-guide.html' }
