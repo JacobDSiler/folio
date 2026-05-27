@@ -200,9 +200,13 @@ function ogPage(meta) {
   lines.push('<meta name="twitter:title" content="' + esc(meta.title) + '">');
   lines.push('<meta name="twitter:description" content="' + esc(meta.description) + '">');
   if (meta.image) lines.push('<meta name="twitter:image" content="' + esc(meta.image) + '">');
-  // Belt-and-suspenders: if a real browser somehow lands on this HTML
-  // (it normally gets a 302 before this), bounce it to the reader.
-  lines.push('<meta http-equiv="refresh" content="0; url=' + esc(meta.readerUrl) + '">');
+  // NOTE: deliberately NO <meta http-equiv="refresh"> here. Facebook
+  // (and most social scrapers) follow meta-refresh tags during preview
+  // generation — they'd chase past these OG tags to app.html, which
+  // carries only generic Folio fallback tags, and the carefully-built
+  // per-book card would be discarded. The <script> location.replace
+  // below and the visible link cover the rare case a real browser
+  // lands here (it normally gets a 302 before reaching this HTML).
   lines.push('</head><body style="font-family:Georgia,serif;text-align:center;padding:48px 24px;color:#1a1504;background:#faf8f4">');
   lines.push('<p style="font-size:18px;margin:0 0 6px">Opening <strong>' + esc(meta.title) + '</strong>…</p>');
   lines.push('<p style="font-size:14px"><a href="' + esc(meta.readerUrl) + '" style="color:#8B4513">Continue to Folio &rarr;</a></p>');
