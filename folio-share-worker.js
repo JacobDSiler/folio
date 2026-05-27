@@ -265,7 +265,11 @@ export default {
           const rel    = folio.release;
           const bkName = (rel.title || folio.name || 'A book on Folio').toString();
           const author = (rel.author || '').toString().trim();
-          title = bkName;
+          // og:title carries BOTH the book identity AND "on Folio" so
+          // platforms that only show the title prominently (Messenger,
+          // Slack, etc.) still convey what + where in one glance.
+          // Capped to ~85 chars — Facebook truncates around 90.
+          title = clip(bkName + (author ? (' by ' + author) : '') + ' · on Folio', 85);
           let desc = (rel.description || '').toString().trim();
           if (!desc) {
             desc = author
@@ -282,7 +286,7 @@ export default {
           }
           // Funnel teaser link: reframe as a free sample.
           if (teaser) {
-            title = 'Free chapter — ' + bkName;
+            title = clip('Free chapter — ' + bkName + (author ? (' by ' + author) : '') + ' · on Folio', 85);
             description = clip(
               'Read a free chapter of "' + bkName + '"' +
               (author ? (' by ' + author) : '') + ' on Folio.', 200);
