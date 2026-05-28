@@ -21,15 +21,17 @@
  * reliable. Anything not recognised as a crawler is treated as a
  * human and redirected — a human never sees the interstitial HTML.
  *
+ * Cover image resolution chain (most-specific first):
+ *   1. release.coverUrl on the parent doc (cheap; saved by
+ *      _rlPublish from Phase 4 onward).
+ *   2. Body-doc fallback: decompress folio_projects/<id>/body/main
+ *      and use state.images[0].url. Works for folios published
+ *      before the parent-doc field existed — no re-publish needed.
+ *   3. DEFAULT_OG_IMAGE (the generic Folio og-default.png).
+ *
  * ── DEPLOYMENT ────────────────────────────────────────────────────
  * Recommended: a Worker Route on  www.onfolio.press/s/*  — then share
  * links are clean and on-brand:  https://www.onfolio.press/s/<id>
- * The /s/* path is not used by the static site, so the worker fully
- * owns it: no origin pass-through, no request loop.
- *
- * (Requires onfolio.press DNS to be on Cloudflare. If it is not, the
- * worker still runs standalone at folio-share.<acct>.workers.dev and
- * app.html's FOLIO_SHARE_BASE constant is pointed there instead.)
  *
  * Variables (Cloudflare dashboard → Settings → Variables & Secrets):
  *   GCP_SERVICE_ACCOUNT   Secret. The same service-account JSON the
@@ -37,6 +39,12 @@
  *                         The SA needs the "Cloud Datastore User" role.
  *   FIRESTORE_PROJECT_ID  Optional. Overrides the SA JSON's project_id.
  *   READER_BASE           Optional. Default https://www.onfolio.press
+ *   FB_APP_ID             Optional. Numeric Facebook App ID. When set,
+ *                         the worker emits <meta property="fb:app_id">
+ *                         which silences Facebook Sharing Debugger's
+ *                         "missing required properties" warning. Get
+ *                         one at developers.facebook.com (create an
+ *                         app — no review required for OG metadata).
  */
 
 const READER_BASE_DEFAULT = 'https://www.onfolio.press';
@@ -158,6 +166,36 @@ async function fsGet(projectId, token, docPath) {
   return fsDecodeFields(doc.fields || {});
 }
 
+/* Body-doc fallback for the cover image. The parent doc only has
+   release.coverUrl from Phase 4 onward; older folios store their
+   cover URL inside the gzipped body/main state. This decompresses
+   body/main and returns the first image's https URL, or null. */
+async function fetchCoverFromBody(projectId, token, folioId) {
+  const body = await fsGet(projectId, token,
+    'folio_projects/' + encodeURIComponent(folioId) + '/body/main');
+  if (!body) return null;
+  let state = null;
+  if (body.state_gz) {
+    try {
+      const bin = atob(body.state_gz);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const txt = await new Response(
+        new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))
+      ).text();
+      state = JSON.parse(txt);
+    } catch (e) { return null; }
+  } else if (body.state && typeof body.state === 'object') {
+    state = body.state;
+  }
+  if (!state || !Array.isArray(state.images) || state.images.length === 0) return null;
+  const first = state.images[0];
+  if (first && first.url && /^https:\/\//i.test(String(first.url))) {
+    return String(first.url);
+  }
+  return null;
+}
+
 /* ── HTML helpers ─────────────────────────────────────────────── */
 function esc(s) {
   return String(s == null ? '' : s)
@@ -192,6 +230,9 @@ function ogPage(meta) {
     '<meta property="og:description" content="' + esc(meta.description) + '">',
     '<meta property="og:url" content="' + esc(meta.shareUrl) + '">',
   ];
+  if (meta.fbAppId) {
+    lines.push('<meta property="fb:app_id" content="' + esc(meta.fbAppId) + '">');
+  }
   if (meta.image) {
     lines.push('<meta property="og:image" content="' + esc(meta.image) + '">');
     lines.push('<meta property="og:image:alt" content="' + esc(meta.title) + '">');
@@ -219,6 +260,7 @@ export default {
   async fetch(request, env) {
     const url        = new URL(request.url);
     const readerBase = (env.READER_BASE || READER_BASE_DEFAULT).replace(/\/+$/, '');
+    const fbAppId    = (env.FB_APP_ID || '').trim();
 
     // folioId — from a /s/<id> path, or a ?read= / ?id= / ?folio= query.
     let folioId = '';
@@ -255,11 +297,14 @@ export default {
     let description = 'Read it now on Folio — beautiful books in your browser.';
     let image       = '';
     let ogType      = 'book';
+    let projectId   = null;
+    let saToken     = null;
     try {
       const sa = await getAccessToken(env);
-      const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+      projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+      saToken   = sa.token;
       if (projectId) {
-        const folio = await fsGet(projectId, sa.token,
+        const folio = await fsGet(projectId, saToken,
           'folio_projects/' + encodeURIComponent(folioId));
         if (folio && folio.release && folio.release.published) {
           const rel    = folio.release;
@@ -295,13 +340,31 @@ export default {
         }
       }
     } catch (e) {
-      // Metadata lookup failed — fall through with the generic card.
+      // Parent-doc lookup failed — fall through; body-doc fallback or
+      // the default OG image will keep the card useful.
     }
+
+    // Body-doc cover fallback: when release.coverUrl is missing, dig
+    // into folio_projects/<id>/body/main and use state.images[0].url.
+    // Slower (gzip decompress + JSON parse) but works for folios that
+    // were published before _rlPublish started saving coverUrl. Only
+    // triggers when no image has been resolved yet AND we have a
+    // working SA token from the parent-doc call.
+    if (!image && projectId && saToken) {
+      try {
+        const fromBody = await fetchCoverFromBody(projectId, saToken, folioId);
+        if (fromBody) image = fromBody;
+      } catch (e) {
+        // body-doc fallback failed — fall through to the default
+      }
+    }
+
     if (!image) image = DEFAULT_OG_IMAGE;
 
     const html = ogPage({
       title, description, image, ogType,
       shareUrl, readerUrl,
+      fbAppId,
     });
     return new Response(html, {
       status: 200,
