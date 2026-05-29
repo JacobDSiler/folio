@@ -3551,14 +3551,40 @@ async function _buildCloudSavePayload(name, opts) {
     }
   } catch (e) { console.warn('[img] Storage upload during save failed:', e); }
   const stateObj = (typeof _serialise === 'function') ? _serialise() : {};
-  // Belt-and-braces: never let base64 image data into the cloud body.
+  // Image-data handling for the cloud body:
+  //   * .url present  → already in Storage, nothing to do
+  //   * .data present, upload failed, small (<~400 KiB):
+  //         keep inline in the body so the cover survives reload
+  //         (cover JPGs are typically 50–200 KiB; well under the
+  //         Firestore 1 MiB doc cap even with a couple inline)
+  //   * .data present, upload failed, large: strip to a ghost
+  //         AND surface a toast so the user knows + can retry
+  //   * .data present, no _projId yet (very first save of a new
+  //         folio): keep inline; next save will upload + clean up
   if (Array.isArray(stateObj.images)) {
+    const INLINE_LIMIT = 400 * 1024;            // ~400 KiB per image
+    let _droppedBig = 0;
+    let _keptInline = 0;
     stateObj.images = stateObj.images.map(im => {
-      if (im && im.data && !im.url) {
-        const o = Object.assign({}, im); delete o.data; o.pendingUpload = true; return o;
+      if (!im || im.url || !im.data) return im;
+      const len = (typeof im.data === 'string') ? im.data.length : 0;
+      if (len > 0 && len <= INLINE_LIMIT) {
+        _keptInline++;
+        return im;                              // keep inline fallback
       }
-      return im;
+      _droppedBig++;
+      const o = Object.assign({}, im); delete o.data; o.pendingUpload = true; return o;
     });
+    if (_droppedBig > 0 && typeof toast === 'function') {
+      try { toast('Image too large to inline — Storage upload failed. Re-save to retry.', {type:'warn'}); } catch(_){}
+    } else if (_keptInline > 0 && typeof toast === 'function') {
+      // Quiet hint — only when the upload step actually flagged a failure
+      // (avoids noise on the very-first-save case where no upload was tried).
+      const anyErr = (Array.isArray(S.images) ? S.images : []).some(im => im && im._uploadErr);
+      if (anyErr) {
+        try { toast('Image saved inline (cloud upload retry pending).', {type:'info'}); } catch(_){}
+      }
+    }
   }
 
   // PAID-CONTENT SPLIT (audit D1). For paid folios, paid chapter
@@ -4470,8 +4496,14 @@ function _deserialise(state) {
   // baked in at save time, like the audio manifest, so no async fetch
   // is needed). Older folios have no state.images and load with an
   // empty library — they predate image persistence.
+  // Ghost filter: drop entries that are pendingUpload sentinels
+  // (no url, no data). These were left behind by an earlier strip
+  // step when a Storage upload silently failed; rehydrating them
+  // would show a broken chip with a red X and poison the cover.
   S.images = Array.isArray(state.images)
-    ? state.images.map(im => Object.assign({}, im))
+    ? state.images
+        .filter(im => im && (im.url || im.data))
+        .map(im => Object.assign({}, im))
     : [];
   if (typeof _imgRefreshCover === 'function') _imgRefreshCover();
   try { if (typeof renderImgList === 'function') renderImgList(); } catch (e) {}
@@ -8296,9 +8328,14 @@ function _dataUrlToBlob(dataUrl){
 // Best-effort per image — one failure doesn't block the rest. Called
 // from _buildCloudSavePayload before the body is serialised.
 async function _imgUploadToCloud(folioId){
-  if(!folioId||!Array.isArray(S.images)||!S.images.length) return;
-  if(!window._storage||!window._storageLib) return;
+  if(!folioId){ console.warn('[img] upload skipped: no folioId yet'); return; }
+  if(!Array.isArray(S.images)||!S.images.length) return;
+  if(!window._storage||!window._storageLib){
+    console.warn('[img] upload skipped: Firebase Storage not initialised');
+    return;
+  }
   const {ref:sRef,uploadBytes:sUpload,getDownloadURL:sUrl}=window._storageLib;
+  let ok=0, fail=0;
   for(const img of S.images){
     if(!img||img.url) continue;       // already uploaded
     if(!img.data) continue;           // nothing to upload
@@ -8314,10 +8351,17 @@ async function _imgUploadToCloud(folioId){
       img.url=await sUrl(snap.ref);
       img.storagePath=path;
       delete img.data;
+      delete img._uploadErr;
+      ok++;
+      console.log('[img] uploaded',img.id,'->',img.url);
     }catch(e){
-      console.warn('[img] upload failed for',img.id,e&&(e.code||e.message||e));
+      const code=(e&&(e.code||e.message))||String(e);
+      img._uploadErr=code;            // strip step reads this to decide on toast
+      fail++;
+      console.warn('[img] upload failed for',img.id,'-',code,e);
     }
   }
+  if(fail>0) console.warn('[img] upload summary: ok='+ok+' fail='+fail+' (folio '+folioId+')');
   _imgRefreshCover();
 }
 window._imgUploadToCloud=_imgUploadToCloud;
