@@ -9116,8 +9116,14 @@ function renderPreview(){
   };
 
   // Cover
+  // Full-bleed convention: when coverPos === 'full' the cover ART is
+  // doing the typography (most book covers have the title + author
+  // baked into the design). Render the image alone — no white-fade
+  // gradient and no overlay text. Users who want app-rendered title
+  // + author can pick coverPos === 'top', which gives the
+  // traditional title-page layout in the else-branch below.
   if(coverPos==='full'&&S.coverImg){
-    pagesHTML+=`<div class="book-page" style="width:${pw}px;height:${ph}px;position:relative;overflow:hidden;"><img src="${S.coverImg}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"><div style="position:absolute;inset:0;background:linear-gradient(to top,${T.bg}dd 0%,transparent 55%)"></div><div style="position:absolute;bottom:${mg}px;left:${mg}px;right:${mg}px;text-align:center"><div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(H_BOOK_TITLE)};font-weight:700;color:${T.text};line-height:1.2">${esc(title)}</div>${subtitle?`<div style="font-family:${font};font-size:${pt(H_SUBTITLE)};color:${T.text}99;margin-top:${mm(1.6)};font-style:italic">${esc(subtitle)}</div>`:''}<div style="font-family:${font};font-size:${pt(H_AUTHOR)};color:${T.text}88;margin-top:${mm(2.6)};letter-spacing:0.12em">— ${esc(author)} —</div></div></div>`;
+    pagesHTML+=`<div class="book-page" style="width:${pw}px;height:${ph}px;position:relative;overflow:hidden;background:${T.bg}"><img src="${S.coverImg}" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover"></div>`;
     pageNum++;
   } else {
     let img='';
