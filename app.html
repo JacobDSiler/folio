@@ -18970,62 +18970,56 @@
 
     // ── VIP bypass ──────────────────────────────────────────────────────────────
     // Readers with ?unlock=<token> in the URL skip the paywall entirely.
-    // The token is checked against a SHA-256 hash so the plaintext secret
-    // never lives in the source. To rotate: generate a new token, run
-    //   crypto.subtle.digest('SHA-256', new TextEncoder().encode(token))
-    // in DevTools, convert to hex, and replace VIP_TOKEN_HASH below.
-    // Current token: change this to whatever you want to send to VIP readers.
-    // To generate a new hash paste this into browser DevTools console:
-    //   const t='YOUR_TOKEN'; crypto.subtle.digest('SHA-256',new TextEncoder().encode(t)).then(b=>console.log([...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('')));
-    (async function _pwVipBypass() {
+    // Runs synchronously at parse time so the flag is set before any boot
+    // sequence calls _pwCheckAccess or _pwReapply.
+    //
+    // To rotate the token: pick a new plaintext string, compute its djb2 hash
+    // by running this in DevTools console (replace YOUR_TOKEN):
+    //   var s='YOUR_TOKEN',h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);console.log(h>>>0);
+    // Paste the resulting number as VIP_TOKEN_HASH below.
+    (function _pwVipBypass() {
       try {
-        // ← Change VIP_TOKEN_HASH to the SHA-256 hex of your chosen token
-        const VIP_TOKEN_HASH = '0640c6fc77d633b995233fc15534a0d2adc02ab3a2082f9c1f6912564611f6d2';
+        // ← Replace with the djb2 hash of your chosen token (see comment above)
+        var VIP_TOKEN_HASH = 4124427470;
 
-        const urlToken = new URLSearchParams(window.location.search).get('unlock');
-        if (!urlToken || VIP_TOKEN_HASH === 'REPLACE_WITH_YOUR_HASH') return;
+        var urlToken = new URLSearchParams(window.location.search).get('unlock');
+        if (!urlToken || VIP_TOKEN_HASH === 0) return;
 
-        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(urlToken));
-        const hash = [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join('');
-        if (hash !== VIP_TOKEN_HASH) return;
+        // djb2 hash — fast, synchronous, no crypto API needed
+        var h = 5381;
+        for (var i = 0; i < urlToken.length; i++) h = ((h << 5) + h) ^ urlToken.charCodeAt(i);
+        if ((h >>> 0) !== VIP_TOKEN_HASH) return;
 
-        // Token is valid — inject a synthetic "never-expiring" unlock token into
-        // localStorage so every downstream paywall check (_pwCheckAccess,
-        // _pwReapply, _pwIsValid) sees a paid unlock without a Gumroad round-trip.
-        // The fake JWT payload sets exp 100 years out and sub='vip'.
-        const makeVipJwt = () => {
-          const enc = s => btoa(unescape(encodeURIComponent(JSON.stringify(s))))
+        // Token matched — set global flag; _pwCheckAccess will store the
+        // synthetic token once it knows the folioId.
+        window.__folioVipBypass = true;
+
+        // Build a synthetic never-expiring JWT-shaped token
+        var enc = function (obj) {
+          return btoa(unescape(encodeURIComponent(JSON.stringify(obj))))
             .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-          const hdr = enc({ alg: 'none', typ: 'JWT' });
-          const payload = enc({
+        };
+        window.__folioVipJwt = enc({ alg: 'none', typ: 'JWT' }) + '.' +
+          enc({
             sub: 'vip', iat: Math.floor(Date.now() / 1000),
             exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365 * 100
-          });
-          return hdr + '.' + payload + '.vip';
-        };
-        // Derive the same localStorage key the paywall uses: folio_paywall_<id>
-        // We don't know folioId yet at this point so we patch it lazily below.
-        window.__folioVipBypass = true;
-        window.__folioVipJwt = makeVipJwt();
+          }) + '.vip';
       } catch (e) { }
     })();
     // ── end VIP bypass ───────────────────────────────────────────────────────────
 
     // Check gating on reader-mode boot. Returns true when access is granted.
     async function _pwCheckAccess(folioId) {
-      // VIP bypass: token was valid — store a synthetic unlock for this folioId
-      // and proceed as if the user has a purchased licence.
+      // VIP bypass: valid token in URL — inject a synthetic unlock into
+      // localStorage so _pwIsValid, _pwReapply, and all serial locks see
+      // a confirmed purchase without any Gumroad round-trip.
       if (window.__folioVipBypass && folioId) {
         try {
-          const key = 'folio_paywall_' + folioId;
-          if (!localStorage.getItem(key)) {
-            localStorage.setItem(key, JSON.stringify({
-              token: window.__folioVipJwt,
-              expiresAt: null,
-              email: 'vip',
-              savedAt: Date.now(),
-            }));
-          }
+          var _vipKey = 'folio_paywall_' + folioId;
+          localStorage.setItem(_vipKey, JSON.stringify({
+            token: window.__folioVipJwt, expiresAt: null,
+            email: 'vip', savedAt: Date.now(),
+          }));
         } catch (e) { }
       }
 
@@ -19083,6 +19077,19 @@
       if (!release || release.priceMode !== 'paid') return;
       const folioId = _pwActiveFolioId ||
         (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+      // VIP bypass: ensure the synthetic token is stored for this folioId
+      // even on rapid previewRendered calls before _pwCheckAccess has run.
+      if (window.__folioVipBypass && folioId && window.__folioVipJwt) {
+        try {
+          const _vk = 'folio_paywall_' + folioId;
+          if (!localStorage.getItem(_vk)) {
+            localStorage.setItem(_vk, JSON.stringify({
+              token: window.__folioVipJwt, expiresAt: null,
+              email: 'vip', savedAt: Date.now(),
+            }));
+          }
+        } catch (e) { }
+      }
       const cached = _pwGetToken(folioId);
       if (_pwIsValid(cached)) {
         // Buyer — nothing hidden, no TOC dimming, full chapter dropdown.
