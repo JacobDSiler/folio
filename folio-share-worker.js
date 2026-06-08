@@ -297,7 +297,7 @@ export default {
       // Whitelist only the params the reader understands
       const allowed = new Set(['teaser', 'unlock']);
 
-      for (const [k, v] of incoming.searchParams) {
+      for (const [k, v] of url.searchParams) {
         if (allowed.has(k)) dest.searchParams.set(k, v);
       }
 
