@@ -289,7 +289,19 @@ export default {
     const ua = request.headers.get('User-Agent') || '';
     if (!CRAWLER_RE.test(ua)) {
       // Real browser → straight to the reader, no interstitial.
-      return Response.redirect(readerUrl, 302);
+      // Build a param‑forwarding redirect
+      // Build destination
+      const dest = new URL(readerBase + '/app.html');
+      dest.searchParams.set('read', folioId);
+
+      // Whitelist only the params the reader understands
+      const allowed = new Set(['teaser', 'unlock']);
+
+      for (const [k, v] of incoming.searchParams) {
+        if (allowed.has(k)) dest.searchParams.set(k, v);
+      }
+
+      return Response.redirect(dest.toString(), 302);
     }
 
     // ── Crawler: build per-book Open Graph metadata from Firestore ──
