@@ -7910,24 +7910,29 @@
       if (state && data && data.release && data.release.priceMode === 'paid' && folioId) {
         try {
           const _isOwner = !!(window._uid && data.uid && data.uid === window._uid);
-          const _roleUnlocked = typeof _readerRole !== 'undefined' &&
-            (_readerRole === 'editor' || _readerRole === 'collaborator');
           let _paidDoc = null;
-          if (_isOwner || _roleUnlocked) {
+          if (_isOwner) {
             try {
               const _paidRef = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'paid');
               const _paidSnap = await window._fb.getDoc(_paidRef);
               if (_paidSnap.exists()) _paidDoc = _paidSnap.data();
             } catch (e) { console.warn('[D1] owner body/paid fetch failed:', e); }
-          } else if (typeof _pwGetToken === 'function' && typeof _pwIsValid === 'function') {
-            const _tk = _pwGetToken(folioId);
-            if (_tk && _pwIsValid(_tk)) {
+          } else if (window.__folioVipBypass ||
+            (typeof _pwGetToken === 'function' && typeof _pwIsValid === 'function')) {
+            // VIP bypass: send X-Folio-VIP header so the worker skips JWT validation.
+            // Normal buyers: use the stored license JWT as before.
+            const _isVipFetch = !!window.__folioVipBypass;
+            const _tk = !_isVipFetch && _pwGetToken(folioId);
+            if (_isVipFetch || (_tk && _pwIsValid(_tk))) {
               try {
                 const _url = (typeof PAYWALL_WORKER_URL === 'string' && PAYWALL_WORKER_URL)
                   ? PAYWALL_WORKER_URL
                   : 'https://folio-paywall.jacobdsiler.workers.dev';
+                const _hdrs = _isVipFetch
+                  ? { 'X-Folio-VIP': new URLSearchParams(window.location.search).get('unlock') || '' }
+                  : { 'Authorization': 'Bearer ' + _tk.token };
                 const _r = await fetch(_url + '/paid-content?folio=' + encodeURIComponent(folioId), {
-                  headers: { 'Authorization': 'Bearer ' + _tk.token },
+                  headers: _hdrs,
                 });
                 if (_r.ok) {
                   const _j = await _r.json().catch(() => ({}));
@@ -18981,22 +18986,21 @@
     // Paste the resulting number as VIP_TOKEN_HASH below.
     (function _pwVipBypass() {
       try {
-        // ← Replace with the djb2 hash of your chosen token (see comment above)
-        var VIP_TOKEN_HASH = 4124427470;
+        var VIP_TOKEN_HASH = 4124427470; // SBS-VIP-2026
 
         var urlToken = new URLSearchParams(window.location.search).get('unlock');
-        if (!urlToken || VIP_TOKEN_HASH === 0) return;
+        console.log('[VIP] unlock param:', urlToken);
+        if (!urlToken || VIP_TOKEN_HASH === 0) { console.log('[VIP] bailing: no token or hash=0'); return; }
 
-        // djb2 hash — fast, synchronous, no crypto API needed
+        // djb2 hash
         var h = 5381;
         for (var i = 0; i < urlToken.length; i++) h = ((h << 5) + h) ^ urlToken.charCodeAt(i);
-        if ((h >>> 0) !== VIP_TOKEN_HASH) return;
+        console.log('[VIP] computed hash:', h >>> 0, 'expected:', VIP_TOKEN_HASH, 'match:', (h >>> 0) === VIP_TOKEN_HASH);
+        if ((h >>> 0) !== VIP_TOKEN_HASH) { console.log('[VIP] hash mismatch'); return; }
 
-        // Token matched — set global flag; _pwCheckAccess will store the
-        // synthetic token once it knows the folioId.
         window.__folioVipBypass = true;
+        console.log('[VIP] bypass flag set');
 
-        // Build a synthetic never-expiring JWT-shaped token
         var enc = function (obj) {
           return btoa(unescape(encodeURIComponent(JSON.stringify(obj))))
             .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
@@ -19006,7 +19010,8 @@
             sub: 'vip', iat: Math.floor(Date.now() / 1000),
             exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365 * 100
           }) + '.vip';
-      } catch (e) { }
+        console.log('[VIP] JWT built');
+      } catch (e) { console.error('[VIP] error:', e); }
     })();
     // ── end VIP bypass ───────────────────────────────────────────────────────────
 
@@ -19022,7 +19027,10 @@
             token: window.__folioVipJwt, expiresAt: null,
             email: 'vip', savedAt: Date.now(),
           }));
-        } catch (e) { }
+          console.log('[VIP] _pwCheckAccess: stored synthetic token for', folioId);
+        } catch (e) { console.error('[VIP] _pwCheckAccess store failed:', e); }
+      } else {
+        console.log('[VIP] _pwCheckAccess: bypass flag=', window.__folioVipBypass, 'folioId=', folioId);
       }
 
       const release = await _pwFetchRelease(folioId);
