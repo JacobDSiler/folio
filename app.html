@@ -7948,30 +7948,29 @@
                   headers: _hdrs,
                 });
 
-                // ⭐ DEBUG: Log the full response
-                console.log('[DEBUG] /paid-content response status:', _r.status);
+                console.log('[DEBUG] Response status:', _r.status);
 
                 if (_r.ok) {
-                  const _j = await _r.json().catch(() => ({}));
+                  let _j = {};
+                  try {
+                    _j = await _r.json();
+                  } catch (parseErr) {
+                    console.error('[DEBUG] JSON parse failed:', parseErr);
+                    _j = {};
+                  }
 
-                  // ⭐ DEBUG: Log the full JSON response
-                  console.log('[DEBUG] /paid-content full response:', _j);
+                  console.log('[DEBUG] Full response:', _j);
+                  console.log('[DEBUG] Body object:', _j.body);
 
-                  // ⭐ DEBUG: Log body specifically
-                  console.log('[DEBUG] /paid-content body object:', _j.body);
-
-                  // ⭐ DEBUG: Log what fields are in body
                   if (_j.body) {
-                    console.log('[DEBUG] body has content:', !!_j.body.content);
-                    console.log('[DEBUG] body has content_gz:', !!_j.body.content_gz);
-                    console.log('[DEBUG] body keys:', Object.keys(_j.body));
+                    console.log('[DEBUG] Body has content:', !!_j.body.content);
+                    console.log('[DEBUG] Body has content_gz:', !!_j.body.content_gz);
                   }
 
                   if (_j && _j.ok && _j.body) {
                     _paidDoc = _j.body;
-                    console.log('[DEBUG] _paidDoc assigned:', _paidDoc);
                   } else {
-                    console.warn('[DEBUG] Condition failed: _j.ok=' + _j.ok + ', _j.body=' + !!_j.body);
+                    console.warn('[DEBUG] Response missing ok or body');
                   }
                 } else {
                   console.warn('[D1] paid-content worker returned', _r.status);
