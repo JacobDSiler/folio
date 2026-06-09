@@ -7932,13 +7932,18 @@
                 const _url = (typeof PAYWALL_WORKER_URL === 'string' && PAYWALL_WORKER_URL)
                   ? PAYWALL_WORKER_URL
                   : 'https://folio-paywall.jacobdsiler.workers.dev';
-                const _hdrs = { 'Authorization': 'Bearer ' + _tk.token };
+                // Replace any existing _hdrs definition with:
+                const _hdrs = {};
+                if (_tk && _tk.token && !window.__folioVipBypass) {
+                  _hdrs['Authorization'] = 'Bearer ' + _tk.token;
+                }
                 // Role: prefer the module-scoped _readerRole; fall back to URL param.
                 const _roleParam = (typeof _readerRole !== 'undefined' && _readerRole)
                   ? _readerRole
                   : (() => { try { const r = new URLSearchParams(window.location.search).get('role'); return (r && ['reader', 'beta', 'editor', 'collab'].includes(r.toLowerCase())) ? r.toLowerCase() : ''; } catch (e) { return ''; } })();
                 const _paidUrl = _url + '/paid-content?folio=' + encodeURIComponent(folioId) +
-                  (_roleParam ? '&role=' + encodeURIComponent(_roleParam) : '');
+                  (_roleParam ? '&role=' + encodeURIComponent(_roleParam) : '') +
+                  (_unlockParam ? '&unlock=' + encodeURIComponent(_unlockParam) : '');
                 const _r = await fetch(_paidUrl, {
                   headers: _hdrs,
                 });
@@ -18989,63 +18994,63 @@
     let _pwActiveRelease = null;
     let _pwActiveFolioId = null;
 
-    // ── VIP bypass ──────────────────────────────────────────────────────────────
-    // Readers with ?unlock=<token> in the URL skip the paywall entirely.
-    // Runs synchronously at parse time so the flag is set before any boot
-    // sequence calls _pwCheckAccess or _pwReapply.
-    //
-    // To rotate the token: pick a new plaintext string, compute its djb2 hash
-    // by running this in DevTools console (replace YOUR_TOKEN):
-    //   var s='YOUR_TOKEN',h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);console.log(h>>>0);
-    // Paste the resulting number as VIP_TOKEN_HASH below.
-    (function _pwVipBypass() {
-      try {
-        var VIP_TOKEN_HASH = 4124427470; // SBS-VIP-2026
+    // // ── VIP bypass ──────────────────────────────────────────────────────────────
+    // // Readers with ?unlock=<token> in the URL skip the paywall entirely.
+    // // Runs synchronously at parse time so the flag is set before any boot
+    // // sequence calls _pwCheckAccess or _pwReapply.
+    // //
+    // // To rotate the token: pick a new plaintext string, compute its djb2 hash
+    // // by running this in DevTools console (replace YOUR_TOKEN):
+    // //   var s='YOUR_TOKEN',h=5381;for(var i=0;i<s.length;i++)h=((h<<5)+h)^s.charCodeAt(i);console.log(h>>>0);
+    // // Paste the resulting number as VIP_TOKEN_HASH below.
+    // (function _pwVipBypass() {
+    //   try {
+    //     var VIP_TOKEN_HASH = 4124427470; // SBS-VIP-2026
 
-        var urlToken = new URLSearchParams(window.location.search).get('unlock');
-        console.log('[VIP] unlock param:', urlToken);
-        if (!urlToken || VIP_TOKEN_HASH === 0) { console.log('[VIP] bailing: no token or hash=0'); return; }
+    //     var urlToken = new URLSearchParams(window.location.search).get('unlock');
+    //     console.log('[VIP] unlock param:', urlToken);
+    //     if (!urlToken || VIP_TOKEN_HASH === 0) { console.log('[VIP] bailing: no token or hash=0'); return; }
 
-        // djb2 hash
-        var h = 5381;
-        for (var i = 0; i < urlToken.length; i++) h = ((h << 5) + h) ^ urlToken.charCodeAt(i);
-        console.log('[VIP] computed hash:', h >>> 0, 'expected:', VIP_TOKEN_HASH, 'match:', (h >>> 0) === VIP_TOKEN_HASH);
-        if ((h >>> 0) !== VIP_TOKEN_HASH) { console.log('[VIP] hash mismatch'); return; }
+    //     // djb2 hash
+    //     var h = 5381;
+    //     for (var i = 0; i < urlToken.length; i++) h = ((h << 5) + h) ^ urlToken.charCodeAt(i);
+    //     console.log('[VIP] computed hash:', h >>> 0, 'expected:', VIP_TOKEN_HASH, 'match:', (h >>> 0) === VIP_TOKEN_HASH);
+    //     if ((h >>> 0) !== VIP_TOKEN_HASH) { console.log('[VIP] hash mismatch'); return; }
 
-        window.__folioVipBypass = true;
-        console.log('[VIP] bypass flag set');
+    //     window.__folioVipBypass = true;
+    //     console.log('[VIP] bypass flag set');
 
-        var enc = function (obj) {
-          return btoa(unescape(encodeURIComponent(JSON.stringify(obj))))
-            .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
-        };
-        window.__folioVipJwt = enc({ alg: 'none', typ: 'JWT' }) + '.' +
-          enc({
-            sub: 'vip', iat: Math.floor(Date.now() / 1000),
-            exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365 * 100
-          }) + '.vip';
-        console.log('[VIP] JWT built');
-      } catch (e) { console.error('[VIP] error:', e); }
-    })();
-    // ── end VIP bypass ───────────────────────────────────────────────────────────
+    //     var enc = function (obj) {
+    //       return btoa(unescape(encodeURIComponent(JSON.stringify(obj))))
+    //         .replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+    //     };
+    //     window.__folioVipJwt = enc({ alg: 'none', typ: 'JWT' }) + '.' +
+    //       enc({
+    //         sub: 'vip', iat: Math.floor(Date.now() / 1000),
+    //         exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 365 * 100
+    //       }) + '.vip';
+    //     console.log('[VIP] JWT built');
+    //   } catch (e) { console.error('[VIP] error:', e); }
+    // })();
+    // // ── end VIP bypass ───────────────────────────────────────────────────────────
 
     // Check gating on reader-mode boot. Returns true when access is granted.
     async function _pwCheckAccess(folioId) {
       // VIP bypass: valid token in URL — inject a synthetic unlock into
       // localStorage so _pwIsValid, _pwReapply, and all serial locks see
       // a confirmed purchase without any Gumroad round-trip.
-      if (window.__folioVipBypass && folioId) {
-        try {
-          var _vipKey = 'folio_paywall_' + folioId;
-          localStorage.setItem(_vipKey, JSON.stringify({
-            token: window.__folioVipJwt, expiresAt: null,
-            email: 'vip', savedAt: Date.now(),
-          }));
-          console.log('[VIP] _pwCheckAccess: stored synthetic token for', folioId);
-        } catch (e) { console.error('[VIP] _pwCheckAccess store failed:', e); }
-      } else {
-        console.log('[VIP] _pwCheckAccess: bypass flag=', window.__folioVipBypass, 'folioId=', folioId);
-      }
+      // if (window.__folioVipBypass && folioId) {
+      //   try {
+      //     var _vipKey = 'folio_paywall_' + folioId;
+      //     localStorage.setItem(_vipKey, JSON.stringify({
+      //       token: window.__folioVipJwt, expiresAt: null,
+      //       email: 'vip', savedAt: Date.now(),
+      //     }));
+      //     console.log('[VIP] _pwCheckAccess: stored synthetic token for', folioId);
+      //   } catch (e) { console.error('[VIP] _pwCheckAccess store failed:', e); }
+      // } else {
+      //   console.log('[VIP] _pwCheckAccess: bypass flag=', window.__folioVipBypass, 'folioId=', folioId);
+      // }
 
       const release = await _pwFetchRelease(folioId);
       if (!release || release.priceMode !== 'paid') {
