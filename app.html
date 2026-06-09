@@ -7919,19 +7919,27 @@
             } catch (e) { console.warn('[D1] owner body/paid fetch failed:', e); }
           } else if (window.__folioVipBypass ||
             (typeof _pwGetToken === 'function' && typeof _pwIsValid === 'function')) {
-            // VIP bypass: send X-Folio-VIP header so the worker skips JWT validation.
+            // VIP bypass: use the synthetic JWT as a Bearer token so the worker
+            // sees a normal Authorization header (the X-Folio-VIP header approach
+            // caused 500s because the worker has no handler for that header).
             // Normal buyers: use the stored license JWT as before.
             const _isVipFetch = !!window.__folioVipBypass;
-            const _tk = !_isVipFetch && _pwGetToken(folioId);
-            if (_isVipFetch || (_tk && _pwIsValid(_tk))) {
+            const _vipJwt = _isVipFetch && (window.__folioVipJwt ||
+              (() => { try { const s = localStorage.getItem('folio_paywall_' + folioId); return s && JSON.parse(s).token; } catch (e) { } return null; })());
+            const _tk = _isVipFetch ? (_vipJwt ? { token: _vipJwt } : null) : _pwGetToken(folioId);
+            if (_tk && (_isVipFetch ? _vipJwt : _pwIsValid(_tk))) {
               try {
                 const _url = (typeof PAYWALL_WORKER_URL === 'string' && PAYWALL_WORKER_URL)
                   ? PAYWALL_WORKER_URL
                   : 'https://folio-paywall.jacobdsiler.workers.dev';
-                const _hdrs = _isVipFetch
-                  ? { 'X-Folio-VIP': new URLSearchParams(window.location.search).get('unlock') || '' }
-                  : { 'Authorization': 'Bearer ' + _tk.token };
-                const _r = await fetch(_url + '/paid-content?folio=' + encodeURIComponent(folioId), {
+                const _hdrs = { 'Authorization': 'Bearer ' + _tk.token };
+                // Role: prefer the module-scoped _readerRole; fall back to URL param.
+                const _roleParam = (typeof _readerRole !== 'undefined' && _readerRole)
+                  ? _readerRole
+                  : (() => { try { const r = new URLSearchParams(window.location.search).get('role'); return (r && ['reader', 'beta', 'editor', 'collab'].includes(r.toLowerCase())) ? r.toLowerCase() : ''; } catch (e) { return ''; } })();
+                const _paidUrl = _url + '/paid-content?folio=' + encodeURIComponent(folioId) +
+                  (_roleParam ? '&role=' + encodeURIComponent(_roleParam) : '');
+                const _r = await fetch(_paidUrl, {
                   headers: _hdrs,
                 });
                 if (_r.ok) {
@@ -7954,7 +7962,13 @@
               const _url = (typeof PAYWALL_WORKER_URL === 'string' && PAYWALL_WORKER_URL)
                 ? PAYWALL_WORKER_URL
                 : 'https://folio-paywall.jacobdsiler.workers.dev';
-              const _r = await fetch(_url + '/teaser-content?folio=' + encodeURIComponent(folioId));
+              // Role: prefer the module-scoped _readerRole; fall back to URL param.
+              const _roleParam = (typeof _readerRole !== 'undefined' && _readerRole)
+                ? _readerRole
+                : (() => { try { const r = new URLSearchParams(window.location.search).get('role'); return (r && ['reader', 'beta', 'editor', 'collab'].includes(r.toLowerCase())) ? r.toLowerCase() : ''; } catch (e) { return ''; } })();
+              const _paidUrl = _url + '/teaser-content?folio=' + encodeURIComponent(folioId) +
+                (_roleParam ? '&role=' + encodeURIComponent(_roleParam) : '');
+              const _r = await fetch(_paidUrl);
               if (_r.ok) {
                 const _j = await _r.json().catch(() => ({}));
                 if (_j && _j.ok && _j.chapters) _teaserMap = _j.chapters;
