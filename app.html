@@ -7947,6 +7947,10 @@
                 const _r = await fetch(_paidUrl, {
                   headers: _hdrs,
                 });
+
+                // ⭐ ADD THIS DEBUG LOG
+                console.log('[DEBUG] Worker /paid-content response:', _data);
+                
                 if (_r.ok) {
                   const _j = await _r.json().catch(() => ({}));
                   if (_j && _j.ok && _j.body) _paidDoc = _j.body;
