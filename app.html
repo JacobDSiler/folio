@@ -7917,17 +7917,15 @@
               const _paidSnap = await window._fb.getDoc(_paidRef);
               if (_paidSnap.exists()) _paidDoc = _paidSnap.data();
             } catch (e) { console.warn('[D1] owner body/paid fetch failed:', e); }
-          } else if (window.__folioVipBypass ||
+          } else if (window.__folioVipBypass || _unlockParam ||
             (typeof _pwGetToken === 'function' && typeof _pwIsValid === 'function')) {
-            // VIP bypass: use the synthetic JWT as a Bearer token so the worker
-            // sees a normal Authorization header (the X-Folio-VIP header approach
-            // caused 500s because the worker has no handler for that header).
-            // Normal buyers: use the stored license JWT as before.
             const _isVipFetch = !!window.__folioVipBypass;
             const _vipJwt = _isVipFetch && (window.__folioVipJwt ||
               (() => { try { const s = localStorage.getItem('folio_paywall_' + folioId); return s && JSON.parse(s).token; } catch (e) { } return null; })());
-            const _tk = _isVipFetch ? (_vipJwt ? { token: _vipJwt } : null) : _pwGetToken(folioId);
-            if (_tk && (_isVipFetch ? _vipJwt : _pwIsValid(_tk))) {
+            const _tk = _isVipFetch ? (_vipJwt ? { token: _vipJwt } : null) :
+              (typeof _pwGetToken === 'function' ? _pwGetToken(folioId) : null);
+
+            if (_unlockParam || (_tk && (_isVipFetch ? _vipJwt : _pwIsValid(_tk)))) {
               try {
                 const _url = (typeof PAYWALL_WORKER_URL === 'string' && PAYWALL_WORKER_URL)
                   ? PAYWALL_WORKER_URL
