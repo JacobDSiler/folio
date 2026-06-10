@@ -7944,18 +7944,37 @@
                 const _paidUrl = _url + '/paid-content?folio=' + encodeURIComponent(folioId) +
                   (_roleParam ? '&role=' + encodeURIComponent(_roleParam) : '') +
                   (_unlockParam ? '&unlock=' + encodeURIComponent(_unlockParam) : '');
-                const _r = await fetch(_paidUrl, {
+               const _r = await fetch(_paidUrl, {
                   headers: _hdrs,
                 });
+
+                console.log('[DEBUG] Response status:', _r.status);
+
                 if (_r.ok) {
-                  const _j = await _r.json().catch(() => ({}));
-                  if (_j && _j.ok && _j.body) _paidDoc = _j.body;
+                  let _j = {};
+                  try {
+                    _j = await _r.json();
+                  } catch (parseErr) {
+                    console.error('[DEBUG] JSON parse failed:', parseErr);
+                    _j = {};
+                  }
+
+                  console.log('[DEBUG] Full response:', _j);
+                  console.log('[DEBUG] Body object:', _j.body);
+
+                  if (_j.body) {
+                    console.log('[DEBUG] Body has content:', !!_j.body.content);
+                    console.log('[DEBUG] Body has content_gz:', !!_j.body.content_gz);
+                  }
+
+                  if (_j && _j.ok && _j.body) {
+                    _paidDoc = _j.body;
+                  } else {
+                    console.warn('[DEBUG] Response missing ok or body');
+                  }
                 } else {
                   console.warn('[D1] paid-content worker returned', _r.status);
                 }
-              } catch (e) { console.warn('[D1] paid-content fetch failed:', e); }
-            }
-          }
           // FUNNEL: non-owner who didn't get any paid content (no JWT,
           // expired, or buyer-fetch failed) — fetch teaser chapters the
           // author flagged as public. Keyed by chapter id and merged into
