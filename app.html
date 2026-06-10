@@ -7972,12 +7972,14 @@
                   } else {
                     console.warn('[DEBUG] Response missing ok or body');
                   }
-                } else {
+                                } else {
                   console.warn('[D1] paid-content worker returned', _r.status);
                 }
-               } catch (e) {
+              } catch (e) {
                 console.warn('[D1] paid-content fetch failed:', e);
               }
+            }
+          }
           // FUNNEL: non-owner who didn't get any paid content (no JWT,
           // expired, or buyer-fetch failed) — fetch teaser chapters the
           // author flagged as public. Keyed by chapter id and merged into
