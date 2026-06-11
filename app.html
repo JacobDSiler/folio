@@ -9209,14 +9209,20 @@
       const hint = document.getElementById('inviteRoleHint');
       if (hint) hint.textContent = meta.hint;
       const linkEl = document.getElementById('shareLinkText');
-      linkEl.textContent = "Signing secure link...";
-      _rlGetSignedLink().then(url => { linkEl.textContent = url; });
+      if (linkEl) {
+        linkEl.textContent = "Generating secure signed link...";
+        _rlGetSignedLink().then(url => {
+          if (_projId === folioId) { // check we haven't switched folios mid-fetch
+            linkEl.textContent = url;
+          }
+        });
+      }
     }
 
   async function _rlGetSignedLink() {
     const role = _inviteRole();
     const folioId = _projId;
-    if (!folioId || !window._auth.currentUser) return _inviteURL(role);
+    if (!folioId || !window._auth.currentUser || window._user?.isAnonymous) return _inviteURL(role);
 
     try {
       const idToken = await window._auth.currentUser.getIdToken();
@@ -9226,10 +9232,11 @@
         body: JSON.stringify({ folioId, role })
       });
       const data = await resp.json();
-      return data.ok ? data.shareUrl : _inviteURL(role);
+      if (!resp.ok) throw new Error(data.error || 'Server error');
+      return data.shareUrl;
     } catch (e) {
-      console.warn('[share] signing failed, falling back to role-param', e);
-      return _inviteURL(role);
+      console.warn('[share] signing failed:', e.message);
+      return _inviteURL(role); // Fallback to old style on error
     }
   }
 
