@@ -19452,8 +19452,18 @@
       const id = _rdReadQueryParam();
       if (!id) return;
       const params = new URLSearchParams(window.location.search);
-      _readerMode = true;
-      _readerFolioId = id;
+     // Check if we are a collaborator before activating reader mode
+     const _stk = params.get('share') || localStorage.getItem('folioShareToken_' + id);
+     const _pd = _stk ? (typeof _pwDecode === 'function' ? _pwDecode(_stk) : null) : null;
+
+     if (_pd && _pd.role === 'collab') {
+       console.log('[AUTH] Collaborator token detected, bypassing reader mode');
+       _readerMode = false;
+       return; // Exit and let the normal editor load
+     }
+
+     _readerMode = true;
+     _readerFolioId = id;
       const _uShare = params.get('share');
       if (_uShare) {
         localStorage.setItem('folioShareToken_' + id, _uShare);
@@ -20279,7 +20289,16 @@
 
     // Boot reader mode ASAP (before main script hits renderPreview).
     (function _rdBoot() {
-      const start = () => _rdMaybeActivate();
+      const start = () => {
+        // Capture share token globally before doing anything else
+        const _up = new URLSearchParams(window.location.search);
+        const _sid = _up.get('read') || _up.get('folio');
+        const _stk = _up.get('share');
+        if (_sid && _stk) {
+          localStorage.setItem('folioShareToken_' + _sid, _stk);
+        }
+        _rdMaybeActivate();
+      };
       if (document.readyState === 'loading') {
         window.addEventListener('DOMContentLoaded', start);
       } else {
