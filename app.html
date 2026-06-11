@@ -7929,12 +7929,21 @@
               if (_paidSnap.exists()) _paidDoc = _paidSnap.data();
             } catch (e) { console.warn('[D1] owner body/paid fetch failed:', e); }
           } else if (window.__folioVipBypass || _unlockParam ||
-            (typeof _pwGetToken === 'function' && typeof _pwIsValid === 'function')) {
+            (typeof _pwGetToken === 'function' && typeof _pwIsValid === 'function') || localStorage.getItem('folioShareToken_' + folioId)) {
             const _isVipFetch = !!window.__folioVipBypass;
-            const _vipJwt = _isVipFetch && (window.__folioVipJwt ||
-              (() => { try { const s = localStorage.getItem('folio_paywall_' + folioId); return s && JSON.parse(s).token; } catch (e) { } return null; })());
-            const _tk = _isVipFetch ? (_vipJwt ? { token: _vipJwt } : null) :
-              (typeof _pwGetToken === 'function' ? _pwGetToken(folioId) : null);
+            let _shareTk = localStorage.getItem('folioShareToken_' + folioId);
+            if (_shareTk) {
+              const _pd = typeof _pwDecode === 'function' ? _pwDecode(_shareTk) : null;
+              const _now = Math.floor(Date.now() / 1000);
+              if (!_pd || _pd.folio !== folioId || (_pd.exp && _pd.exp < _now)) {
+                localStorage.removeItem('folioShareToken_' + folioId);
+                _shareTk = null;
+              }
+            }
+            const _tk = _shareTk ? { token: _shareTk } : (_isVipFetch ? (_vipJwt ? { token: _vipJwt } : null) :
+              (typeof _pwGetToken === 'function' ? _pwGetToken(folioId) : null));
+
+            if (_shareTk || _unlockParam || (_tk && (_isVipFetch ? _vipJwt : _pwIsValid(_tk)))) {
 
             if (_unlockParam || (_tk && (_isVipFetch ? _vipJwt : _pwIsValid(_tk)))) {
               try {
@@ -19412,6 +19421,15 @@
       if (!id) return;
       _readerMode = true;
       _readerFolioId = id;
+      const _uShare = params.get('share');
+      if (_uShare) {
+        localStorage.setItem('folioShareToken_' + id, _uShare);
+        const _pd = typeof _pwDecode === 'function' ? _pwDecode(_uShare) : null;
+        if (_pd && _pd.role) {
+          _readerRole = _pd.role;
+          document.documentElement.setAttribute('data-role', _pd.role);
+        }
+      }
       // Read the role qualifier (?role=reader|beta|editor).  Defaults to 'reader'.
       try {
         const params = new URLSearchParams(window.location.search);
