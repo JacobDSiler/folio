@@ -9211,8 +9211,9 @@
       const linkEl = document.getElementById('shareLinkText');
       if (linkEl) {
         linkEl.textContent = "Generating secure signed link...";
+        const _idAtFetch = _projId;
         _rlGetSignedLink().then(url => {
-          if (_projId === folioId) { // check we haven't switched folios mid-fetch
+          if (_projId === _idAtFetch) {
             linkEl.textContent = url;
           }
         });
