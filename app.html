@@ -9208,15 +9208,38 @@
       if (lbl) lbl.textContent = meta.label;
       const hint = document.getElementById('inviteRoleHint');
       if (hint) hint.textContent = meta.hint;
-      document.getElementById('shareLinkText').textContent = _inviteURL(role);
+      const linkEl = document.getElementById('shareLinkText');
+      linkEl.textContent = "Signing secure link...";
+      _rlGetSignedLink().then(url => { linkEl.textContent = url; });
     }
 
-    function copyInviteLink() {
-      const url = _inviteURL();
-      navigator.clipboard.writeText(url)
-        .then(() => setStatus('Invite link copied to clipboard ✓'))
-        .catch(() => prompt('Copy this link:', url));
+  async function _rlGetSignedLink() {
+    const role = _inviteRole();
+    const folioId = _projId;
+    if (!folioId || !window._auth.currentUser) return _inviteURL(role);
+
+    try {
+      const idToken = await window._auth.currentUser.getIdToken();
+      const resp = await fetch(PAYWALL_WORKER_URL + '/sign-share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+        body: JSON.stringify({ folioId, role })
+      });
+      const data = await resp.json();
+      return data.ok ? data.shareUrl : _inviteURL(role);
+    } catch (e) {
+      console.warn('[share] signing failed, falling back to role-param', e);
+      return _inviteURL(role);
     }
+  }
+
+  async function copyInviteLink() {
+    setStatus('Generating signed link...');
+    const url = await _rlGetSignedLink();
+    navigator.clipboard.writeText(url)
+      .then(() => setStatus('Secure invite link copied ✓'))
+      .catch(() => prompt('Copy secure link:', url));
+  }
 
     function copyShareEmail() {
       const name = document.getElementById('projName').value || 'a book project';
@@ -9243,9 +9266,9 @@
        QR CODE
     ════════════════════════════════════════════════ */
 
-    function openQR() {
+    async function openQR() {
       if (!_projId) { setStatus('Save a folio first'); return; }
-      const url = _inviteURL();
+      const url = await _rlGetSignedLink();
       document.getElementById('qrLinkBelow').textContent = url;
       document.getElementById('qrModal').style.display = 'flex';
       // Generate QR using free API (no key required)
