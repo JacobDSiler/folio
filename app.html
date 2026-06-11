@@ -9211,11 +9211,14 @@
       const linkEl = document.getElementById('shareLinkText');
       if (linkEl) {
         linkEl.textContent = "Generating secure signed link...";
-        const _idAtFetch = _projId;
+        const _idAtFetch = _projId; // Capture the current ID
         _rlGetSignedLink().then(url => {
+          // Use _idAtFetch to ensure we haven't switched folios while waiting
           if (_projId === _idAtFetch) {
             linkEl.textContent = url;
           }
+        }).catch(err => {
+          linkEl.textContent = _inviteURL(_inviteRole());
         });
       }
     }
