@@ -19445,9 +19445,10 @@
     }
 
     // Called once at boot. If ?read=... is present, activates reader mode.
-    function _rdMaybeActivate() {
+   function _rdMaybeActivate() {
       const id = _rdReadQueryParam();
       if (!id) return;
+      const params = new URLSearchParams(window.location.search);
       _readerMode = true;
       _readerFolioId = id;
       const _uShare = params.get('share');
