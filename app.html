@@ -18164,8 +18164,10 @@
       if (!bp) return;
       const chapters = (typeof getChapters === 'function') ? getChapters() : [];
       const chapterIds = chapters.map(c => c.id);
-      const released = _serialReleasedCount(release);
-
+      let released = _serialReleasedCount(release);
+      const shareTk = localStorage.getItem('folioShareToken_' + (_readerFolioId || _projId));
+      if (_pwIsValid(shareTk)) released = Infinity; // Signed tokens bypass the schedule
+      
       // Idempotency guard. _serialApplyLocks runs repeatedly (load races,
       // previewRendered, the 60s ticker, refresh-from-cloud). Each run
       // tears down and rebuilds every lock card — including the email
@@ -18290,26 +18292,25 @@
     //   paid (non-serial) → the free-preview chapters; Infinity if the
     //                       reader holds a valid purchase token
     //   free / private    → Infinity (nothing locked)
-    function _lockReleasedCount(release) {
-        if (!release) return Infinity;
-        const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
-        const shareTk = localStorage.getItem('folioShareToken_' + folioId);
-        if (_pwIsValid(shareTk)) return Infinity;
-      if (release.serial) {
-        return (typeof _serialReleasedCount === 'function')
-          ? _serialReleasedCount(release) : Infinity;
-      }
-      if (release.priceMode === 'paid') {
-        // Purchased? Everything's unlocked.
-        const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
-        if (typeof _pwGetToken === 'function' && typeof _pwIsValid === 'function'
-          && _pwIsValid(_pwGetToken(folioId))) {
-          return Infinity;
-        }
-        return Number(release.previewSections) || 0;
-      }
-      return Infinity;  // free / private non-serial — nothing locked
+  function _lockReleasedCount(release) {
+    if (!release) return Infinity;
+    const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+    const shareTk = localStorage.getItem('folioShareToken_' + folioId);
+
+    // If they have a valid signed share token (any role), unlock everything
+    if (_pwIsValid(shareTk)) return Infinity;
+
+    if (release.serial) {
+      return (typeof _serialReleasedCount === 'function')
+        ? _serialReleasedCount(release) : Infinity;
     }
+    if (release.priceMode === 'paid') {
+      const cached = _pwGetToken(folioId);
+      if (_pwIsValid(cached)) return Infinity;
+      return Number(release.previewSections) || 0;
+    }
+    return Infinity;
+  }
     window._lockReleasedCount = _lockReleasedCount;
 
     // Apply (or clear) TOC-row locking for ANY release type. Thin wrapper
@@ -19158,22 +19159,28 @@
       // Paid release. Check for a valid cached token.
       const cached = _pwGetToken(folioId);
       const shareTk = localStorage.getItem('folioShareToken_' + folioId);
+
       if (_pwIsValid(cached) || _pwIsValid(shareTk)) {
+        // Buyer or Authorized Share — nothing hidden
+        _pwHidePreview();
         document.documentElement.setAttribute('data-paid-unlocked', '1');
-        // Apply serial locks AFTER the paid gate clears — paid serials
-        // show preview-paywall + unlocked-but-locked-by-cadence layers.
+
+        // Apply serial locks AFTER the paid gate clears
         if (release && release.serial && typeof _serialApplyLocks === 'function') {
           setTimeout(() => _serialApplyLocks(release), 50);
         }
-        // Purchased — clear any TOC-row dimming. _lockReleasedCount
-        // returns Infinity once the token is valid, so this un-dims
-        // every row (and, for a paid serial, the serial-locks pass
-        // above re-applies the cadence layer).
+
+        // Clear TOC dimming
         try { setTimeout(() => _lockApplyTocRows(release), 60); } catch (e) { }
-        // W1 — surface the audio button if this release ships an audiobook.
-        if (typeof _rdAudioMaybeShowButton === 'function') _rdAudioMaybeShowButton(release);
+
+        // Show audiobook button if applicable
+        if (typeof _rdAudioMaybeShowButton === 'function') {
+          _rdAudioMaybeShowButton(release);
+        }
+
         return true;
       }
+
 
       // Expired or absent. Branch on whether the release offers a free preview.
       const previewN = Number((release && release.previewSections) || 0) || 0;
@@ -19212,7 +19219,7 @@
       const cached = _pwGetToken(folioId);
       const shareTk = localStorage.getItem('folioShareToken_' + folioId);
       if (_pwIsValid(cached) || _pwIsValid(shareTk)) {
-        // Buyer — nothing hidden, no TOC dimming, full chapter dropdown.
+        // Buyer or Authorized Share — nothing hidden
         _pwHidePreview();
         document.documentElement.setAttribute('data-paid-unlocked', '1');
         try { _lockApplyTocRows(release); } catch (e) { }
