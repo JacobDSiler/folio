@@ -8797,14 +8797,6 @@
           return;
         }
 
-          // Not published — visitor has no business in editor view.
-          setStatus("This folio isn't yours and isn't published.");
-          if (typeof toastWarning === 'function')
-            toastWarning("You can't open someone else's draft folio. Use a reader share link instead.",
-              { icon: '🔒', duration: 5500 });
-          try { localStorage.removeItem('folio_last_open'); } catch (e) { }
-          return;
-        }
 
         // Close writing mode / manuscript view before switching folios
         if (document.getElementById('writingMode')?.classList.contains('active')) {
