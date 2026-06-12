@@ -20296,7 +20296,7 @@
             console.log('[AUTH] Recovering folio ID from share token');
             _sid = _pd.folio;
             // Silently push the folio param into the URL so the rest of the app works
-            const mode = _pd.role === 'collab' ? 'folio' : 'read';
+            const mode = _pd.role === 'collab' || _pd.role === 'editor' ? 'folio' : 'read';
             window.history.replaceState(null, '', `?${mode}=${_sid}&share=${_stk}`);
           }
         }
