@@ -6987,11 +6987,11 @@
       // can't write to it. Skip silently rather than toast.
       const _stk = localStorage.getItem('folioShareToken_' + _projId);
       const _pd = _stk ? (typeof _pwDecode === 'function' ? _pwDecode(_stk) : null) : null;
-      const _isStaff = (_pd && _pd.folio === _projId && (_pd.role === 'collab' || _pd.role === 'editor'));
+      const _isCollab = (_pd && _pd.folio === _projId && _pd.role === 'collab');
 
       if (typeof _loadedFolioOwnerUid !== 'undefined' &&
         _loadedFolioOwnerUid && window._uid &&
-        _loadedFolioOwnerUid !== window._uid && !_isStaff) return;
+        _loadedFolioOwnerUid !== window._uid && !_isCollab) return;
       if (!_fbReady || !_autoSaveDirty) return;
       // Don't autosave a totally empty folio. If it's empty we'd just
       // be creating an "Untitled folio" entry the user has to delete.
@@ -7872,18 +7872,18 @@
     //   2. The parent doc's state_gz field (intermediate schema)
     //   3. The parent doc's state field (oldest legacy)
     // folioId is optional — when omitted, only paths 2/3 are tried.
-  async function _readDocState(data, folioId) {
-    let state = null;
+    async function _readDocState(data, folioId) {
+      let state = null;
 
-    // ⭐ DEBUG: Extract unlock and verify it exists
-    const _unlockParam = (() => {
-      try {
-        const u = new URLSearchParams(window.location.search).get('unlock');
-        console.log('[D1] URL unlock param extracted:', u);
-        return (u && typeof u === 'string') ? u.trim() : '';
-      } catch (e) { return ''; }
-    })();
-    console.log('[D1] _unlockParam in scope:', _unlockParam);
+      // ⭐ DEBUG: Extract unlock and verify it exists
+      const _unlockParam = (() => {
+        try {
+          const u = new URLSearchParams(window.location.search).get('unlock');
+          console.log('[D1] URL unlock param extracted:', u);
+          return (u && typeof u === 'string') ? u.trim() : '';
+        } catch (e) { return ''; }
+      })();
+      console.log('[D1] _unlockParam in scope:', _unlockParam);
       // Try the body subdoc first (new schema).
       if (folioId && window._fb && window._db) {
         try {
@@ -7921,9 +7921,9 @@
       //     uses a service account to read body/paid on the buyer's behalf.
       //   • Non-owner without a JWT: skip — the paywall UI shows the buy
       //     CTA. Paid chapter content stays empty.
-    if (state && data && data.release && data.release.priceMode === 'paid' && folioId) {
-      console.log('[D1] PAID folio detected, _unlockParam:', _unlockParam);
-      try {
+      if (state && data && data.release && data.release.priceMode === 'paid' && folioId) {
+        console.log('[D1] PAID folio detected, _unlockParam:', _unlockParam);
+        try {
           const _isOwner = !!(window._uid && data.uid && data.uid === window._uid);
           let _paidDoc = null;
           if (_isOwner) {
@@ -7964,7 +7964,7 @@
                 const _paidUrl = _url + '/paid-content?folio=' + encodeURIComponent(folioId) +
                   (_roleParam ? '&role=' + encodeURIComponent(_roleParam) : '') +
                   (_unlockParam ? '&unlock=' + encodeURIComponent(_unlockParam) : '');
-               const _r = await fetch(_paidUrl, {
+                const _r = await fetch(_paidUrl, {
                   headers: _hdrs,
                 });
 
@@ -7992,7 +7992,7 @@
                   } else {
                     console.warn('[DEBUG] Response missing ok or body');
                   }
-                                } else {
+                } else {
                   console.warn('[D1] paid-content worker returned', _r.status);
                 }
               } catch (e) {
@@ -8759,14 +8759,13 @@
         // 'click ← Editor on a friend's share link' attack vector.
         const _stk = localStorage.getItem('folioShareToken_' + id);
         const _pd = _stk ? (typeof _pwDecode === 'function' ? _pwDecode(_stk) : null) : null;
-
-        // Define 'Staff' as anyone with a valid Collab or Editor token
-        const _isStaff = (_pd && _pd.folio === id && (_pd.role === 'collab' || _pd.role === 'editor'));
+        const _isCollab = (_pd && _pd.folio === id && _pd.role === 'collab');
 
         const _ownsThis = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
-        if (!_readerMode && !_ownsThis && !_isStaff) {
+        if (!_readerMode && !_ownsThis && !_isCollab) {
           _hideSaving();
           const _isPublished = !!(data.release && data.release.published);
+          // ... (rest of the existing logic continues here)
           if (_isPublished) {
             try {
               const u = new URL(window.location.href);
@@ -9233,36 +9232,36 @@
       }
     }
 
-  async function _rlGetSignedLink() {
-    const role = _inviteRole();
-    const folioId = _projId;
-    // NEW: Guard against non-owners attempting to sign
-    const _isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
-    if (!_isOwner || !folioId || !window._auth.currentUser) return _inviteURL(role);
+    async function _rlGetSignedLink() {
+      const role = _inviteRole();
+      const folioId = _projId;
+      // NEW: Guard against non-owners attempting to sign
+      const _isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
+      if (!_isOwner || !folioId || !window._auth.currentUser) return _inviteURL(role);
 
-    try {
-      const idToken = await window._auth.currentUser.getIdToken();
-      const resp = await fetch(PAYWALL_WORKER_URL + '/sign-share', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
-        body: JSON.stringify({ folioId, role })
-      });
-      const data = await resp.json();
-      if (!resp.ok) throw new Error(data.error || 'Server error');
-      return data.shareUrl;
-    } catch (e) {
-      console.warn('[share] signing failed:', e.message);
-      return _inviteURL(role); // Fallback to old style on error
+      try {
+        const idToken = await window._auth.currentUser.getIdToken();
+        const resp = await fetch(PAYWALL_WORKER_URL + '/sign-share', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+          body: JSON.stringify({ folioId, role })
+        });
+        const data = await resp.json();
+        if (!resp.ok) throw new Error(data.error || 'Server error');
+        return data.shareUrl;
+      } catch (e) {
+        console.warn('[share] signing failed:', e.message);
+        return _inviteURL(role); // Fallback to old style on error
+      }
     }
-  }
 
-  async function copyInviteLink() {
-    setStatus('Generating signed link...');
-    const url = await _rlGetSignedLink();
-    navigator.clipboard.writeText(url)
-      .then(() => setStatus('Secure invite link copied ✓'))
-      .catch(() => prompt('Copy secure link:', url));
-  }
+    async function copyInviteLink() {
+      setStatus('Generating signed link...');
+      const url = await _rlGetSignedLink();
+      navigator.clipboard.writeText(url)
+        .then(() => setStatus('Secure invite link copied ✓'))
+        .catch(() => prompt('Copy secure link:', url));
+    }
 
     function copyShareEmail() {
       const name = document.getElementById('projName').value || 'a book project';
@@ -18168,7 +18167,7 @@
       let released = _serialReleasedCount(release);
       const shareTk = localStorage.getItem('folioShareToken_' + (_readerFolioId || _projId));
       if (_pwIsValid(shareTk)) released = Infinity; // Signed tokens bypass the schedule
-      
+
       // Idempotency guard. _serialApplyLocks runs repeatedly (load races,
       // previewRendered, the 60s ticker, refresh-from-cloud). Each run
       // tears down and rebuilds every lock card — including the email
@@ -18293,25 +18292,25 @@
     //   paid (non-serial) → the free-preview chapters; Infinity if the
     //                       reader holds a valid purchase token
     //   free / private    → Infinity (nothing locked)
-  function _lockReleasedCount(release) {
-    if (!release) return Infinity;
+    function _lockReleasedCount(release) {
+      if (!release) return Infinity;
 
-    // Universal Unlock check for Signed Roles
-    const currentId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
-    const shareTk = localStorage.getItem('folioShareToken_' + currentId);
-    if (_pwIsValid(shareTk)) return Infinity;
+      // Universal Unlock check for Signed Roles
+      const currentId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+      const shareTk = localStorage.getItem('folioShareToken_' + currentId);
+      if (_pwIsValid(shareTk)) return Infinity;
 
-    if (release.serial) {
-      return (typeof _serialReleasedCount === 'function')
-        ? _serialReleasedCount(release) : Infinity;
+      if (release.serial) {
+        return (typeof _serialReleasedCount === 'function')
+          ? _serialReleasedCount(release) : Infinity;
+      }
+      if (release.priceMode === 'paid') {
+        const cached = _pwGetToken(currentId);
+        if (_pwIsValid(cached)) return Infinity;
+        return Number(release.previewSections) || 0;
+      }
+      return Infinity;
     }
-    if (release.priceMode === 'paid') {
-      const cached = _pwGetToken(currentId);
-      if (_pwIsValid(cached)) return Infinity;
-      return Number(release.previewSections) || 0;
-    }
-    return Infinity;
-  }
     window._lockReleasedCount = _lockReleasedCount;
 
     // Apply (or clear) TOC-row locking for ANY release type. Thin wrapper
@@ -18863,23 +18862,23 @@
       } catch (e) { return null; }
     }
 
-  function _pwIsValid(tokenObj) {
-    // Handle both raw JWT strings and old-style Gumroad token objects
-    const token = (typeof tokenObj === 'string') ? tokenObj : (tokenObj && tokenObj.token);
-    if (!token) return false;
+    function _pwIsValid(tokenObj) {
+      // Handle both raw JWT strings and old-style Gumroad token objects
+      const token = (typeof tokenObj === 'string') ? tokenObj : (tokenObj && tokenObj.token);
+      if (!token) return false;
 
-    const payload = _pwDecode(token);
-    if (!payload) return false;
+      const payload = _pwDecode(token);
+      if (!payload) return false;
 
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp && payload.exp < now) return false;
+      const now = Math.floor(Date.now() / 1000);
+      if (payload.exp && payload.exp < now) return false;
 
-    // Ensure the token belongs to the current book (folioId check)
-    const currentId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
-    if (payload.folio && currentId && payload.folio !== currentId) return false;
+      // Ensure the token belongs to the current book (folioId check)
+      const currentId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+      if (payload.folio && currentId && payload.folio !== currentId) return false;
 
-    return true;
-  }
+      return true;
+    }
 
     async function _pwFetchRelease(folioId) {
       if (!folioId || !window._fb || !window._db) return null;
@@ -19150,7 +19149,7 @@
       _pwActiveRelease = release;
       _pwActiveFolioId = folioId;
 
-     // Check for either a Gumroad purchase OR a signed role token
+      // Check for either a Gumroad purchase OR a signed role token
       const cached = _pwGetToken(folioId);
       const shareTk = localStorage.getItem('folioShareToken_' + folioId);
 
@@ -19184,20 +19183,20 @@
     // is synchronous and uses the release cached by the last _pwCheckAccess,
     // so there is no async refetch per render.
     function _pwReapply() {
-        const release = _pwActiveRelease;
-        if (!release || release.priceMode !== 'paid') return;
-        const folioId = _pwActiveFolioId || (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+      const release = _pwActiveRelease;
+      if (!release || release.priceMode !== 'paid') return;
+      const folioId = _pwActiveFolioId || (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
 
-        const cached = _pwGetToken(folioId);
-        const shareTk = localStorage.getItem('folioShareToken_' + folioId);
+      const cached = _pwGetToken(folioId);
+      const shareTk = localStorage.getItem('folioShareToken_' + folioId);
 
-        if (_pwIsValid(cached) || _pwIsValid(shareTk)) {
-          _pwHidePreview();
-          document.documentElement.setAttribute('data-paid-unlocked', '1');
-          try { _lockApplyTocRows(release); } catch (e) { }
-          try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) { }
-          return;
-        }
+      if (_pwIsValid(cached) || _pwIsValid(shareTk)) {
+        _pwHidePreview();
+        document.documentElement.setAttribute('data-paid-unlocked', '1');
+        try { _lockApplyTocRows(release); } catch (e) { }
+        try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) { }
+        return;
+      }
       const previewN = Number((release && release.previewSections) || 0) || 0;
       if (previewN > 0) {
         // _pwShowPreview is idempotent — no-ops if its CTA card survived.
@@ -19444,23 +19443,22 @@
     }
 
     // Called once at boot. If ?read=... is present, activates reader mode.
-   function _rdMaybeActivate() {
+    function _rdMaybeActivate() {
       const id = _rdReadQueryParam();
       if (!id) return;
       const params = new URLSearchParams(window.location.search);
-     // Check if we are a collaborator or editor before activating reader mode
-     const _stk = params.get('share') || localStorage.getItem('folioShareToken_' + id);
-     const _pd = _stk ? (typeof _pwDecode === 'function' ? _pwDecode(_stk) : null) : null;
+      // Check if we are a collaborator before activating reader mode
+      const _stk = params.get('share') || localStorage.getItem('folioShareToken_' + id);
+      const _pd = _stk ? (typeof _pwDecode === 'function' ? _pwDecode(_stk) : null) : null;
 
-     // Parentheses are vital here to ensure _pd exists before checking role
-     if (_pd && (_pd.role === 'collab' || _pd.role === 'editor')) {
-       console.log('[AUTH] Staff role detected, bypassing reader mode');
-       _readerMode = false;
-       return;
-     }
+      if (_pd && _pd.role === 'editor' || _pd.role === 'collab') {
+        console.log('[AUTH] Collaborator token detected, bypassing reader mode');
+        _readerMode = false;
+        return; // Exit and let the normal editor load
+      }
 
-     _readerMode = true;
-     _readerFolioId = id;
+      _readerMode = true;
+      _readerFolioId = id;
       const _uShare = params.get('share');
       if (_uShare) {
         localStorage.setItem('folioShareToken_' + id, _uShare);
@@ -20285,28 +20283,35 @@
     window._rdAudioMaybeShowButton = _rdAudioMaybeShowButton;
 
     // Boot reader mode ASAP (before main script hits renderPreview).
-  const start = () => {
-      const _up = new URLSearchParams(window.location.search);
-      let _sid = _up.get('read') || _up.get('folio');
-      const _stk = _up.get('share');
+    (function _rdBoot() {
+      const start = () => {
+        const _up = new URLSearchParams(window.location.search);
+        let _sid = _up.get('read') || _up.get('folio');
+        const _stk = _up.get('share');
 
-      if (_sid && _stk) {
-        localStorage.setItem('folioShareToken_' + _sid, _stk);
-        const _pd = typeof _pwDecode === 'function' ? _pwDecode(_stk) : null;
-
-        // Safety: If they have a staff role but arrived on a reader link, force-swap the URL 
-        // so the 'fb-ready' listener (line ~6415) doesn't skip the editor load.
-        if (_pd && (_pd.role === 'editor' || _pd.role === 'collab')) {
-          if (_up.has('read')) {
-            console.log('[AUTH] Staff role detected on reader link, swapping to editor mode');
-            window.history.replaceState(null, '', `?folio=${_sid}&share=${_stk}`);
-            // Force a re-parse of the URL for the rest of the boot process
-            return _rdMaybeActivate();
+        // If ID is missing from URL but share token is present, extract ID from token
+        if (!_sid && _stk) {
+          const _pd = typeof _pwDecode === 'function' ? _pwDecode(_stk) : null;
+          if (_pd && _pd.folio) {
+            console.log('[AUTH] Recovering folio ID from share token');
+            _sid = _pd.folio;
+            // Silently push the folio param into the URL so the rest of the app works
+            const mode = _pd.role === 'collab' || _pd.role === 'editor' ? 'folio' : 'read';
+            window.history.replaceState(null, '', `?${mode}=${_sid}&share=${_stk}`);
           }
         }
+
+        if (_sid && _stk) {
+          localStorage.setItem('folioShareToken_' + _sid, _stk);
+        }
+        _rdMaybeActivate();
+      };
+      if (document.readyState === 'loading') {
+        window.addEventListener('DOMContentLoaded', start);
+      } else {
+        start();
       }
-      _rdMaybeActivate();
-    };
+    })();
 
     // Expose for inline onclick handlers
     window._rdExit = _rdExit;
