@@ -6987,11 +6987,11 @@
       // can't write to it. Skip silently rather than toast.
       const _stk = localStorage.getItem('folioShareToken_' + _projId);
       const _pd = _stk ? (typeof _pwDecode === 'function' ? _pwDecode(_stk) : null) : null;
-      const _isCollab = (_pd && _pd.folio === _projId && _pd.role === 'collab');
+      const _isStaff = (_pd && _pd.folio === _projId && (_pd.role === 'collab' || _pd.role === 'editor'));
 
       if (typeof _loadedFolioOwnerUid !== 'undefined' &&
         _loadedFolioOwnerUid && window._uid &&
-        _loadedFolioOwnerUid !== window._uid && !_isCollab) return;
+        _loadedFolioOwnerUid !== window._uid && !_isStaff) return;
       if (!_fbReady || !_autoSaveDirty) return;
       // Don't autosave a totally empty folio. If it's empty we'd just
       // be creating an "Untitled folio" entry the user has to delete.
@@ -8759,13 +8759,14 @@
         // 'click ← Editor on a friend's share link' attack vector.
         const _stk = localStorage.getItem('folioShareToken_' + id);
         const _pd = _stk ? (typeof _pwDecode === 'function' ? _pwDecode(_stk) : null) : null;
-        const _isCollab = (_pd && _pd.folio === id && _pd.role === 'collab');
+
+        // Editor and Collab roles both count as "Authorized Staff"
+        const _isStaff = (_pd && _pd.folio === id && (_pd.role === 'collab' || _pd.role === 'editor'));
 
         const _ownsThis = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
-        if (!_readerMode && !_ownsThis && !_isCollab) {
+        if (!_readerMode && !_ownsThis && !_isStaff) {
           _hideSaving();
           const _isPublished = !!(data.release && data.release.published);
-        // ... (rest of the existing logic continues here)
           if (_isPublished) {
             try {
               const u = new URL(window.location.href);
@@ -19447,14 +19448,15 @@
       const id = _rdReadQueryParam();
       if (!id) return;
       const params = new URLSearchParams(window.location.search);
-     // Check if we are a collaborator before activating reader mode
+     // Check if we are a collaborator or editor before activating reader mode
      const _stk = params.get('share') || localStorage.getItem('folioShareToken_' + id);
      const _pd = _stk ? (typeof _pwDecode === 'function' ? _pwDecode(_stk) : null) : null;
 
-     if (_pd && _pd.role === 'editor' || _pd.role === 'collab') {
-       console.log('[AUTH] Collaborator token detected, bypassing reader mode');
+     // Corrected parentheses to prevent crash/logic error
+     if (_pd && (_pd.role === 'collab' || _pd.role === 'editor')) {
+       console.log('[AUTH] Editor/Collab role detected, staying in editor mode');
        _readerMode = false;
-       return; // Exit and let the normal editor load
+       return;
      }
 
      _readerMode = true;
@@ -20283,35 +20285,26 @@
     window._rdAudioMaybeShowButton = _rdAudioMaybeShowButton;
 
     // Boot reader mode ASAP (before main script hits renderPreview).
-    (function _rdBoot() {
-      const start = () => {
-        const _up = new URLSearchParams(window.location.search);
-        let _sid = _up.get('read') || _up.get('folio');
-        const _stk = _up.get('share');
+  const start = () => {
+    const _up = new URLSearchParams(window.location.search);
+    let _sid = _up.get('read') || _up.get('folio');
+    const _stk = _up.get('share');
 
-        // If ID is missing from URL but share token is present, extract ID from token
-        if (!_sid && _stk) {
-          const _pd = typeof _pwDecode === 'function' ? _pwDecode(_stk) : null;
-          if (_pd && _pd.folio) {
-            console.log('[AUTH] Recovering folio ID from share token');
-            _sid = _pd.folio;
-            // Silently push the folio param into the URL so the rest of the app works
-            const mode = _pd.role === 'collab' || _pd.role === 'editor' ? 'folio' : 'read';
-            window.history.replaceState(null, '', `?${mode}=${_sid}&share=${_stk}`);
-          }
-        }
+    if (_sid && _stk) {
+      localStorage.setItem('folioShareToken_' + _sid, _stk);
+      const _pd = typeof _pwDecode === 'function' ? _pwDecode(_stk) : null;
 
-        if (_sid && _stk) {
-          localStorage.setItem('folioShareToken_' + _sid, _stk);
+      // If the role is editor/collab, but they arrived on a 'read' link, 
+      // we MUST swap the URL to 'folio' mode before the app boots.
+      if (_pd && (_pd.role === 'editor' || _pd.role === 'collab')) {
+        if (_up.has('read')) {
+          console.log('[AUTH] Role requires editor mode, swapping URL params');
+          window.history.replaceState(null, '', `?folio=${_sid}&share=${_stk}`);
         }
-        _rdMaybeActivate();
-      };
-      if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', start);
-      } else {
-        start();
       }
-    })();
+    }
+    _rdMaybeActivate();
+  };
 
     // Expose for inline onclick handlers
     window._rdExit = _rdExit;
