@@ -8757,16 +8757,20 @@
         // leaked / bookmarked link. Bounce to reader mode if the folio
         // is published; refuse otherwise. Defense in depth against the
         // 'click ← Editor on a friend's share link' attack vector.
+        // ── Ownership gate ─────────────────────────────────────
         const _stk = localStorage.getItem('folioShareToken_' + id);
         const _pd = _stk ? (typeof _pwDecode === 'function' ? _pwDecode(_stk) : null) : null;
 
-        // Editor and Collab roles both count as "Authorized Staff"
         const _isStaff = (_pd && _pd.folio === id && (_pd.role === 'collab' || _pd.role === 'editor'));
 
         const _ownsThis = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
+
+        // If we are NOT in reader mode, and NOT the owner, and NOT staff, then block.
         if (!_readerMode && !_ownsThis && !_isStaff) {
           _hideSaving();
+
           const _isPublished = !!(data.release && data.release.published);
+
           if (_isPublished) {
             try {
               const u = new URL(window.location.href);
@@ -8774,9 +8778,25 @@
               u.searchParams.delete('project');
               u.searchParams.set('read', id);
               window.location.replace(u.toString());
-            } catch (e) { window.location.search = '?read=' + encodeURIComponent(id); }
+            } catch (e) {
+              window.location.search = '?read=' + encodeURIComponent(id);
+            }
             return;
           }
+
+          setStatus("This folio isn't yours and isn't published.");
+          if (typeof toastWarning === 'function') {
+            toastWarning(
+              "You can't open someone else's draft folio. Use a reader share link instead.",
+              { icon: '🔒', duration: 5500 }
+            );
+          }
+
+          try { localStorage.removeItem('folio_last_open'); } catch (e) { }
+
+          return;
+        }
+
           // Not published — visitor has no business in editor view.
           setStatus("This folio isn't yours and isn't published.");
           if (typeof toastWarning === 'function')
@@ -16854,27 +16874,43 @@
        (reader/beta/editor roles get their label in the reader bar
        instead, handled in _rdHydrate above.)
        ═══════════════════════════════════════════════════════════════════ */
-    (function _collabBoot() {
-      const start = () => {
-        try {
-          const params = new URLSearchParams(window.location.search);
-          const role = (params.get('role') || '').toLowerCase();
-          const f = params.get('folio');
-          if (role === 'collab' && f) {
-            const el = document.getElementById('collabBanner');
-            if (!el) return;
-            el.style.display = 'flex';
-            // Auto-dismiss after 7 s so it doesn't linger.
-            setTimeout(() => { if (el) el.style.display = 'none'; }, 7000);
+  (function _rdBoot() {
+    const start = () => {
+      const _up = new URLSearchParams(window.location.search);
+      const _sid = _up.get('read') || _up.get('folio');
+      const _stk = _up.get('share');
+
+      if (_sid && _stk) {
+        // Store share token for paywall system
+        localStorage.setItem('folioShareToken_' + _sid, _stk);
+
+        const _pd = (typeof _pwDecode === 'function') ? _pwDecode(_stk) : null;
+
+        // If staff/editor/collab opens a reader link, rewrite URL to editor mode
+        if (_pd && (_pd.role === 'editor' || _pd.role === 'collab')) {
+          if (_up.has('read')) {
+            window.history.replaceState(
+              null,
+              '',
+              `?folio=${_sid}&share=${_stk}`
+            );
+            // Editor mode will be handled by fb-ready
+            return;
           }
-        } catch (e) { /* ignore */ }
-      };
-      if (document.readyState === 'loading') {
-        window.addEventListener('DOMContentLoaded', start);
-      } else {
-        start();
+        }
       }
-    })();
+
+      // If still in reader mode, activate reader
+      if (_up.has('read')) _rdMaybeActivate();
+    };
+
+    if (document.readyState === 'loading') {
+      window.addEventListener('DOMContentLoaded', start);
+    } else {
+      start();
+    }
+  })();
+
 
     /* ── Credential-already-in-use modal ──────────────────────────
        Shown when the user tries to link a Google account that is
@@ -19444,23 +19480,20 @@
     }
 
     // Called once at boot. If ?read=... is present, activates reader mode.
-    function _rdMaybeActivate() {
+   function _rdMaybeActivate() {
       const id = _rdReadQueryParam();
       if (!id) return;
-      const params = new URLSearchParams(window.location.search);
-      // Check if we are a collaborator or editor before activating reader mode
-      const _stk = params.get('share') || localStorage.getItem('folioShareToken_' + id);
-      const _pd = _stk ? (typeof _pwDecode === 'function' ? _pwDecode(_stk) : null) : null;
 
-      // Corrected parentheses to prevent crash/logic error
-      if (_pd && (_pd.role === 'collab' || _pd.role === 'editor')) {
-        console.log('[AUTH] Editor/Collab role detected, staying in editor mode');
-        _readerMode = false;
-        return;
-      }
-
+      // Always activate reader mode now — staff bypass is handled earlier
       _readerMode = true;
       _readerFolioId = id;
+
+      const params = new URLSearchParams(window.location.search);
+
+      document.documentElement.setAttribute('data-reader', '1');
+
+      // --- rest of your existing function stays exactly the same ---
+
       const _uShare = params.get('share');
       if (_uShare) {
         localStorage.setItem('folioShareToken_' + id, _uShare);
@@ -19470,43 +19503,27 @@
           document.documentElement.setAttribute('data-role', _pd.role);
         }
       }
-      // Read the role qualifier (?role=reader|beta|editor).  Defaults to 'reader'.
+
       try {
         const params = new URLSearchParams(window.location.search);
         const r = (params.get('role') || 'reader').toLowerCase();
         _readerRole = ['reader', 'beta', 'editor'].includes(r) ? r : 'reader';
-      } catch (e) { _readerRole = 'reader'; }
-      document.documentElement.setAttribute('data-reader', '1');
+      } catch (e) {
+        _readerRole = 'reader';
+      }
+
       document.documentElement.setAttribute('data-role', _readerRole);
 
-      // Load the folio once Firebase is ready. loadFolioById() already
-      // handles the auth/network dance; we just need to call it after
-      // fb-ready.
-      //
-      // (Earlier this called a bare `loadFolio` global that doesn't exist —
-      // the typeof check evaluated false, so the load was silently skipped.
-      // On the owner's device the load still appeared to work, but only
-      // because the fb-ready priority sequence's "last-open" path
-      // coincidentally loaded the same folio from localStorage. On a fresh
-      // device with no folio_last_open, no fetch happened at all and the
-      // demo took over, hence the "Night Garden / empty folio" you saw.)
       const startLoad = () => {
         if (typeof loadFolioById !== 'function') {
           console.error('[reader] loadFolioById is not available — cannot open ?read= URL');
           return;
         }
         loadFolioById(id).then(() => {
-          // After the folio loads, check paywall gating.
           if (typeof _pwCheckAccess === 'function') {
             setTimeout(() => _pwCheckAccess(id), 150);
           }
         }).catch(err => {
-          // Surface a more diagnostic message for the most common case:
-          // Firestore rules denying a non-owner's read of a published
-          // folio. The fix is server-side (allow read when
-          // resource.data.release.published == true) — the toast helps
-          // the author understand why a shared link "just shows nothing"
-          // on a friend's phone.
           const code = err && err.code;
           const isPerm = code === 'permission-denied'
             || /permission/i.test(String(err && err.message || ''));
@@ -19518,23 +19535,21 @@
           console.error('[reader] load failed', err);
         });
       };
+
       if (typeof _fbReady !== 'undefined' && _fbReady) {
         startLoad();
       } else {
         window.addEventListener('fb-ready', startLoad, { once: true });
       }
 
-      // Hydrate title and chapter nav as soon as chapters load.
       window.addEventListener('auth-changed', _rdHydrate, { once: false });
       setTimeout(_rdHydrate, 800);
       setTimeout(_rdHydrate, 2500);
 
-      // Track reading progress (scroll position) — throttled.
       const saveProgressThrottled = _rdThrottle(_rdSaveProgress, 1200);
       const scope = document.getElementById('previewArea');
       if (scope) scope.addEventListener('scroll', saveProgressThrottled);
 
-      // Restore progress after the book renders.
       setTimeout(_rdMaybeShowContinuePill, 1600);
     }
 
