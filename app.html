@@ -9245,6 +9245,26 @@
       }
     }
 
+    async function _rlPushFeedback(data) {
+        const folioId = _readerFolioId || _projId;
+        const shareTk = localStorage.getItem('folioShareToken_' + folioId);
+        if (!shareTk) return;
+
+        try {
+          await fetch(PAYWALL_WORKER_URL + '/feedback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + shareTk },
+            body: JSON.stringify({
+              ...data,
+              authorName: _myName() // Uses the random animal name
+            })
+          });
+          console.log('[FEEDBACK] Synced to author');
+        } catch (e) {
+          console.warn('[FEEDBACK] Sync failed', e);
+        }
+      }
+
     async function _rlGetSignedLink() {
       const role = _inviteRole();
       const folioId = _projId;
@@ -16067,6 +16087,22 @@
       document.getElementById('ctxScene').style.display = isTA ? '' : 'none';
       // Find selection only when text is selected
       document.getElementById('ctxFind').style.display = hasSel ? '' : 'none';
+      const _stk = localStorage.getItem('folioShareToken_' + (_readerFolioId || _projId));
+      const _pd = _stk ? _pwDecode(_stk) : null;
+      const _isStaff = (_pd && (_pd.role === 'collab' || _pd.role === 'editor'));
+
+      // Show Suggest Edit only for Staff when text is selected
+      let suggestBtn = document.getElementById('ctxSuggest');
+      if (!suggestBtn) {
+        suggestBtn = document.createElement('button');
+        suggestBtn.id = 'ctxSuggest';
+        suggestBtn.className = 'ctx-item';
+        suggestBtn.innerHTML = '<span>💡</span><span>Suggest Edit</span>';
+        document.getElementById('ctxMenu').appendChild(suggestBtn);
+      }
+      suggestBtn.style.display = (_isStaff && hasSel) ? '' : 'none';
+      suggestBtn.onclick = () => _ctxSuggestEdit(el);
+      
       // Step 6 — refresh the Set/Edit pronunciation item based on the
       // word under the cursor.
       try { _ctxRefreshPronItem(el, e); } catch (err) { console.warn('[ctx] pron item:', err); }
@@ -16081,12 +16117,54 @@
       menu.style.top = Math.min(e.clientY + 2, vh - mh - 8) + 'px';
     }
 
+  async function _ctxSuggestEdit(el) {
+    _ctxClose();
+    const sel = window.getSelection().toString();
+    const newText = prompt("Suggest a change for: \"" + sel + "\"", sel);
+
+    if (newText && newText !== sel) {
+      const chId = el.dataset.chid;
+      const pIdx = el.dataset.paraidx;
+
+      await _rlPushFeedback({
+        type: 'suggestion',
+        originalText: sel,
+        content: newText,
+        chapterId: chId,
+        paraIdx: parseInt(pIdx)
+      });
+
+      toastSuccess('Suggestion sent to author');
+    }
+  }
+
     function _ctxClose() {
       // Null-safe: the #ctxMenu element is a lazily-created context menu
       // that may not exist yet (see the identical ?. pattern used elsewhere
       // in this file). Without the guard, every document click crashes.
       document.getElementById('ctxMenu')?.classList.remove('open');
       _ctxTarget = null;
+    }
+
+    async function _ctxSuggestEdit(el) {
+      _ctxClose();
+      const sel = window.getSelection().toString();
+      const newText = prompt("Suggest a change for: \"" + sel + "\"", sel);
+      
+      if (newText && newText !== sel) {
+        const chId = el.dataset.chid;
+        const pIdx = el.dataset.paraidx;
+        
+        await _rlPushFeedback({
+          type: 'suggestion',
+          originalText: sel,
+          content: newText,
+          chapterId: chId,
+          paraIdx: parseInt(pIdx)
+        });
+        
+        toastSuccess('Suggestion sent to author');
+      }
     }
 
     // Close on any click elsewhere or Escape
@@ -21143,6 +21221,19 @@
           createdAt: Date.now(),
           createdBy: (window._uid || 'local'),
         });
+
+          // 🔥 NEW: push feedback to release-log sync if this is a shared folio
+        const folioId = _readerFolioId || _projId;
+        const shareTk = localStorage.getItem('folioShareToken_' + folioId);
+        if (shareTk) {
+          _rlPushFeedback({
+            type: 'comment',
+            content: text,
+            chapterId: "",          // fresh note → no active annotation ID
+            paraIdx: s.paraidx
+          });
+        }
+
         _annSave(list);
         _annPendingSelection = null;
         _annCloseNoteBox();
