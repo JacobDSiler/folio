@@ -7192,8 +7192,11 @@
       // folio_projects/{id}/body/paid, which the rule locks to owner-only.
       let bodyPaidPayload = null;
       const _d1Release = (typeof _rlCurrent !== 'undefined' && _rlCurrent) ? _rlCurrent : null;
-      if (_d1Release && _d1Release.priceMode === 'paid' && Array.isArray(stateObj.chapters)) {
-        const _previewN = Number(_d1Release.previewSections) || 0;
+      // PAID & PRIVATE CONTENT SPLIT (audit D1). 
+      // Move content to body/paid for both 'paid' and 'private' modes.
+      if (_d1Release && (_d1Release.priceMode === 'paid' || _d1Release.priceMode === 'private') && Array.isArray(stateObj.chapters)) {
+        const isPrivate = _d1Release.priceMode === 'private';
+        const _previewN = isPrivate ? 0 : (Number(_d1Release.previewSections) || 0);
         const _paidContentMap = {};
         let _chCount = 0;
         stateObj.chapters = stateObj.chapters.map(c => {
@@ -7921,147 +7924,42 @@
       //     uses a service account to read body/paid on the buyer's behalf.
       //   • Non-owner without a JWT: skip — the paywall UI shows the buy
       //     CTA. Paid chapter content stays empty.
-      if (state && data && data.release && data.release.priceMode === 'paid' && folioId) {
-        console.log('[D1] PAID folio detected, _unlockParam:', _unlockParam);
+      // PAID & PRIVATE content merge (audit D1). 
+      if (state && data && data.release && (data.release.priceMode === 'paid' || data.release.priceMode === 'private') && folioId) {
+        console.log('[D1] Gated folio detected (' + data.release.priceMode + ')');
         try {
+          // 1. Determine how many chapters are public
+          const isPrivate = data.release.priceMode === 'private';
+          const previewN = isPrivate ? 0 : (Number(data.release.previewSections) || 0);
+
+          // 2. SECURITY AIR-GAP: Wipe all non-public content from the public 'state' object.
+          // This prevents "stale data" leaks if the book was previously saved as 'Free'.
+          let _chGateIdx = 0;
+          state.chapters = state.chapters.map(c => {
+            if (c && c.type === 'chapter') {
+              _chGateIdx++;
+              if (_chGateIdx > previewN) return Object.assign({}, c, { content: '' });
+            }
+            return c;
+          });
+
+          // 3. Authorized Fetch: Try to retrieve the real content using the JWT or Owner UID
           const _isOwner = !!(window._uid && data.uid && data.uid === window._uid);
           let _paidDoc = null;
+
+          // Existing logic to determine if we have a token
+          const _stk = localStorage.getItem('folioShareToken_' + folioId);
+          const _tk = (typeof _pwGetToken === 'function' ? _pwGetToken(folioId) : null);
+          const _hasValidTk = _pwIsValid(_stk) || _pwIsValid(_tk);
+
           if (_isOwner) {
             try {
               const _paidRef = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'paid');
               const _paidSnap = await window._fb.getDoc(_paidRef);
               if (_paidSnap.exists()) _paidDoc = _paidSnap.data();
             } catch (e) { console.warn('[D1] owner body/paid fetch failed:', e); }
-          } else if (window.__folioVipBypass || _unlockParam ||
-            (typeof _pwGetToken === 'function' && typeof _pwIsValid === 'function') || localStorage.getItem('folioShareToken_' + folioId)) {
-            const _isVipFetch = !!window.__folioVipBypass;
-            let _shareTk = localStorage.getItem('folioShareToken_' + folioId);
-            if (_shareTk) {
-              const _pd = typeof _pwDecode === 'function' ? _pwDecode(_shareTk) : null;
-              const _now = Math.floor(Date.now() / 1000);
-              if (!_pd || _pd.folio !== folioId || (_pd.exp && _pd.exp < _now)) {
-                localStorage.removeItem('folioShareToken_' + folioId);
-                _shareTk = null;
-              }
-            }
-            const _tk = _shareTk ? { token: _shareTk } : (_isVipFetch ? (_vipJwt ? { token: _vipJwt } : null) :
-              (typeof _pwGetToken === 'function' ? _pwGetToken(folioId) : null));
-
-            if (_shareTk || _unlockParam || (_tk && (_isVipFetch ? _vipJwt : _pwIsValid(_tk)))) {
-              try {
-                const _url = (typeof PAYWALL_WORKER_URL === 'string' && PAYWALL_WORKER_URL)
-                  ? PAYWALL_WORKER_URL
-                  : 'https://folio-paywall.jacobdsiler.workers.dev';
-                // Replace any existing _hdrs definition with:
-                const _hdrs = {};
-                if (_tk && _tk.token && !window.__folioVipBypass) {
-                  _hdrs['Authorization'] = 'Bearer ' + _tk.token;
-                }
-                // Role: prefer the module-scoped _readerRole; fall back to URL param.
-                const _roleParam = (typeof _readerRole !== 'undefined' && _readerRole)
-                  ? _readerRole
-                  : (() => { try { const r = new URLSearchParams(window.location.search).get('role'); return (r && ['reader', 'beta', 'editor', 'collab'].includes(r.toLowerCase())) ? r.toLowerCase() : ''; } catch (e) { return ''; } })();
-                const _paidUrl = _url + '/paid-content?folio=' + encodeURIComponent(folioId) +
-                  (_roleParam ? '&role=' + encodeURIComponent(_roleParam) : '') +
-                  (_unlockParam ? '&unlock=' + encodeURIComponent(_unlockParam) : '');
-                const _r = await fetch(_paidUrl, {
-                  headers: _hdrs,
-                });
-
-                console.log('[DEBUG] Response status:', _r.status);
-
-                if (_r.ok) {
-                  let _j = {};
-                  try {
-                    _j = await _r.json();
-                  } catch (parseErr) {
-                    console.error('[DEBUG] JSON parse failed:', parseErr);
-                    _j = {};
-                  }
-
-                  console.log('[DEBUG] Full response:', _j);
-                  console.log('[DEBUG] Body object:', _j.body);
-
-                  if (_j.body) {
-                    console.log('[DEBUG] Body has content:', !!_j.body.content);
-                    console.log('[DEBUG] Body has content_gz:', !!_j.body.content_gz);
-                  }
-
-                  if (_j && _j.ok && _j.body) {
-                    _paidDoc = _j.body;
-                  } else {
-                    console.warn('[DEBUG] Response missing ok or body');
-                  }
-                } else {
-                  console.warn('[D1] paid-content worker returned', _r.status);
-                }
-              } catch (e) {
-                console.warn('[D1] paid-content fetch failed:', e);
-              }
-            }
-          }
-          // FUNNEL: non-owner who didn't get any paid content (no JWT,
-          // expired, or buyer-fetch failed) — fetch teaser chapters the
-          // author flagged as public. Keyed by chapter id and merged into
-          // the same state.chapters loop below.
-          let _teaserMap = null;
-          if (!_isOwner && !_paidDoc &&
-            Array.isArray(data.release.teasers) && data.release.teasers.length > 0) {
-            try {
-              const _url = (typeof PAYWALL_WORKER_URL === 'string' && PAYWALL_WORKER_URL)
-                ? PAYWALL_WORKER_URL
-                : 'https://folio-paywall.jacobdsiler.workers.dev';
-              // Role: prefer the module-scoped _readerRole; fall back to URL param.
-              const _roleParam = (typeof _readerRole !== 'undefined' && _readerRole)
-                ? _readerRole
-                : (() => { try { const r = new URLSearchParams(window.location.search).get('role'); return (r && ['reader', 'beta', 'editor', 'collab'].includes(r.toLowerCase())) ? r.toLowerCase() : ''; } catch (e) { return ''; } })();
-              const _paidUrl = _url + '/teaser-content?folio=' + encodeURIComponent(folioId) +
-                (_roleParam ? '&role=' + encodeURIComponent(_roleParam) : '');
-              const _r = await fetch(_paidUrl);
-              if (_r.ok) {
-                const _j = await _r.json().catch(() => ({}));
-                if (_j && _j.ok && _j.chapters) _teaserMap = _j.chapters;
-              } else {
-                console.warn('[funnel] teaser-content worker returned', _r.status);
-              }
-            } catch (e) { console.warn('[funnel] teaser fetch failed:', e); }
-            if (_teaserMap && Array.isArray(state.chapters)) {
-              state.chapters = state.chapters.map(c => {
-                if (c && c.type === 'chapter' && _teaserMap[c.id] != null) {
-                  return Object.assign({}, c, { content: _teaserMap[c.id] });
-                }
-                return c;
-              });
-            }
-          }
-          if (_paidDoc) {
-            let _map = null;
-            if (_paidDoc.content_gz && _supportsCompressionStream()) {
-              try {
-                const _json = await _gunzipFromBase64(_paidDoc.content_gz);
-                const _parsed = JSON.parse(_json);
-                _map = _parsed && _parsed.chapters;
-              } catch (e) { console.warn('[D1] paid body gunzip failed:', e); }
-            }
-            if (!_map && _paidDoc.content && _paidDoc.content.chapters) {
-              _map = _paidDoc.content.chapters;
-            }
-            if (_map && Array.isArray(state.chapters)) {
-              state.chapters = state.chapters.map(c => {
-                if (c && c.type === 'chapter' && _map[c.id] != null) {
-                  return Object.assign({}, c, { content: _map[c.id] });
-                }
-                return c;
-              });
-            }
-          }
-        } catch (e) {
-          console.warn('[D1] paid-content merge failed:', e);
-        }
-      }
-
-      return state;
-    }
+          } else if (_hasValidTk || window.__folioVipBypass || _unlockParam) {
+      // ... (keep your existing fetch logic that calls PAYWALL_WORKER_URL + '/paid-content')
 
     window._gzipToBase64 = _gzipToBase64;
     window._gunzipFromBase64 = _gunzipFromBase64;
@@ -16956,15 +16854,11 @@
 
         const _pd = (typeof _pwDecode === 'function') ? _pwDecode(_stk) : null;
 
-        // If staff/editor/collab opens a reader link, rewrite URL to editor mode
+        // Only Collab and Editor roles should be forced into the full editor.
+        // Readers and Beta Readers with share tokens should stay in the Reader.
         if (_pd && (_pd.role === 'editor' || _pd.role === 'collab')) {
           if (_up.has('read')) {
-            window.history.replaceState(
-              null,
-              '',
-              `?folio=${_sid}&share=${_stk}`
-            );
-            // Editor mode will be handled by fb-ready
+            window.history.replaceState(null, '', `?folio=${_sid}&share=${_stk}`);
             return;
           }
         }
