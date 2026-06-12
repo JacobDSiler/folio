@@ -8760,7 +8760,7 @@
         const _stk = localStorage.getItem('folioShareToken_' + id);
         const _pd = _stk ? (typeof _pwDecode === 'function' ? _pwDecode(_stk) : null) : null;
 
-        // Editor and Collab roles both count as "Authorized Staff"
+        // Define 'Staff' as anyone with a valid Collab or Editor token
         const _isStaff = (_pd && _pd.folio === id && (_pd.role === 'collab' || _pd.role === 'editor'));
 
         const _ownsThis = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
@@ -19452,9 +19452,9 @@
      const _stk = params.get('share') || localStorage.getItem('folioShareToken_' + id);
      const _pd = _stk ? (typeof _pwDecode === 'function' ? _pwDecode(_stk) : null) : null;
 
-     // Corrected parentheses to prevent crash/logic error
+     // Parentheses are vital here to ensure _pd exists before checking role
      if (_pd && (_pd.role === 'collab' || _pd.role === 'editor')) {
-       console.log('[AUTH] Editor/Collab role detected, staying in editor mode');
+       console.log('[AUTH] Staff role detected, bypassing reader mode');
        _readerMode = false;
        return;
      }
@@ -20286,25 +20286,27 @@
 
     // Boot reader mode ASAP (before main script hits renderPreview).
   const start = () => {
-    const _up = new URLSearchParams(window.location.search);
-    let _sid = _up.get('read') || _up.get('folio');
-    const _stk = _up.get('share');
+      const _up = new URLSearchParams(window.location.search);
+      let _sid = _up.get('read') || _up.get('folio');
+      const _stk = _up.get('share');
 
-    if (_sid && _stk) {
-      localStorage.setItem('folioShareToken_' + _sid, _stk);
-      const _pd = typeof _pwDecode === 'function' ? _pwDecode(_stk) : null;
+      if (_sid && _stk) {
+        localStorage.setItem('folioShareToken_' + _sid, _stk);
+        const _pd = typeof _pwDecode === 'function' ? _pwDecode(_stk) : null;
 
-      // If the role is editor/collab, but they arrived on a 'read' link, 
-      // we MUST swap the URL to 'folio' mode before the app boots.
-      if (_pd && (_pd.role === 'editor' || _pd.role === 'collab')) {
-        if (_up.has('read')) {
-          console.log('[AUTH] Role requires editor mode, swapping URL params');
-          window.history.replaceState(null, '', `?folio=${_sid}&share=${_stk}`);
+        // Safety: If they have a staff role but arrived on a reader link, force-swap the URL 
+        // so the 'fb-ready' listener (line ~6415) doesn't skip the editor load.
+        if (_pd && (_pd.role === 'editor' || _pd.role === 'collab')) {
+          if (_up.has('read')) {
+            console.log('[AUTH] Staff role detected on reader link, swapping to editor mode');
+            window.history.replaceState(null, '', `?folio=${_sid}&share=${_stk}`);
+            // Force a re-parse of the URL for the rest of the boot process
+            return _rdMaybeActivate();
+          }
         }
       }
-    }
-    _rdMaybeActivate();
-  };
+      _rdMaybeActivate();
+    };
 
     // Expose for inline onclick handlers
     window._rdExit = _rdExit;
