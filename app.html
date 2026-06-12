@@ -18294,10 +18294,10 @@
     //   free / private    → Infinity (nothing locked)
   function _lockReleasedCount(release) {
     if (!release) return Infinity;
-    const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
-    const shareTk = localStorage.getItem('folioShareToken_' + folioId);
 
-    // If they have a valid signed share token (any role), unlock everything
+    // Universal Unlock check for Signed Roles
+    const currentId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+    const shareTk = localStorage.getItem('folioShareToken_' + currentId);
     if (_pwIsValid(shareTk)) return Infinity;
 
     if (release.serial) {
@@ -18305,7 +18305,7 @@
         ? _serialReleasedCount(release) : Infinity;
     }
     if (release.priceMode === 'paid') {
-      const cached = _pwGetToken(folioId);
+      const cached = _pwGetToken(currentId);
       if (_pwIsValid(cached)) return Infinity;
       return Number(release.previewSections) || 0;
     }
@@ -18863,14 +18863,22 @@
     }
 
   function _pwIsValid(tokenObj) {
+    // Handle both raw JWT strings and old-style Gumroad token objects
     const token = (typeof tokenObj === 'string') ? tokenObj : (tokenObj && tokenObj.token);
     if (!token) return false;
-      const payload = _pwDecode(tokenObj.token);
-      if (!payload) return false;
-      const now = Math.floor(Date.now() / 1000);
-      if (payload.exp && payload.exp < now) return false;
-      return true;
-    }
+
+    const payload = _pwDecode(token);
+    if (!payload) return false;
+
+    const now = Math.floor(Date.now() / 1000);
+    if (payload.exp && payload.exp < now) return false;
+
+    // Ensure the token belongs to the current book (folioId check)
+    const currentId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+    if (payload.folio && currentId && payload.folio !== currentId) return false;
+
+    return true;
+  }
 
     async function _pwFetchRelease(folioId) {
       if (!folioId || !window._fb || !window._db) return null;
@@ -19126,21 +19134,6 @@
 
     // Check gating on reader-mode boot. Returns true when access is granted.
     async function _pwCheckAccess(folioId) {
-      // VIP bypass: valid token in URL — inject a synthetic unlock into
-      // localStorage so _pwIsValid, _pwReapply, and all serial locks see
-      // a confirmed purchase without any Gumroad round-trip.
-      // if (window.__folioVipBypass && folioId) {
-      //   try {
-      //     var _vipKey = 'folio_paywall_' + folioId;
-      //     localStorage.setItem(_vipKey, JSON.stringify({
-      //       token: window.__folioVipJwt, expiresAt: null,
-      //       email: 'vip', savedAt: Date.now(),
-      //     }));
-      //     console.log('[VIP] _pwCheckAccess: stored synthetic token for', folioId);
-      //   } catch (e) { console.error('[VIP] _pwCheckAccess store failed:', e); }
-      // } else {
-      //   console.log('[VIP] _pwCheckAccess: bypass flag=', window.__folioVipBypass, 'folioId=', folioId);
-      // }
 
       const release = await _pwFetchRelease(folioId);
       if (!release || release.priceMode !== 'paid') {
@@ -19156,28 +19149,19 @@
       _pwActiveRelease = release;
       _pwActiveFolioId = folioId;
 
-      // Paid release. Check for a valid cached token.
+     // Check for either a Gumroad purchase OR a signed role token
       const cached = _pwGetToken(folioId);
       const shareTk = localStorage.getItem('folioShareToken_' + folioId);
 
       if (_pwIsValid(cached) || _pwIsValid(shareTk)) {
-        // Buyer or Authorized Share — nothing hidden
-        _pwHidePreview();
+        _pwHidePreview(); // Ensure preview gate is removed
         document.documentElement.setAttribute('data-paid-unlocked', '1');
 
-        // Apply serial locks AFTER the paid gate clears
-        if (release && release.serial && typeof _serialApplyLocks === 'function') {
+        if (release.serial && typeof _serialApplyLocks === 'function') {
           setTimeout(() => _serialApplyLocks(release), 50);
         }
-
-        // Clear TOC dimming
         try { setTimeout(() => _lockApplyTocRows(release), 60); } catch (e) { }
-
-        // Show audiobook button if applicable
-        if (typeof _rdAudioMaybeShowButton === 'function') {
-          _rdAudioMaybeShowButton(release);
-        }
-
+        if (typeof _rdAudioMaybeShowButton === 'function') _rdAudioMaybeShowButton(release);
         return true;
       }
 
@@ -19199,33 +19183,20 @@
     // is synchronous and uses the release cached by the last _pwCheckAccess,
     // so there is no async refetch per render.
     function _pwReapply() {
-      const release = _pwActiveRelease;
-      if (!release || release.priceMode !== 'paid') return;
-      const folioId = _pwActiveFolioId ||
-        (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
-      // VIP bypass: ensure the synthetic token is stored for this folioId
-      // even on rapid previewRendered calls before _pwCheckAccess has run.
-      if (window.__folioVipBypass && folioId && window.__folioVipJwt) {
-        try {
-          const _vk = 'folio_paywall_' + folioId;
-          if (!localStorage.getItem(_vk)) {
-            localStorage.setItem(_vk, JSON.stringify({
-              token: window.__folioVipJwt, expiresAt: null,
-              email: 'vip', savedAt: Date.now(),
-            }));
-          }
-        } catch (e) { }
-      }
-      const cached = _pwGetToken(folioId);
-      const shareTk = localStorage.getItem('folioShareToken_' + folioId);
-      if (_pwIsValid(cached) || _pwIsValid(shareTk)) {
-        // Buyer or Authorized Share — nothing hidden
-        _pwHidePreview();
-        document.documentElement.setAttribute('data-paid-unlocked', '1');
-        try { _lockApplyTocRows(release); } catch (e) { }
-        try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) { }
-        return;
-      }
+        const release = _pwActiveRelease;
+        if (!release || release.priceMode !== 'paid') return;
+        const folioId = _pwActiveFolioId || (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+
+        const cached = _pwGetToken(folioId);
+        const shareTk = localStorage.getItem('folioShareToken_' + folioId);
+
+        if (_pwIsValid(cached) || _pwIsValid(shareTk)) {
+          _pwHidePreview();
+          document.documentElement.setAttribute('data-paid-unlocked', '1');
+          try { _lockApplyTocRows(release); } catch (e) { }
+          try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) { }
+          return;
+        }
       const previewN = Number((release && release.previewSections) || 0) || 0;
       if (previewN > 0) {
         // _pwShowPreview is idempotent — no-ops if its CTA card survived.
