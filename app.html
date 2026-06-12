@@ -19451,7 +19451,7 @@
      const _stk = params.get('share') || localStorage.getItem('folioShareToken_' + id);
      const _pd = _stk ? (typeof _pwDecode === 'function' ? _pwDecode(_stk) : null) : null;
 
-     if (_pd && _pd.role === 'collab') {
+     if (_pd && _pd.role === 'editor' || _pd.role === 'collab') {
        console.log('[AUTH] Collaborator token detected, bypassing reader mode');
        _readerMode = false;
        return; // Exit and let the normal editor load
