@@ -825,6 +825,54 @@
       color: #fff
     }
 
+    /* Add these missing CSS classes to the style section (around line 296) */
+
+    /* Missing preview-editable styling */
+    .preview-editable {
+      cursor: text;
+      border-radius: 2px;
+      transition: background .12s;
+      position: relative;
+    }
+
+    .preview-editable:hover {
+      background: rgba(201, 149, 106, 0.12) !important;
+      outline: 1px dashed rgba(201, 149, 106, 0.5);
+    }
+
+    .preview-editable:focus {
+      outline: 2px solid rgba(201, 149, 106, 0.7) !important;
+      background: rgba(201, 149, 106, 0.06) !important;
+    }
+
+    /* Missing serial lock page styling */
+    .serial-lock-page {
+      margin: 18px auto;
+      padding: 32px 28px;
+      max-width: 560px;
+      background: var(--surface);
+      border: .5px solid var(--border-mid);
+      border-radius: 14px;
+      text-align: center;
+      font-family: var(--sans);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+    }
+
+    /* Add pw-preview-cta styling (should be in the paywall section) */
+    .pw-preview-cta {
+      max-width: 540px;
+      margin: 30px auto 60px;
+      background: var(--surface);
+      border: .5px solid var(--border-mid);
+      border-radius: 14px;
+      padding: 24px 28px 22px;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+      font-family: var(--sans);
+      color: var(--text);
+      position: relative;
+      overflow: hidden;
+    }
+
     /* Slide-up drawer */
     .exp-drawer {
       overflow: hidden;
