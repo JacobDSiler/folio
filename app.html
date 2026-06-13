@@ -7800,73 +7800,36 @@
     // started using get() on the parent — on a brand-new folio the parent
     // didn't exist yet, and on any folio whose rules check the parent's uid
     // the body write couldn't satisfy them.)
-    async function _writeFolioCloud(folioId, name, opts) {
-      const { parentPayload, bodyPayload, bodyPaidPayload } = await _buildCloudSavePayload(name, opts);
-      const parentRef = window._fb.doc(window._db, 'folio_projects', folioId);
-      const bodyRef = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'main');
+  async function _writeFolioCloud(folioId, name, opts) {
+    const { parentPayload, bodyPayload } = await _buildCloudSavePayload(name, opts);
 
-      // Parent first. merge:true is fine here because the deleteField()
-      // markers explicitly clear any legacy state/state_gz fields, and the
-      // parent doc itself carries `uid` for the rule check.
-      try {
-        await window._fb.setDoc(parentRef, parentPayload, { merge: true });
-      } catch (e) {
-        if (_isPermissionError(e)) {
-          _surfaceCloudError(e, 'parent doc');
-          throw e;
-        }
-        // One retry — transient hiccups happen.
-        console.warn('[FOLIO] parent setDoc failed, retrying once:', e);
-        try {
-          await window._fb.setDoc(parentRef, parentPayload, { merge: true });
-        } catch (e2) {
-          if (_surfaceCloudError(e2, 'parent doc retry')) throw e2;
-          throw e2;
-        }
-      }
+    const isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
+    const userRole = _annUserRoleHere();
 
-      // Body second. set() (no merge) — body has only state + updatedAt
-      // + uid, so there's no field to preserve from a previous version.
-      // The parent now exists, so any get() in the body rule resolves.
-      //
-      // One retry on a transient failure, mirroring the parent write
-      // above — without it a single network blip leaves the parent's
-      // metadata one version ahead of the body's content until the next
-      // successful save (audit item D2).
-      try {
-        await window._fb.setDoc(bodyRef, bodyPayload);
-      } catch (e) {
-        if (_isPermissionError(e)) {
-          _surfaceCloudError(e, 'body subdoc');
-          throw e;
-        }
-        console.warn('[FOLIO] body setDoc failed, retrying once:', e);
-        try {
-          await window._fb.setDoc(bodyRef, bodyPayload);
-        } catch (e2) {
-          if (_surfaceCloudError(e2, 'body subdoc retry')) throw e2;
-          throw e2;
-        }
-      }
+    // If the user is an Editor or Collaborator (but NOT the owner)
+    if (!isOwner && (userRole === 'editor' || userRole === 'collab')) {
+      console.log('[FOLIO] Saving as suggestion copy for owner review');
+      // We write to a unique path per-user so multiple editors don't clobber each other
+      const suggestionRef = window._fb.doc(window._db, 'folio_projects', folioId, 'suggestions', window._uid);
 
-      // PAID-CONTENT SPLIT (audit D1). For paid folios, write the paid
-      // chapter content to body/paid (owner-only at the rules layer).
-      // For non-paid folios, best-effort delete any stale body/paid doc.
-      // Failures here are NON-FATAL — body/main + parent are already
-      // written, so the editor state on the cloud remains coherent and
-      // the next save retries.
-      try {
-        const _paidRef = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'paid');
-        if (bodyPaidPayload) {
-          try { await window._fb.setDoc(_paidRef, bodyPaidPayload); }
-          catch (e) { console.warn('[D1] body/paid setDoc failed:', e); }
-        } else {
-          // Cleanup if the folio changed paid → free/private (404 is fine).
-          try { await window._fb.deleteDoc(_paidRef); } catch (e) { }
-        }
-      } catch (e) { console.warn('[D1] body/paid step failed:', e); }
+      // We only save the body state as a suggestion
+      await window._fb.setDoc(suggestionRef, {
+        ...bodyPayload,
+        suggestedBy: _myName(),
+        suggestedAt: Date.now()
+      });
+
+      toastInfo('Edits saved as suggestions for the author.');
+      return; // Exit early so we don't touch body/main
     }
 
+    // Fallback to original Master Copy logic for the Owner
+    const parentRef = window._fb.doc(window._db, 'folio_projects', folioId);
+    const bodyRef = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'main');
+
+    await window._fb.setDoc(parentRef, parentPayload, { merge: true });
+    await window._fb.setDoc(bodyRef, bodyPayload);
+  }
     // Read state from either:
     //   1. The body subdoc (new schema): folio_projects/{id}/body/main
     //   2. The parent doc's state_gz field (intermediate schema)
@@ -20613,37 +20576,63 @@
       }
     }
 
-    function _annSyncToCloud(currentList) {
-      // Skip when a recent onSnapshot triggered the save (avoids infinite
-      // ping-pong: snapshot → _annSave → push → another snapshot).
-      if (_annLoopGuard) return;
-      const folioId = _annSyncableFolioId();
-      if (!folioId) return;
+  function _annSyncToCloud(currentList) {
+    // Prevent ping‑pong loops from onSnapshot → save → push → snapshot
+    if (_annLoopGuard) return;
 
-      const prev = _annLastSaved || [];
-      const prevMap = new Map(prev.map(a => [a.id, a]));
-      const currMap = new Map(currentList.map(a => [a.id, a]));
+    const folioId = _annSyncableFolioId();
+    if (!folioId) return;
 
-      // Pushes (adds + updates). Stringify-compare keeps trivial color
-      // changes cheap; we tolerate the occasional false positive (e.g.
-      // a key-order shuffle) because setDoc is idempotent.
-      for (const a of currentList) {
-        const prevA = prevMap.get(a.id);
-        let changed = !prevA;
-        if (prevA) {
-          try { changed = JSON.stringify(prevA) !== JSON.stringify(a); } catch (e) { changed = true; }
+    const role = _annUserRoleHere();
+    const allowedScopes = _annAllowedScopesForRole();
+
+    // Apply commercial + role‑based filtering
+    const syncableList = currentList.filter(a => {
+      // RULE 1: Basic readers cannot sync personal notes
+      if (role === 'reader' && a.scope === 'personal') return false;
+
+      // RULE 2: If the scope is not allowed for this role, skip it
+      if (!allowedScopes.includes(a.scope)) return false;
+
+      return true;
+    });
+
+    const prev = _annLastSaved || [];
+    const prevMap = new Map(prev.map(a => [a.id, a]));
+    const currMap = new Map(syncableList.map(a => [a.id, a]));
+
+    // Push new or changed annotations
+    for (const a of syncableList) {
+      const prevA = prevMap.get(a.id);
+      let changed = !prevA;
+
+      if (prevA) {
+        try {
+          changed = JSON.stringify(prevA) !== JSON.stringify(a);
+        } catch (e) {
+          changed = true;
         }
-        if (changed) _annCloudPush(folioId, a);
-      }
-      // Deletes
-      for (const a of prev) {
-        if (!currMap.has(a.id)) _annCloudDelete(folioId, a.id);
       }
 
-      // Snapshot the new state (deep copy via JSON to avoid aliasing).
-      try { _annLastSaved = JSON.parse(JSON.stringify(currentList)); }
-      catch (e) { _annLastSaved = currentList.slice(); }
+      if (changed) {
+        _annCloudPush(folioId, a);
+      }
     }
+
+    // Delete removed annotations
+    for (const old of prev) {
+      if (!currMap.has(old.id)) {
+        _annCloudDelete(folioId, old.id);
+      }
+    }
+
+    // Deep snapshot to avoid aliasing
+    try {
+      _annLastSaved = JSON.parse(JSON.stringify(syncableList));
+    } catch (e) {
+      _annLastSaved = syncableList.slice();
+    }
+  }
 
     // Initial cloud load — runs once on folio open. Merges Firestore's
     // view with whatever's in localStorage:
@@ -20676,6 +20665,21 @@
             mineSnap.forEach(d => byId.set(d.id, Object.assign({ id: d.id }, d.data())));
           }
         }
+
+        function _annAllowedScopesForRole() {
+  const role = _annUserRoleHere();
+  const isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
+
+  if (isOwner) return ['personal', 'editor', 'collaborator', 'public'];
+
+  // Basic readers can only do Personal (local)
+  if (role === 'reader') return ['personal'];
+
+  // Beta/Editors/Collaborators can sync to owner-visible scopes
+  return ['personal', 'collaborator', 'editor'];
+}
+
+
         const fromCloud = Array.from(byId.values());
 
         const local = _annLoad();
@@ -20958,17 +20962,17 @@
       return 'personal';
     }
 
-    function _annAllowedScopesForRole() {
-      const role = _annUserRoleHere();
-      // Author can do anything, including publishing notes to readers.
-      if (role === 'author') return ['personal', 'editor', 'collaborator', 'public'];
-      // Editor can write personal, editor (their channel), or collaborator (to betas).
-      if (role === 'editor') return ['personal', 'editor', 'collaborator'];
-      // Beta: personal or collaborator (to author + other betas).
-      if (role === 'beta') return ['personal', 'collaborator'];
-      // Reader: only personal — their own reading log.
-      return ['personal'];
-    }
+    // function _annAllowedScopesForRole() {
+    //   const role = _annUserRoleHere();
+    //   // Author can do anything, including publishing notes to readers.
+    //   if (role === 'author') return ['personal', 'editor', 'collaborator', 'public'];
+    //   // Editor can write personal, editor (their channel), or collaborator (to betas).
+    //   if (role === 'editor') return ['personal', 'editor', 'collaborator'];
+    //   // Beta: personal or collaborator (to author + other betas).
+    //   if (role === 'beta') return ['personal', 'collaborator'];
+    //   // Reader: only personal — their own reading log.
+    //   return ['personal'];
+    // }
 
     window._annDefaultScope = _annDefaultScope;
     window._annAllowedScopesForRole = _annAllowedScopesForRole;
