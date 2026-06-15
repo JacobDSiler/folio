@@ -20418,22 +20418,42 @@
       return false;
     }
 
-    function _scopeIsVisible(scope, item /* bookmark|annotation */) {
-      scope = _scopeNormalize(scope);
-      // Editor view — author sees their own work
-      if (typeof _readerMode === 'undefined' || !_readerMode) return true;
-      // Reader view — apply role gates
-      if (scope === 'public') return true;
-      if (scope === 'collaborator') return _userHasFolioRole(_readerFolioId, 'collaborator');
-      if (scope === 'editor') return _userHasFolioRole(_readerFolioId, 'editor');
-      // 'personal' — only visible to the creator. In reader mode the
-      // creator's uid lives on the item.
-      if (scope === 'personal') {
-        if (item && item.createdBy && window._uid && item.createdBy === window._uid) return true;
-        return false;
-      }
-      return false;
+  function _scopeIsVisible(scope, item) {
+    const myUid = window._uid;
+    const isOwner = !!(myUid && _loadedFolioOwnerUid && myUid === _loadedFolioOwnerUid);
+    const myRole = _annUserRoleHere();
+    const itemCreatorUid = item.uid || item.createdBy;
+
+    // 1. You can ALWAYS see your own notes.
+    if (myUid && itemCreatorUid === myUid) return true;
+
+    // 2. OWNER/AUTHOR "God Mode" Visibility
+    if (isOwner) {
+      // Owner sees everything EXCEPT notes marked 'personal' by basic Readers.
+      if (item.createdByRole === 'reader' && scope === 'personal') return false;
+      return true;
     }
+
+    // 3. READER Visibility (Strict)
+    if (myRole === 'reader') {
+      // Readers ONLY see their own notes. They never see Author notes or other Readers.
+      return false; // The "own note" check at Step 1 handles their own.
+    }
+
+    // 4. BETA READER / EDITOR Visibility
+    if (myRole === 'beta' || myRole === 'editor' || myRole === 'collab') {
+      // They see Author notes set to 'public' or 'collaborator'
+      if (item.createdByRole === 'author' && (scope === 'public' || scope === 'collaborator')) return true;
+      // They see notes from other team members if scoped to 'collaborator' or 'editor'
+      if (scope === 'collaborator' || scope === 'editor') {
+        // Only if they have the rank to see it
+        if (myRole === 'editor' || myRole === 'collab') return true;
+        if (myRole === 'beta' && scope === 'collaborator') return true;
+      }
+    }
+
+    return false;
+  }
 
     // Render a small inline scope picker. Used by both the create
     // flow (popovers) and the list-row "change scope" affordance.
@@ -20560,23 +20580,23 @@
       }
     }
 
-function _annSyncToCloud(currentList) {
-  if (_annLoopGuard) return;
-  const folioId = _annSyncableFolioId();
-  if (!folioId) return;
+  function _annSyncToCloud(currentList) {
+    if (_annLoopGuard) return;
+    const folioId = _annSyncableFolioId();
+    if (!folioId) return;
 
-  const role = _annUserRoleHere();
+    const myRole = _annUserRoleHere();
 
-  for (const a of currentList) {
-    // COMMERCIAL RULE: Basic readers stay completely local for "Personal" notes
-    if (role === 'reader' && a.scope === 'personal') {
-      continue; 
+    for (const a of currentList) {
+      // 1. Basic Reader Privacy: If it's a reader and it's personal, it STAYS in local storage.
+      if (myRole === 'reader' && a.scope === 'personal') continue;
+
+      // 2. Beta/Editor Upstream: Ensure these carry the role so the Owner's filter works
+      if (!a.createdByRole) a.createdByRole = myRole;
+
+      _annCloudPush(folioId, a);
     }
-    
-    // Everything else (Beta/Editor/Owner) syncs to the DB based on scope
-    _annCloudPush(folioId, a);
   }
-}
 
   // This helper determines which scopes a user is allowed to "see" based on their role
     function _annGetVisibleScopes() {
@@ -20702,13 +20722,15 @@ function _annSyncToCloud(currentList) {
    */
   function _annCanManage(note) {
     if (!note) return false;
-    const isOwner = !!(window._uid && _loadedFolioOwnerUid && window._uid === _loadedFolioOwnerUid);
-    // Notes might store creator in .uid or .createdBy depending on the sync phase
-    const isCreator = !!(window._uid && (note.uid === window._uid || note.createdBy === window._uid));
+    const myUid = window._uid;
+    if (!myUid) return false;
 
-    return isOwner || isCreator;
+    const isFolioOwner = (myUid === _loadedFolioOwnerUid);
+    const isNoteCreator = (note.uid === myUid || note.createdBy === myUid);
+
+    // You can manage a note if you made it, OR if you are the book owner.
+    return isNoteCreator || isFolioOwner;
   }
-
   
 
     // ─────────────────────────────────────────────────────────────────────
@@ -20898,27 +20920,23 @@ function _annSyncToCloud(currentList) {
   /**
  * Defines which privacy scopes are available to a user when creating a note.
  */
-    function _annAllowedScopesForRole() {
-      const role = _annUserRoleHere();
-      const isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
+  function _annAllowedScopesForRole() {
+    const role = _annUserRoleHere();
+    const isOwner = !!(window._uid && _loadedFolioOwnerUid && window._uid === _loadedFolioOwnerUid);
 
-      // 1. Owners/Authors have full control
-      if (isOwner) return ['personal', 'editor', 'collaborator', 'public'];
+    if (isOwner) return ['personal', 'collaborator', 'public', 'editor'];
 
-      // 2. Editors & Collaborators can mark notes for themselves or for the review team
-      if (role === 'editor' || role === 'collab') {
-        return ['personal', 'editor', 'collaborator'];
-      }
+    // Beta Readers: Only Personal (me) or Collaborator (send to Author)
+    if (role === 'beta') return ['personal', 'collaborator'];
 
-      // 3. Beta Readers can keep notes private or send them to the author/other betas
-      if (role === 'beta') {
-        return ['personal', 'collaborator'];
-      }
+    // Editors: Personal, Collaborator (Team), or Editor (Private to editors)
+    if (role === 'editor' || role === 'collab') return ['personal', 'collaborator', 'editor'];
 
-      // 4. Basic Readers only have local personal notes (no sync)
-      return ['personal'];
-    }
-    // Export to window so the popover HTML can reach it
+    // Basic Readers: strictly local
+    return ['personal'];
+  }
+
+      // Export to window so the popover HTML can reach it
     window._annAllowedScopesForRole = _annAllowedScopesForRole;
     window._annDefaultScope = _annDefaultScope;
     window._annUserRoleHere = _annUserRoleHere;
@@ -21345,7 +21363,7 @@ function _annSyncToCloud(currentList) {
       _annOpenNoteBox();
     }
   }
-  
+
   async function _annDelete(id) {
     const list = _annLoad();
     const note = list.find(a => a.id === id);
@@ -21426,12 +21444,26 @@ function _annSyncToCloud(currentList) {
 
       // Click on an existing .annot → open popover anchored on it.
       bp.addEventListener('click', (e) => {
-        const span = e.target.closest && e.target.closest('.annot[data-annotid]');
+        const span = e.target.closest('.annot[data-annotid]');
         if (!span) return;
+
+        const annId = span.dataset.annotid;
+        const list = _annLoad();
+        const note = list.find(x => x.id === annId);
+
+        // If you don't own it and you aren't the Folio owner, ignore the click (No-Op)
+        if (!_annCanManage(note)) {
+          console.log('[ANN] Unauthorized click on note - ignoring');
+          return;
+        }
+
+        // If we get here, the user is authorized.
         e.preventDefault();
         e.stopPropagation();
-        _annActiveId = span.dataset.annotid;
+
+        _annActiveId = annId;
         _annPendingSelection = null;
+
         const r = span.getBoundingClientRect();
         _annShowPopover(r);
       });
