@@ -7802,34 +7802,31 @@
     // the body write couldn't satisfy them.)
   async function _writeFolioCloud(folioId, name, opts) {
     const { parentPayload, bodyPayload } = await _buildCloudSavePayload(name, opts);
-
     const isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
-    const userRole = _annUserRoleHere();
 
-    // If the user is an Editor or Collaborator (but NOT the owner)
-    if (!isOwner && (userRole === 'editor' || userRole === 'collab')) {
-      console.log('[FOLIO] Saving as suggestion copy for owner review');
-      // We write to a unique path per-user so multiple editors don't clobber each other
-      const suggestionRef = window._fb.doc(window._db, 'folio_projects', folioId, 'suggestions', window._uid);
-
-      // We only save the body state as a suggestion
-      await window._fb.setDoc(suggestionRef, {
-        ...bodyPayload,
-        suggestedBy: _myName(),
-        suggestedAt: Date.now()
-      });
-
-      toastInfo('Edits saved as suggestions for the author.');
-      return; // Exit early so we don't touch body/main
+    // If NOT the owner, save to the 'suggestions' subcollection
+    if (!isOwner) {
+      const role = _annUserRoleHere();
+      if (role === 'editor' || role === 'collab') {
+        const suggestionRef = window._fb.doc(window._db, 'folio_projects', folioId, 'suggestions', window._uid);
+        await window._fb.setDoc(suggestionRef, {
+          ...bodyPayload,
+          authorName: _myName(),
+          role: role,
+          timestamp: Date.now()
+        });
+        toastSuccess('Suggestion saved for author review.');
+        return; // Stop here. Do not overwrite main body.
+      }
     }
 
-    // Fallback to original Master Copy logic for the Owner
+    // Standard Owner path (Master Copy)
     const parentRef = window._fb.doc(window._db, 'folio_projects', folioId);
     const bodyRef = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'main');
-
     await window._fb.setDoc(parentRef, parentPayload, { merge: true });
     await window._fb.setDoc(bodyRef, bodyPayload);
   }
+  
     // Read state from either:
     //   1. The body subdoc (new schema): folio_projects/{id}/body/main
     //   2. The parent doc's state_gz field (intermediate schema)
@@ -19586,80 +19583,66 @@
       setTimeout(_rdMaybeShowContinuePill, 1600);
     }
 
-    function _rdHydrate() {
-      if (!_readerMode) return;
-      // Hide the ← Editor button for non-owners. The owner can still
-      // flip back to editing their own preview; everyone else would
-      // see the editor load the very book they're meant to be reading
-      // (the URL-strip + reload trick that prompted this fix).
-      try {
-        const _back = document.getElementById('rdBack');
-        if (_back) {
-          const _isOwner = !!(typeof _loadedFolioOwnerUid !== 'undefined' &&
-            _loadedFolioOwnerUid && window._uid &&
-            _loadedFolioOwnerUid === window._uid);
-          _back.style.display = _isOwner ? '' : 'none';
-        }
-      } catch (e) { }
-      // Title
-      const titleEl = document.getElementById('rdTitle');
-      const subEl = document.getElementById('rdSub');
-      if (titleEl) {
-        const t = (document.getElementById('bookTitle') && document.getElementById('bookTitle').value) ||
-          (document.getElementById('projName') && document.getElementById('projName').value) ||
-          'Untitled';
-        titleEl.textContent = t;
-      }
-      if (subEl) {
-        const a = document.getElementById('bookAuthor') && document.getElementById('bookAuthor').value;
-        const roleLabel = ({
-          reader: 'Reader',
-          beta: 'Beta reader',
-          editor: 'Editor review',
-        })[_readerRole] || 'Reader';
-        const parts = [];
-        if (a) parts.push('by ' + a);
-        parts.push('· ' + roleLabel);
-        subEl.textContent = parts.join(' ');
-      }
-      // Chapter picker
-      const sel = document.getElementById('rdChapSel');
-      if (sel && typeof chapters !== 'undefined' && chapters.length) {
-        sel.innerHTML = '';
-        const opt0 = document.createElement('option');
-        opt0.value = ''; opt0.textContent = 'Chapters…'; sel.appendChild(opt0);
-        // How many chapters are released — used to lock down dropdown options
-        // for serial releases. Non-serial releases always treat Infinity as
-        // released, so nothing gets locked here.
-        // Locks only render in reader mode — the editor shouldn't see them.
-        // Covers BOTH serial (cadence-gated) and paid (preview-gated)
-        // releases via the generic _lockReleasedCount.
-        const _inReader = (typeof _readerMode !== 'undefined' && _readerMode);
-        const _lockRelease = (_inReader && typeof _rlCurrent !== 'undefined' && _rlCurrent &&
-          (_rlCurrent.serial || _rlCurrent.priceMode === 'paid')) ? _rlCurrent : null;
-        const _serialReleased = _lockRelease
-          ? (typeof _lockReleasedCount === 'function' ? _lockReleasedCount(_lockRelease) : Infinity)
-          : Infinity;
-        let chNum = 0;
-        for (const c of chapters) {
-          if (!c.title && c.type === 'chapter') continue;
+  function _rdHydrate() {
+    if (!_readerMode) return;
+
+    // 1. Recover Role Authority
+    // We check the signed token first (most secure), then the URL param.
+    const folioId = _readerFolioId || _projId;
+    const shareTk = localStorage.getItem('folioShareToken_' + folioId);
+    const decoded = shareTk ? _pwDecode(shareTk) : null;
+
+    if (decoded && decoded.role) {
+      _readerRole = decoded.role;
+    } else {
+      const params = new URLSearchParams(window.location.search);
+      _readerRole = (params.get('role') || 'reader').toLowerCase();
+    }
+
+    // 2. Title & Professional Labels
+    const titleEl = document.getElementById('rdTitle');
+    const subEl = document.getElementById('rdSub');
+    if (titleEl) {
+      titleEl.textContent = document.getElementById('bookTitle')?.value || 'Untitled';
+    }
+    if (subEl) {
+      const author = document.getElementById('bookAuthor')?.value || '';
+      const roleLabels = {
+        'reader': 'Reader',
+        'beta': 'Beta Reader',
+        'editor': 'Editor',
+        'collab': 'Collaborator'
+      };
+      const currentLabel = roleLabels[_readerRole] || 'Reader';
+      subEl.textContent = author ? `by ${author} · ${currentLabel}` : currentLabel;
+    }
+
+    // 3. Hide Editor button for non-owners (Security)
+    const backBtn = document.getElementById('rdBack');
+    if (backBtn) {
+      const isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
+      backBtn.style.display = isOwner ? '' : 'none';
+    }
+
+    // 4. Update Chapter Dropdown (Standard Logic)
+    const sel = document.getElementById('rdChapSel');
+    if (sel && chapters.length) {
+      sel.innerHTML = '<option value="">Chapters…</option>';
+      let chNum = 0;
+      const releasedCount = _lockReleasedCount(_rlCurrent);
+      for (const c of chapters) {
+        if (c.type === 'chapter') {
+          chNum++;
+          const isLocked = (chNum > releasedCount);
           const opt = document.createElement('option');
           opt.value = c.id;
-          if (c.type === 'chapter') {
-            chNum++;
-            const isLocked = (chNum > _serialReleased);
-            opt.textContent = (isLocked ? '🔒 ' : '') + 'Ch ' + chNum + ' · ' + (c.title || '');
-            if (isLocked) {
-              opt.disabled = true;
-              opt.dataset.lockedCh = String(chNum);
-            }
-          } else {
-            opt.textContent = (c.title || c.type);
-          }
+          opt.textContent = (isLocked ? '🔒 ' : '') + `Ch ${chNum} · ${c.title || '(untitled)'}`;
+          opt.disabled = isLocked;
           sel.appendChild(opt);
         }
       }
     }
+  }
 
     function _rdThrottle(fn, ms) {
       let last = 0, timer = 0;
@@ -20577,62 +20560,32 @@
     }
 
   function _annSyncToCloud(currentList) {
-    // Prevent ping‑pong loops from onSnapshot → save → push → snapshot
     if (_annLoopGuard) return;
-
     const folioId = _annSyncableFolioId();
     if (!folioId) return;
 
     const role = _annUserRoleHere();
-    const allowedScopes = _annAllowedScopesForRole();
 
-    // Apply commercial + role‑based filtering
-    const syncableList = currentList.filter(a => {
-      // RULE 1: Basic readers cannot sync personal notes
-      if (role === 'reader' && a.scope === 'personal') return false;
-
-      // RULE 2: If the scope is not allowed for this role, skip it
-      if (!allowedScopes.includes(a.scope)) return false;
-
-      return true;
-    });
-
-    const prev = _annLastSaved || [];
-    const prevMap = new Map(prev.map(a => [a.id, a]));
-    const currMap = new Map(syncableList.map(a => [a.id, a]));
-
-    // Push new or changed annotations
-    for (const a of syncableList) {
-      const prevA = prevMap.get(a.id);
-      let changed = !prevA;
-
-      if (prevA) {
-        try {
-          changed = JSON.stringify(prevA) !== JSON.stringify(a);
-        } catch (e) {
-          changed = true;
-        }
+    for (const a of currentList) {
+      // COMMERCIAL RULE: No-Sync for basic reader personal notes
+      if (role === 'reader' && a.scope === 'personal') {
+        console.log('[ANN] Skipping sync for private reader note');
+        continue;
       }
-
-      if (changed) {
-        _annCloudPush(folioId, a);
-      }
-    }
-
-    // Delete removed annotations
-    for (const old of prev) {
-      if (!currMap.has(old.id)) {
-        _annCloudDelete(folioId, old.id);
-      }
-    }
-
-    // Deep snapshot to avoid aliasing
-    try {
-      _annLastSaved = JSON.parse(JSON.stringify(syncableList));
-    } catch (e) {
-      _annLastSaved = syncableList.slice();
+      _annCloudPush(folioId, a);
     }
   }
+  
+  // This helper determines which scopes a user is allowed to "see" based on their role
+    function _annGetVisibleScopes() {
+      const role = _annUserRoleHere();
+      const isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
+
+      if (isOwner) return ['personal', 'editor', 'collaborator', 'public'];
+      if (role === 'editor' || role === 'collab') return ['public', 'collaborator', 'editor'];
+      if (role === 'beta') return ['public', 'collaborator'];
+      return ['public']; // Basic readers
+    }
 
     // Initial cloud load — runs once on folio open. Merges Firestore's
     // view with whatever's in localStorage:
@@ -20640,74 +20593,38 @@
     //   - If an annotation exists locally but NOT in cloud, push it up
     //     (handles devices that drafted notes while offline and migrates
     //      legacy localStorage-only annotations on first cloud-sync)
-    async function _annInitFromCloud(folioId) {
-      if (!folioId || !window._fb || !window._db) return;
-      try {
-        const { collection, getDocs, query, where } = window._fb;
-        const colRef = collection(window._db, 'folio_projects', folioId, 'annotations');
-        const byId = new Map();
-        const isOwner = !!(typeof _loadedFolioOwnerUid !== 'undefined' &&
-          _loadedFolioOwnerUid && window._uid &&
-          _loadedFolioOwnerUid === window._uid);
-        if (isOwner) {
-          // Owner — unrestricted list; the rule's parentUid(id) branch allows it.
-          const snap = await getDocs(colRef);
-          snap.forEach(d => byId.set(d.id, Object.assign({ id: d.id }, d.data())));
-        } else {
-          // Non-owner — split into two restricted queries the rule can verify:
-          // public annotations, and the reader's own annotations. Anything
-          // else (editor / collaborator / other readers' personal) is never
-          // read into the browser (audit B4).
-          const pubSnap = await getDocs(query(colRef, where('scope', '==', 'public')));
-          pubSnap.forEach(d => byId.set(d.id, Object.assign({ id: d.id }, d.data())));
-          if (window._uid) {
-            const mineSnap = await getDocs(query(colRef, where('uid', '==', window._uid)));
-            mineSnap.forEach(d => byId.set(d.id, Object.assign({ id: d.id }, d.data())));
-          }
-        }
+  async function _annInitFromCloud(folioId) {
+    if (!folioId || !window._fb || !window._db) return;
+    try {
+      const { collection, getDocs, query, where } = window._fb;
+      const colRef = collection(window._db, 'folio_projects', folioId, 'annotations');
+      const isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
 
-        function _annAllowedScopesForRole() {
-  const role = _annUserRoleHere();
-  const isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
-
-  if (isOwner) return ['personal', 'editor', 'collaborator', 'public'];
-
-  // Basic readers can only do Personal (local)
-  if (role === 'reader') return ['personal'];
-
-  // Beta/Editors/Collaborators can sync to owner-visible scopes
-  return ['personal', 'collaborator', 'editor'];
-}
-
-
-        const fromCloud = Array.from(byId.values());
-
-        const local = _annLoad();
-        const cloudIds = new Set(fromCloud.map(a => a.id));
-        const localOnly = local.filter(a => !cloudIds.has(a.id));
-
-        const merged = fromCloud.concat(localOnly);
-        // Update cache + render baseline WITHOUT triggering a re-push of the
-        // cloud items we just fetched.
-        _annLoopGuard = true;
-        try {
-          _annLastSaved = JSON.parse(JSON.stringify(merged));
-          try { localStorage.setItem(_annFolioKey(), JSON.stringify(merged)); } catch (e) { }
-        } finally {
-          _annLoopGuard = false;
-        }
-
-        // Push the local-only stragglers up (one-time migration).
-        for (const a of localOnly) _annCloudPush(folioId, a);
-
-        if (typeof _annRender === 'function') _annRender();
-        if (typeof _annRenderSidebarList === 'function') _annRenderSidebarList();
-      } catch (e) {
-        console.warn('[ann] initial cloud load failed', e && e.code || e && e.message || e);
-        // Stay on the localStorage cache — no UX regression for offline users.
+      let snap;
+      if (isOwner) {
+        snap = await getDocs(colRef); // Owner sees everything
+      } else {
+        // Non-owners: Get anything in my visible scope list OR anything I created myself
+        const scopes = _annGetVisibleScopes();
+        const q = query(colRef, where('scope', 'in', scopes));
+        snap = await getDocs(q);
       }
-    }
 
+      const byId = new Map();
+      snap.forEach(d => byId.set(d.id, { id: d.id, ...d.data() }));
+
+      // Merge with local storage (offline edits)
+      const local = _annLoad();
+      local.forEach(a => { if (!byId.has(a.id)) byId.set(a.id, a); });
+
+      const merged = Array.from(byId.values());
+      _annLoopGuard = true;
+      localStorage.setItem(_annFolioKey(), JSON.stringify(merged));
+      _annLoopGuard = false;
+
+      _annRender();
+    } catch (e) { console.warn('[ann] Sync Error:', e); }
+  }
     // Live subscription. The folio owner gets a single unfiltered listen;
     // non-owners get TWO listens (public scope + their own annotations) so
     // every result satisfies the Firestore rule per-doc (audit B4 — closes
