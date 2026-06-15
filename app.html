@@ -7804,29 +7804,32 @@
     const { parentPayload, bodyPayload } = await _buildCloudSavePayload(name, opts);
     const isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
 
-    // If NOT the owner, save to the 'suggestions' subcollection
+    // NON-DESTRUCTIVE PATH: For invited Editors and Collabs
     if (!isOwner) {
       const role = _annUserRoleHere();
       if (role === 'editor' || role === 'collab') {
+        console.log('[SYNC] Saving as suggestion copy for review');
         const suggestionRef = window._fb.doc(window._db, 'folio_projects', folioId, 'suggestions', window._uid);
+
         await window._fb.setDoc(suggestionRef, {
-          ...bodyPayload,
-          authorName: _myName(),
+          ...bodyPayload, // Contains the actual chapter text
+          suggestedBy: _myName(),
+          suggestedByUid: window._uid,
           role: role,
           timestamp: Date.now()
         });
-        toastSuccess('Suggestion saved for author review.');
-        return; // Stop here. Do not overwrite main body.
+
+        toastSuccess('Edits saved as suggestions for the author.');
+        return; // Exit early: Master body/main is NOT touched.
       }
     }
 
-    // Standard Owner path (Master Copy)
+    // MASTER PATH: For the Folio Owner
     const parentRef = window._fb.doc(window._db, 'folio_projects', folioId);
     const bodyRef = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'main');
     await window._fb.setDoc(parentRef, parentPayload, { merge: true });
     await window._fb.setDoc(bodyRef, bodyPayload);
   }
-  
     // Read state from either:
     //   1. The body subdoc (new schema): folio_projects/{id}/body/main
     //   2. The parent doc's state_gz field (intermediate schema)
@@ -19586,8 +19589,7 @@
   function _rdHydrate() {
     if (!_readerMode) return;
 
-    // 1. Recover Role Authority
-    // We check the signed token first (most secure), then the URL param.
+    // 1. Robust Role Detection
     const folioId = _readerFolioId || _projId;
     const shareTk = localStorage.getItem('folioShareToken_' + folioId);
     const decoded = shareTk ? _pwDecode(shareTk) : null;
@@ -19599,7 +19601,7 @@
       _readerRole = (params.get('role') || 'reader').toLowerCase();
     }
 
-    // 2. Title & Professional Labels
+    // 2. Branding & Labels
     const titleEl = document.getElementById('rdTitle');
     const subEl = document.getElementById('rdSub');
     if (titleEl) {
@@ -19609,7 +19611,7 @@
       const author = document.getElementById('bookAuthor')?.value || '';
       const roleLabels = {
         'reader': 'Reader',
-        'beta': 'Beta Reader',
+        'beta': 'Beta Reader', // Capitalized for professional UI
         'editor': 'Editor',
         'collab': 'Collaborator'
       };
@@ -19617,14 +19619,14 @@
       subEl.textContent = author ? `by ${author} · ${currentLabel}` : currentLabel;
     }
 
-    // 3. Hide Editor button for non-owners (Security)
+    // 3. Reader Bar Actions visibility
     const backBtn = document.getElementById('rdBack');
     if (backBtn) {
       const isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
       backBtn.style.display = isOwner ? '' : 'none';
     }
 
-    // 4. Update Chapter Dropdown (Standard Logic)
+    // 4. Handle Chapter List & Locks
     const sel = document.getElementById('rdChapSel');
     if (sel && chapters.length) {
       sel.innerHTML = '<option value="">Chapters…</option>';
@@ -19643,7 +19645,6 @@
       }
     }
   }
-
     function _rdThrottle(fn, ms) {
       let last = 0, timer = 0;
       return function () {
@@ -20559,23 +20560,24 @@
       }
     }
 
-  function _annSyncToCloud(currentList) {
-    if (_annLoopGuard) return;
-    const folioId = _annSyncableFolioId();
-    if (!folioId) return;
+function _annSyncToCloud(currentList) {
+  if (_annLoopGuard) return;
+  const folioId = _annSyncableFolioId();
+  if (!folioId) return;
 
-    const role = _annUserRoleHere();
+  const role = _annUserRoleHere();
 
-    for (const a of currentList) {
-      // COMMERCIAL RULE: No-Sync for basic reader personal notes
-      if (role === 'reader' && a.scope === 'personal') {
-        console.log('[ANN] Skipping sync for private reader note');
-        continue;
-      }
-      _annCloudPush(folioId, a);
+  for (const a of currentList) {
+    // COMMERCIAL RULE: Basic readers stay completely local for "Personal" notes
+    if (role === 'reader' && a.scope === 'personal') {
+      continue; 
     }
+    
+    // Everything else (Beta/Editor/Owner) syncs to the DB based on scope
+    _annCloudPush(folioId, a);
   }
-  
+}
+
   // This helper determines which scopes a user is allowed to "see" based on their role
     function _annGetVisibleScopes() {
       const role = _annUserRoleHere();
@@ -20879,20 +20881,32 @@
       return 'personal';
     }
 
+  /**
+ * Defines which privacy scopes are available to a user when creating a note.
+ */
     function _annAllowedScopesForRole() {
       const role = _annUserRoleHere();
-      // Author can do anything, including publishing notes to readers.
-      if (role === 'author') return ['personal', 'editor', 'collaborator', 'public'];
-      // Editor can write personal, editor (their channel), or collaborator (to betas).
-      if (role === 'editor') return ['personal', 'editor', 'collaborator'];
-      // Beta: personal or collaborator (to author + other betas).
-      if (role === 'beta') return ['personal', 'collaborator'];
-      // Reader: only personal — their own reading log.
+      const isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
+
+      // 1. Owners/Authors have full control
+      if (isOwner) return ['personal', 'editor', 'collaborator', 'public'];
+
+      // 2. Editors & Collaborators can mark notes for themselves or for the review team
+      if (role === 'editor' || role === 'collab') {
+        return ['personal', 'editor', 'collaborator'];
+      }
+
+      // 3. Beta Readers can keep notes private or send them to the author/other betas
+      if (role === 'beta') {
+        return ['personal', 'collaborator'];
+      }
+
+      // 4. Basic Readers only have local personal notes (no sync)
       return ['personal'];
     }
-
-    window._annDefaultScope = _annDefaultScope;
+    // Export to window so the popover HTML can reach it
     window._annAllowedScopesForRole = _annAllowedScopesForRole;
+    window._annDefaultScope = _annDefaultScope;
     window._annUserRoleHere = _annUserRoleHere;
 
 
