@@ -20879,17 +20879,17 @@
       return 'personal';
     }
 
-    // function _annAllowedScopesForRole() {
-    //   const role = _annUserRoleHere();
-    //   // Author can do anything, including publishing notes to readers.
-    //   if (role === 'author') return ['personal', 'editor', 'collaborator', 'public'];
-    //   // Editor can write personal, editor (their channel), or collaborator (to betas).
-    //   if (role === 'editor') return ['personal', 'editor', 'collaborator'];
-    //   // Beta: personal or collaborator (to author + other betas).
-    //   if (role === 'beta') return ['personal', 'collaborator'];
-    //   // Reader: only personal — their own reading log.
-    //   return ['personal'];
-    // }
+    function _annAllowedScopesForRole() {
+      const role = _annUserRoleHere();
+      // Author can do anything, including publishing notes to readers.
+      if (role === 'author') return ['personal', 'editor', 'collaborator', 'public'];
+      // Editor can write personal, editor (their channel), or collaborator (to betas).
+      if (role === 'editor') return ['personal', 'editor', 'collaborator'];
+      // Beta: personal or collaborator (to author + other betas).
+      if (role === 'beta') return ['personal', 'collaborator'];
+      // Reader: only personal — their own reading log.
+      return ['personal'];
+    }
 
     window._annDefaultScope = _annDefaultScope;
     window._annAllowedScopesForRole = _annAllowedScopesForRole;
