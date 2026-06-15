@@ -20697,6 +20697,20 @@ function _annSyncToCloud(currentList) {
     }
     window._annAttachCloudSync = _annAttachCloudSync;
 
+  /**
+   * Determines if the current user has permission to edit/delete a specific note.
+   */
+  function _annCanManage(note) {
+    if (!note) return false;
+    const isOwner = !!(window._uid && _loadedFolioOwnerUid && window._uid === _loadedFolioOwnerUid);
+    // Notes might store creator in .uid or .createdBy depending on the sync phase
+    const isCreator = !!(window._uid && (note.uid === window._uid || note.createdBy === window._uid));
+
+    return isOwner || isCreator;
+  }
+
+  
+
     // ─────────────────────────────────────────────────────────────────────
     // URL ANCHOR PROTOCOL  (Phase 2 — deep links into a folio)
     //
@@ -21259,95 +21273,112 @@ function _annSyncToCloud(currentList) {
       _annRenderSidebarList();
     }
 
-    function _annRenderSidebarList() {
-      // W2 — apply scope/role visibility filter at render time
-      const _allAnn = _annLoad();
-      const list = _allAnn.filter(a => _scopeIsVisible(a.scope, a));
-      const targets = [
-        { host: document.getElementById('annList'), empty: document.getElementById('annEmpty'), count: document.getElementById('annCount') },
-        { host: document.getElementById('rdAnnList'), empty: document.getElementById('rdAnnEmpty'), count: null },
-      ].filter(tgt => tgt.host);
-      if (!targets.length) return;
-      for (const tgt of targets) {
-        if (tgt.count) tgt.count.textContent = String(list.length);
-      }
-      if (!list.length) {
-        for (const tgt of targets) {
-          tgt.host.innerHTML = '';
-          if (tgt.empty) tgt.empty.style.display = '';
-        }
-        return;
-      }
-      for (const tgt of targets) {
-        if (tgt.empty) tgt.empty.style.display = 'none';
-      }
+  function _annRenderSidebarList() {
+    const _allAnn = _annLoad();
+    const list = _allAnn.filter(a => _scopeIsVisible(a.scope, a));
+    const host = document.getElementById('annList') || document.getElementById('rdAnnList');
+    const countEl = document.getElementById('annCount');
 
-      // Group by chapter, ordered by book flow
-      const byCh = {};
-      for (const a of list) (byCh[a.chapterId] = byCh[a.chapterId] || []).push(a);
-      const chapIdOrder = chapters.map(c => c.id);
-      const ordered = chapIdOrder.filter(id => byCh[id]);
+    if (!host) return;
+    if (countEl) countEl.textContent = String(list.length);
 
-      const chunks = [];
-      for (const chid of ordered) {
-        const group = byCh[chid].slice().sort(
-          (a, b) => a.paragraphIndex - b.paragraphIndex || a.selectionStart - b.selectionStart
-        );
-        const chTitle = (chapters.find(c => c.id === chid) || {}).title || 'Untitled';
-        for (const a of group) {
-          const noteBits = a.note
-            ? '<div style="font-size:11px;color:var(--text);margin-top:4px;font-style:italic">📝 ' + _esc(a.note) + '</div>'
-            : '';
-          const _scopePicker = _scopeRenderPickerHTML(a.scope, '_annSetScope(\'' + _esc(a.id) + '\', this.value)');
-          chunks.push(
-            '<div class="bm-item ann-item" style="--annot-color:' + _esc(a.color) + '" ' +
-            'onclick="_annJumpTo(\'' + _esc(a.id) + '\')">' +
-            '<div class="bm-ch">' + _esc(chTitle) + ' · ¶' + (a.paragraphIndex + 1) +
-            ' ' + _scopePicker +
-            '</div>' +
-            '<div class="bm-snip">“' + _esc(a.selectedText || '') + '”</div>' +
-            noteBits +
-            '<div class="bm-actions">' +
-            '<button class="bm-mini" onclick="event.stopPropagation();_annEditNote(\'' + _esc(a.id) + '\')" title="Edit note">📝</button>' +
-            '<button class="bm-mini" onclick="event.stopPropagation();_annCopyDeepLink(\'' + _esc(a.id) + '\')" title="Copy a shareable link that opens the folio scrolled to this annotation">🔗</button>' +
-            '<button class="bm-mini" onclick="event.stopPropagation();_annDelete(\'' + _esc(a.id) + '\')" title="Remove">✕</button>' +
-            '</div>' +
-            '</div>'
-          );
-        }
-      }
-      const html = chunks.join('');
-      for (const tgt of targets) tgt.host.innerHTML = html;
+    if (!list.length) {
+      host.innerHTML = '<div style="font-size:11.5px;color:var(--hint);padding:.35rem 0">No notes here yet.</div>';
+      return;
     }
 
-    function _annEditNote(id) {
-      _annActiveId = id;
-      // Position the note box near the annotation if it's on screen
-      const bp = document.getElementById('bookPreview');
-      const span = bp && bp.querySelector('.annot[data-annotid="' + id + '"]');
-      const box = document.getElementById('annNoteBox');
-      if (box) {
-        if (span) {
-          const r = span.getBoundingClientRect();
-          box.style.top = (r.bottom + window.scrollY + 6) + 'px';
-          box.style.left = (r.left + window.scrollX) + 'px';
-        } else {
-          box.style.top = '100px'; box.style.left = '100px';
-        }
+    const chunks = [];
+    // Sort notes by chapter and paragraph
+    const sorted = list.sort((a, b) => a.paragraphIndex - b.paragraphIndex);
+
+    for (const a of sorted) {
+      const ch = chapters.find(c => c.id === a.chapterId);
+      const chTitle = (ch && ch.title) ? ch.title : 'Untitled Chapter';
+
+      // Check permissions for this specific note
+      const canManage = _annCanManage(a);
+
+      const actionButtons = canManage ? `
+      <div class="bm-actions">
+        <button class="bm-mini" onclick="event.stopPropagation();_annEditNote('${a.id}')" title="Edit note">📝</button>
+        <button class="bm-mini" onclick="event.stopPropagation();_annCopyDeepLink('${a.id}')" title="Copy Link">🔗</button>
+        <button class="bm-mini" onclick="event.stopPropagation();_annDelete('${a.id}')" style="color:#c44" title="Remove">✕</button>
+      </div>` : `
+      <div class="bm-actions">
+        <button class="bm-mini" onclick="event.stopPropagation();_annCopyDeepLink('${a.id}')" title="Copy Link">🔗</button>
+      </div>`;
+
+      const noteText = a.note ? `<div style="font-size:11px;color:var(--text);margin-top:4px;font-style:italic">📝 ${_esc(a.note)}</div>` : '';
+
+      chunks.push(`
+      <div class="bm-item ann-item" style="--annot-color:${a.color}" onclick="_annJumpTo('${a.id}')">
+        <div class="bm-ch">${_esc(chTitle)} · ¶${a.paragraphIndex + 1} <span class="bm-scope">${a.scope}</span></div>
+        <div class="bm-snip">“${_esc(a.selectedText)}”</div>
+        ${noteText}
+        ${actionButtons}
+      </div>
+    `);
+    }
+    host.innerHTML = chunks.join('');
+  }
+    
+  function _annEditNote(id) {
+    const list = _annLoad();
+    const a = list.find(x => x.id === id);
+
+    if (!a || !_annCanManage(a)) {
+      toastWarning("You cannot edit this note.");
+      return;
+    }
+
+    _annActiveId = id;
+    const bp = document.getElementById('bookPreview');
+    const span = bp && bp.querySelector(`.annot[data-annotid="${id}"]`);
+    const box = document.getElementById('annNoteBox');
+
+    if (box) {
+      if (span) {
+        const r = span.getBoundingClientRect();
+        box.style.top = (r.bottom + window.scrollY + 6) + 'px';
+        box.style.left = (r.left + window.scrollX) + 'px';
       }
       _annOpenNoteBox();
     }
+  }
+  
+  async function _annDelete(id) {
+    const list = _annLoad();
+    const note = list.find(a => a.id === id);
 
-    function _annDelete(id) {
-      const list = _annLoad();
-      const i = list.findIndex(a => a.id === id);
-      if (i >= 0) {
-        list.splice(i, 1);
-        _annSave(list);
-        _annRender();
-        if (typeof toastInfo === 'function') toastInfo('Annotation removed', { duration: 1400 });
+    if (!note) return;
+
+    // 1. Security Check
+    if (!_annCanManage(note)) {
+      toastWarning("You don't have permission to delete this note.");
+      return;
+    }
+
+    if (!confirm('Delete this annotation?')) return;
+
+    // 2. Remove from Local
+    const newList = list.filter(a => a.id !== id);
+
+    // 3. Force Cloud Delete
+    const folioId = _annSyncableFolioId();
+    if (folioId && note.scope !== 'personal') {
+      try {
+        await _annCloudDelete(folioId, id);
+      } catch (e) {
+        console.warn('[ANN] Cloud delete failed, will retry on next sync', e);
       }
     }
+
+    // 4. Save and Refresh UI
+    _annSave(newList);
+    _annRender();
+    _annHidePopover();
+    toastInfo('Annotation removed');
+  }
 
     function _annJumpTo(id) {
       const list = _annLoad();
