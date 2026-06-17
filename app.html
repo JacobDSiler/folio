@@ -10745,25 +10745,31 @@
             aliases: Array.isArray(data.aliases) ? data.aliases : [],
           });
         });
-        // If we have characters from Firebase, merge them with deserialized state
-        // Firebase takes precedence for characters with matching IDs
-        if (loaded.length > 0) {
-          if (typeof _state !== 'object' || _state == null) _state = {};
-          if (!Array.isArray(_state.characters)) _state.characters = [];
 
-          // For each Firebase character, update or add to state
-          for (let i = 0; i < loaded.length; i++) {
-            const idx = _state.characters.findIndex(c => c.id === loaded[i].id);
-            if (idx >= 0) {
-              _state.characters[idx] = loaded[i];
-            } else {
-              _state.characters.push(loaded[i]);
-            }
+        // Ensure _state.characters exists
+        if (typeof _state !== 'object' || _state == null) _state = {};
+        if (!Array.isArray(_state.characters)) _state.characters = [];
+
+        // For each Firebase character, update or add to state
+        // Firebase takes precedence for characters with matching IDs
+        for (let i = 0; i < loaded.length; i++) {
+          const idx = _state.characters.findIndex(c => c.id === loaded[i].id);
+          if (idx >= 0) {
+            _state.characters[idx] = loaded[i];
+          } else {
+            _state.characters.push(loaded[i]);
           }
-          _charRender();
         }
+
+        // Always render, even if no Firebase characters
+        // This ensures deserialized characters are displayed
+        _charRender();
       } catch (e) {
         console.warn('[char-firebase] load failed', e);
+        // Still render even on error to show any deserialized characters
+        if (typeof _state === 'object' && _state && Array.isArray(_state.characters)) {
+          _charRender();
+        }
       }
     }
 
@@ -16188,12 +16194,12 @@
         return;
       }
 
-      let msg = 'Assign a character to this dialogue:\n"' + sel.slice(0, 60) + (sel.length > 60 ? '..."' : '"') + '\n\n';
+      let msg = 'Which character reads this dialogue?\n"' + sel.slice(0, 60) + (sel.length > 60 ? '..."' : '"') + '\n\n';
       msg += 'Characters:\n';
       chars.forEach((c, i) => {
         msg += `${i + 1}. ${c.name}\n`;
       });
-      msg += '\nEnter the number (or 0 to remove assignment):';
+      msg += '\nEnter the number (or 0 to remove):';
 
       const choice = prompt(msg, '1');
       if (choice === null) return;
@@ -16202,12 +16208,12 @@
       if (choice === '0') {
         _dialogueAssignCharacter(_ctxSelectedChapterId, _ctxSelectedDialogue, null);
         if (typeof toastInfo === 'function') {
-          toastInfo('Character assignment removed', { duration: 2000 });
+          toastInfo('Removed character assignment', { duration: 2000 });
         }
       } else if (idx >= 0 && idx < chars.length) {
         _dialogueAssignCharacter(_ctxSelectedChapterId, _ctxSelectedDialogue, chars[idx].id);
         if (typeof toastSuccess === 'function') {
-          toastSuccess('Assigned to ' + chars[idx].name, { icon: '🎭', duration: 2000 });
+          toastSuccess(chars[idx].name + ' will read this', { icon: '🎭', duration: 2000 });
         }
       } else {
         if (typeof toastWarning === 'function') {
@@ -24615,7 +24621,7 @@
     </button>
     <button class="ctx-item" id="ctxCharItem" onclick="_ctxOpenCharModal()" type="button" style="display:none">
       <span>🎭</span>
-      <span id="ctxCharLabel">Assign character</span>
+      <span id="ctxCharLabel">Read as character</span>
     </button>
     <button class="ctx-item" id="ctxScene" onclick="_ctxScene()" type="button">
       <span>—</span>
