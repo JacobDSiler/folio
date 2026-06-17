@@ -10786,16 +10786,16 @@
       }
       // Hint
       if (!googleVoices.length && !elVoices.length) {
-        if (hint) hint.innerHTML = '<span style="color:#c44">⚠ Open the Audio panel (🎙) and enter your TTS API key first to load voices.</span>';
+        if (hint) hint.innerHTML = '<span style="color:#c44">To use character voices, open the Audiobook studio and add your Google Cloud TTS or ElevenLabs API key.</span>';
       } else {
         const parts = [];
         if (googleVoices.length) parts.push(googleVoices.length + ' Google');
         if (elVoices.length) parts.push(elVoices.length + ' ElevenLabs');
-        if (hint) hint.textContent = 'Available: ' + parts.join(', ') + ' voice' + ((googleVoices.length + elVoices.length === 1) ? '' : 's') + '. Open the Audio panel to refresh.';
+        if (hint) hint.textContent = 'Available: ' + parts.join(', ') + ' voice' + ((googleVoices.length + elVoices.length === 1) ? '' : 's') + '.';
       }
     }
 
-    function _charOpenModal(prefillId) {
+    async function _charOpenModal(prefillId) {
       const modal = document.getElementById('charModal');
       if (!modal) return;
       const titleEl = document.getElementById('charModalTitle');
@@ -10818,6 +10818,23 @@
       if (descEl) descEl.value = editing ? editing.description : '';
       if (delBtn) delBtn.style.display = editing ? '' : 'none';
 
+      modal.classList.add('open');
+      modal.setAttribute('aria-hidden', 'false');
+
+      // Fetch voices if API keys are present and voices haven't been loaded yet.
+      // This ensures users see voices even if they haven't opened the audio panel first.
+      const gKey = (typeof _apGoogleKey !== 'undefined' ? _apGoogleKey : '') ||
+                   localStorage.getItem('folio_audio_google_key') || '';
+      const elKey = (typeof _apElKey !== 'undefined' ? _apElKey : '') ||
+                    localStorage.getItem('folio_audio_el_key') || '';
+
+      if (gKey && (!Array.isArray(_apGoogleVoices) || !_apGoogleVoices.length)) {
+        await _apFetchGoogleVoices(gKey);
+      }
+      if (elKey && (!Array.isArray(_apElVoices) || !_apElVoices.length)) {
+        await _apFetchElevenLabsVoices(elKey);
+      }
+
       // Voice picker — populate fresh each open so newly-loaded voices appear.
       _charPopulateVoiceDropdown(
         editing ? editing.voiceId : '',
@@ -10836,8 +10853,6 @@
         colorRow.dataset.selected = activeColor;
       }
 
-      modal.classList.add('open');
-      modal.setAttribute('aria-hidden', 'false');
       setTimeout(() => { if (nameEl && !nameEl.value) nameEl.focus(); }, 50);
     }
 
