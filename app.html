@@ -8217,6 +8217,8 @@
         // Save a local backup immediately in case of network issues
         try { localStorage.setItem('folio_local_backup', JSON.stringify({ id: _projId, name, state: _state, savedAt: Date.now() })); } catch (e) { }
         await _writeFolioCloud(_projId, name, {});
+        // Ensure all characters are synced to Firebase
+        try { await _charSaveAllToFirebase(); } catch (e) { console.warn('[char] batch save failed', e); }
         _updateInviteUI();
         await loadFolioList();
         await _subscribePresence();
@@ -10743,16 +10745,33 @@
             aliases: Array.isArray(data.aliases) ? data.aliases : [],
           });
         });
-        // Merge with any existing local characters, Firebase takes precedence
-        const list = _charGetAll();
-        for (let i = 0; i < loaded.length; i++) {
-          const idx = list.findIndex(c => c.id === loaded[i].id);
-          if (idx >= 0) list[idx] = loaded[i];
-          else list.push(loaded[i]);
+        // If we have characters from Firebase, merge them with deserialized state
+        // Firebase takes precedence for characters with matching IDs
+        if (loaded.length > 0) {
+          if (typeof _state !== 'object' || _state == null) _state = {};
+          if (!Array.isArray(_state.characters)) _state.characters = [];
+
+          // For each Firebase character, update or add to state
+          for (let i = 0; i < loaded.length; i++) {
+            const idx = _state.characters.findIndex(c => c.id === loaded[i].id);
+            if (idx >= 0) {
+              _state.characters[idx] = loaded[i];
+            } else {
+              _state.characters.push(loaded[i]);
+            }
+          }
+          _charRender();
         }
-        _charRender();
       } catch (e) {
         console.warn('[char-firebase] load failed', e);
+      }
+    }
+
+    async function _charSaveAllToFirebase() {
+      if (!_projId || !window._fb || !window._db) return;
+      const chars = _charGetAll();
+      for (let i = 0; i < chars.length; i++) {
+        await _charSaveToFirebase(chars[i].id, chars[i]);
       }
     }
 
@@ -16202,6 +16221,103 @@
     window._ctxOpenPronModal = _ctxOpenPronModal;
     window._ctxOpenCharModal = _ctxOpenCharModal;
 
+    /* ── Dialogue auto-detection and selection ──────────────── */
+    function _ctxFindDialogueAtPoint(el, offset) {
+      // For textareas: find the quoted text containing this offset
+      if (el.tagName === 'TEXTAREA') {
+        const text = el.value;
+        if (!text || offset < 0 || offset > text.length) return null;
+
+        // Find the opening quote before offset
+        let openIdx = -1;
+        for (let i = offset - 1; i >= 0; i--) {
+          if (/[""]/.test(text[i])) {
+            openIdx = i;
+            break;
+          }
+        }
+        if (openIdx === -1) return null;
+
+        // Find the closing quote after offset
+        let closeIdx = -1;
+        for (let i = offset; i < text.length; i++) {
+          if (/[""]/.test(text[i])) {
+            closeIdx = i;
+            break;
+          }
+        }
+        if (closeIdx === -1) return null;
+
+        return { start: openIdx + 1, end: closeIdx };
+      }
+
+      // For contenteditable: walk the DOM to find quoted text
+      if (el.isContentEditable) {
+        const sel = window.getSelection();
+        if (!sel || !sel.rangeCount) return null;
+        const range = sel.getRangeAt(0);
+        const container = range.commonAncestorContainer;
+        const text = container.nodeType === 3 ? container.nodeValue : el.textContent;
+        const offset = range.startOffset;
+
+        if (!text || offset < 0) return null;
+
+        // Find opening quote
+        let openIdx = -1, openChar = null;
+        for (let i = offset - 1; i >= 0; i--) {
+          if (/[""]/.test(text[i])) {
+            openIdx = i;
+            openChar = text[i];
+            break;
+          }
+        }
+        if (openIdx === -1) return null;
+
+        // Find closing quote (matching type)
+        let closeIdx = -1;
+        for (let i = offset; i < text.length; i++) {
+          if (text[i] === openChar || /[""]/.test(text[i])) {
+            closeIdx = i;
+            break;
+          }
+        }
+        if (closeIdx === -1) return null;
+
+        return { start: openIdx + 1, end: closeIdx, text: text.slice(openIdx + 1, closeIdx) };
+      }
+
+      return null;
+    }
+
+    function _ctxSelectDialogue(el, dialogue) {
+      if (!dialogue) return false;
+      if (el.tagName === 'TEXTAREA') {
+        el.focus();
+        el.setSelectionRange(dialogue.start, dialogue.end);
+        return true;
+      }
+      if (el.isContentEditable) {
+        const sel = window.getSelection();
+        if (dialogue.text) {
+          const range = document.createRange();
+          range.selectNodeContents(el);
+          const text = el.textContent;
+          const idx = text.indexOf(dialogue.text);
+          if (idx >= 0) {
+            // Approximate selection - could be refined
+            const preNode = el.firstChild;
+            if (preNode && preNode.nodeType === 3) {
+              range.setStart(preNode, idx);
+              range.setEnd(preNode, idx + dialogue.text.length);
+              sel.removeAllRanges();
+              sel.addRange(range);
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    }
 
     function _ctxOpen(e, el) {
       e.preventDefault();
@@ -16214,9 +16330,25 @@
       // Show/hide items based on surface type
       const isTA = (el.tagName === 'TEXTAREA');
       const isCE = (el.isContentEditable);
-      const hasSel = isTA
+      let hasSel = isTA
         ? (el.selectionStart !== el.selectionEnd)
         : (sel && sel.toString().length > 0);
+
+      // Auto-detect and select quoted dialogue if no selection
+      if (!hasSel && (isTA || isCE)) {
+        const offset = isTA ? el.selectionStart : (sel && sel.rangeCount ? sel.getRangeAt(0).startOffset : 0);
+        const dialogue = _ctxFindDialogueAtPoint(el, offset);
+        if (dialogue) {
+          if (_ctxSelectDialogue(el, dialogue)) {
+            hasSel = true;
+            // Update selection for contenteditable
+            if (isCE) {
+              const sel2 = window.getSelection();
+              _ctxSavedRange = (sel2 && sel2.rangeCount > 0) ? sel2.getRangeAt(0).cloneRange() : null;
+            }
+          }
+        }
+      }
 
       // Bold/italic only relevant when text is selected
       document.getElementById('ctxBold').style.opacity = hasSel ? '1' : '0.4';
