@@ -16166,12 +16166,13 @@
       // Helper to find quoted text containing a position
       function findQuotedText(text, pos) {
         if (!text || pos < 0 || pos > text.length) return null;
+        const quotes = ['"', '“', '”', '‟'];
 
         // Search backwards from pos for opening quote
         let openIdx = -1;
         for (let i = pos - 1; i >= 0; i--) {
           const c = text[i];
-          if (c === '"' || c === '"' || c === '"' || c === '‟') {
+          if (quotes.indexOf(c) !== -1) {
             openIdx = i;
             break;
           }
@@ -16182,7 +16183,7 @@
         let closeIdx = -1;
         for (let i = pos; i < text.length; i++) {
           const c = text[i];
-          if (c === '"' || c === '"' || c === '"' || c === '‟') {
+          if (quotes.indexOf(c) !== -1) {
             closeIdx = i;
             break;
           }
@@ -16341,12 +16342,13 @@
     function _ctxFindDialogueInText(text, offset) {
       // Find quoted text containing the offset position
       if (!text || offset < 0) return null;
+      const quotes = ['"', '“', '”', '‟'];
 
       // Find opening quote before offset
       let openIdx = -1;
       for (let i = Math.min(offset, text.length - 1); i >= 0; i--) {
         const c = text[i];
-        if (c === '"' || c === '"' || c === '"' || c === '‟') {
+        if (quotes.indexOf(c) !== -1) {
           openIdx = i;
           break;
         }
@@ -16357,7 +16359,7 @@
       let closeIdx = -1;
       for (let i = openIdx + 1; i < text.length; i++) {
         const c = text[i];
-        if (c === '"' || c === '"' || c === '"' || c === '‟') {
+        if (quotes.indexOf(c) !== -1) {
           closeIdx = i;
           break;
         }
