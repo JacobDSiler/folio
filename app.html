@@ -23465,6 +23465,69 @@
         ' at $' + est.rate + '/M)</span>';
     }
 
+    /* ── Character voice support ──────────────────────────────── */
+    function _apGetCharacterVoice(characterId) {
+      if (!characterId) {
+        // Return narrator/default voice
+        return { voiceId: _apVoiceId, provider: _apProvider, isNarrator: true };
+      }
+      const char = _charGetById(characterId);
+      if (!char || !char.voiceId) {
+        // Character has no voice assigned, use narrator
+        return { voiceId: _apVoiceId, provider: _apProvider, isNarrator: true };
+      }
+      return { voiceId: char.voiceId, provider: char.voiceProvider, isNarrator: false };
+    }
+
+    function _apDialogueSegments(text, chapterId) {
+      // Split text into segments: narration and dialogue.
+      // Each segment gets analyzed for character assignment.
+      // For now, we use a simple heuristic: quoted text = dialogue.
+      const segments = [];
+      let current = '', currentIsDialogue = false;
+
+      // Simple regex to find quoted text
+      const regex = /([""‟″]|"(?=[^"]*"))/g;
+      let lastIdx = 0, inQuote = false;
+
+      const chars = text.split('');
+      for (let i = 0; i < chars.length; i++) {
+        const c = chars[i];
+        const isQuote = /([""‟″]|^")/.test(c) || (c === '"' && i < text.length - 1);
+
+        if (isQuote) inQuote = !inQuote;
+
+        const segmentIsDialogue = inQuote;
+        if (segmentIsDialogue !== currentIsDialogue && current.trim()) {
+          segments.push({
+            text: current,
+            isDialogue: currentIsDialogue,
+            characterId: null,
+          });
+          current = '';
+        }
+        current += c;
+        currentIsDialogue = segmentIsDialogue;
+      }
+      if (current.trim()) {
+        segments.push({
+          text: current,
+          isDialogue: currentIsDialogue,
+          characterId: null,
+        });
+      }
+
+      // Assign characters to dialogue segments
+      for (let i = 0; i < segments.length; i++) {
+        if (segments[i].isDialogue) {
+          const charId = _dialogueGetCharacter(chapterId, segments[i].text);
+          if (charId) segments[i].characterId = charId;
+        }
+      }
+
+      return segments;
+    }
+
     /* ── Pre-flight checks for the active provider ─────────────── */
     function _apPreflight() {
       if (_apProvider === 'google') {
@@ -23506,22 +23569,71 @@
         const rawText = _apGetSectionText(sec);
         if (!rawText) throw new Error('Section is empty');
         const hash = _textHash(rawText);
-        const chunks = _chunkText(rawText, 4500);
+
+        // Character-aware generation: split into segments with character assignments
+        const hasCharacterAssignments = Object.keys(_dialogueAssignments).length > 0 && _charGetAll().length > 0;
         const blobs = [];
         let totalDur = 0;
 
-        for (let i = 0; i < chunks.length; i++) {
-          if (progressEl) progressEl.textContent =
-            'Generating "' + sec.title + '" — chunk ' + (i + 1) + ' of ' + chunks.length + '…';
-          let blob;
-          if (_apProvider === 'google') {
-            blob = await _apGoogleTTS(chunks[i], _apVoiceId, _apSpeed, _apGoogleKey);
-          } else {
-            blob = await _apElevenLabsTTS(chunks[i], _apVoiceId, _apElKey);
+        if (hasCharacterAssignments) {
+          // Character voice switching mode: generate each segment with its character's voice
+          const chapterId = sec.sectionId;
+          const segments = _apDialogueSegments(rawText, chapterId);
+
+          for (let i = 0; i < segments.length; i++) {
+            const seg = segments[i];
+            if (!seg.text.trim()) continue;
+
+            // Get the voice for this segment
+            const voiceInfo = _apGetCharacterVoice(seg.characterId);
+            const charName = seg.characterId ? (_charGetById(seg.characterId)?.name || 'Character') : 'Narrator';
+            const segNum = i + 1, totSegs = segments.filter(s => s.text.trim()).length;
+
+            if (progressEl) progressEl.textContent =
+              'Generating "' + sec.title + '" — ' + charName + ' (' + segNum + ' of ' + totSegs + ')…';
+
+            // Break large segments into 4500-char chunks
+            const chunks = _chunkText(seg.text, 4500);
+            for (let j = 0; j < chunks.length; j++) {
+              let blob;
+              try {
+                if (voiceInfo.provider === 'google') {
+                  blob = await _apGoogleTTS(chunks[j], voiceInfo.voiceId, _apSpeed, _apGoogleKey);
+                } else if (voiceInfo.provider === 'elevenlabs') {
+                  blob = await _apElevenLabsTTS(chunks[j], voiceInfo.voiceId, _apElKey);
+                } else {
+                  // Fallback to narrator voice
+                  if (_apProvider === 'google') {
+                    blob = await _apGoogleTTS(chunks[j], _apVoiceId, _apSpeed, _apGoogleKey);
+                  } else {
+                    blob = await _apElevenLabsTTS(chunks[j], _apVoiceId, _apElKey);
+                  }
+                }
+                blobs.push(blob);
+                const d = await _getBlobDuration(blob);
+                totalDur += d;
+              } catch (e) {
+                console.warn('[audio] segment generation failed', e);
+                throw e;
+              }
+            }
           }
-          blobs.push(blob);
-          const d = await _getBlobDuration(blob);
-          totalDur += d;
+        } else {
+          // Legacy mode: no character assignments, use single narrator voice
+          const chunks = _chunkText(rawText, 4500);
+          for (let i = 0; i < chunks.length; i++) {
+            if (progressEl) progressEl.textContent =
+              'Generating "' + sec.title + '" — chunk ' + (i + 1) + ' of ' + chunks.length + '…';
+            let blob;
+            if (_apProvider === 'google') {
+              blob = await _apGoogleTTS(chunks[i], _apVoiceId, _apSpeed, _apGoogleKey);
+            } else {
+              blob = await _apElevenLabsTTS(chunks[i], _apVoiceId, _apElKey);
+            }
+            blobs.push(blob);
+            const d = await _getBlobDuration(blob);
+            totalDur += d;
+          }
         }
 
         const finalBlob = blobs.length === 1 ? blobs[0] : await _concatenateBlobs(blobs);
