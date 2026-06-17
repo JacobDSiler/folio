@@ -16222,98 +16222,93 @@
     window._ctxOpenCharModal = _ctxOpenCharModal;
 
     /* ── Dialogue auto-detection and selection ──────────────── */
-    function _ctxFindDialogueAtPoint(el, offset) {
-      // For textareas: find the quoted text containing this offset
-      if (el.tagName === 'TEXTAREA') {
-        const text = el.value;
-        if (!text || offset < 0 || offset > text.length) return null;
+    function _ctxFindDialogueInText(text, offset) {
+      // Find quoted text containing the offset position
+      if (!text || offset < 0) return null;
 
-        // Find the opening quote before offset
-        let openIdx = -1;
-        for (let i = offset - 1; i >= 0; i--) {
-          if (/[""]/.test(text[i])) {
-            openIdx = i;
-            break;
-          }
+      // Find opening quote before offset
+      let openIdx = -1;
+      for (let i = Math.min(offset, text.length - 1); i >= 0; i--) {
+        const c = text[i];
+        if (c === '"' || c === '"' || c === '"' || c === '‟') {
+          openIdx = i;
+          break;
         }
-        if (openIdx === -1) return null;
-
-        // Find the closing quote after offset
-        let closeIdx = -1;
-        for (let i = offset; i < text.length; i++) {
-          if (/[""]/.test(text[i])) {
-            closeIdx = i;
-            break;
-          }
-        }
-        if (closeIdx === -1) return null;
-
-        return { start: openIdx + 1, end: closeIdx };
       }
+      if (openIdx === -1) return null;
 
-      // For contenteditable: walk the DOM to find quoted text
-      if (el.isContentEditable) {
-        const sel = window.getSelection();
-        if (!sel || !sel.rangeCount) return null;
-        const range = sel.getRangeAt(0);
-        const container = range.commonAncestorContainer;
-        const text = container.nodeType === 3 ? container.nodeValue : el.textContent;
-        const offset = range.startOffset;
-
-        if (!text || offset < 0) return null;
-
-        // Find opening quote
-        let openIdx = -1, openChar = null;
-        for (let i = offset - 1; i >= 0; i--) {
-          if (/[""]/.test(text[i])) {
-            openIdx = i;
-            openChar = text[i];
-            break;
-          }
+      // Find closing quote after opening quote
+      let closeIdx = -1;
+      for (let i = openIdx + 1; i < text.length; i++) {
+        const c = text[i];
+        if (c === '"' || c === '"' || c === '"' || c === '‟') {
+          closeIdx = i;
+          break;
         }
-        if (openIdx === -1) return null;
-
-        // Find closing quote (matching type)
-        let closeIdx = -1;
-        for (let i = offset; i < text.length; i++) {
-          if (text[i] === openChar || /[""]/.test(text[i])) {
-            closeIdx = i;
-            break;
-          }
-        }
-        if (closeIdx === -1) return null;
-
-        return { start: openIdx + 1, end: closeIdx, text: text.slice(openIdx + 1, closeIdx) };
       }
+      if (closeIdx === -1) return null;
 
-      return null;
+      // Extract the dialogue text
+      const dialogueText = text.slice(openIdx + 1, closeIdx);
+      if (!dialogueText.trim()) return null;
+
+      return { start: openIdx + 1, end: closeIdx, text: dialogueText };
     }
 
     function _ctxSelectDialogue(el, dialogue) {
       if (!dialogue) return false;
+
       if (el.tagName === 'TEXTAREA') {
         el.focus();
         el.setSelectionRange(dialogue.start, dialogue.end);
         return true;
       }
+
       if (el.isContentEditable) {
-        const sel = window.getSelection();
-        if (dialogue.text) {
-          const range = document.createRange();
-          range.selectNodeContents(el);
+        try {
           const text = el.textContent;
           const idx = text.indexOf(dialogue.text);
           if (idx >= 0) {
-            // Approximate selection - could be refined
-            const preNode = el.firstChild;
-            if (preNode && preNode.nodeType === 3) {
-              range.setStart(preNode, idx);
-              range.setEnd(preNode, idx + dialogue.text.length);
+            const range = document.createRange();
+            const sel = window.getSelection();
+
+            // Walk through the DOM to find and select the text
+            let charCount = 0;
+            let found = false;
+
+            function walkNodes(node) {
+              if (found) return;
+              if (node.nodeType === 3) { // text node
+                const nodeText = node.nodeValue || '';
+                const nodeEnd = charCount + nodeText.length;
+
+                if (nodeEnd > idx && charCount <= idx) {
+                  const startOffset = idx - charCount;
+                  const endOffset = Math.min(startOffset + dialogue.text.length, nodeText.length);
+
+                  range.setStart(node, startOffset);
+                  if (endOffset <= nodeText.length) {
+                    range.setEnd(node, endOffset);
+                    found = true;
+                  }
+                }
+                charCount = nodeEnd;
+              } else {
+                for (let i = 0; i < node.childNodes.length; i++) {
+                  walkNodes(node.childNodes[i]);
+                }
+              }
+            }
+
+            walkNodes(el);
+            if (found) {
               sel.removeAllRanges();
               sel.addRange(range);
               return true;
             }
           }
+        } catch (e) {
+          console.warn('[ctx] dialogue selection failed', e);
         }
       }
       return false;
@@ -16336,8 +16331,9 @@
 
       // Auto-detect and select quoted dialogue if no selection
       if (!hasSel && (isTA || isCE)) {
-        const offset = isTA ? el.selectionStart : (sel && sel.rangeCount ? sel.getRangeAt(0).startOffset : 0);
-        const dialogue = _ctxFindDialogueAtPoint(el, offset);
+        const fullText = isTA ? el.value : el.textContent;
+        const offset = isTA ? el.selectionStart : 0;
+        const dialogue = _ctxFindDialogueInText(fullText, offset);
         if (dialogue) {
           if (_ctxSelectDialogue(el, dialogue)) {
             hasSel = true;
@@ -16379,8 +16375,13 @@
 
       // Step 7 — show/hide the Assign Character button based on selection
       const charBtn = document.getElementById('ctxCharItem');
+      const hasChars = _charGetAll().length > 0;
       if (charBtn) {
-        charBtn.style.display = (hasSel && _charGetAll().length > 0) ? '' : 'none';
+        // Show button if there are characters
+        charBtn.style.display = hasChars ? '' : 'none';
+        // Grey out if no selection, enabled if selection
+        charBtn.style.opacity = hasSel ? '1' : '0.4';
+        charBtn.style.pointerEvents = hasSel ? 'auto' : 'none';
       }
 
       // Position near cursor, keep inside viewport
