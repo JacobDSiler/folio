@@ -8792,6 +8792,7 @@
         _updateInviteUI();
         // Load character data from Firebase to sync across devices
         try { await _charLoadFromFirebase(); } catch (e) { console.warn('[char] load from firebase failed', e); }
+        try { await _dialogueLoadFromFirebase(); } catch (e) { console.warn('[dialogue] load from firebase failed', e); }
         // Kick off the annotation cloud-sync for this folio. Pulls
         // any cloud-side annotations into the local cache, then attaches
         // an onSnapshot subscription so collaborator/beta/reader edits
@@ -10752,6 +10753,59 @@
         _charRender();
       } catch (e) {
         console.warn('[char-firebase] load failed', e);
+      }
+    }
+
+    /* ── Dialogue character assignments ────
+       Users can select dialogue text and assign a character to it.
+       Assignments are stored per chapter by text hash for quick lookup.
+    */
+    let _dialogueAssignments = {};  // {chapterId: {textHash: characterId}}
+
+    function _textHashSimple(str) {
+      let h = 5381;
+      for (let i = 0; i < str.length; i++) h = ((h << 5) + h) + str.charCodeAt(i);
+      return (h >>> 0).toString(36);
+    }
+
+    function _dialogueAssignCharacter(chapterId, dialogueText, characterId) {
+      if (!_dialogueAssignments[chapterId]) _dialogueAssignments[chapterId] = {};
+      const hash = _textHashSimple(dialogueText.trim());
+      if (characterId) {
+        _dialogueAssignments[chapterId][hash] = characterId;
+      } else {
+        delete _dialogueAssignments[chapterId][hash];
+      }
+      _dialogueSaveToFirebase();
+    }
+
+    function _dialogueGetCharacter(chapterId, dialogueText) {
+      if (!_dialogueAssignments[chapterId]) return null;
+      const hash = _textHashSimple(dialogueText.trim());
+      return _dialogueAssignments[chapterId][hash] || null;
+    }
+
+    async function _dialogueSaveToFirebase() {
+      if (!_projId || !window._fb || !window._db) return;
+      try {
+        const ref = window._fb.doc(window._db, 'folio_projects', _projId, 'metadata', 'dialogueAssignments');
+        await window._fb.setDoc(ref, _dialogueAssignments, { merge: true });
+      } catch (e) {
+        console.warn('[dialogue-firebase] save failed', e);
+      }
+    }
+
+    async function _dialogueLoadFromFirebase() {
+      if (!_projId || !window._fb || !window._db) return;
+      try {
+        const ref = window._fb.doc(window._db, 'folio_projects', _projId, 'metadata', 'dialogueAssignments');
+        const snap = await window._fb.getDoc(ref);
+        if (snap.exists()) {
+          _dialogueAssignments = snap.data() || {};
+        }
+      } catch (e) {
+        console.warn('[dialogue-firebase] load failed', e);
+        _dialogueAssignments = {};
       }
     }
 
@@ -16087,9 +16141,66 @@
       if (typeof _pronOpenModal === 'function') _pronOpenModal(word);
     }
 
+    let _ctxSelectedDialogue = null;
+    let _ctxSelectedChapterId = null;
+
+    function _ctxOpenCharModal() {
+      _ctxClose();
+      // Get the selected text
+      const sel = window.getSelection().toString() || (_ctxSavedRange ? _ctxSavedRange.toString() : '');
+      if (!sel || !sel.trim()) {
+        if (typeof toastWarning === 'function') {
+          toastWarning('Please select dialogue text to assign a character', { duration: 2500 });
+        }
+        return;
+      }
+
+      _ctxSelectedDialogue = sel.trim();
+      // Try to get chapter ID from the context target element
+      const el = _ctxTarget;
+      _ctxSelectedChapterId = (el && el.dataset && el.dataset.chid) || null;
+
+      // Show a modal or prompt to select a character
+      const chars = _charGetAll();
+      if (!chars.length) {
+        if (typeof toastWarning === 'function') {
+          toastWarning('No characters defined. Add characters in the Cast section first.', { duration: 3000 });
+        }
+        return;
+      }
+
+      let msg = 'Assign a character to this dialogue:\n"' + sel.slice(0, 60) + (sel.length > 60 ? '..."' : '"') + '\n\n';
+      msg += 'Characters:\n';
+      chars.forEach((c, i) => {
+        msg += `${i + 1}. ${c.name}\n`;
+      });
+      msg += '\nEnter the number (or 0 to remove assignment):';
+
+      const choice = prompt(msg, '1');
+      if (choice === null) return;
+
+      const idx = parseInt(choice) - 1;
+      if (choice === '0') {
+        _dialogueAssignCharacter(_ctxSelectedChapterId, _ctxSelectedDialogue, null);
+        if (typeof toastInfo === 'function') {
+          toastInfo('Character assignment removed', { duration: 2000 });
+        }
+      } else if (idx >= 0 && idx < chars.length) {
+        _dialogueAssignCharacter(_ctxSelectedChapterId, _ctxSelectedDialogue, chars[idx].id);
+        if (typeof toastSuccess === 'function') {
+          toastSuccess('Assigned to ' + chars[idx].name, { icon: '🎭', duration: 2000 });
+        }
+      } else {
+        if (typeof toastWarning === 'function') {
+          toastWarning('Invalid selection', { duration: 1800 });
+        }
+      }
+    }
+
     window._ctxWordAtPoint = _ctxWordAtPoint;
     window._ctxRefreshPronItem = _ctxRefreshPronItem;
     window._ctxOpenPronModal = _ctxOpenPronModal;
+    window._ctxOpenCharModal = _ctxOpenCharModal;
 
 
     function _ctxOpen(e, el) {
@@ -16133,6 +16244,12 @@
       // Step 6 — refresh the Set/Edit pronunciation item based on the
       // word under the cursor.
       try { _ctxRefreshPronItem(el, e); } catch (err) { console.warn('[ctx] pron item:', err); }
+
+      // Step 7 — show/hide the Assign Character button based on selection
+      const charBtn = document.getElementById('ctxCharItem');
+      if (charBtn) {
+        charBtn.style.display = (hasSel && _charGetAll().length > 0) ? '' : 'none';
+      }
 
       // Position near cursor, keep inside viewport
       const menu = document.getElementById('ctxMenu');
@@ -24250,6 +24367,10 @@
     <button class="ctx-item" id="ctxPronItem" onclick="_ctxOpenPronModal()" type="button" style="display:none">
       <span>🗣</span>
       <span id="ctxPronLabel">Set pronunciation</span>
+    </button>
+    <button class="ctx-item" id="ctxCharItem" onclick="_ctxOpenCharModal()" type="button" style="display:none">
+      <span>🎭</span>
+      <span id="ctxCharLabel">Assign character</span>
     </button>
     <button class="ctx-item" id="ctxScene" onclick="_ctxScene()" type="button">
       <span>—</span>
