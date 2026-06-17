@@ -16158,6 +16158,113 @@
         : ('Set pronunciation: ' + word);
     }
 
+    let _ctxDialogue = null;  // Stores the quoted dialogue at click point
+
+    function _ctxIsDialogue(el, evt) {
+      if (!el) return null;
+
+      // Helper to find quoted text containing a position
+      function findQuotedText(text, pos) {
+        if (!text || pos < 0 || pos > text.length) return null;
+
+        // Search backwards from pos for opening quote
+        let openIdx = -1;
+        for (let i = pos - 1; i >= 0; i--) {
+          const c = text[i];
+          if (c === '"' || c === '"' || c === '"' || c === '‟') {
+            openIdx = i;
+            break;
+          }
+        }
+        if (openIdx === -1) return null;
+
+        // Search forward from pos for closing quote
+        let closeIdx = -1;
+        for (let i = pos; i < text.length; i++) {
+          const c = text[i];
+          if (c === '"' || c === '"' || c === '"' || c === '‟') {
+            closeIdx = i;
+            break;
+          }
+        }
+        if (closeIdx === -1) return null;
+
+        return text.slice(openIdx + 1, closeIdx);
+      }
+
+      // TEXTAREA: Get text around caret at click point
+      if (el.tagName === 'TEXTAREA') {
+        let charIdx = el.selectionStart;
+        // Use caretRangeFromPoint to get accurate click position
+        if (typeof document.caretRangeFromPoint === 'function') {
+          try {
+            const r = document.caretRangeFromPoint(evt.clientX, evt.clientY);
+            if (r && r.startContainer === el) charIdx = r.startOffset;
+          } catch (e) { }
+        }
+        const text = el.value;
+        const dialogue = findQuotedText(text, charIdx);
+        return dialogue ? dialogue.trim() : null;
+      }
+
+      // CONTENTEDITABLE: Get text around caret at click point
+      if (el.isContentEditable) {
+        if (typeof document.caretRangeFromPoint === 'function') {
+          try {
+            const r = document.caretRangeFromPoint(evt.clientX, evt.clientY);
+            if (r && r.startContainer && r.startContainer.nodeType === 3) {
+              const text = r.startContainer.nodeValue || '';
+              const pos = r.startOffset;
+              const dialogue = findQuotedText(text, pos);
+              return dialogue ? dialogue.trim() : null;
+            }
+          } catch (e) { }
+        }
+        // Fallback: check full element text
+        const text = el.textContent || '';
+        // For contenteditable, check if there's any selection or just scan for quotes
+        const sel = window.getSelection();
+        let pos = 0;
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0);
+          // Approximate position
+          const allText = el.textContent || '';
+          const preRange = range.cloneRange();
+          preRange.selectNodeContents(el);
+          preRange.setEnd(range.endContainer, range.endOffset);
+          pos = preRange.toString().length - 1;
+        }
+        const dialogue = findQuotedText(text, Math.max(0, pos));
+        return dialogue ? dialogue.trim() : null;
+      }
+
+      return null;
+    }
+
+    // Update the "Read as character" item — called from inside _ctxOpen.
+    function _ctxRefreshCharItem(el, evt) {
+      const item = document.getElementById('ctxCharItem');
+      if (!item) return;
+
+      const hasChars = _charGetAll().length > 0;
+      if (!hasChars) {
+        item.style.display = 'none';
+        return;
+      }
+
+      const dialogue = _ctxIsDialogue(el, evt);
+      _ctxDialogue = dialogue;
+
+      if (!dialogue) {
+        item.style.display = 'none';
+        return;
+      }
+
+      item.style.display = '';
+      item.style.opacity = '1';
+      item.style.pointerEvents = 'auto';
+    }
+
     function _ctxOpenPronModal() {
       const word = _ctxWord;
       // Close the context menu first
@@ -16171,16 +16278,17 @@
 
     function _ctxOpenCharModal() {
       _ctxClose();
-      // Get the selected text
-      const sel = window.getSelection().toString() || (_ctxSavedRange ? _ctxSavedRange.toString() : '');
-      if (!sel || !sel.trim()) {
+
+      // Use the dialogue that was detected by _ctxRefreshCharItem
+      const dialogue = _ctxDialogue;
+      if (!dialogue) {
         if (typeof toastWarning === 'function') {
-          toastWarning('Please select dialogue text to assign a character', { duration: 2500 });
+          toastWarning('No quoted dialogue found. Right-click on text within quotes.', { duration: 2500 });
         }
         return;
       }
 
-      _ctxSelectedDialogue = sel.trim();
+      _ctxSelectedDialogue = dialogue;
       // Try to get chapter ID from the context target element
       const el = _ctxTarget;
       _ctxSelectedChapterId = (el && el.dataset && el.dataset.chid) || null;
@@ -16194,7 +16302,7 @@
         return;
       }
 
-      let msg = 'Which character reads this dialogue?\n"' + sel.slice(0, 60) + (sel.length > 60 ? '..."' : '"') + '\n\n';
+      let msg = 'Which character reads this dialogue?\n"' + dialogue.slice(0, 60) + (dialogue.length > 60 ? '..."' : '"') + '\n\n';
       msg += 'Characters:\n';
       chars.forEach((c, i) => {
         msg += `${i + 1}. ${c.name}\n`;
@@ -16225,6 +16333,8 @@
     window._ctxWordAtPoint = _ctxWordAtPoint;
     window._ctxRefreshPronItem = _ctxRefreshPronItem;
     window._ctxOpenPronModal = _ctxOpenPronModal;
+    window._ctxIsDialogue = _ctxIsDialogue;
+    window._ctxRefreshCharItem = _ctxRefreshCharItem;
     window._ctxOpenCharModal = _ctxOpenCharModal;
 
     /* ── Dialogue auto-detection and selection ──────────────── */
@@ -16379,16 +16489,8 @@
       // word under the cursor.
       try { _ctxRefreshPronItem(el, e); } catch (err) { console.warn('[ctx] pron item:', err); }
 
-      // Step 7 — show/hide the Assign Character button based on selection
-      const charBtn = document.getElementById('ctxCharItem');
-      const hasChars = _charGetAll().length > 0;
-      if (charBtn) {
-        // Show button if there are characters
-        charBtn.style.display = hasChars ? '' : 'none';
-        // Grey out if no selection, enabled if selection
-        charBtn.style.opacity = hasSel ? '1' : '0.4';
-        charBtn.style.pointerEvents = hasSel ? 'auto' : 'none';
-      }
+      // Step 7 — refresh the "Read as character" item based on dialogue at click point
+      try { _ctxRefreshCharItem(el, e); } catch (err) { console.warn('[ctx] char item:', err); }
 
       // Position near cursor, keep inside viewport
       const menu = document.getElementById('ctxMenu');
