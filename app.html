@@ -8790,6 +8790,8 @@
         const _stateLoaded = await _readDocState(data, id);
         _deserialise(_stateLoaded);
         _updateInviteUI();
+        // Load character data from Firebase to sync across devices
+        try { await _charLoadFromFirebase(); } catch (e) { console.warn('[char] load from firebase failed', e); }
         // Kick off the annotation cloud-sync for this folio. Pulls
         // any cloud-side annotations into the local cache, then attaches
         // an onSnapshot subscription so collaborator/beta/reader edits
@@ -10692,6 +10694,7 @@
       if (i >= 0) list[i] = c; else list.push(c);
       if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
       _charRender();
+      _charSaveToFirebase(c.id, c);  // Persist to Firebase
       return c;
     }
 
@@ -10703,6 +10706,52 @@
         list.splice(i, 1);
         if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
         _charRender();
+        _charSaveToFirebase(id, null);  // Delete from Firebase
+      }
+    }
+
+    /* ── Firebase persistence for characters ──── */
+    async function _charSaveToFirebase(charId, charData) {
+      if (!charId || !_projId || !window._fb || !window._db) return;
+      try {
+        const ref = window._fb.doc(window._db, 'folio_projects', _projId, 'characters', charId);
+        if (charData === null) {
+          // Delete character from Firebase
+          await window._fb.deleteDoc(ref);
+        } else {
+          // Save/update character in Firebase
+          await window._fb.setDoc(ref, charData);
+        }
+      } catch (e) {
+        console.warn('[char-firebase] save failed', e);
+      }
+    }
+
+    async function _charLoadFromFirebase() {
+      if (!_projId || !window._fb || !window._db) return;
+      try {
+        const { collection, getDocs } = window._fb;
+        const colRef = collection(window._db, 'folio_projects', _projId, 'characters');
+        const snap = await getDocs(colRef);
+        const loaded = [];
+        snap.forEach(doc => {
+          const data = doc.data();
+          loaded.push({
+            id: doc.id,
+            ...data,
+            aliases: Array.isArray(data.aliases) ? data.aliases : [],
+          });
+        });
+        // Merge with any existing local characters, Firebase takes precedence
+        const list = _charGetAll();
+        for (let i = 0; i < loaded.length; i++) {
+          const idx = list.findIndex(c => c.id === loaded[i].id);
+          if (idx >= 0) list[idx] = loaded[i];
+          else list.push(loaded[i]);
+        }
+        _charRender();
+      } catch (e) {
+        console.warn('[char-firebase] load failed', e);
       }
     }
 
