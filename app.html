@@ -23777,47 +23777,42 @@
     }
 
     function _apUpdateFooterState(sections, byKey) {
-      const genAll = document.getElementById('apGenAll');
-      const zipAll = document.getElementById('apZipAll');
-      const concat = document.getElementById('apConcat');
-      if (!genAll) return;
-      const anyGenerated = Object.keys(byKey).some(k => byKey[k] && byKey[k].blob);
-      const anyMissing = sections.some(s => {
-        const t = byKey[_apTrackKey(s.sectionId)];
-        if (!t || !t.blob) return true;
-        if (t.source === 'imported') return false;   // user-supplied audio — never stale
-        return t.textHash !== _textHash(_apGetSectionText(s));
-      });
-      genAll.disabled = _apBusy || !anyMissing;
-      zipAll.disabled = _apBusy || !anyGenerated;
-      concat.disabled = _apBusy || !anyGenerated;
+      // The original footer buttons (Gen All, Zip All, Concat) are hidden in this workflow.
+      // This function's main purpose now is to update the estimate for segments.
 
-      // ── Estimate line ─────────────────────────────────────────
-      // Sum character counts for sections that still need work.
       const estEl = document.getElementById('apEstimate');
       if (!estEl) return;
+
+      // Filter to only consider segments for estimation, as chapter lines are managed per-line.
+      const segmentsToEstimate = sections.filter(item => item.kind === 'segment');
+
       let pendingChars = 0;
-      let pendingSections = 0;
-      for (let i = 0; i < sections.length; i++) {
-        const s = sections[i];
+      let pendingSections = 0; // Number of segments that need generation.
+
+      for (let i = 0; i < segmentsToEstimate.length; i++) {
+        const s = segmentsToEstimate[i];
         const tr = byKey[_apTrackKey(s.sectionId)];
         const cur = _apGetSectionText(s);
-        if (tr && tr.blob && tr.source === 'imported') continue;   // imported is user-supplied — no TTS cost
+        if (tr && tr.blob && tr.source === 'imported') continue; // User-supplied audio — skip
         if (!tr || !tr.blob || tr.textHash !== _textHash(cur)) {
           pendingChars += cur.length;
           pendingSections++;
         }
       }
+
       if (pendingSections === 0) {
-        estEl.innerHTML = '<span style="color:var(--muted)">All sections up to date ✓</span>';
+        estEl.innerHTML = '<span style="color:var(--muted)">All segments up to date ✓</span>';
         return;
       }
+      
+      const { rate, label } = _apPricePerMillion();
       const est = _apEstimateCost(pendingChars);
+
       estEl.innerHTML =
-        pendingSections + ' section' + (pendingSections === 1 ? '' : 's') +
+        pendingSections + ' segment' + (pendingSections === 1 ? '' : 's') +
         ' pending · <strong>' + _apFmtChars(pendingChars) + '</strong>' +
         ' · est. <strong>' + _apFmtMoney(est.dollars) + '</strong> ' +
-        '<span style="color:var(--muted)">(' + _apEsc(est.label) +
+        '<span style="color:var(--muted)">(' + _apEsc(label) +
         ' at $' + est.rate + '/M)</span>';
     }
 
