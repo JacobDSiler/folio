@@ -102,6 +102,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+  <script src="https://unpkg.com/crunker@1.4.0/dist/crunker.min.js"></script>
   <script type="module">
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
     import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, deleteDoc, addDoc, onSnapshot, serverTimestamp, orderBy, limit, deleteField } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
@@ -3888,6 +3889,97 @@
       border-color: rgba(245, 158, 11, .4);
       color: #fbbf24
     }
+
+    /* Styles for in-preview audio controls (stitched workflow) */
+    .ap-line-controls {
+      white-space: nowrap;
+      height: 1.75em; /* Ensure vertical alignment */
+      display: inline-flex;
+      align-items: center;
+      line-height: 1; /* For button text */
+    }
+
+    .ap-line-gen-btn, .ap-line-play-btn, .ap-char-select {
+      background: var(--bg);
+      border: 0.5px solid var(--border-mid);
+      border-radius: 4px;
+      font-size: 0.7em; /* Relative to paragraph font size */
+      padding: 0.2em 0.5em;
+      cursor: pointer;
+      color: var(--text);
+      transition: all 0.15s;
+      line-height: 1;
+      height: auto;
+      min-width: 0;
+    }
+
+    .ap-line-gen-btn:hover, .ap-line-play-btn:hover, .ap-char-select:hover {
+      background: var(--accent-ui);
+      color: #fff;
+      border-color: var(--accent-ui);
+    }
+    .ap-line-gen-btn.ap-line-ready { /* Already generated */
+      background: #dcfce7;
+      border-color: #16a34a;
+      color: #166534;
+    }
+    [data-dark] .ap-line-gen-btn.ap-line-ready {
+      background: #14532d;
+      border-color: #4ade80;
+      color: #4ade80;
+    }
+
+    .ap-line-gen-btn.ap-line-ready:hover {
+      background: #166534;
+      color: #fff;
+    }
+
+    .ap-line-gen-btn.ap-line-generating {
+      background: #fef3c7;
+      border-color: #f59e0b;
+      color: #92400e;
+      animation: folio-spin 0.8s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+      box-sizing: border-box;
+      border-radius: 50%;
+      width: 1.5em;
+      height: 1.5em;
+      border-width: 0.2em;
+      border-top-color: transparent;
+      padding: 0;
+    }
+    .ap-line-gen-btn.ap-line-generating::before { content: ''; } /* Hide text during spin */
+
+    .ap-line-play-btn {
+      color: var(--accent-ui);
+    }
+
+    .ap-char-select {
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23666666' d='M0 0h10L5 6z'/></svg>");
+      background-repeat: no-repeat;
+      background-position: calc(100% - 5px) 50%;
+      background-size: 8px 4px;
+      padding-right: 1.2em;
+    }
+
+    [data-dark] .ap-char-select {
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path fill='%23e8dece' d='M0 0h10L5 6z'/></svg>");
+    }
+
+    .ap-char-assigned {
+      border-left: 3px solid;
+      padding-left: 0.5em; /* Compensate for border */
+      margin-left: -0.5em;
+    }
+
 
     /* ══════ Release modal ══════ */
     .rl-mode.active {
@@ -13434,6 +13526,51 @@
             const _useTitle = _titleHTML; _titleHTML = '';
             const _anchor = _chIdUsed ? null : ch.id;
             _chIdUsed = true;
+            // Define these here so they are available in the scope of _apRenderPreviewParagraph
+            const ptScale = 1.333 * (_zoom / 100);
+            const pt = n => (n * ptScale).toFixed(2) + 'px';
+            const mm = n => (n * MM).toFixed(2) + 'px';
+            const indentPx = indent === '0' ? '0' : indent === '2em' ? pt(fsize * 2) : pt(fsize * 1.2);
+            const H_BOOK_TITLE = fsize * 2.0;
+            const H_CHAPTER = fsize * 1.38;
+            const H_SECTION = fsize * 1.23;
+            const H_SUBTITLE = fsize * 0.92;
+            const H_AUTHOR = fsize * 0.85;
+            const H_CHNUM = fsize * 0.65;
+            const H_HEADER = fsize * 0.54;
+            const H_FOOTER = fsize * 0.62;
+            const H_COPYRIGHT = fsize * 0.65;
+            const H_TOC_ENTRY = fsize * 0.77;
+            const H_TOC_PAGE = fsize * 0.69;
+            const H_ORN = fsize * 1.0;
+            const H_SCENE_BREAK = fsize * 0.92;
+            const contentW = pw - mg * 2; // Also used by image rendering
+            // The global esc, orn, md, T, accent, S.accent are already available
+
+            const parasHTML = slice.map((p, pi) => {
+              // p is either a plain string (full paragraph) or a continuation object
+              const isContObj = (p && typeof p === 'object' && p.isCont);
+              const text = isContObj ? p.text : p;
+              const paraIdx = isContObj ? p.paraIdx : normParas.indexOf(text); // Use normParas.indexOf(text) to ensure correct index
+              const isFirst = !isContObj && pg === 0 && pi === 0 && (ch.title || chNum);
+              const noInd = isContObj || (pg === 0 && pi === 0) || (pi > 0 && slice[pi - 1] === '__SCENE_BREAK__');
+                
+              // Call the new helper function
+              return _apRenderPreviewParagraph(
+                ch.id,
+                p, // pass original p (string or {text, isCont})
+                paraIdx,
+                isFirst,
+                isContObj,
+                (pg === 0 && pi === 0), // isFirstParagraphOfPage
+                noInd,
+                font, fsize, lspace, T.text, justify, indentPx, indent, dropCap, accent, T.bg,
+                _apStitchedAudioBlobs, _charGetAll, _dialogueGetCharacter, _annCanManage, _editMode
+              );
+            }).join('');
+            const _useTitle = _titleHTML; _titleHTML = '';
+            const _anchor = _chIdUsed ? null : ch.id;
+            _chIdUsed = true;
             pagesHTML += pageWrap(_useTitle + parasHTML, pageNum, false, _anchor);
             pageNum++;
           }
@@ -16160,87 +16297,7 @@
 
     let _ctxDialogue = null;  // Stores the quoted dialogue at click point
 
-    function _ctxIsDialogue(el, evt) {
-      if (!el) return null;
-
-      // Helper to find quoted text containing a position
-      function findQuotedText(text, pos) {
-        if (!text || pos < 0 || pos > text.length) return null;
-        const quotes = ['"', '“', '”', '‟'];
-
-        // Search backwards from pos for opening quote
-        let openIdx = -1;
-        for (let i = pos - 1; i >= 0; i--) {
-          const c = text[i];
-          if (quotes.indexOf(c) !== -1) {
-            openIdx = i;
-            break;
-          }
-        }
-        if (openIdx === -1) return null;
-
-        // Search forward from pos for closing quote
-        let closeIdx = -1;
-        for (let i = pos; i < text.length; i++) {
-          const c = text[i];
-          if (quotes.indexOf(c) !== -1) {
-            closeIdx = i;
-            break;
-          }
-        }
-        if (closeIdx === -1) return null;
-
-        return text.slice(openIdx + 1, closeIdx);
-      }
-
-      // TEXTAREA: Get text around caret at click point
-      if (el.tagName === 'TEXTAREA') {
-        let charIdx = el.selectionStart;
-        // Use caretRangeFromPoint to get accurate click position
-        if (typeof document.caretRangeFromPoint === 'function') {
-          try {
-            const r = document.caretRangeFromPoint(evt.clientX, evt.clientY);
-            if (r && r.startContainer === el) charIdx = r.startOffset;
-          } catch (e) { }
-        }
-        const text = el.value;
-        const dialogue = findQuotedText(text, charIdx);
-        return dialogue ? dialogue.trim() : null;
-      }
-
-      // CONTENTEDITABLE: Get text around caret at click point
-      if (el.isContentEditable) {
-        if (typeof document.caretRangeFromPoint === 'function') {
-          try {
-            const r = document.caretRangeFromPoint(evt.clientX, evt.clientY);
-            if (r && r.startContainer && r.startContainer.nodeType === 3) {
-              const text = r.startContainer.nodeValue || '';
-              const pos = r.startOffset;
-              const dialogue = findQuotedText(text, pos);
-              return dialogue ? dialogue.trim() : null;
-            }
-          } catch (e) { }
-        }
-        // Fallback: check full element text
-        const text = el.textContent || '';
-        // For contenteditable, check if there's any selection or just scan for quotes
-        const sel = window.getSelection();
-        let pos = 0;
-        if (sel && sel.rangeCount > 0) {
-          const range = sel.getRangeAt(0);
-          // Approximate position
-          const allText = el.textContent || '';
-          const preRange = range.cloneRange();
-          preRange.selectNodeContents(el);
-          preRange.setEnd(range.endContainer, range.endOffset);
-          pos = preRange.toString().length - 1;
-        }
-        const dialogue = findQuotedText(text, Math.max(0, pos));
-        return dialogue ? dialogue.trim() : null;
-      }
-
-      return null;
-    }
+    // _ctxIsDialogue is no longer used since _ctxRefreshCharItem is removed.
 
     // Update the "Read as character" item — called from inside _ctxOpen.
     function _ctxRefreshCharItem(el, evt) {
@@ -16277,66 +16334,15 @@
     let _ctxSelectedDialogue = null;
     let _ctxSelectedChapterId = null;
 
-    function _ctxOpenCharModal() {
-      _ctxClose();
-
-      // Use the dialogue that was detected by _ctxRefreshCharItem
-      const dialogue = _ctxDialogue;
-      if (!dialogue) {
-        if (typeof toastWarning === 'function') {
-          toastWarning('No quoted dialogue found. Right-click on text within quotes.', { duration: 2500 });
-        }
-        return;
-      }
-
-      _ctxSelectedDialogue = dialogue;
-      // Try to get chapter ID from the context target element
-      const el = _ctxTarget;
-      _ctxSelectedChapterId = (el && el.dataset && el.dataset.chid) || null;
-
-      // Show a modal or prompt to select a character
-      const chars = _charGetAll();
-      if (!chars.length) {
-        if (typeof toastWarning === 'function') {
-          toastWarning('No characters defined. Add characters in the Cast section first.', { duration: 3000 });
-        }
-        return;
-      }
-
-      let msg = 'Which character reads this dialogue?\n"' + dialogue.slice(0, 60) + (dialogue.length > 60 ? '..."' : '"') + '\n\n';
-      msg += 'Characters:\n';
-      chars.forEach((c, i) => {
-        msg += `${i + 1}. ${c.name}\n`;
-      });
-      msg += '\nEnter the number (or 0 to remove):';
-
-      const choice = prompt(msg, '1');
-      if (choice === null) return;
-
-      const idx = parseInt(choice) - 1;
-      if (choice === '0') {
-        _dialogueAssignCharacter(_ctxSelectedChapterId, _ctxSelectedDialogue, null);
-        if (typeof toastInfo === 'function') {
-          toastInfo('Removed character assignment', { duration: 2000 });
-        }
-      } else if (idx >= 0 && idx < chars.length) {
-        _dialogueAssignCharacter(_ctxSelectedChapterId, _ctxSelectedDialogue, chars[idx].id);
-        if (typeof toastSuccess === 'function') {
-          toastSuccess(chars[idx].name + ' will read this', { icon: '🎭', duration: 2000 });
-        }
-      } else {
-        if (typeof toastWarning === 'function') {
-          toastWarning('Invalid selection', { duration: 1800 });
-        }
-      }
-    }
+    // _ctxOpenCharModal is no longer needed as character assignment is handled by an inline dropdown
+    // The context menu will now contain a generic "Manage Characters" item.
 
     window._ctxWordAtPoint = _ctxWordAtPoint;
     window._ctxRefreshPronItem = _ctxRefreshPronItem;
     window._ctxOpenPronModal = _ctxOpenPronModal;
-    window._ctxIsDialogue = _ctxIsDialogue;
-    window._ctxRefreshCharItem = _ctxRefreshCharItem;
-    window._ctxOpenCharModal = _ctxOpenCharModal;
+    // _ctxIsDialogue and _ctxRefreshCharItem are no longer directly used for context menu character assignment
+    // but _ctxIsDialogue might be useful for other features, so keeping it available.
+    // _ctxOpenCharModal is superseded.
 
     /* ── Dialogue auto-detection and selection ──────────────── */
     function _ctxFindDialogueInText(text, offset) {
@@ -16490,9 +16496,6 @@
       // Step 6 — refresh the Set/Edit pronunciation item based on the
       // word under the cursor.
       try { _ctxRefreshPronItem(el, e); } catch (err) { console.warn('[ctx] pron item:', err); }
-
-      // Step 7 — refresh the "Read as character" item based on dialogue at click point
-      try { _ctxRefreshCharItem(el, e); } catch (err) { console.warn('[ctx] char item:', err); }
 
       // Position near cursor, keep inside viewport
       const menu = document.getElementById('ctxMenu');
@@ -22266,6 +22269,22 @@
     }, 800);
 
     // Expose for inline onclick handlers
+    // When opening a chapter in writing mode, set it as the current chapter for stitching.
+    const _origOpenWritingMode = openWritingMode;
+    openWritingMode = function(chId) {
+      _origOpenWritingMode(chId);
+      _apCurrentStitchChId = chId;
+      _apUpdateCurrentChapterDisplay();
+    };
+
+    // When the chapter list is rendered (e.g., after loading a new folio), ensure the audio panel's chapter context is updated.
+    const _origRenderChapterList = renderChapterList;
+    renderChapterList = function() {
+      _origRenderChapterList();
+      _apUpdateCurrentChapterDisplay();
+    };
+
+
     window._bmJumpTo = _bmJumpTo;
     window._bmDelete = _bmDelete;
 
@@ -22308,10 +22327,21 @@
     let _apElVoices = [];                          // fetched via /voices/elevenlabs
     let _apGoogleVoices = GOOGLE_TTS_VOICES.slice();   // replaced on /voices/google
     let _apBusy = false;
-    let _apCurrentAudio = null;                        // active HTMLAudioElement
-    let _apPlayingKey = null;                        // key of track currently playing (null when paused/stopped)
+    let _apCurrentAudio = null;                        // active HTMLAudioElement for general tracks
+    let _apPlayingKey = null;                        // key of track currently playing (null when paused/stopped) for general tracks
+    let _apStitchedAudioBlobs = {}; // { chapterId_paraIdx: { blob: Blob, characterId: string, durationSecs: number, isGenerating: boolean } }
+    let _apCrunker = null; // Crunker instance for audio stitching
+    let _apCurrentStitchChId = null; // ID of the chapter currently selected for stitching/generation
+    let _apFinalizedChapterBlob = null; // Stores the concatenated chapter blob for playback
 
-    /* ── IndexedDB layer ───────────────────────────────────────── */
+    function _apGetCrunkerInstance() {
+        if (!_apCrunker) {
+            _apCrunker = new Crunker();
+        }
+        return _apCrunker;
+    }
+
+    /* ── IndexedDB layer (retained for general track management, not stitched lines) ───────────────────────────────────────── */
     function _apDBOpen() {
       return new Promise((resolve, reject) => {
         const req = indexedDB.open('folio_audio', 1);
@@ -23527,6 +23557,32 @@
       return n.toLocaleString('en-US') + ' ch';
     }
 
+    // Helper to render the character dropdown for a line
+    function _apRenderCharacterDropdown(chId, lineText, currentAssignedCharId, annCanManage) {
+      const chars = _charGetAll();
+      // Only allow assigning characters if the user can manage the folio.
+      // The current line is not an annotation, so we pass a dummy note object.
+      // This logic will prevent basic readers from assigning characters.
+      const canAssign = annCanManage({ chapterId: chId, paraIdx: -1, uid: window._uid });
+
+      if (!chars.length || !canAssign) return ''; // No characters or no permission to assign
+
+      let options = `<option value="">— Assign Character —</option>`;
+      chars.forEach(c => {
+        const selected = (c.id === currentAssignedCharId) ? 'selected' : '';
+        options += `<option value="${c.id}" ${selected}>${esc(c.name)}</option>`;
+      });
+
+      return `<select class="ap-char-select" onchange="_apAssignCharacterToLine('${chId}', '${esc(lineText).replace(/'/g, "\\'")}', this.value)">${options}</select>`;
+    }
+
+    // New function to assign a character to a line from the dropdown
+    function _apAssignCharacterToLine(chapterId, lineText, characterId) {
+      _dialogueAssignCharacter(chapterId, lineText, characterId || null);
+      renderPreview(); // Re-render to update highlighting
+      toastInfo('Character assigned', { duration: 1500 });
+    }
+
     function _apFmtMoney(dollars) {
       if (!isFinite(dollars) || dollars <= 0) return '$0.00';
       if (dollars < 0.01) return '<$0.01';
@@ -23545,21 +23601,78 @@
     }
 
 
-    // Peel outer *..* / _.._ / **..** / __..__ emphasis off a paragraph
-    // so drop-cap logic and other first-letter-sensitive paths see a
-    // real letter rather than the markdown marker (fixes the "thick
-    // horizontal bar at the start of a chapter" bug: Gutenberg's
-    // _To Mrs. Saville, England._ was rendering the underscore as a
-    // 3.6x-sized drop cap). Returns { text, tag } where tag is 'em'
-    // or 'strong' for outer wrap, or null if none.
-    function _peelOuterEmphasis(p) {
-      if (!p) return { text: p, tag: null };
-      let m = p.match(/^(\*\*|__)([\s\S]+?)\1$/);
-      if (m) return { text: m[2], tag: 'strong' };
-      m = p.match(/^([*_])([\s\S]+?)\1$/);
-      if (m) return { text: m[2], tag: 'em' };
-      return { text: p, tag: null };
+    // Helper to render a single paragraph in the preview, with audio/character controls
+    // This helper now takes all necessary style/dimension variables as arguments.
+    function _apRenderPreviewParagraph(
+      chId, paragraphContent, paraIdx,
+      isFirstOfChapter, isContinuation, isFirstParagraphOfPage,
+      noIndent, font, fsize, lspace, textColor, justify, indentPx, indentMode, dropCapEnabled, accentColor, bgColor,
+      stitchedAudioBlobs, allCharacters, dialogueGetCharacter, annCanManage, editMode
+    ) {
+      const lineId = chId + '_' + paraIdx;
+      const audioData = stitchedAudioBlobs[lineId];
+      const hasAudio = !!(audioData && audioData.blob);
+      const isGenerating = !!(audioData && audioData.isGenerating);
+      
+      const audioStatus = hasAudio ? '✅' : '▶'; // Changed to ▶ for 'Generate'
+      const audioStatusClass = hasAudio ? 'ap-line-ready' : 'ap-line-pending';
+      const isGeneratingClass = isGenerating ? 'ap-line-generating' : '';
+
+
+      const isContObj = (paragraphContent && typeof paragraphContent === 'object' && paragraphContent.isCont);
+      const text = isContObj ? paragraphContent.text : paragraphContent;
+
+      const isSceneBreak = text === '__SCENE_BREAK__';
+      const _ilm = _imgParseLine(text);
+
+      if (isSceneBreak) return `<div style="text-align:center;font-size:${pt(H_SCENE_BREAK)};color:${accentColor};margin:${mm(2)} 0;opacity:0.65">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
+      if (_ilm) return _imgRenderInline(_ilm, contentW, chId, paraIdx);
+
+      // Character-specific highlighting
+      const assignedCharId = dialogueGetCharacter(chId, text);
+      const character = assignedCharId ? allCharacters().find(c => c.id === assignedCharId) : null;
+      const charColorStyle = character ? `border-left: 3px solid ${character.color} !important; padding-left: 0.5em !important; margin-left: -0.5em !important;` : ''; // Light version of color
+      const charColorClass = character ? 'ap-char-assigned' : '';
+
+      const isFirst = !isContObj && isFirstOfChapter;
+      const noIndFinal = noIndent || (isFirstParagraphOfPage && indentMode !== '0'); // Apply no indent for first para of page too
+      // Peel outer emphasis so drop cap picks a real letter.
+      const _pe = dropCapEnabled && isFirst ? _peelOuterEmphasis(text) : { text: text, tag: null };
+      const dcBody = _pe.text;
+      const wrapOpen = _pe.tag ? '<' + _pe.tag + '>' : '';
+      const wrapClose = _pe.tag ? '</' + _pe.tag + '>' : '';
+      const dc = dropCapEnabled && isFirst && dcBody.length > 1
+        ? wrapOpen + `<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${pt(fsize * 3.6)};line-height:0.76;margin:${pt(fsize * 0.08)} ${mm(1)} 0 0;color:${accentColor};font-weight:700">${esc(dcBody[0])}</span>${md(esc(dcBody.slice(1)))}` + wrapClose
+        : wrapOpen + md(esc(dcBody)) + wrapClose;
+
+      const paraStyle = `font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${textColor};margin:0;text-align:${justify};text-indent:${noIndFinal ? '0' : indentPx};margin-bottom:${indentMode === '0' ? mm(1.3) : '0'};`;
+      const editable = isContinuation ? 'false' : String(editMode); // only original paragraphs are editable directly
+
+      // Context menu now needs to know if the user can manage this line.
+      // Removed annCanManage call as it's not directly needed for rendering the controls,
+      // but for determining if user can _use_ the controls.
+      // This is injected *inside* the preview-editable paragraph, making the paragraph itself the clickable area.
+      // The buttons are floated or positioned absolutely within the paragraph to avoid breaking text flow.
+      return `<p class="preview-editable ${charColorClass} ${audioStatusClass} ${isGeneratingClass} ${isContinuation ? 'para-cont' : ''}" data-chid="${chId}" data-paraidx="${paraIdx}" data-line-id="${lineId}"
+            contenteditable="${editable}" spellcheck="true"
+            onblur="if(${editMode} && !this.classList.contains('para-cont'))_onParaBlur(this)"
+            oncontextmenu="if(${editMode} && !this.classList.contains('para-cont'))_ctxOpen(event,this)"
+            onkeydown="if(${editMode}&&!this.classList.contains('para-cont')&&event.key==='Tab'){event.preventDefault();const s=this.selectionStart??0,e=this.selectionEnd??0,t=this.innerText;document.execCommand('insertText',false,event.shiftKey?'':' '.repeat(4));}else if(${editMode}&&!this.classList.contains('para-cont')&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
+            style="${paraStyle} ${charColorStyle}">
+              <span class="ap-line-controls" style="display:inline-flex;gap:4px;vertical-align:middle;margin-right:8px;float:right;">
+                <button class="ap-line-play-btn" onclick="_apPlayLine('${chId}', ${paraIdx})" title="Play audio for this line" ${!hasAudio ? 'disabled' : ''}>🔊</button>
+                <button class="ap-line-gen-btn ${isGeneratingClass}" onclick="_apGenerateLine('${chId}', ${paraIdx}, this)" title="${hasAudio ? 'Regenerate' : 'Generate'} audio for this line" ${isGenerating ? 'disabled' : ''}>
+                  ${isGenerating ? '' : audioStatus}
+                </button>
+                ${_apRenderCharacterDropdown(chId, text, character ? character.id : null, annCanManage)}
+              </span>
+            ${dc}</p>`;
     }
+
+    /* ═══════════════════════════════════════════════
+       PREVIEW RENDERER
+    ═══════════════════════════════════════════════ */
+    /* ── Zoom state ── */
 
     /* ── Track rendering ───────────────────────────────────────── */
     async function _apRenderTracks() {
@@ -23905,7 +24018,125 @@
       } finally {
         _apBusy = false;
         _apSetRowBusy(sectionId, false);
-        await _apRenderTracks();
+        // The original _apRenderTracks() renders the whole track list, which is not what we want for line-by-line.
+        // We will just re-render the preview for visual update of the line itself.
+        // A full `_apRenderTracks` will be triggered by `_apGenerateAllRemaining` or manual refresh of segments.
+        // If it's a segment, re-render segments list
+        const item = _apBuildTimeline().find(s => s.sectionId === sectionId);
+        if(item && item.kind === 'segment') {
+          _apRenderTracks(); 
+        }
+      }
+    }
+
+    // New function for generating a single line's audio
+    async function _apGenerateLine(chapterId, paraIdx, buttonElement) {
+      if (_apBusy) { toastWarning('Already generating — hold tight', { duration: 2000 }); return; }
+      if (!_apPreflight()) return;
+
+      _apBusy = true;
+      const lineId = chapterId + '_' + paraIdx;
+      const progressEl = document.getElementById('apProgress');
+
+      // Mark as generating in _apStitchedAudioBlobs to update preview
+      _apStitchedAudioBlobs[lineId] = { ...( _apStitchedAudioBlobs[lineId] || {}), isGenerating: true };
+      renderPreview(); // Re-render to show spinner
+
+      try {
+        const ch = chapters.find(c => c.id === chapterId);
+        if (!ch) throw new Error('Chapter not found');
+        const allParagraphs = ch.content.split('\n').filter(p => p.trim()); // Filter empty lines for correct paraIdx
+        const text = allParagraphs[paraIdx];
+        if (!text) throw new Error('Line is empty');
+
+        if (progressEl) progressEl.textContent = 'Generating line ' + (paraIdx + 1) + ' for "' + (ch.title || 'Untitled') + '"…';
+
+        // Character voice switching logic
+        let voiceInfo = _apGetCharacterVoice(null); // Default to narrator
+        const assignedCharId = _dialogueGetCharacter(chapterId, text);
+        if (assignedCharId) {
+          voiceInfo = _apGetCharacterVoice(assignedCharId);
+        }
+
+        let blob;
+        if (voiceInfo.provider === 'google') {
+          blob = await _apGoogleTTS(text, voiceInfo.voiceId, _apSpeed, _apGoogleKey);
+        } else if (voiceInfo.provider === 'elevenlabs') {
+          blob = await _apElevenLabsTTS(text, voiceInfo.voiceId, _apElKey);
+        } else {
+          // Fallback to default configured provider if character has no valid provider
+          if (_apProvider === 'google') {
+            blob = await _apGoogleTTS(text, _apVoiceId, _apSpeed, _apGoogleKey);
+          } else {
+            blob = await _apElevenLabsTTS(text, _apVoiceId, _apElKey);
+          }
+        }
+        
+        const durationSecs = await _getBlobDuration(blob);
+
+        _apStitchedAudioBlobs[lineId] = {
+          blob: blob,
+          characterId: assignedCharId,
+          durationSecs: durationSecs,
+          isGenerating: false, // Mark as not generating anymore
+        };
+
+        if (progressEl) progressEl.textContent = '';
+        toastSuccess('Line ' + (paraIdx + 1) + ' ready (' + _fmtDuration(durationSecs) + ')', { icon: '🎙', duration: 1800 });
+      } catch (e) {
+        console.error('[audio-line-gen]', e);
+        if (progressEl) progressEl.textContent = '';
+        toastWarning('Line generation failed: ' + e.message, { duration: 5000 });
+        if (_apStitchedAudioBlobs[lineId]) _apStitchedAudioBlobs[lineId].isGenerating = false;
+      } finally {
+        _apBusy = false;
+        renderPreview(); // Final re-render to update all statuses
+      }
+    }
+
+    // New function for playing a single line's audio
+    let _apCurrentLineAudio = null;
+    let _apCurrentLineUrl = null;
+
+    async function _apPlayLine(chapterId, paraIdx) {
+      const lineId = chapterId + '_' + paraIdx;
+      const audioData = _apStitchedAudioBlobs[lineId];
+
+      if (!audioData || !audioData.blob) {
+        toastWarning('Audio not generated for this line.', { duration: 2000 });
+        return;
+      }
+
+      // Stop any currently playing audio (line or other finalized chapter)
+      if (_apCurrentLineAudio) {
+        _apCurrentLineAudio.pause();
+        if (_apCurrentLineUrl) URL.revokeObjectURL(_apCurrentLineUrl);
+        _apCurrentLineAudio = null;
+        _apCurrentLineUrl = null;
+      }
+      if (_apCurrentFinalizedAudio) {
+        _apCurrentFinalizedAudio.pause();
+        if (_apCurrentFinalizedUrl) URL.revokeObjectURL(_apCurrentFinalizedUrl);
+        _apCurrentFinalizedAudio = null;
+        _apCurrentFinalizedUrl = null;
+      }
+      
+      const url = URL.createObjectURL(audioData.blob);
+      _apCurrentLineUrl = url;
+      const audio = new Audio(url);
+      _apCurrentLineAudio = audio;
+
+      audio.onended = () => {
+        if (_apCurrentLineUrl) URL.revokeObjectURL(_apCurrentLineUrl);
+        _apCurrentLineAudio = null;
+        _apCurrentLineUrl = null;
+      };
+
+      try {
+        await audio.play();
+        toastInfo('Playing line ' + (paraIdx + 1), { icon: '🔊', duration: 1500 });
+      } catch (e) {
+        toastWarning('Playback failed: ' + e.message, { duration: 3000 });
       }
     }
 
@@ -23921,29 +24152,84 @@
       }
     }
 
+    // Refactored to generate line-by-line for the current chapter
     async function _apGenerateAllRemaining() {
       if (_apBusy) return;
       if (!_apPreflight()) return;
-      const timeline = _apBuildTimeline();
-      const projId = _projId || 'local';
-      const tracks = await _apDBGetAllForProject(projId);
-      const byKey = {};
-      for (let i = 0; i < tracks.length; i++) byKey[tracks[i].key] = tracks[i];
 
-      const todo = [];
-      for (let i = 0; i < timeline.length; i++) {
-        const item = timeline[i];
-        const t = byKey[_apTrackKey(item.sectionId)];
-        if (t && t.blob && t.source === 'imported') continue;   // user-supplied — skip
-        const curHash = _textHash(_apGetSectionText(item));
-        if (!t || !t.blob || t.textHash !== curHash) todo.push(item);
+      if (!_apCurrentStitchChId) {
+        toastWarning('Please select a chapter in the editor to generate lines for.', { duration: 3000 });
+        return;
       }
-      if (!todo.length) { toastInfo('All sections already up-to-date', { duration: 2200 }); return; }
 
-      for (let i = 0; i < todo.length; i++) {
-        await _apGenerate(todo[i].sectionId);
+      const chapter = chapters.find(c => c.id === _apCurrentStitchChId);
+      if (!chapter) {
+        toastWarning('Selected chapter not found.', { duration: 3000 });
+        return;
       }
-      toastSuccess('All sections generated ✓', { icon: '🎙', duration: 2800 });
+
+      const allParagraphs = chapter.content.split('\n').filter(p => p.trim());
+      const linesToGenerate = [];
+
+      for (let i = 0; i < allParagraphs.length; i++) {
+        const lineId = _apCurrentStitchChId + '_' + i;
+        const audioData = _apStitchedAudioBlobs[lineId];
+        // Only generate if audio is missing or explicitly marked stale (not covered by this task, but good practice)
+        if (!audioData || !audioData.blob) {
+          linesToGenerate.push({ paraIdx: i, text: allParagraphs[i] });
+        }
+      }
+
+      if (!linesToGenerate.length) {
+        toastInfo('All lines in this chapter already generated.', { duration: 2200 });
+        return;
+      }
+      
+      const progressEl = document.getElementById('apProgress');
+
+      _apBusy = true;
+      const genAllLinesBtn = document.getElementById('apGenAllLinesBtn');
+      if (genAllLinesBtn) genAllLinesBtn.disabled = true;
+
+      try {
+        for (let i = 0; i < linesToGenerate.length; i++) {
+          const { paraIdx, text } = linesToGenerate[i];
+          const lineId = _apCurrentStitchChId + '_' + paraIdx;
+
+          if (progressEl) progressEl.textContent = `Generating "${chapter.title}" line ${paraIdx + 1} of ${allParagraphs.length}…`;
+
+          // Mark as generating in _apStitchedAudioBlobs to update preview
+          _apStitchedAudioBlobs[lineId] = { ...( _apStitchedAudioBlobs[lineId] || {}), isGenerating: true };
+          renderPreview(); // Re-render to show spinner
+
+          const voiceInfo = _apGetCharacterVoice(_dialogueGetCharacter(_apCurrentStitchChId, text));
+          let blob;
+          if (voiceInfo.provider === 'google') {
+            blob = await _apGoogleTTS(text, voiceInfo.voiceId, _apSpeed, _apGoogleKey);
+          } else if (voiceInfo.provider === 'elevenlabs') {
+            blob = await _apElevenLabsTTS(text, voiceInfo.voiceId, _apElKey);
+          } else {
+             // Fallback to default configured provider
+            if (_apProvider === 'google') {
+              blob = await _apGoogleTTS(text, _apVoiceId, _apSpeed, _apGoogleKey);
+            } else {
+              blob = await _apElevenLabsTTS(text, _apVoiceId, _apElKey);
+            }
+          }
+
+          const durationSecs = await _getBlobDuration(blob);
+          _apStitchedAudioBlobs[lineId] = { blob, durationSecs, isGenerating: false };
+        }
+        toastSuccess('All remaining lines generated ✓', { icon: '🎙', duration: 2800 });
+      } catch (e) {
+        console.error('[audio-gen-all]', e);
+        toastWarning('Generation failed: ' + e.message, { duration: 5000 });
+      } finally {
+        _apBusy = false;
+        if (progressEl) progressEl.textContent = '';
+        renderPreview(); // Final re-render to update all statuses
+        _apUpdateCurrentChapterDisplay();
+      }
     }
 
     /* ── Track actions ─────────────────────────────────────────── */
@@ -24253,7 +24539,17 @@
       }
       _apPopulateVoices();
 
-      await _apRenderTracks();
+      // Set the currently active chapter for stitching
+      _apCurrentStitchChId = _writingChId; // If in writing mode, use that chapter
+      if (!_apCurrentStitchChId && chapters.length > 0) {
+        // Fallback: use the first chapter if nothing is explicitly selected
+        const firstCh = chapters.find(c => c.type === 'chapter');
+        if (firstCh) _apCurrentStitchChId = firstCh.id;
+      }
+      _apUpdateCurrentChapterDisplay();
+
+      // Render segments (which use apTracks div, which is now inside apSegmentsSection)
+      await _apRenderTracks(); 
     }
 
     function closeAudioPanel() {
@@ -24515,6 +24811,214 @@
       }
     }
 
+    // New global to track the chapter currently selected for stitching
+    // (already defined above with other _ap* globals).
+
+    let _apFinalizedChapterBlob = null; // Stores the concatenated chapter blob for playback and download
+
+    // Update current chapter title in the audio panel
+    function _apUpdateCurrentChapterDisplay() {
+      const chapterTitleEl = document.getElementById('apCurrentChapterTitle');
+      const finalizeBtn = document.getElementById('apFinalizeChapterBtn');
+      const playFinalizedBtn = document.getElementById('apPlayFinalizedBtn');
+      const downloadFinalizedBtn = document.getElementById('apDownloadFinalizedBtn');
+      const statusEl = document.getElementById('apStitchedChapterStatus');
+      const genAllLinesBtn = document.getElementById('apGenAllLinesBtn');
+
+      if (!chapterTitleEl || !finalizeBtn || !playFinalizedBtn || !downloadFinalizedBtn || !statusEl || !genAllLinesBtn) return;
+
+      const currentChapter = chapters.find(c => c.id === _apCurrentStitchChId);
+      if (currentChapter) {
+        chapterTitleEl.textContent = currentChapter.title || 'Untitled Chapter';
+        finalizeBtn.disabled = _apBusy;
+        genAllLinesBtn.disabled = _apBusy;
+        if (_apFinalizedChapterBlob) {
+          playFinalizedBtn.disabled = _apBusy;
+          downloadFinalizedBtn.disabled = _apBusy;
+          statusEl.textContent = `Chapter finalized (${_fmtDuration(currentChapter._apFinalizedDuration || 0)})`;
+          statusEl.style.color = '#065f46';
+        } else {
+          playFinalizedBtn.disabled = true;
+          downloadFinalizedBtn.disabled = true;
+          statusEl.textContent = 'Ready to finalize.';
+          statusEl.style.color = 'var(--hint)';
+        }
+      } else {
+        chapterTitleEl.textContent = 'No chapter selected';
+        finalizeBtn.disabled = true;
+        playFinalizedBtn.disabled = true;
+        downloadFinalizedBtn.disabled = true;
+        genAllLinesBtn.disabled = true;
+        statusEl.textContent = '';
+      }
+    }
+
+    // Function to finalize a chapter (stitch all line blobs)
+    async function _apFinalizeChapter(chapterId) {
+      if (!chapterId) {
+        toastWarning('No chapter selected.', { duration: 2000 });
+        return;
+      }
+      if (_apBusy) {
+        toastWarning('Already processing audio.', { duration: 2000 });
+        return;
+      }
+
+      _apBusy = true;
+      const finalizeBtn = document.getElementById('apFinalizeChapterBtn');
+      const playFinalizedBtn = document.getElementById('apPlayFinalizedBtn');
+      const downloadFinalizedBtn = document.getElementById('apDownloadFinalizedBtn');
+      const statusEl = document.getElementById('apStitchedChapterStatus');
+      const genAllLinesBtn = document.getElementById('apGenAllLinesBtn');
+      
+      const currentChapter = chapters.find(c => c.id === chapterId);
+
+      if (finalizeBtn) {
+        finalizeBtn.disabled = true;
+        finalizeBtn.textContent = 'Finalizing…';
+      }
+      if (playFinalizedBtn) playFinalizedBtn.disabled = true;
+      if (downloadFinalizedBtn) downloadFinalizedBtn.disabled = true;
+      if (genAllLinesBtn) genAllLinesBtn.disabled = true;
+      if (statusEl) {
+        statusEl.textContent = 'Gathering audio segments…';
+        statusEl.style.color = 'var(--hint)';
+      }
+
+      try {
+        const ch = chapters.find(c => c.id === chapterId);
+        if (!ch) throw new Error('Chapter not found.');
+
+        const allParagraphs = ch.content.split('\n').filter(p => p.trim());
+        const blobsToStitch = [];
+        let missingAudio = 0;
+        let totalStitchedDuration = 0;
+
+        for (let i = 0; i < allParagraphs.length; i++) {
+          const lineId = chapterId + '_' + i;
+          const audioData = _apStitchedAudioBlobs[lineId];
+          if (audioData && audioData.blob) {
+            blobsToStitch.push(audioData.blob);
+            totalStitchedDuration += (audioData.durationSecs || 0);
+          } else {
+            missingAudio++;
+          }
+        }
+
+        if (missingAudio > 0) {
+          toastWarning(`${missingAudio} line(s) are missing audio. Please generate all line audio before finalizing.`, { duration: 5000 });
+          finalizeBtn.textContent = 'Finalize Chapter';
+          if (!finalizeBtn.disabled) finalizeBtn.disabled = false;
+          return;
+        }
+        if (!blobsToStitch.length) {
+          toastWarning('No audio lines found for this chapter. Generate some first.', { duration: 3000 });
+          finalizeBtn.textContent = 'Finalize Chapter';
+          if (!finalizeBtn.disabled) finalizeBtn.disabled = false;
+          return;
+        }
+
+        if (statusEl) statusEl.textContent = 'Stitching audio with Crunker.js…';
+
+        const crunker = _apGetCrunkerInstance();
+        const stitchedAudio = await crunker.concatAudio(blobsToStitch);
+        const outputBlob = crunker.export(stitchedAudio, 'audio/mp3');
+
+        _apFinalizedChapterBlob = outputBlob.blob;
+        ch._apFinalizedDuration = totalStitchedDuration; // Store duration on chapter for display
+
+        if (statusEl) {
+          statusEl.textContent = `Chapter finalized! Total duration: ${_fmtDuration(totalStitchedDuration)}`;
+          statusEl.style.color = '#065f46';
+        }
+        if (playFinalizedBtn) playFinalizedBtn.disabled = false;
+        if (downloadFinalizedBtn) downloadFinalizedBtn.disabled = false;
+        toastSuccess('Chapter audio finalized ✓', { icon: '🎧', duration: 2500 });
+
+      } catch (e) {
+        console.error('[audio-finalize]', e);
+        if (statusEl) {
+          statusEl.textContent = 'Finalization failed: ' + e.message;
+          statusEl.style.color = '#c04040';
+        }
+        toastError('Chapter finalization failed: ' + e.message, { duration: 5000 });
+      } finally {
+        _apBusy = false;
+        if (finalizeBtn) finalizeBtn.textContent = 'Finalize Chapter';
+        _apUpdateCurrentChapterDisplay();
+      }
+    }
+
+    // Function to play the finalized chapter audio
+    let _apCurrentFinalizedAudio = null;
+    let _apCurrentFinalizedUrl = null;
+
+    async function _apPlayFinalizedChapter() {
+      if (!_apFinalizedChapterBlob) {
+        toastWarning('No finalized chapter audio to play.', { duration: 2000 });
+        return;
+      }
+
+      // Stop any currently playing audio (line or other finalized chapter)
+      if (_apCurrentLineAudio) {
+        _apCurrentLineAudio.pause();
+        if (_apCurrentLineUrl) URL.revokeObjectURL(_apCurrentLineUrl);
+        _apCurrentLineAudio = null;
+        _apCurrentLineUrl = null;
+      }
+      if (_apCurrentFinalizedAudio) {
+        _apCurrentFinalizedAudio.pause();
+        if (_apCurrentFinalizedUrl) URL.revokeObjectURL(_apCurrentFinalizedUrl);
+        _apCurrentFinalizedAudio = null;
+        _apCurrentFinalizedUrl = null;
+      }
+
+      const url = URL.createObjectURL(_apFinalizedChapterBlob);
+      _apCurrentFinalizedUrl = url;
+      const audio = new Audio(url);
+      _apCurrentFinalizedAudio = audio;
+
+      const playFinalizedBtn = document.getElementById('apPlayFinalizedBtn');
+      if (playFinalizedBtn) playFinalizedBtn.textContent = '⏸ Pause';
+
+      audio.onended = () => {
+        if (_apCurrentFinalizedUrl) URL.revokeObjectURL(_apCurrentFinalizedUrl);
+        _apCurrentFinalizedAudio = null;
+        _apCurrentFinalizedUrl = null;
+        if (playFinalizedBtn) playFinalizedBtn.textContent = 'Play Finalized';
+      };
+
+      audio.onpause = () => {
+        if (playFinalizedBtn) playFinalizedBtn.textContent = '▶ Play Finalized';
+      };
+
+      audio.onplay = () => {
+        if (playFinalizedBtn) playFinalizedBtn.textContent = '⏸ Pause';
+      };
+
+
+      try {
+        await audio.play();
+        toastInfo('Playing finalized chapter', { icon: '🎧', duration: 2000 });
+      } catch (e) {
+        toastWarning('Playback failed: ' + e.message, { duration: 3000 });
+        if (playFinalizedBtn) playFinalizedBtn.textContent = 'Play Finalized';
+      }
+    }
+
+    // Function to download the finalized chapter audio
+    function _apDownloadFinalizedChapter() {
+      if (!_apFinalizedChapterBlob) {
+        toastWarning('No finalized chapter audio to download.', { duration: 2000 });
+        return;
+      }
+      const chapter = chapters.find(c => c.id === _apCurrentStitchChId);
+      const filename = safeName((chapter ? chapter.title : 'Chapter') + '-stitched-audio') + '.mp3';
+      downloadBlob(_apFinalizedChapterBlob, filename);
+      toastSuccess('Finalized chapter audio downloaded ✓', { icon: '↓', duration: 2000 });
+    }
+
+
     window._apOpenSegModal = _apOpenSegModal;
     window._apSegOnPosMode = _apSegOnPosMode;
     window._apSegCancel = _apSegCancel;
@@ -24523,6 +25027,12 @@
     window._apSegUpdateCharCount = _apSegUpdateCharCount;
     window._apImportTrack = _apImportTrack;
     window._apOnImportFile = _apOnImportFile;
+    window._apGenerateLine = _apGenerateLine;
+    window._apPlayLine = _apPlayLine;
+    window._apAssignCharacterToLine = _apAssignCharacterToLine;
+    window._apFinalizeChapter = _apFinalizeChapter;
+    window._apPlayFinalizedChapter = _apPlayFinalizedChapter;
+    window._apDownloadFinalizedChapter = _apDownloadFinalizedChapter;
 
   </script>
   <!-- Audio / Audiobook export panel -->
@@ -24593,33 +25103,40 @@
             target="_blank" style="color:var(--accent-ui)">Custom voices →</a></div>
       </div>
 
-      <div class="ap-tracks" id="apTracks">
-        <div class="ap-empty">Loading tracks…</div>
+      <!-- Chapter-specific stitched audio section -->
+      <div id="apStitchedChapterSection" style="margin-top: 16px; border-top: 0.5px solid var(--border); padding-top: 12px;">
+        <label style="font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Chapter for stitching: <span id="apCurrentChapterTitle" style="font-weight:600;color:var(--text)">Select a chapter in the editor</span></label>
+        <div id="apStitchedChapterControls" style="display: flex; gap: 8px; margin-top: 8px;">
+          <button type="button" class="ap-btn primary" id="apFinalizeChapterBtn" onclick="_apFinalizeChapter(_apCurrentStitchChId)" disabled>Finalize Chapter</button>
+          <button type="button" class="ap-btn" id="apPlayFinalizedBtn" onclick="_apPlayFinalizedChapter()" disabled>Play Finalized</button>
+          <button type="button" class="ap-btn" id="apDownloadFinalizedBtn" onclick="_apDownloadFinalizedChapter()" disabled>↓ Download</button>
+        </div>
+        <p id="apStitchedChapterStatus" style="font-size: 11.5px; color: var(--hint); margin-top: 8px; min-height: 14px;"></p>
+        <div id="apIndividualLinesHint" style="font-size:10.5px;color:var(--hint);margin-top:4px">
+          Generate individual line audio by clicking the ▶ button next to paragraphs in the preview pane.
+        </div>
+        <button type="button" class="ap-btn primary" id="apGenAllLinesBtn" onclick="_apGenerateAllRemaining()" style="width:100%; margin-top:12px;">Generate All Missing Lines for Chapter</button>
       </div>
+      
+      <div id="apSegmentsSection" style="margin-top: 16px; border-top: 0.5px solid var(--border); padding-top: 12px;">
+        <label style="font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Audio Segments (Intros/Outros)</label>
+        <div class="ap-tracks" id="apTracks">
+          <div class="ap-empty">Loading segments…</div>
+        </div>
 
-      <!-- Hidden file picker — each row's 📎 button triggers this. -->
-      <input type="file" id="apImportFile" accept=".mp3,audio/mpeg,audio/mp3" style="display:none"
-        onchange="_apOnImportFile(event)">
+        <!-- Hidden file picker — each row's 📎 button triggers this. -->
+        <input type="file" id="apImportFile" accept=".mp3,audio/mpeg,audio/mp3" style="display:none"
+          onchange="_apOnImportFile(event)">
 
-      <!-- Create a new custom audio segment (intro / intermission / outro / etc.) -->
-      <button type="button" class="ap-add-seg-btn" onclick="_apOpenSegModal()">
-        + Add audio segment (intro, intermission, outro…)
-      </button>
+        <!-- Create a new custom audio segment (intro / intermission / outro / etc.) -->
+        <button type="button" class="ap-add-seg-btn" onclick="_apOpenSegModal()">
+          + Add audio segment (intro, intermission, outro…)
+        </button>
 
-      <div id="apEstimate"
-        style="font-size:11.5px;color:var(--text);margin-top:10px;padding:8px 10px;background:var(--bg);border-radius:7px;line-height:1.5">
-      </div>
-
-      <div class="ap-progress" id="apProgress"></div>
-
-      <div class="ap-footer">
-        <button type="button" class="ap-btn primary" id="apGenAll" onclick="_apGenerateAllRemaining()">▶▶ Generate All
-          Remaining</button>
-        <button type="button" class="ap-btn" id="apZipAll" onclick="_apDownloadZip()">↓ Download All as ZIP</button>
-      </div>
-      <div class="ap-concat">
-        <button type="button" class="ap-btn" id="apConcat" onclick="_apConcatAll()">🎧 Export Audiobook (MP3 with
-          chapters)</button>
+        <div id="apEstimate"
+          style="font-size:11.5px;color:var(--text);margin-top:10px;padding:8px 10px;background:var(--bg);border-radius:7px;line-height:1.5">
+        </div>
+        <div class="ap-progress" id="apProgress"></div>
       </div>
     </div>
   </div>
@@ -24723,13 +25240,13 @@
       <span>🗣</span>
       <span id="ctxPronLabel">Set pronunciation</span>
     </button>
-    <button class="ctx-item" id="ctxCharItem" onclick="_ctxOpenCharModal()" type="button" style="display:none">
-      <span>🎭</span>
-      <span id="ctxCharLabel">Read as character</span>
-    </button>
     <button class="ctx-item" id="ctxScene" onclick="_ctxScene()" type="button">
       <span>—</span>
       <span>Scene break</span>
+    </button>
+    <button class="ctx-item" id="ctxManageCharacters" onclick="_charOpenModal()" type="button">
+      <span>🎭</span>
+      <span>Manage Characters</span>
     </button>
     <button class="ctx-item has-sub" id="ctxDingbat" onmouseenter="_ctxDingbatOpen(this)" type="button">
       <span>✦</span>
