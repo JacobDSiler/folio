@@ -23584,6 +23584,7 @@
       noIndent, font, fsize, lspace, textColor, justify, indentPx, indentMode, dropCapEnabled, accentColor, bgColor,
       stitchedAudioBlobs, allCharacters, dialogueGetCharacter, annCanManage, editMode
     ) {
+      const pt = n => (n * 1.333 * (_zoom / 100)).toFixed(2) + 'px';
       const lineId = chId + '_' + paraIdx;
       const audioData = stitchedAudioBlobs[lineId];
       const hasAudio = !!(audioData && audioData.blob);
