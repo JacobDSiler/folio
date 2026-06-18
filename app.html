@@ -23563,6 +23563,18 @@
       };
     }
 
+    // Peel outer *..* / _.._ / **..** / __..__ emphasis off a paragraph
+    // so drop-cap logic and other first-letter-sensitive paths see a
+    // real letter rather than the markdown marker. Returns { text, tag }
+    // where tag is 'em' or 'strong' for outer wrap, or null if none.
+    function _peelOuterEmphasis(p) {
+      if (!p) return { text: p, tag: null };
+      let m = p.match(/^(\*\*|__)([\s\S]+?)\1$/);
+      if (m) return { text: m[2], tag: 'strong' };
+      m = p.match(/^([*_])([\s\S]+?)\1$/);
+      if (m) return { text: m[2], tag: 'em' };
+      return { text: p, tag: null };
+    }
 
     // Helper to render a single paragraph in the preview, with audio/character controls
     // This helper now takes all necessary style/dimension variables as arguments.
