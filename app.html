@@ -13517,7 +13517,12 @@
               const paraIdx = isContObj ? p.paraIdx : normParas.indexOf(text); // Use normParas.indexOf(text) to ensure correct index
               const isFirst = !isContObj && pg === 0 && pi === 0 && (ch.title || chNum);
               const noInd = isContObj || (pg === 0 && pi === 0) || (pi > 0 && slice[pi - 1] === '__SCENE_BREAK__');
-                
+
+              // Inline image marker — render an image block instead of a <p>
+              if (p && typeof p === 'object' && p.__imgMeta) {
+                return _imgRenderInline(p.__imgMeta, contentW, ch.id, p.paraIdx);
+              }
+
               // Call the new helper function
               return _apRenderPreviewParagraph(
                 ch.id,
@@ -23585,6 +23590,10 @@
       stitchedAudioBlobs, allCharacters, dialogueGetCharacter, annCanManage, editMode
     ) {
       const pt = n => (n * 1.333 * (_zoom / 100)).toFixed(2) + 'px';
+      const MM = 3.7795 * (_zoom / 100);
+      const mm = n => (n * MM).toFixed(2) + 'px';
+      const H_SCENE_BREAK = fsize * 0.92;
+      const orn = S.ornament;
       const lineId = chId + '_' + paraIdx;
       const audioData = stitchedAudioBlobs[lineId];
       const hasAudio = !!(audioData && audioData.blob);
@@ -23599,10 +23608,8 @@
       const text = isContObj ? paragraphContent.text : paragraphContent;
 
       const isSceneBreak = text === '__SCENE_BREAK__';
-      const _ilm = _imgParseLine(text);
 
       if (isSceneBreak) return `<div style="text-align:center;font-size:${pt(H_SCENE_BREAK)};color:${accentColor};margin:${mm(2)} 0;opacity:0.65">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
-      if (_ilm) return _imgRenderInline(_ilm, contentW, chId, paraIdx);
 
       // Character-specific highlighting
       const assignedCharId = dialogueGetCharacter(chId, text);
