@@ -16605,7 +16605,7 @@
     // Check if selected text is dialogue (contains quotes)
     function _ctxIsSelectedTextDialogue(selectedText) {
       if (!selectedText || !selectedText.trim()) return false;
-      const quotes = ['"', '"', '"', '‟', "'", ''', '''];
+      const quotes = ['"', '"', '"', '‟', "'", "'", "'"];
       return quotes.some(q => selectedText.includes(q));
     }
 
