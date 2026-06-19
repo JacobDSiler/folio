@@ -1,0 +1,46 @@
+export const A11Y_PRESETS = {
+  standard: {
+    label: 'Standard',
+    font: "'Crimson Pro', Georgia, serif",
+    fontSize: 13,
+    lineSpacing: '1.7',
+    paraIndent: '1.2em',
+    justify: true,
+    pageSize: 'trade',
+    dropCap: true,
+    note: '13pt — standard literary formatting',
+  },
+  enlarged: {
+    label: 'Enlarged Print',
+    font: 'Georgia, serif',
+    fontSize: 16,
+    lineSpacing: '2.0',
+    paraIndent: '1.2em',
+    justify: false,  // left-align for accessibility
+    pageSize: 'trade',
+    dropCap: false,
+    note: '16pt — enlarged, not yet large print (APH definition)',
+  },
+  largeprint: {
+    label: 'Large Print',
+    font: 'Verdana, Geneva, sans-serif',
+    fontSize: 18,
+    lineSpacing: '2.3',
+    paraIndent: '0',
+    justify: false,
+    pageSize: 'letter',  // 8.5×11 gives more room for large type
+    dropCap: false,
+    note: '18pt — meets NAVH/APH large print standard',
+  },
+  enhanced: {
+    label: 'Enhanced Print',
+    font: 'Verdana, Geneva, sans-serif',
+    fontSize: 24,
+    lineSpacing: '2.6',
+    paraIndent: '0',
+    justify: false,
+    pageSize: 'letter',
+    dropCap: false,
+    note: '24pt — enhanced print for significant low vision',
+  },
+};
