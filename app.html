@@ -16602,6 +16602,13 @@
       return { start: openIdx + 1, end: closeIdx, text: dialogueText };
     }
 
+    // Check if selected text is dialogue (contains quotes)
+    function _ctxIsSelectedTextDialogue(selectedText) {
+      if (!selectedText || !selectedText.trim()) return false;
+      const quotes = ['"', '"', '"', '‟', "'", ''', '''];
+      return quotes.some(q => selectedText.includes(q));
+    }
+
     function _ctxSelectDialogue(el, dialogue) {
       if (!dialogue) return false;
 
@@ -16700,16 +16707,21 @@
       document.getElementById('ctxScene').style.display = isTA ? '' : 'none';
       // Find selection only when text is selected
       document.getElementById('ctxFind').style.display = hasSel ? '' : 'none';
-      // Show Set Character for contenteditable (preview) when text is selected or dialogue is detected
+
+      // Show Set Character only for contenteditable (preview) when text is selected and is dialogue
       const ctxSetChar = document.getElementById('ctxSetChar');
       if (ctxSetChar) {
-        ctxSetChar.style.display = (!isTA && hasSel) ? '' : 'none';
+        const selectedText = isTA ? el.value.slice(el.selectionStart, el.selectionEnd) : (sel && sel.toString()) || '';
+        const isDialogue = _ctxIsSelectedTextDialogue(selectedText);
+        ctxSetChar.style.display = (!isTA && hasSel && isDialogue) ? '' : 'none';
       }
+
       const _stk = localStorage.getItem('folioShareToken_' + (_readerFolioId || _projId));
       const _pd = _stk ? _pwDecode(_stk) : null;
       const _isStaff = (_pd && (_pd.role === 'collab' || _pd.role === 'editor'));
+      const isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
 
-      // Show Suggest Edit only for Staff when text is selected
+      // Show Suggest Edit only for Staff (not owner) when text is selected
       let suggestBtn = document.getElementById('ctxSuggest');
       if (!suggestBtn) {
         suggestBtn = document.createElement('button');
@@ -16718,7 +16730,7 @@
         suggestBtn.innerHTML = '<span>💡</span><span>Suggest Edit</span>';
         document.getElementById('ctxMenu').appendChild(suggestBtn);
       }
-      suggestBtn.style.display = (_isStaff && hasSel) ? '' : 'none';
+      suggestBtn.style.display = (_isStaff && hasSel && !isOwner) ? '' : 'none';
       suggestBtn.onclick = () => _ctxSuggestEdit(el);
 
       // Step 6 — refresh the Set/Edit pronunciation item based on the
