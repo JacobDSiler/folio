@@ -16686,7 +16686,17 @@
       // Auto-detect and select quoted dialogue if no selection
       if (!hasSel && (isTA || isCE)) {
         const fullText = isTA ? el.value : el.textContent;
-        const offset = isTA ? el.selectionStart : 0;
+        let offset = 0;
+        if (isTA) {
+          offset = el.selectionStart;
+        } else if (isCE && sel && sel.rangeCount > 0) {
+          // For contenteditable, calculate cursor offset from selection
+          const range = sel.getRangeAt(0);
+          const preCaretRange = range.cloneRange();
+          preCaretRange.selectNodeContents(el);
+          preCaretRange.setEnd(range.endContainer, range.endOffset);
+          offset = preCaretRange.toString().length;
+        }
         const dialogue = _ctxFindDialogueInText(fullText, offset);
         if (dialogue) {
           if (_ctxSelectDialogue(el, dialogue)) {
