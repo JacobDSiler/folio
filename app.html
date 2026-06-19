@@ -104,6 +104,7 @@
   <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
   <script src="https://unpkg.com/crunker@1.4.0/dist/crunker.min.js"></script>
   <script type="module">
+    import { A11Y_PRESETS } from './src/utils/constants.js';
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
     import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, deleteDoc, addDoc, onSnapshot, serverTimestamp, orderBy, limit, deleteField } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js';
@@ -6444,52 +6445,6 @@
        ACCESSIBILITY PRESETS
     ═══════════════════════════════════════════════ */
 
-    const A11Y_PRESETS = {
-      standard: {
-        label: 'Standard',
-        font: "'Crimson Pro', Georgia, serif",
-        fontSize: 13,
-        lineSpacing: '1.7',
-        paraIndent: '1.2em',
-        justify: true,
-        pageSize: 'trade',
-        dropCap: true,
-        note: '13pt — standard literary formatting',
-      },
-      enlarged: {
-        label: 'Enlarged Print',
-        font: 'Georgia, serif',
-        fontSize: 16,
-        lineSpacing: '2.0',
-        paraIndent: '1.2em',
-        justify: false,  // left-align for accessibility
-        pageSize: 'trade',
-        dropCap: false,
-        note: '16pt — enlarged, not yet large print (APH definition)',
-      },
-      largeprint: {
-        label: 'Large Print',
-        font: 'Verdana, Geneva, sans-serif',
-        fontSize: 18,
-        lineSpacing: '2.3',
-        paraIndent: '0',
-        justify: false,
-        pageSize: 'letter',  // 8.5×11 gives more room for large type
-        dropCap: false,
-        note: '18pt — meets NAVH/APH large print standard',
-      },
-      enhanced: {
-        label: 'Enhanced Print',
-        font: 'Verdana, Geneva, sans-serif',
-        fontSize: 24,
-        lineSpacing: '2.6',
-        paraIndent: '0',
-        justify: false,
-        pageSize: 'letter',
-        dropCap: false,
-        note: '24pt — enhanced print for significant low vision',
-      },
-    };
 
     function applyA11yPreset(key) {
       const p = A11Y_PRESETS[key];
