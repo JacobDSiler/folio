@@ -3552,6 +3552,123 @@
       opacity: .85
     }
 
+    /* Character assignment modal */
+    #charAssignModal {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 200;
+      background: rgba(10, 8, 5, 0.72);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+
+    #charAssignModal.open {
+      display: flex
+    }
+
+    #charAssignModal .char-assign-box {
+      background: var(--surface);
+      border: .5px solid var(--border-mid);
+      border-radius: 14px;
+      max-width: 480px;
+      width: 94%;
+      box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+      padding: 22px 24px;
+      font-family: var(--sans);
+      color: var(--text);
+    }
+
+    #charAssignModal h3 {
+      font-size: 14px;
+      font-weight: 600;
+      margin: 0 0 12px
+    }
+
+    #charAssignModal label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--hint);
+      margin: 10px 0 4px;
+      letter-spacing: .02em;
+    }
+
+    .cas-dialogue {
+      background: var(--bg);
+      border: .5px solid var(--border-mid);
+      border-radius: 7px;
+      padding: 10px 12px;
+      margin: 8px 0 12px;
+    }
+
+    .cas-text {
+      font-size: 13px;
+      line-height: 1.5;
+      font-family: var(--serif);
+      color: var(--text);
+      font-style: italic;
+      word-wrap: break-word;
+      max-height: 80px;
+      overflow-y: auto;
+    }
+
+    #charAssignModal select {
+      width: 100%;
+      font-size: 13px;
+      padding: 7px 10px;
+      border: .5px solid var(--border-mid);
+      border-radius: 7px;
+      background: var(--bg);
+      color: var(--text);
+      outline: none;
+      font-family: var(--sans);
+    }
+
+    #charAssignModal select:focus {
+      border-color: var(--accent-ui)
+    }
+
+    .cas-controls {
+      margin: 10px 0;
+    }
+
+    .cas-actions {
+      display: flex;
+      gap: 7px;
+      justify-content: flex-end;
+      margin-top: 16px;
+    }
+
+    .cas-btn {
+      padding: 7px 13px;
+      border-radius: 7px;
+      border: .5px solid var(--border-mid);
+      background: transparent;
+      color: var(--text);
+      font-size: 12px;
+      cursor: pointer;
+      font-family: var(--sans);
+    }
+
+    .cas-btn.cas-primary {
+      background: var(--accent-ui);
+      color: #fff;
+      border-color: var(--accent-ui);
+    }
+
+    .cas-btn:hover:not(:disabled) {
+      opacity: .85
+    }
+
+    .cas-status {
+      font-size: 12px;
+      color: var(--hint);
+    }
 
     /* ── Step 7 — Reader pronunciation tooltips ── */
     .pron-tip {
@@ -10941,6 +11058,144 @@
       return (c.voiceProvider || 'voice') + ' · ' + c.voiceId;
     }
 
+    // Character assignment modal
+    let _charAssignModalData = { chapterId: null, dialogueText: null };
+
+    function _ctxOpenCharacterModal() {
+      if (!_ctxTarget) return;
+      _ctxClose();
+
+      // Get the selected dialogue text
+      const sel = window.getSelection();
+      const dialogueText = (sel && sel.toString()) || _ctxTarget.textContent || '';
+
+      if (!dialogueText.trim()) {
+        if (typeof toastWarning === 'function')
+          toastWarning('Select or position cursor in dialogue line', { duration: 2400 });
+        return;
+      }
+
+      const chapterId = _ctxTarget.dataset.chid;
+      if (!chapterId) return;
+
+      _charAssignModalData = { chapterId, dialogueText };
+
+      // Populate modal
+      const dialogueEl = document.getElementById('casDialogueText');
+      if (dialogueEl) {
+        dialogueEl.textContent = '"' + dialogueText + '"';
+      }
+
+      const selectEl = document.getElementById('casCharSelect');
+      if (selectEl) {
+        const chars = _charGetAll();
+        const currentCharId = _dialogueGetCharacter(chapterId, dialogueText);
+        selectEl.innerHTML = '<option value="">— No character —</option>' +
+          chars.map(c => '<option value="' + _esc(c.id) + '"' + (c.id === currentCharId ? ' selected' : '') + '>' + _esc(c.name) + '</option>').join('');
+      }
+
+      // Clear status message
+      const statusEl = document.getElementById('casStatus');
+      if (statusEl) statusEl.style.display = 'none';
+
+      // Open modal
+      const modal = document.getElementById('charAssignModal');
+      if (modal) {
+        modal.classList.add('open');
+        modal.setAttribute('aria-hidden', 'false');
+      }
+    }
+
+    function _charAssignCloseModal() {
+      const modal = document.getElementById('charAssignModal');
+      if (modal) {
+        modal.classList.remove('open');
+        modal.setAttribute('aria-hidden', 'true');
+      }
+      _charAssignModalData = { chapterId: null, dialogueText: null };
+    }
+
+    function _charAssignSave() {
+      const selectEl = document.getElementById('casCharSelect');
+      if (!selectEl || !_charAssignModalData.chapterId || !_charAssignModalData.dialogueText) return;
+
+      const characterId = selectEl.value || null;
+      _dialogueAssignCharacter(_charAssignModalData.chapterId, _charAssignModalData.dialogueText, characterId);
+      _charAssignCloseModal();
+
+      // Re-render preview to show the assignment
+      if (typeof renderPreview === 'function') {
+        renderPreview();
+      }
+
+      if (typeof toastSuccess === 'function') {
+        const chars = _charGetAll();
+        const char = chars.find(c => c.id === characterId);
+        toastSuccess(char ? 'Character set to ' + char.name : 'Character removed', { duration: 1800 });
+      }
+    }
+
+    async function _charAssignTestVoice() {
+      const selectEl = document.getElementById('casCharSelect');
+      if (!selectEl || !_charAssignModalData.dialogueText) return;
+
+      const characterId = selectEl.value;
+      if (!characterId) {
+        if (typeof toastWarning === 'function')
+          toastWarning('Select a character first', { duration: 2000 });
+        return;
+      }
+
+      const chars = _charGetAll();
+      const character = chars.find(c => c.id === characterId);
+      if (!character || !character.voiceId) {
+        if (typeof toastWarning === 'function')
+          toastWarning('Character has no voice assigned', { duration: 2400 });
+        return;
+      }
+
+      const statusEl = document.getElementById('casStatus');
+      const testBtn = document.getElementById('casTestBtn');
+
+      if (statusEl) {
+        statusEl.textContent = 'Generating audio...';
+        statusEl.style.display = 'block';
+      }
+      if (testBtn) testBtn.disabled = true;
+
+      try {
+        let audioBlob;
+        const voiceProvider = character.voiceProvider || _apProvider || 'google';
+        if (voiceProvider === 'elevenlabs') {
+          audioBlob = await _apElevenLabsTTS(_charAssignModalData.dialogueText, character.voiceId, _apElKey);
+        } else {
+          audioBlob = await _apGoogleTTS(_charAssignModalData.dialogueText, character.voiceId, _apSpeed, _apGoogleKey);
+        }
+
+        if (audioBlob) {
+          const audio = new Audio(URL.createObjectURL(audioBlob));
+          audio.play();
+          if (statusEl) {
+            statusEl.textContent = 'Playing...';
+            statusEl.style.color = 'var(--text)';
+          }
+          audio.onended = () => {
+            if (statusEl) statusEl.style.display = 'none';
+          };
+        }
+      } catch (err) {
+        console.error('Test voice failed:', err);
+        if (statusEl) {
+          statusEl.textContent = 'Audio generation failed';
+          statusEl.style.color = '#c44';
+        }
+        if (typeof toastError === 'function')
+          toastError('Could not generate audio', { duration: 2400 });
+      } finally {
+        if (testBtn) testBtn.disabled = false;
+      }
+    }
+
     function _charRender() {
       const list = document.getElementById('charList');
       if (!list) return;
@@ -16445,6 +16700,11 @@
       document.getElementById('ctxScene').style.display = isTA ? '' : 'none';
       // Find selection only when text is selected
       document.getElementById('ctxFind').style.display = hasSel ? '' : 'none';
+      // Show Set Character for contenteditable (preview) when text is selected or dialogue is detected
+      const ctxSetChar = document.getElementById('ctxSetChar');
+      if (ctxSetChar) {
+        ctxSetChar.style.display = (!isTA && hasSel) ? '' : 'none';
+      }
       const _stk = localStorage.getItem('folioShareToken_' + (_readerFolioId || _projId));
       const _pd = _stk ? _pwDecode(_stk) : null;
       const _isStaff = (_pd && (_pd.role === 'collab' || _pd.role === 'editor'));
@@ -23524,27 +23784,7 @@
       if (n < 1000) return n + ' ch';
       return n.toLocaleString('en-US') + ' ch';
     }
-
-    // Helper to render the character dropdown for a line
-    function _apRenderCharacterDropdown(chId, lineText, currentAssignedCharId, annCanManage) {
-      const chars = _charGetAll();
-      // Only allow assigning characters if the user can manage the folio.
-      // The current line is not an annotation, so we pass a dummy note object.
-      // This logic will prevent basic readers from assigning characters.
-      const canAssign = annCanManage({ chapterId: chId, paraIdx: -1, uid: window._uid });
-
-      if (!chars.length || !canAssign) return ''; // No characters or no permission to assign
-
-      let options = `<option value="">— Assign Character —</option>`;
-      chars.forEach(c => {
-        const selected = (c.id === currentAssignedCharId) ? 'selected' : '';
-        options += `<option value="${c.id}" ${selected}>${esc(c.name)}</option>`;
-      });
-
-      return `<select class="ap-char-select" onchange="_apAssignCharacterToLine('${chId}', '${esc(lineText).replace(/'/g, "\\'")}', this.value)">${options}</select>`;
-    }
-
-    // New function to assign a character to a line from the dropdown
+    // New function to assign a character to a line (called from context menu modal)
     function _apAssignCharacterToLine(chapterId, lineText, characterId) {
       _dialogueAssignCharacter(chapterId, lineText, characterId || null);
       renderPreview(); // Re-render to update highlighting
@@ -23595,14 +23835,6 @@
       const H_SCENE_BREAK = fsize * 0.92;
       const orn = S.ornament;
       const lineId = chId + '_' + paraIdx;
-      const audioData = stitchedAudioBlobs[lineId];
-      const hasAudio = !!(audioData && audioData.blob);
-      const isGenerating = !!(audioData && audioData.isGenerating);
-      
-      const audioStatus = hasAudio ? '✅' : '▶'; // Changed to ▶ for 'Generate'
-      const audioStatusClass = hasAudio ? 'ap-line-ready' : 'ap-line-pending';
-      const isGeneratingClass = isGenerating ? 'ap-line-generating' : '';
-
 
       const isContObj = (paragraphContent && typeof paragraphContent === 'object' && paragraphContent.isCont);
       const text = isContObj ? paragraphContent.text : paragraphContent;
@@ -23631,24 +23863,12 @@
       const paraStyle = `font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${textColor};margin:0;text-align:${justify};text-indent:${noIndFinal ? '0' : indentPx};margin-bottom:${indentMode === '0' ? mm(1.3) : '0'};`;
       const editable = isContinuation ? 'false' : String(editMode); // only original paragraphs are editable directly
 
-      // Context menu now needs to know if the user can manage this line.
-      // Removed annCanManage call as it's not directly needed for rendering the controls,
-      // but for determining if user can _use_ the controls.
-      // This is injected *inside* the preview-editable paragraph, making the paragraph itself the clickable area.
-      // The buttons are floated or positioned absolutely within the paragraph to avoid breaking text flow.
-      return `<p class="preview-editable ${charColorClass} ${audioStatusClass} ${isGeneratingClass} ${isContinuation ? 'para-cont' : ''}" data-chid="${chId}" data-paraidx="${paraIdx}" data-line-id="${lineId}"
+      return `<p class="preview-editable ${charColorClass} ${isContinuation ? 'para-cont' : ''}" data-chid="${chId}" data-paraidx="${paraIdx}" data-line-id="${lineId}"
             contenteditable="${editable}" spellcheck="true"
             onblur="if(${editMode} && !this.classList.contains('para-cont'))_onParaBlur(this)"
             oncontextmenu="if(${editMode} && !this.classList.contains('para-cont'))_ctxOpen(event,this)"
             onkeydown="if(${editMode}&&!this.classList.contains('para-cont')&&event.key==='Tab'){event.preventDefault();const s=this.selectionStart??0,e=this.selectionEnd??0,t=this.innerText;document.execCommand('insertText',false,event.shiftKey?'':' '.repeat(4));}else if(${editMode}&&!this.classList.contains('para-cont')&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
             style="${paraStyle} ${charColorStyle}">
-              <span class="ap-line-controls" style="display:inline-flex;gap:4px;vertical-align:middle;margin-right:8px;float:right;">
-                <button class="ap-line-play-btn" onclick="_apPlayLine('${chId}', ${paraIdx})" title="Play audio for this line" ${!hasAudio ? 'disabled' : ''}>🔊</button>
-                <button class="ap-line-gen-btn ${isGeneratingClass}" onclick="_apGenerateLine('${chId}', ${paraIdx}, this)" title="${hasAudio ? 'Regenerate' : 'Generate'} audio for this line" ${isGenerating ? 'disabled' : ''}>
-                  ${isGenerating ? '' : audioStatus}
-                </button>
-                ${_apRenderCharacterDropdown(chId, text, character ? character.id : null, annCanManage)}
-              </span>
             ${dc}</p>`;
     }
 
@@ -25216,6 +25436,10 @@
       <span>🗣</span>
       <span id="ctxPronLabel">Set pronunciation</span>
     </button>
+    <button class="ctx-item" id="ctxSetChar" onclick="_ctxOpenCharacterModal()" type="button" style="display:none">
+      <span>🎤</span>
+      <span>Set Character</span>
+    </button>
     <button class="ctx-item" id="ctxScene" onclick="_ctxScene()" type="button">
       <span>—</span>
       <span>Scene break</span>
@@ -25276,6 +25500,28 @@
         <button class="pm-btn" onclick="_pronCloseModal()">Cancel</button>
         <button class="pm-btn pm-primary" onclick="_pronSaveFromModal()">Save</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Character assignment modal -->
+  <div id="charAssignModal" role="dialog" aria-hidden="true" aria-labelledby="charAssignTitle"
+    onclick="if(event.target===this)_charAssignCloseModal()">
+    <div class="char-assign-box">
+      <h3 id="charAssignTitle">Assign Character to Line</h3>
+      <div class="cas-dialogue">
+        <label>Dialogue line:</label>
+        <div id="casDialogueText" class="cas-text"></div>
+      </div>
+      <div class="cas-controls">
+        <label for="casCharSelect">Character:</label>
+        <select id="casCharSelect" placeholder="Choose a character..."></select>
+      </div>
+      <div class="cas-actions">
+        <button class="cas-btn" onclick="_charAssignTestVoice()" id="casTestBtn">🔊 Test Voice</button>
+        <button class="cas-btn" onclick="_charAssignCloseModal()">Cancel</button>
+        <button class="cas-btn cas-primary" onclick="_charAssignSave()">OK</button>
+      </div>
+      <div id="casStatus" class="cas-status" style="display:none;margin-top:8px;font-size:13px;color:#666;text-align:center;"></div>
     </div>
   </div>
 
