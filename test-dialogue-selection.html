@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Dialogue Selection Test</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .test { margin: 20px 0; padding: 10px; border: 1px solid #ccc; }
+    .result { color: green; font-weight: bold; }
+    .fail { color: red; font-weight: bold; }
+    pre { background: #f0f0f0; padding: 10px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Dialogue Selection Logic Test</h1>
+
+  <div class="test">
+    <h2>Test 1: Find dialogue with offset inside quotes</h2>
+    <button onclick="test1()">Run Test</button>
+    <div id="result1"></div>
+  </div>
+
+  <div class="test">
+    <h2>Test 2: Find dialogue with offset at start of element</h2>
+    <button onclick="test2()">Run Test</button>
+    <div id="result2"></div>
+  </div>
+
+  <div class="test">
+    <h2>Test 3: Find dialogue with offset on narrative text</h2>
+    <button onclick="test3()">Run Test</button>
+    <div id="result3"></div>
+  </div>
+
+  <script>
+    // Copy of the function from app.html
+    function _ctxFindDialogueInText(text, offset) {
+      if (!text || offset < 0) return null;
+      const quotes = ['"', '"', '"', '‟'];
+
+      // Find opening quote before offset
+      let openIdx = -1;
+      for (let i = Math.min(offset, text.length - 1); i >= 0; i--) {
+        const c = text[i];
+        if (quotes.indexOf(c) !== -1) {
+          openIdx = i;
+          break;
+        }
+      }
+      if (openIdx === -1) return null;
+
+      // Find closing quote after opening quote
+      let closeIdx = -1;
+      for (let i = openIdx + 1; i < text.length; i++) {
+        const c = text[i];
+        if (quotes.indexOf(c) !== -1) {
+          closeIdx = i;
+          break;
+        }
+      }
+      if (closeIdx === -1) return null;
+
+      // Extract the dialogue text
+      const dialogueText = text.slice(openIdx + 1, closeIdx);
+      if (!dialogueText.trim()) return null;
+
+      return { start: openIdx + 1, end: closeIdx, text: dialogueText };
+    }
+
+    function test1() {
+      const text = 'She said "Course you did." and walked away.';
+      const offset = 17; // position inside the dialogue
+      const result = _ctxFindDialogueInText(text, offset);
+
+      const el = document.getElementById('result1');
+      if (result && result.text === 'Course you did.') {
+        el.innerHTML = '<span class="result">✓ PASS</span><br>' +
+          '<pre>Input: ' + text + '\n' +
+          'Offset: ' + offset + ' (inside dialogue)\n' +
+          'Found: "' + result.text + '"</pre>';
+      } else {
+        el.innerHTML = '<span class="fail">✗ FAIL</span><br>' +
+          '<pre>Expected: "Course you did."\n' +
+          'Got: ' + (result ? JSON.stringify(result) : 'null') + '</pre>';
+      }
+    }
+
+    function test2() {
+      const text = 'She said "Course you did." and then "Hello there." to others.';
+      const offset = 10; // position at start (before first dialogue)
+      const result = _ctxFindDialogueInText(text, offset);
+
+      const el = document.getElementById('result2');
+      if (result && result.text === 'Course you did.') {
+        el.innerHTML = '<span class="result">✓ PASS</span><br>' +
+          '<pre>Input: ' + text + '\n' +
+          'Offset: ' + offset + ' (before first dialogue)\n' +
+          'Found: "' + result.text + '"</pre>';
+      } else {
+        el.innerHTML = '<span class="fail">✗ FAIL</span><br>' +
+          '<pre>Expected: "Course you did."\n' +
+          'Got: ' + (result ? JSON.stringify(result) : 'null') + '</pre>';
+      }
+    }
+
+    function test3() {
+      const text = 'She walked through the forest "looking for something" in the trees. He asked "What is it?"';
+      const offset = 15; // position in narrative text (no quotes)
+      const result = _ctxFindDialogueInText(text, offset);
+
+      const el = document.getElementById('result3');
+      if (result === null) {
+        el.innerHTML = '<span class="result">✓ PASS</span><br>' +
+          '<pre>Input: ' + text + '\n' +
+          'Offset: ' + offset + ' (in narrative text)\n' +
+          'Result: null (as expected, no quotes before cursor)</pre>';
+      } else {
+        el.innerHTML = '<span class="fail">✗ FAIL</span><br>' +
+          '<pre>Expected: null\n' +
+          'Got: ' + JSON.stringify(result) + '</pre>';
+      }
+    }
+
+    // Auto-run all tests
+    window.addEventListener('load', () => {
+      test1();
+      test2();
+      test3();
+    });
+  </script>
+</body>
+</html>
