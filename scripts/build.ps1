@@ -3,9 +3,9 @@ param([switch]$Watch)
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $projectRoot
 
-Write-Host "`n=== Folio Build - Phase 1 (Utils) ===" -ForegroundColor Cyan
+Write-Host "`n=== Folio Build - Phase 2 (Utils + Preview) ===" -ForegroundColor Cyan
 
-$modules = @("src/utils/constants.js")
+$modules = @("src/utils/constants.js", "src/modules/preview-utils.js")
 
 foreach ($m in $modules) {
   if (Test-Path $m) {
@@ -21,7 +21,12 @@ if (Test-Path "app.html") {
   if ($content -like "*src/utils/constants.js*") {
     Write-Host "[OK] app.html imports constants.js" -ForegroundColor Green
   } else {
-    Write-Host "[INFO] Import check (will be added during refactoring)" -ForegroundColor Yellow
+    Write-Host "[INFO] Constants import (will be added during refactoring)" -ForegroundColor Yellow
+  }
+  if ($content -like "*src/modules/preview-utils.js*") {
+    Write-Host "[OK] app.html imports preview-utils.js" -ForegroundColor Green
+  } else {
+    Write-Host "[INFO] Preview-utils import (will be added during refactoring)" -ForegroundColor Yellow
   }
 }
 

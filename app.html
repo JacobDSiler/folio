@@ -105,6 +105,8 @@
   <script src="https://unpkg.com/crunker@1.4.0/dist/crunker.min.js"></script>
   <script type="module">
     import { A11Y_PRESETS } from './src/utils/constants.js';
+    import { getV, getCustomDimsInMM, getPageDims, getChapters, getFront, getBack, setPreviewSize } from './src/modules/preview-utils.js';
+    window._previewUtils = { getV, getCustomDimsInMM, getPageDims, getChapters, getFront, getBack, setPreviewSize };
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
     import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, deleteDoc, addDoc, onSnapshot, serverTimestamp, orderBy, limit, deleteField } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js';
@@ -12883,7 +12885,6 @@
     /* ═══════════════════════════════════════════════
        HELPERS
     ═══════════════════════════════════════════════ */
-    function getV(id) { return document.getElementById(id).value }
     function getC(id) { return document.getElementById(id).checked }
     let _customUnit = 'in'; // 'in' or 'mm'
 
@@ -12914,19 +12915,7 @@
       applyCustomSize();
     }
 
-    function getCustomDimsInMM() {
-      const w = parseFloat(document.getElementById('customW')?.value) || 148;
-      const h = parseFloat(document.getElementById('customH')?.value) || 210;
-      if (_customUnit === 'in') return [w * 25.4, h * 25.4];
-      return [w, h];
-    }
 
-    function getPageDims() {
-      const map = { trade: [152.4, 228.6], pocket: [127, 203.2], digest: [139.7, 215.9], a4: [210, 297], letter: [215.9, 279.4] };
-      const val = getV('pageSize');
-      if (val === 'custom') return getCustomDimsInMM();
-      return map[val] || map.trade;
-    }
     function insertCopyright() {
       const yr = new Date().getFullYear();
       const author = document.getElementById('bookAuthor').value.trim() || 'Author Name';
@@ -13079,18 +13068,6 @@
     }, { passive: false });
 
     /* ── Preview size picker — syncs toolbar ↔ Design tab select ── */
-    function setPreviewSize(val) {
-      // Show/hide custom size inputs
-      const ci = document.getElementById('customSizeInputs');
-      if (ci) ci.style.display = val === 'custom' ? 'flex' : 'none';
-      // Keep the Design tab select in sync (custom not in Design tab — that's fine)
-      const ds = document.getElementById('pageSize');
-      if (ds && val !== 'custom') ds.value = val;
-      // Keep toolbar select in sync
-      const ts = document.getElementById('toolbarPageSize');
-      if (ts) ts.value = val;
-      zoomFit();
-    }
 
     function applyCustomSize() {
       const ts = document.getElementById('toolbarPageSize');
@@ -13802,21 +13779,6 @@
 
     // Override getChapters / getFront / getBack to respect the filter
     // NOTE: reference chapters array directly — never call getChapters() recursively
-    function getChapters() {
-      const all = chapters.filter(c => c.type === 'chapter');
-      if (!_chapterExportFilter) return all;
-      return all.filter(c => c.id === _chapterExportFilter);
-    }
-    function getFront() {
-      if (!_chapterExportFilter) return chapters.filter(c => c.type === 'pre');
-      const ch = chapters.find(c => c.id === _chapterExportFilter);
-      return (ch && ch.type === 'pre') ? [ch] : [];
-    }
-    function getBack() {
-      if (!_chapterExportFilter) return chapters.filter(c => c.type === 'post');
-      const ch = chapters.find(c => c.id === _chapterExportFilter);
-      return (ch && ch.type === 'post') ? [ch] : [];
-    }
 
     // Show the chapter export menu (TXT, MD, DOCX, PDF)
     function showChapterExportMenu(chId, anchorEl) {
