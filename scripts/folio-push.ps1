@@ -305,6 +305,9 @@ try {
     # Stage the scripts/ folder so iterations to this push script itself
     # (or its launcher) get committed automatically alongside the build.
     if (Test-Path (Join-Path $repoRoot 'scripts')) { $toAdd += 'scripts' }
+    # Stage the src/ folder so the modularization phases (constants /
+    # preview-utils / characters / etc.) get committed alongside app.html.
+    if (Test-Path (Join-Path $repoRoot 'src')) { $toAdd += 'src' }
     # Stage .gitignore so changes to the ignore list ship too.
     if (Test-Path (Join-Path $repoRoot '.gitignore')) { $toAdd += '.gitignore' }
     if ($toAdd.Count -eq 0) {
