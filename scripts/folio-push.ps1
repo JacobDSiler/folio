@@ -223,6 +223,43 @@ try {
     }
     $status | ForEach-Object { Write-Host "  $_" }
 
+    # -- Pre-push build gate -----------------------------------------
+    # Run scripts/build.ps1 against the files we just copied into the
+    # repo. The build script validates:
+    #   * src/ module files exist + are imported by app.html
+    #   * every extracted symbol with bare classic-script callsites
+    #     has a matching `window.<name> = <name>` alias in the module
+    #     block (the Phase 1/2 modularization regression).
+    # Exit non-zero = abort the push. Set FOLIO_PUSH_SKIP_BUILD=1 to
+    # bypass (use only if you know the gate is wrong + you've checked
+    # the diff by hand).
+    $buildScript = Join-Path $repoRoot 'scripts\build.ps1'
+    if ($env:FOLIO_PUSH_SKIP_BUILD -eq '1') {
+        Write-Host ""
+        Write-Host "(Build gate skipped: FOLIO_PUSH_SKIP_BUILD=1)" -ForegroundColor Yellow
+    } elseif (Test-Path $buildScript) {
+        Write-Host ""
+        Write-Host "=== Pre-push build gate ===" -ForegroundColor Cyan
+        # Invoke in-process so $LASTEXITCODE reflects the build result.
+        # Push-Location/Pop-Location keeps our cwd intact even though
+        # build.ps1 also does Set-Location internally.
+        Push-Location $repoRoot
+        try { & $buildScript } finally { Pop-Location }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host ""
+            Write-Host "Build gate FAILED (exit $LASTEXITCODE). Push aborted." -ForegroundColor Red
+            Write-Host "Files were copied into the repo but NOT committed." -ForegroundColor DarkGray
+            Write-Host "Fix the issues above, then rerun. To bypass once," -ForegroundColor DarkGray
+            Write-Host "set FOLIO_PUSH_SKIP_BUILD=1 in this shell." -ForegroundColor DarkGray
+            Remove-Item $tmpCommitFile -ErrorAction SilentlyContinue
+            Stop-Here $LASTEXITCODE
+        }
+        Write-Host "Build gate passed." -ForegroundColor Green
+    } else {
+        Write-Host ""
+        Write-Host "(No scripts\build.ps1 found; skipping build gate.)" -ForegroundColor DarkGray
+    }
+
     # -- Auto-confirm (idempotent: if invoked, the answer is yes) ----
     # The previous y/N prompt was redundant - running this script is
     # already an explicit "yes" signal, and re-runs are safe (git only

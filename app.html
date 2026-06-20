@@ -105,8 +105,21 @@
   <script src="https://unpkg.com/crunker@1.4.0/dist/crunker.min.js"></script>
   <script type="module">
     import { A11Y_PRESETS } from './src/utils/constants.js';
+    // Back-compat: classic <script> below reads A11Y_PRESETS
+    // as a bare identifier. Module imports are module-scoped,
+    // so promote to window for the classic script to see.
+    window.A11Y_PRESETS = A11Y_PRESETS;
     import { getV, getCustomDimsInMM, getPageDims, getChapters, getFront, getBack, setPreviewSize } from './src/modules/preview-utils.js';
     window._previewUtils = { getV, getCustomDimsInMM, getPageDims, getChapters, getFront, getBack, setPreviewSize };
+    // Back-compat: the classic <script> calls these as bare
+    // identifiers across save/render/export/pagination paths.
+    window.getV               = getV;
+    window.getCustomDimsInMM  = getCustomDimsInMM;
+    window.getPageDims        = getPageDims;
+    window.getChapters        = getChapters;
+    window.getFront           = getFront;
+    window.getBack            = getBack;
+    window.setPreviewSize     = setPreviewSize;
     import {
       CHAR_COLORS, charNewId, charGetAll, charGetById, charAdd, charDelete,
       charSaveToFirebase, charLoadFromFirebase, charSaveAllToFirebase,
