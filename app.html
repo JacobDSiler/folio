@@ -107,6 +107,32 @@
     import { A11Y_PRESETS } from './src/utils/constants.js';
     import { getV, getCustomDimsInMM, getPageDims, getChapters, getFront, getBack, setPreviewSize } from './src/modules/preview-utils.js';
     window._previewUtils = { getV, getCustomDimsInMM, getPageDims, getChapters, getFront, getBack, setPreviewSize };
+    import {
+      CHAR_COLORS, charNewId, charGetAll, charGetById, charAdd, charDelete,
+      charSaveToFirebase, charLoadFromFirebase, charSaveAllToFirebase,
+      dialogueAssignCharacter, dialogueGetCharacter, dialogueSaveToFirebase, dialogueLoadFromFirebase,
+      charVoiceLabel, getDialogueAssignments, setDialogueAssignments
+    } from './src/modules/characters.js';
+    window._characterModule = {
+      CHAR_COLORS, charNewId, charGetAll, charGetById, charAdd, charDelete,
+      charSaveToFirebase, charLoadFromFirebase, charSaveAllToFirebase,
+      dialogueAssignCharacter, dialogueGetCharacter, dialogueSaveToFirebase, dialogueLoadFromFirebase,
+      charVoiceLabel, getDialogueAssignments, setDialogueAssignments
+    };
+    window._CHAR_COLORS = CHAR_COLORS;
+    window._charNewId = charNewId;
+    window._charGetAll = charGetAll;
+    window._charGetById = charGetById;
+    window._charAdd = charAdd;
+    window._charDelete = charDelete;
+    window._charSaveToFirebase = charSaveToFirebase;
+    window._charLoadFromFirebase = charLoadFromFirebase;
+    window._charSaveAllToFirebase = charSaveAllToFirebase;
+    window._dialogueAssignCharacter = dialogueAssignCharacter;
+    window._dialogueGetCharacter = dialogueGetCharacter;
+    window._dialogueSaveToFirebase = dialogueSaveToFirebase;
+    window._dialogueLoadFromFirebase = dialogueLoadFromFirebase;
+    window._charVoiceLabel = charVoiceLabel;
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
     import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, deleteDoc, addDoc, onSnapshot, serverTimestamp, orderBy, limit, deleteField } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js';
@@ -10821,199 +10847,6 @@
          }]
        ══════════════════════════════════════════════════════════════════ */
 
-    const _CHAR_COLORS = [
-      '#c98c2a', '#5a8a3e', '#3a6c8c', '#9c3d4a',
-      '#6b4c8a', '#2a6a5a', '#c47a5a', '#8a8a3e',
-      '#5a5a8a', '#8a3e5a', '#3e8a8a', '#6b6b6b',
-    ];
-
-    function _charNewId() {
-      return 'char_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
-    }
-
-    function _charGetAll() {
-      if (typeof _state !== 'object' || _state == null) return [];
-      if (!Array.isArray(_state.characters)) _state.characters = [];
-      return _state.characters;
-    }
-
-    function _charGetById(id) {
-      const list = _charGetAll();
-      return list.find(c => c.id === id) || null;
-    }
-
-    function _charAdd(rec) {
-      if (!rec || !rec.name) return null;
-      const list = _charGetAll();
-      const c = {
-        id: rec.id || _charNewId(),
-        name: String(rec.name).trim(),
-        voiceId: String(rec.voiceId || ''),
-        voiceProvider: String(rec.voiceProvider || ''),
-        description: String(rec.description || '').trim(),
-        aliases: Array.isArray(rec.aliases)
-          ? rec.aliases.map(a => String(a).trim().toLowerCase()).filter(Boolean)
-          : [],
-        color: String(rec.color || _CHAR_COLORS[list.length % _CHAR_COLORS.length]),
-        createdAt: rec.createdAt || Date.now(),
-        updatedAt: Date.now(),
-      };
-      // Replace if exists by id, otherwise append
-      const i = list.findIndex(x => x.id === c.id);
-      if (i >= 0) list[i] = c; else list.push(c);
-      if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
-      _charRender();
-      _charSaveToFirebase(c.id, c);  // Persist to Firebase
-      return c;
-    }
-
-    function _charDelete(id) {
-      if (!id) return;
-      const list = _charGetAll();
-      const i = list.findIndex(c => c.id === id);
-      if (i >= 0) {
-        list.splice(i, 1);
-        if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
-        _charRender();
-        _charSaveToFirebase(id, null);  // Delete from Firebase
-      }
-    }
-
-    /* ── Firebase persistence for characters ──── */
-    async function _charSaveToFirebase(charId, charData) {
-      if (!charId || !_projId || !window._fb || !window._db) return;
-      try {
-        const ref = window._fb.doc(window._db, 'folio_projects', _projId, 'characters', charId);
-        if (charData === null) {
-          // Delete character from Firebase
-          await window._fb.deleteDoc(ref);
-        } else {
-          // Save/update character in Firebase
-          await window._fb.setDoc(ref, charData);
-        }
-      } catch (e) {
-        console.warn('[char-firebase] save failed', e);
-      }
-    }
-
-    async function _charLoadFromFirebase() {
-      if (!_projId || !window._fb || !window._db) return;
-      try {
-        const { collection, getDocs } = window._fb;
-        const colRef = collection(window._db, 'folio_projects', _projId, 'characters');
-        const snap = await getDocs(colRef);
-        const loaded = [];
-        snap.forEach(doc => {
-          const data = doc.data();
-          loaded.push({
-            id: doc.id,
-            ...data,
-            aliases: Array.isArray(data.aliases) ? data.aliases : [],
-          });
-        });
-
-        // Ensure _state.characters exists
-        if (typeof _state !== 'object' || _state == null) _state = {};
-        if (!Array.isArray(_state.characters)) _state.characters = [];
-
-        // For each Firebase character, update or add to state
-        // Firebase takes precedence for characters with matching IDs
-        for (let i = 0; i < loaded.length; i++) {
-          const idx = _state.characters.findIndex(c => c.id === loaded[i].id);
-          if (idx >= 0) {
-            _state.characters[idx] = loaded[i];
-          } else {
-            _state.characters.push(loaded[i]);
-          }
-        }
-
-        // Always render, even if no Firebase characters
-        // This ensures deserialized characters are displayed
-        _charRender();
-      } catch (e) {
-        console.warn('[char-firebase] load failed', e);
-        // Still render even on error to show any deserialized characters
-        if (typeof _state === 'object' && _state && Array.isArray(_state.characters)) {
-          _charRender();
-        }
-      }
-    }
-
-    async function _charSaveAllToFirebase() {
-      if (!_projId || !window._fb || !window._db) return;
-      const chars = _charGetAll();
-      for (let i = 0; i < chars.length; i++) {
-        await _charSaveToFirebase(chars[i].id, chars[i]);
-      }
-    }
-
-    /* ── Dialogue character assignments ────
-       Users can select dialogue text and assign a character to it.
-       Assignments are stored per chapter by text hash for quick lookup.
-    */
-    let _dialogueAssignments = {};  // {chapterId: {textHash: characterId}}
-
-    function _textHashSimple(str) {
-      let h = 5381;
-      for (let i = 0; i < str.length; i++) h = ((h << 5) + h) + str.charCodeAt(i);
-      return (h >>> 0).toString(36);
-    }
-
-    function _dialogueAssignCharacter(chapterId, dialogueText, characterId) {
-      if (!_dialogueAssignments[chapterId]) _dialogueAssignments[chapterId] = {};
-      const hash = _textHashSimple(dialogueText.trim());
-      if (characterId) {
-        _dialogueAssignments[chapterId][hash] = characterId;
-      } else {
-        delete _dialogueAssignments[chapterId][hash];
-      }
-      _dialogueSaveToFirebase();
-    }
-
-    function _dialogueGetCharacter(chapterId, dialogueText) {
-      if (!_dialogueAssignments[chapterId]) return null;
-      const hash = _textHashSimple(dialogueText.trim());
-      return _dialogueAssignments[chapterId][hash] || null;
-    }
-
-    async function _dialogueSaveToFirebase() {
-      if (!_projId || !window._fb || !window._db) return;
-      try {
-        const ref = window._fb.doc(window._db, 'folio_projects', _projId, 'metadata', 'dialogueAssignments');
-        await window._fb.setDoc(ref, _dialogueAssignments, { merge: true });
-      } catch (e) {
-        console.warn('[dialogue-firebase] save failed', e);
-      }
-    }
-
-    async function _dialogueLoadFromFirebase() {
-      if (!_projId || !window._fb || !window._db) return;
-      try {
-        const ref = window._fb.doc(window._db, 'folio_projects', _projId, 'metadata', 'dialogueAssignments');
-        const snap = await window._fb.getDoc(ref);
-        if (snap.exists()) {
-          _dialogueAssignments = snap.data() || {};
-        }
-      } catch (e) {
-        console.warn('[dialogue-firebase] load failed', e);
-        _dialogueAssignments = {};
-      }
-    }
-
-    function _charVoiceLabel(c) {
-      if (!c || !c.voiceId) return null;
-      // Try to look up the friendly label from the loaded voice lists
-      if (c.voiceProvider === 'google' && Array.isArray(_apGoogleVoices)) {
-        const v = _apGoogleVoices.find(x => x.id === c.voiceId || x.name === c.voiceId);
-        if (v) return 'Google · ' + (v.label || v.name || v.id);
-      }
-      if (c.voiceProvider === 'elevenlabs' && Array.isArray(_apElVoices)) {
-        const v = _apElVoices.find(x => x.id === c.voiceId);
-        if (v) return 'ElevenLabs · ' + (v.label || v.name || v.id);
-      }
-      // Unknown / not loaded yet — show the raw id with a hint
-      return (c.voiceProvider || 'voice') + ' · ' + c.voiceId;
-    }
 
     // Character assignment modal
     let _charAssignModalData = { chapterId: null, dialogueText: null };
