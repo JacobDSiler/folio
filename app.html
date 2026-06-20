@@ -10866,11 +10866,14 @@
 
     function _ctxOpenCharacterModal() {
       if (!_ctxTarget) return;
-      _ctxClose();
-
-      // Get the selected dialogue text
+      // Capture the target FIRST — _ctxClose() below sets _ctxTarget = null,
+      // and we still need its .dataset.chid + .textContent for the modal.
+      const targetEl = _ctxTarget;
+      // Capture the selection BEFORE closing the menu (closing the menu
+      // can collapse the selection on some browsers).
       const sel = window.getSelection();
-      const dialogueText = (sel && sel.toString()) || _ctxTarget.textContent || '';
+      const dialogueText = (sel && sel.toString()) || targetEl.textContent || '';
+      _ctxClose();
 
       if (!dialogueText.trim()) {
         if (typeof toastWarning === 'function')
@@ -10878,10 +10881,10 @@
         return;
       }
 
-      // _ctxTarget is either a preview paragraph (carries data-chid)
-      // or the writing-mode textarea (does NOT) — in the latter case
-      // fall back to the globally-tracked _writingChId.
-      const chapterId = _ctxTarget.dataset.chid
+      // targetEl is either a preview paragraph (carries data-chid) or
+      // the writing-mode textarea (does NOT) — in the latter case fall
+      // back to the globally-tracked _writingChId.
+      const chapterId = (targetEl.dataset && targetEl.dataset.chid)
         || (typeof _writingChId !== 'undefined' ? _writingChId : null);
       if (!chapterId) {
         if (typeof toastWarning === 'function')
@@ -10898,16 +10901,35 @@
       }
 
       const selectEl = document.getElementById('casCharSelect');
+      const chars = _charGetAll();
       if (selectEl) {
-        const chars = _charGetAll();
         const currentCharId = _dialogueGetCharacter(chapterId, dialogueText);
         selectEl.innerHTML = '<option value="">— No character —</option>' +
           chars.map(c => '<option value="' + _esc(c.id) + '"' + (c.id === currentCharId ? ' selected' : '') + '>' + _esc(c.name) + '</option>').join('');
       }
+      // Empty-state hint: no characters defined yet → nudge the user
+      // to create one via the existing Manage Characters modal. We
+      // show a single-button row in #casStatus instead of leaving them
+      // staring at a one-option dropdown.
+      const statusEl0 = document.getElementById('casStatus');
+      if (statusEl0) {
+        if (chars.length === 0) {
+          statusEl0.innerHTML = 'No characters yet. <a href="#" id="casCreateChar" ' +
+            'style="color:#a07338;text-decoration:underline;cursor:pointer">Create a character</a> to assign.';
+          statusEl0.style.display = '';
+          const link = document.getElementById('casCreateChar');
+          if (link) link.addEventListener('click', function(ev) {
+            ev.preventDefault();
+            _charAssignCloseModal();
+            if (typeof _charOpenModal === 'function') _charOpenModal();
+          }, { once: true });
+        } else {
+          statusEl0.style.display = 'none';
+          statusEl0.innerHTML = '';
+        }
+      }
 
-      // Clear status message
-      const statusEl = document.getElementById('casStatus');
-      if (statusEl) statusEl.style.display = 'none';
+      // (Status visibility is now managed by the empty-state block above.)
 
       // Open modal
       const modal = document.getElementById('charAssignModal');
