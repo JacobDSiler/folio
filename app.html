@@ -10878,8 +10878,16 @@
         return;
       }
 
-      const chapterId = _ctxTarget.dataset.chid;
-      if (!chapterId) return;
+      // _ctxTarget is either a preview paragraph (carries data-chid)
+      // or the writing-mode textarea (does NOT) — in the latter case
+      // fall back to the globally-tracked _writingChId.
+      const chapterId = _ctxTarget.dataset.chid
+        || (typeof _writingChId !== 'undefined' ? _writingChId : null);
+      if (!chapterId) {
+        if (typeof toastWarning === 'function')
+          toastWarning('Could not identify the chapter for this dialogue.', { duration: 2400 });
+        return;
+      }
 
       _charAssignModalData = { chapterId, dialogueText };
 
@@ -11305,9 +11313,9 @@
     window._charCloseModal = _charCloseModal;
     window._charSaveFromModal = _charSaveFromModal;
     window._charDeleteFromModal = _charDeleteFromModal;
-    window._charDelete = _charDelete;
-    window._charGetAll = _charGetAll;
-    window._charGetById = _charGetById;
+    // window._charDelete is set by characters.js module (no local def to alias).
+    // window._charGetAll is set by characters.js module (no local def to alias).
+    // window._charGetById is set by characters.js module (no local def to alias).
     window._charRender = _charRender;
     window._charPickColor = _charPickColor;
 
@@ -16332,36 +16340,35 @@
 
     /* ── Dialogue auto-detection and selection ──────────────── */
     function _ctxFindDialogueInText(text, offset) {
-      // Find quoted text containing the offset position
+      // Return the inner span of the quoted region containing the offset.
+      // Uses quote PARITY so it correctly returns null for cursors that
+      // are between two quoted spans (e.g. ... she said in `"Hi," she said. "Bye."`).
+      // Only double-quote chars toggle parity — single quotes / apostrophes
+      // are too unreliable (contractions like don't).
       if (!text || offset < 0) return null;
-      const quotes = ['"', '“', '”', '‟'];
-
-      // Find opening quote before offset
-      let openIdx = -1;
-      for (let i = Math.min(offset, text.length - 1); i >= 0; i--) {
-        const c = text[i];
-        if (quotes.indexOf(c) !== -1) {
-          openIdx = i;
-          break;
-        }
+      const isQuote = c => '"“”‟„'.indexOf(c) !== -1;
+      // Collect every quote position in document order.
+      const positions = [];
+      for (let i = 0; i < text.length; i++) {
+        if (isQuote(text[i])) positions.push(i);
       }
-      if (openIdx === -1) return null;
-
-      // Find closing quote after opening quote
-      let closeIdx = -1;
-      for (let i = openIdx + 1; i < text.length; i++) {
-        const c = text[i];
-        if (quotes.indexOf(c) !== -1) {
-          closeIdx = i;
-          break;
-        }
+      if (positions.length < 2) return null;
+      // How many quotes strictly precede the cursor? Odd = inside a
+      // quoted span; even = outside (between spans, or before any).
+      let countBefore = 0;
+      for (const p of positions) {
+        if (p < offset) countBefore++;
+        else break;
       }
-      if (closeIdx === -1) return null;
-
-      // Extract the dialogue text
+      if (countBefore % 2 === 0) return null;
+      const openIdx  = positions[countBefore - 1];
+      const closeIdx = positions[countBefore];
+      if (closeIdx === undefined) return null;  // unclosed quote
       const dialogueText = text.slice(openIdx + 1, closeIdx);
       if (!dialogueText.trim()) return null;
-
+      // Reject if the quote opens with whitespace or non-text (user rule:
+      // genuine dialogue never starts with a leading space).
+      if (/^\s/.test(dialogueText)) return null;
       return { start: openIdx + 1, end: closeIdx, text: dialogueText };
     }
 
@@ -16434,6 +16441,9 @@
     function _ctxOpen(e, el) {
       e.preventDefault();
       _ctxTarget = el;
+      // Set true below if the auto-detector finds a quoted span under
+      // the cursor and we select it. Drives Set Character visibility.
+      let _autoDialogueFound = false;
 
       // Save contenteditable selection before menu steals focus
       const sel = window.getSelection();
@@ -16464,6 +16474,7 @@
         if (dialogue) {
           if (_ctxSelectDialogue(el, dialogue)) {
             hasSel = true;
+            _autoDialogueFound = true;  // drives Set Character visibility
             // Update selection for contenteditable
             if (isCE) {
               const sel2 = window.getSelection();
@@ -16481,12 +16492,19 @@
       // Find selection only when text is selected
       document.getElementById('ctxFind').style.display = hasSel ? '' : 'none';
 
-      // Show Set Character only for contenteditable (preview) when text is selected and is dialogue
+      // Show Set Character whenever the current selection is a quoted
+      // span — works in BOTH the chapter-edit textarea AND the preview
+      // contenteditable. Two ways the selection qualifies:
+      //   * _autoDialogueFound is true   — _ctxFindDialogueInText found
+      //     a valid quote pair under the cursor and _ctxSelectDialogue
+      //     installed it as the selection (inner text, no quote chars).
+      //   * the selected text itself contains a quote char — user
+      //     manually selected a span that includes its quotes.
       const ctxSetChar = document.getElementById('ctxSetChar');
       if (ctxSetChar) {
         const selectedText = isTA ? el.value.slice(el.selectionStart, el.selectionEnd) : (sel && sel.toString()) || '';
-        const isDialogue = _ctxIsSelectedTextDialogue(selectedText);
-        ctxSetChar.style.display = (!isTA && hasSel && isDialogue) ? '' : 'none';
+        const isDialogue = _autoDialogueFound || _ctxIsSelectedTextDialogue(selectedText);
+        ctxSetChar.style.display = (hasSel && isDialogue) ? '' : 'none';
       }
 
       const _stk = localStorage.getItem('folioShareToken_' + (_readerFolioId || _projId));
@@ -17611,7 +17629,7 @@
        ═══════════════════════════════════════════════════════════════════ */
 
     let _rlMode = 'free';   // 'free' | 'paid' | 'private'
-    let _rlCurrent = null;  // the release object currently on disk (or null)
+    var _rlCurrent = null;  // var, not let — loadFolioById assigns to it before this line runs (avoid TDZ)  // the release object currently on disk (or null)
 
     // Visibility helpers ────────────────────────────────────────────
     function _rlIsReleased() {
@@ -19938,7 +19956,7 @@
        - Last-read-position tracking per book
        ═══════════════════════════════════════════════════════════════════ */
 
-    let _readerMode = false;
+    var _readerMode = false;  // var, not let — read in _tourMaybePrompt + loadFolioById before this line runs
     let _readerFolioId = null;
     let _readerRole = 'reader';   // 'reader' | 'beta' | 'editor'
     let _readerReady = false;
