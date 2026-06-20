@@ -1,5 +1,14 @@
-// Character data management and Firebase persistence
-// Dependencies: global _state, _projId, window._fb, window._db, _scheduleAutoSave(), _charRender()
+// Character data management and Firebase persistence.
+//
+// Runs inside <script type="module">. ES modules have their OWN scope —
+// they CANNOT see top-level `let _projId` / `let _state` from the classic
+// <script> below in app.html. We therefore reference both as window
+// properties (window._projId, window._state) so the module sees the
+// classic script's live values. Without this every Firebase save/load
+// silently no-ops on the `typeof _projId === 'undefined'` guard.
+// Other dependencies (window._fb, window._db, window._scheduleAutoSave,
+// window._charRender, window._apGoogleVoices, window._apElVoices) are
+// already on window for the same reason.
 
 export const CHAR_COLORS = [
   '#c98c2a', '#5a8a3e', '#3a6c8c', '#9c3d4a',
@@ -11,10 +20,16 @@ export function charNewId() {
   return 'char_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
 }
 
+// Tiny helper — returns window._state, lazily initialising .characters
+// so callers always see a real array even on a fresh page.
+function _ensureStateChars() {
+  if (typeof window._state !== 'object' || window._state == null) window._state = {};
+  if (!Array.isArray(window._state.characters)) window._state.characters = [];
+  return window._state.characters;
+}
+
 export function charGetAll() {
-  if (typeof _state !== 'object' || _state == null) return [];
-  if (!Array.isArray(_state.characters)) _state.characters = [];
-  return _state.characters;
+  return _ensureStateChars();
 }
 
 export function charGetById(id) {
@@ -41,8 +56,12 @@ export function charAdd(rec) {
   // Replace if exists by id, otherwise append
   const i = list.findIndex(x => x.id === c.id);
   if (i >= 0) list[i] = c; else list.push(c);
-  if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
-  if (typeof _charRender === 'function') _charRender();
+  if (typeof window._scheduleAutoSave === 'function') window._scheduleAutoSave();
+  if (typeof window._charRender === 'function') window._charRender();
+  // Re-render preview so the dialogue-color underline picks up the new
+  // (or changed) character color immediately, without waiting for the
+  // next render trigger.
+  if (typeof window.renderPreview === 'function') window.renderPreview();
   charSaveToFirebase(c.id, c);
   return c;
 }
@@ -53,16 +72,17 @@ export function charDelete(id) {
   const i = list.findIndex(c => c.id === id);
   if (i >= 0) {
     list.splice(i, 1);
-    if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
-    if (typeof _charRender === 'function') _charRender();
+    if (typeof window._scheduleAutoSave === 'function') window._scheduleAutoSave();
+    if (typeof window._charRender === 'function') window._charRender();
+    if (typeof window.renderPreview === 'function') window.renderPreview();
     charSaveToFirebase(id, null);
   }
 }
 
 export async function charSaveToFirebase(charId, charData) {
-  if (!charId || typeof _projId === 'undefined' || !window._fb || !window._db) return;
+  if (!charId || !window._projId || !window._fb || !window._db) return;
   try {
-    const ref = window._fb.doc(window._db, 'folio_projects', _projId, 'characters', charId);
+    const ref = window._fb.doc(window._db, 'folio_projects', window._projId, 'characters', charId);
     if (charData === null) {
       await window._fb.deleteDoc(ref);
     } else {
@@ -74,10 +94,10 @@ export async function charSaveToFirebase(charId, charData) {
 }
 
 export async function charLoadFromFirebase() {
-  if (typeof _projId === 'undefined' || !window._fb || !window._db) return;
+  if (!window._projId || !window._fb || !window._db) return;
   try {
     const { collection, getDocs } = window._fb;
-    const colRef = collection(window._db, 'folio_projects', _projId, 'characters');
+    const colRef = collection(window._db, 'folio_projects', window._projId, 'characters');
     const snap = await getDocs(colRef);
     const loaded = [];
     snap.forEach(doc => {
@@ -89,36 +109,32 @@ export async function charLoadFromFirebase() {
       });
     });
 
-    if (typeof _state !== 'object' || _state == null) _state = {};
-    if (!Array.isArray(_state.characters)) _state.characters = [];
-
+    const list = _ensureStateChars();
     for (let i = 0; i < loaded.length; i++) {
-      const idx = _state.characters.findIndex(c => c.id === loaded[i].id);
-      if (idx >= 0) {
-        _state.characters[idx] = loaded[i];
-      } else {
-        _state.characters.push(loaded[i]);
-      }
+      const idx = list.findIndex(c => c.id === loaded[i].id);
+      if (idx >= 0) list[idx] = loaded[i];
+      else            list.push(loaded[i]);
     }
 
-    if (typeof _charRender === 'function') _charRender();
+    if (typeof window._charRender === 'function') window._charRender();
+    if (typeof window.renderPreview === 'function') window.renderPreview();
   } catch (e) {
     console.warn('[char-firebase] load failed', e);
-    if (typeof _state === 'object' && _state && Array.isArray(_state.characters)) {
-      if (typeof _charRender === 'function') _charRender();
-    }
+    if (typeof window._charRender === 'function') window._charRender();
   }
 }
 
 export async function charSaveAllToFirebase() {
-  if (typeof _projId === 'undefined' || !window._fb || !window._db) return;
+  if (!window._projId || !window._fb || !window._db) return;
   const chars = charGetAll();
   for (let i = 0; i < chars.length; i++) {
     await charSaveToFirebase(chars[i].id, chars[i]);
   }
 }
 
-// Dialogue character assignments
+// Dialogue character assignments.
+// Local in-memory map; mirrored to Firestore at
+//   folio_projects/<id>/metadata/dialogueAssignments  (single doc, merge).
 let dialogueAssignments = {};
 
 function textHashSimple(str) {
@@ -129,25 +145,28 @@ function textHashSimple(str) {
 
 export function dialogueAssignCharacter(chapterId, dialogueText, characterId) {
   if (!dialogueAssignments[chapterId]) dialogueAssignments[chapterId] = {};
-  const hash = textHashSimple(dialogueText.trim());
+  const hash = textHashSimple(String(dialogueText || '').trim());
   if (characterId) {
     dialogueAssignments[chapterId][hash] = characterId;
   } else {
     delete dialogueAssignments[chapterId][hash];
   }
+  // Persist + re-render. Saving is async + best-effort; the highlight
+  // re-render is synchronous so users see immediate feedback.
   dialogueSaveToFirebase();
+  if (typeof window.renderPreview === 'function') window.renderPreview();
 }
 
 export function dialogueGetCharacter(chapterId, dialogueText) {
   if (!dialogueAssignments[chapterId]) return null;
-  const hash = textHashSimple(dialogueText.trim());
+  const hash = textHashSimple(String(dialogueText || '').trim());
   return dialogueAssignments[chapterId][hash] || null;
 }
 
 export async function dialogueSaveToFirebase() {
-  if (typeof _projId === 'undefined' || !window._fb || !window._db) return;
+  if (!window._projId || !window._fb || !window._db) return;
   try {
-    const ref = window._fb.doc(window._db, 'folio_projects', _projId, 'metadata', 'dialogueAssignments');
+    const ref = window._fb.doc(window._db, 'folio_projects', window._projId, 'metadata', 'dialogueAssignments');
     await window._fb.setDoc(ref, dialogueAssignments, { merge: true });
   } catch (e) {
     console.warn('[dialogue-firebase] save failed', e);
@@ -155,13 +174,15 @@ export async function dialogueSaveToFirebase() {
 }
 
 export async function dialogueLoadFromFirebase() {
-  if (typeof _projId === 'undefined' || !window._fb || !window._db) return;
+  if (!window._projId || !window._fb || !window._db) return;
   try {
-    const ref = window._fb.doc(window._db, 'folio_projects', _projId, 'metadata', 'dialogueAssignments');
+    const ref = window._fb.doc(window._db, 'folio_projects', window._projId, 'metadata', 'dialogueAssignments');
     const snap = await window._fb.getDoc(ref);
     if (snap.exists()) {
       dialogueAssignments = snap.data() || {};
     }
+    // Re-render after load so any saved assignments paint immediately.
+    if (typeof window.renderPreview === 'function') window.renderPreview();
   } catch (e) {
     console.warn('[dialogue-firebase] load failed', e);
     dialogueAssignments = {};
@@ -170,22 +191,22 @@ export async function dialogueLoadFromFirebase() {
 
 export function charVoiceLabel(c) {
   if (!c || !c.voiceId) return null;
-  if (c.voiceProvider === 'google' && typeof _apGoogleVoices !== 'undefined' && Array.isArray(_apGoogleVoices)) {
-    const v = _apGoogleVoices.find(x => x.id === c.voiceId || x.name === c.voiceId);
+  if (c.voiceProvider === 'google' && Array.isArray(window._apGoogleVoices)) {
+    const v = window._apGoogleVoices.find(x => x.id === c.voiceId || x.name === c.voiceId);
     if (v) return 'Google · ' + (v.label || v.name || v.id);
   }
-  if (c.voiceProvider === 'elevenlabs' && typeof _apElVoices !== 'undefined' && Array.isArray(_apElVoices)) {
-    const v = _apElVoices.find(x => x.id === c.voiceId);
+  if (c.voiceProvider === 'elevenlabs' && Array.isArray(window._apElVoices)) {
+    const v = window._apElVoices.find(x => x.id === c.voiceId);
     if (v) return 'ElevenLabs · ' + (v.label || v.name || v.id);
   }
   return (c.voiceProvider || 'voice') + ' · ' + c.voiceId;
 }
 
-// Export internal dialogue state for debugging
+// Export internal dialogue state for debugging / cloud-sync.
 export function getDialogueAssignments() {
   return dialogueAssignments;
 }
 
 export function setDialogueAssignments(assignments) {
-  dialogueAssignments = assignments;
+  dialogueAssignments = (assignments && typeof assignments === 'object') ? assignments : {};
 }
