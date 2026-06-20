@@ -16484,13 +16484,36 @@
         let offset = 0;
         if (isTA) {
           offset = el.selectionStart;
-        } else if (isCE && sel && sel.rangeCount > 0) {
-          // For contenteditable, calculate cursor offset from selection
-          const range = sel.getRangeAt(0);
-          const preCaretRange = range.cloneRange();
-          preCaretRange.selectNodeContents(el);
-          preCaretRange.setEnd(range.endContainer, range.endOffset);
-          offset = preCaretRange.toString().length;
+        } else if (isCE) {
+          // Derive the precise click-point character offset INSIDE el.
+          // Priority: caretRangeFromPoint (Blink/WebKit) →
+          // caretPositionFromPoint (Gecko) → selection range fallback.
+          // Without this, right-clicking without a prior caret leaves
+          // sel.rangeCount = 0 (esp. Firefox) and offset stayed 0, so
+          // every paragraph past the first quote pair was undetectable.
+          let cursorNode = null, cursorOff = 0;
+          try {
+            if (typeof document.caretRangeFromPoint === 'function') {
+              const r = document.caretRangeFromPoint(e.clientX, e.clientY);
+              if (r) { cursorNode = r.startContainer; cursorOff = r.startOffset; }
+            } else if (typeof document.caretPositionFromPoint === 'function') {
+              const p = document.caretPositionFromPoint(e.clientX, e.clientY);
+              if (p) { cursorNode = p.offsetNode; cursorOff = p.offset; }
+            }
+          } catch (_e) { /* fall through to selection-range fallback */ }
+          if (!cursorNode && sel && sel.rangeCount > 0) {
+            const range = sel.getRangeAt(0);
+            cursorNode = range.endContainer;
+            cursorOff  = range.endOffset;
+          }
+          if (cursorNode && el.contains(cursorNode)) {
+            try {
+              const pc = document.createRange();
+              pc.selectNodeContents(el);
+              pc.setEnd(cursorNode, cursorOff);
+              offset = pc.toString().length;
+            } catch (_e) { /* leave offset at 0 */ }
+          }
         }
         const dialogue = _ctxFindDialogueInText(fullText, offset);
         if (dialogue) {
