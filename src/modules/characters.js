@@ -143,13 +143,25 @@ function textHashSimple(str) {
   return (h >>> 0).toString(36);
 }
 
-export function dialogueAssignCharacter(chapterId, dialogueText, characterId) {
-  if (!dialogueAssignments[chapterId]) dialogueAssignments[chapterId] = {};
+// Storage key: when paraIdx is a non-negative integer we use
+// "<paraIdx>:<hash>" so the SAME dialogue text spoken by different
+// characters in different paragraphs of the chapter stay independently
+// addressable. Falls back to the text-only hash for legacy callers
+// that don't pass paraIdx (read path also tries the legacy key for
+// backward-compat with assignments saved before this change).
+function _dialogueKey(paraIdx, dialogueText) {
   const hash = textHashSimple(String(dialogueText || '').trim());
+  return (typeof paraIdx === 'number' && paraIdx >= 0)
+    ? (paraIdx + ':' + hash) : hash;
+}
+
+export function dialogueAssignCharacter(chapterId, paraIdx, dialogueText, characterId) {
+  if (!dialogueAssignments[chapterId]) dialogueAssignments[chapterId] = {};
+  const key = _dialogueKey(paraIdx, dialogueText);
   if (characterId) {
-    dialogueAssignments[chapterId][hash] = characterId;
+    dialogueAssignments[chapterId][key] = characterId;
   } else {
-    delete dialogueAssignments[chapterId][hash];
+    delete dialogueAssignments[chapterId][key];
   }
   // Persist + re-render. Saving is async + best-effort; the highlight
   // re-render is synchronous so users see immediate feedback.
@@ -157,10 +169,16 @@ export function dialogueAssignCharacter(chapterId, dialogueText, characterId) {
   if (typeof window.renderPreview === 'function') window.renderPreview();
 }
 
-export function dialogueGetCharacter(chapterId, dialogueText) {
+export function dialogueGetCharacter(chapterId, paraIdx, dialogueText) {
   if (!dialogueAssignments[chapterId]) return null;
-  const hash = textHashSimple(String(dialogueText || '').trim());
-  return dialogueAssignments[chapterId][hash] || null;
+  // Try the paraIdx-specific key first, then fall back to the legacy
+  // text-only hash (so assignments saved before per-occurrence keying
+  // still resolve).
+  const map = dialogueAssignments[chapterId];
+  const specific = _dialogueKey(paraIdx, dialogueText);
+  if (map[specific]) return map[specific];
+  const legacy = textHashSimple(String(dialogueText || '').trim());
+  return map[legacy] || null;
 }
 
 export async function dialogueSaveToFirebase() {

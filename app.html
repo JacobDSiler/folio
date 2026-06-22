@@ -146,6 +146,11 @@
     window._dialogueSaveToFirebase = dialogueSaveToFirebase;
     window._dialogueLoadFromFirebase = dialogueLoadFromFirebase;
     window._charVoiceLabel = charVoiceLabel;
+    // Read-only accessor for the dialogue-assignments map. The audio path
+    // needs to gate on "any assignments yet?" but the map itself is
+    // module-internal; expose it via the function export so the classic
+    // script can ask the question.
+    window._getDialogueAssignments = getDialogueAssignments;
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
     import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, deleteDoc, addDoc, onSnapshot, serverTimestamp, orderBy, limit, deleteField } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js';
@@ -10900,7 +10905,11 @@
         return;
       }
 
-      _charAssignModalData = { chapterId, dialogueText };
+      // Capture paraIdx too so identical dialogue text in different
+      // paragraphs can be assigned to different characters.
+      const paraIdxRaw = (targetEl.dataset && targetEl.dataset.paraidx);
+      const paraIdx = (paraIdxRaw != null && paraIdxRaw !== '') ? parseInt(paraIdxRaw, 10) : -1;
+      _charAssignModalData = { chapterId, paraIdx, dialogueText };
 
       // Populate modal
       const dialogueEl = document.getElementById('casDialogueText');
@@ -10911,7 +10920,7 @@
       const selectEl = document.getElementById('casCharSelect');
       const chars = _charGetAll();
       if (selectEl) {
-        const currentCharId = _dialogueGetCharacter(chapterId, dialogueText);
+        const currentCharId = _dialogueGetCharacter(chapterId, paraIdx, dialogueText);
         selectEl.innerHTML = '<option value="">— No character —</option>' +
           chars.map(c => '<option value="' + _esc(c.id) + '"' + (c.id === currentCharId ? ' selected' : '') + '>' + _esc(c.name) + '</option>').join('');
       }
@@ -10961,7 +10970,7 @@
       if (!selectEl || !_charAssignModalData.chapterId || !_charAssignModalData.dialogueText) return;
 
       const characterId = selectEl.value || null;
-      _dialogueAssignCharacter(_charAssignModalData.chapterId, _charAssignModalData.dialogueText, characterId);
+      _dialogueAssignCharacter(_charAssignModalData.chapterId, _charAssignModalData.paraIdx, _charAssignModalData.dialogueText, characterId);
       _charAssignCloseModal();
 
       // Re-render preview to show the assignment
@@ -23661,8 +23670,8 @@
       return n.toLocaleString('en-US') + ' ch';
     }
     // New function to assign a character to a line (called from context menu modal)
-    function _apAssignCharacterToLine(chapterId, lineText, characterId) {
-      _dialogueAssignCharacter(chapterId, lineText, characterId || null);
+    function _apAssignCharacterToLine(chapterId, paraIdx, lineText, characterId) {
+      _dialogueAssignCharacter(chapterId, paraIdx, lineText, characterId || null);
       renderPreview(); // Re-render to update highlighting
       toastInfo('Character assigned', { duration: 1500 });
     }
@@ -23702,7 +23711,7 @@
     // soft background tint + underline. Quote-parity logic mirrors
     // _ctxFindDialogueInText so detection and highlighting agree.
     // Unassigned dialogue is left visually untouched.
-    function _charHighlightDialogue(text, chId, dialogueGetCharacter, allCharacters) {
+    function _charHighlightDialogue(text, chId, dialogueGetCharacter, allCharacters, paraIdx) {
       if (!text) return '';
       // Only double-quote chars toggle parity (apostrophes break on contractions).
       const QUOTES = '"\u201C\u201D\u201F\u201E';
@@ -23726,7 +23735,7 @@
           out += esc(openCh) + md(esc(inner)) + esc(closeCh);
         } else {
           let charObj = null;
-          try { const id = getChar(chId, inner); if (id) charObj = getChars().find(c => c && c.id === id) || null; } catch (e) {}
+          try { const id = getChar(chId, (typeof paraIdx === 'number' ? paraIdx : -1), inner); if (id) charObj = getChars().find(c => c && c.id === id) || null; } catch (e) {}
           if (charObj && charObj.color) {
             // Tint = color + alpha. 0x26 ≈ 15 % — soft highlight on light bg.
             const tint = charObj.color + '26';
@@ -23784,9 +23793,9 @@
       // Per-quote character highlighting uses dialogueGetCharacter and
       // allCharacters from the function-parameter closure (caller passes
       // window._dialogueGetCharacter + window._charGetAll).
-      const _bodyHTML = _charHighlightDialogue(dcBody, chId, dialogueGetCharacter, allCharacters);
+      const _bodyHTML = _charHighlightDialogue(dcBody, chId, dialogueGetCharacter, allCharacters, paraIdx);
       const _bodyHTMLTail = dropCapEnabled && isFirst && dcBody.length > 1
-        ? _charHighlightDialogue(dcBody.slice(1), chId, dialogueGetCharacter, allCharacters)
+        ? _charHighlightDialogue(dcBody.slice(1), chId, dialogueGetCharacter, allCharacters, paraIdx)
         : null;
       const dc = dropCapEnabled && isFirst && dcBody.length > 1
         ? wrapOpen + `<span style="float:left;font-family:'Playfair Display',Georgia,serif;font-size:${pt(fsize * 3.6)};line-height:0.76;margin:${pt(fsize * 0.08)} ${mm(1)} 0 0;color:${accentColor};font-weight:700">${esc(dcBody[0])}</span>${_bodyHTMLTail}` + wrapClose
@@ -23966,51 +23975,46 @@
     }
 
     function _apDialogueSegments(text, chapterId) {
-      // Split text into segments: narration and dialogue.
-      // Each segment gets analyzed for character assignment.
-      // For now, we use a simple heuristic: quoted text = dialogue.
+      // Same quote-parity logic as _charHighlightDialogue, but applied
+      // per-paragraph so paraIdx-keyed assignments resolve correctly.
+      // The chapter text comes in as paragraph-joined-by-\n; splitting
+      // restores paraIdx for the lookup, while the emitted segment list
+      // is still a flat sequence the TTS pipeline reads in order.
+      const QUOTES = '"“”‟„';
+      const isQuote = c => QUOTES.indexOf(c) !== -1;
+      const getChar = (typeof _dialogueGetCharacter === 'function')
+        ? _dialogueGetCharacter : (window._dialogueGetCharacter || (() => null));
       const segments = [];
-      let current = '', currentIsDialogue = false;
-
-      // Simple regex to find quoted text
-      const regex = /([""‟″]|"(?=[^"]*"))/g;
-      let lastIdx = 0, inQuote = false;
-
-      const chars = text.split('');
-      for (let i = 0; i < chars.length; i++) {
-        const c = chars[i];
-        const isQuote = /([""‟″]|^")/.test(c) || (c === '"' && i < text.length - 1);
-
-        if (isQuote) inQuote = !inQuote;
-
-        const segmentIsDialogue = inQuote;
-        if (segmentIsDialogue !== currentIsDialogue && current.trim()) {
-          segments.push({
-            text: current,
-            isDialogue: currentIsDialogue,
-            characterId: null,
-          });
-          current = '';
+      const paragraphs = String(text || '').split('\n');
+      for (let paraIdx = 0; paraIdx < paragraphs.length; paraIdx++) {
+        const para = paragraphs[paraIdx];
+        if (!para || !para.trim()) continue;
+        const positions = [];
+        for (let i = 0; i < para.length; i++) {
+          if (isQuote(para[i])) positions.push(i);
         }
-        current += c;
-        currentIsDialogue = segmentIsDialogue;
-      }
-      if (current.trim()) {
-        segments.push({
-          text: current,
-          isDialogue: currentIsDialogue,
-          characterId: null,
-        });
-      }
-
-      // Assign characters to dialogue segments
-      for (let i = 0; i < segments.length; i++) {
-        if (segments[i].isDialogue) {
-          const charId = _dialogueGetCharacter(chapterId, segments[i].text);
-          if (charId) segments[i].characterId = charId;
+        let lastEnd = 0;
+        for (let i = 0; i + 1 < positions.length; i += 2) {
+          const openIdx  = positions[i];
+          const closeIdx = positions[i + 1];
+          if (openIdx > lastEnd) {
+            const narr = para.slice(lastEnd, openIdx);
+            if (narr.trim()) segments.push({ text: narr, isDialogue: false, characterId: null });
+          }
+          const inner  = para.slice(openIdx + 1, closeIdx);
+          const quoted = para.slice(openIdx, closeIdx + 1);
+          let charId = null;
+          if (inner.trim() && !/^\s/.test(inner)) {
+            try { charId = getChar(chapterId, paraIdx, inner); } catch (_e) {}
+          }
+          segments.push({ text: quoted, isDialogue: true, characterId: charId });
+          lastEnd = closeIdx + 1;
+        }
+        if (lastEnd < para.length) {
+          const tail = para.slice(lastEnd);
+          if (tail.trim()) segments.push({ text: tail, isDialogue: false, characterId: null });
         }
       }
-
       return segments;
     }
 
@@ -24057,7 +24061,17 @@
         const hash = _textHash(rawText);
 
         // Character-aware generation: split into segments with character assignments
-        const hasCharacterAssignments = Object.keys(_dialogueAssignments).length > 0 && _charGetAll().length > 0;
+        // Multi-voice is active when at least one character has been defined
+        // AND at least one dialogue line has been assigned. _dialogueAssignments
+        // is module-internal — read it through the wired accessor, not as a
+        // bare identifier (was ReferenceError-ing and silently aborting the
+        // whole chapter generation).
+        let hasCharacterAssignments = false;
+        try {
+          const _assigns = (typeof window._getDialogueAssignments === 'function')
+            ? window._getDialogueAssignments() : {};
+          hasCharacterAssignments = _charGetAll().length > 0 && Object.keys(_assigns).length > 0;
+        } catch (_e) { hasCharacterAssignments = false; }
         const blobs = [];
         let totalDur = 0;
 
@@ -24183,7 +24197,7 @@
 
         // Character voice switching logic
         let voiceInfo = _apGetCharacterVoice(null); // Default to narrator
-        const assignedCharId = _dialogueGetCharacter(chapterId, text);
+        const assignedCharId = _dialogueGetCharacter(chapterId, paraIdx, text);
         if (assignedCharId) {
           voiceInfo = _apGetCharacterVoice(assignedCharId);
         }
@@ -24332,7 +24346,7 @@
           _apStitchedAudioBlobs[lineId] = { ...( _apStitchedAudioBlobs[lineId] || {}), isGenerating: true };
           renderPreview(); // Re-render to show spinner
 
-          const voiceInfo = _apGetCharacterVoice(_dialogueGetCharacter(_apCurrentStitchChId, text));
+          const voiceInfo = _apGetCharacterVoice(_dialogueGetCharacter(_apCurrentStitchChId, paraIdx, text));
           let blob;
           if (voiceInfo.provider === 'google') {
             blob = await _apGoogleTTS(text, voiceInfo.voiceId, _apSpeed, _apGoogleKey);
