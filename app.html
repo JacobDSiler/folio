@@ -11073,52 +11073,115 @@
     // Modal state
     let _charModalEditingId = null;
 
-    function _charPopulateVoiceDropdown(selectedId, selectedProvider) {
+    // Cap on rendered option count — even modern browsers stall when a
+    // <select> contains 2000+ options. Users type into #cmVoiceSearch
+    // to narrow further when their pick isn't in the visible slice.
+    const _CHAR_VOICE_MAX_DISPLAY = 200;
+
+    function _charPopulateVoiceDropdown(selectedId, selectedProvider, filterStr) {
       const sel = document.getElementById('cmVoice');
       const hint = document.getElementById('cmVoiceHint');
       if (!sel) return;
+      const filter = String(filterStr || '').trim().toLowerCase();
       // Always include the "no voice" placeholder at the top
       sel.innerHTML = '<option value="">— No voice assigned (narrator default) —</option>';
 
       const googleVoices = Array.isArray(_apGoogleVoices) ? _apGoogleVoices : [];
       const elVoices = Array.isArray(_apElVoices) ? _apElVoices : [];
 
-      if (googleVoices.length) {
+      function matches(v) {
+        if (!filter) return true;
+        const lab = String(v.label || v.id || '').toLowerCase();
+        return lab.indexOf(filter) !== -1;
+      }
+      const gMatch = googleVoices.filter(matches);
+      const eMatch = elVoices.filter(matches);
+
+      // Render up to _CHAR_VOICE_MAX_DISPLAY total — Google first, then EL.
+      let budget = _CHAR_VOICE_MAX_DISPLAY;
+      const gDisplay = gMatch.slice(0, budget);
+      budget -= gDisplay.length;
+      const eDisplay = eMatch.slice(0, Math.max(0, budget));
+
+      if (gDisplay.length) {
         const og = document.createElement('optgroup');
         og.label = 'Google TTS';
-        googleVoices.forEach(v => {
+        gDisplay.forEach(v => {
           const opt = document.createElement('option');
           opt.value = 'google::' + v.id;
           opt.textContent = v.label || v.name || v.id;
-          sel.appendChild(og);
           og.appendChild(opt);
         });
+        sel.appendChild(og);
       }
-      if (elVoices.length) {
+      if (eDisplay.length) {
         const og = document.createElement('optgroup');
         og.label = 'ElevenLabs';
-        elVoices.forEach(v => {
+        eDisplay.forEach(v => {
           const opt = document.createElement('option');
           opt.value = 'elevenlabs::' + v.id;
           opt.textContent = v.label || v.name || v.id;
-          sel.appendChild(og);
           og.appendChild(opt);
         });
+        sel.appendChild(og);
       }
-      // Restore selection
+      // Restore selection if the desired option is in the visible slice.
       if (selectedId && selectedProvider) {
-        sel.value = selectedProvider + '::' + selectedId;
+        const wantVal = selectedProvider + '::' + selectedId;
+        // Add the currently-selected voice as a one-off if it's not in
+        // the visible slice (so the modal opens with the actual current
+        // pick selected, not a fallback).
+        const present = Array.prototype.some.call(sel.querySelectorAll('option'), o => o.value === wantVal);
+        if (!present) {
+          const list = selectedProvider === 'google' ? googleVoices : elVoices;
+          const v = list.find(x => x.id === selectedId);
+          if (v) {
+            const og = document.createElement('optgroup');
+            og.label = 'Current pick';
+            const opt = document.createElement('option');
+            opt.value = wantVal;
+            opt.textContent = v.label || v.name || v.id;
+            og.appendChild(opt);
+            sel.insertBefore(og, sel.children[1] || null);
+          }
+        }
+        sel.value = wantVal;
       }
-      // Hint
-      if (!googleVoices.length && !elVoices.length) {
+      // Hint — show counts (matched / total) so the user knows whether
+      // their search narrowed enough or they still need to type more.
+      const gTotal = googleVoices.length, eTotal = elVoices.length;
+      const gShown = gDisplay.length, eShown = eDisplay.length;
+      const gMatched = gMatch.length, eMatched = eMatch.length;
+      if (!gTotal && !eTotal) {
         if (hint) hint.innerHTML = '<span style="color:#c44">To use character voices, open the Audiobook studio and add your Google Cloud TTS or ElevenLabs API key.</span>';
+      } else if (filter) {
+        const parts = [];
+        if (gTotal) parts.push('Google ' + gShown + '/' + gMatched);
+        if (eTotal) parts.push('ElevenLabs ' + eShown + '/' + eMatched);
+        const truncated = (gMatched > gShown) || (eMatched > eShown);
+        if (hint) hint.textContent = 'Showing ' + parts.join(', ') + (truncated ? ' (type to narrow further)' : '') + '.';
       } else {
         const parts = [];
-        if (googleVoices.length) parts.push(googleVoices.length + ' Google');
-        if (elVoices.length) parts.push(elVoices.length + ' ElevenLabs');
-        if (hint) hint.textContent = 'Available: ' + parts.join(', ') + ' voice' + ((googleVoices.length + elVoices.length === 1) ? '' : 's') + '.';
+        if (gTotal) parts.push(gTotal + ' Google');
+        if (eTotal) parts.push(eTotal + ' ElevenLabs');
+        const total = gTotal + eTotal;
+        const cap = (total > _CHAR_VOICE_MAX_DISPLAY) ? ' — showing top ' + _CHAR_VOICE_MAX_DISPLAY + ', type to narrow' : '';
+        if (hint) hint.textContent = 'Available: ' + parts.join(', ') + ' voice' + (total === 1 ? '' : 's') + cap + '.';
       }
     }
+    // Search-input handler: re-render with the new filter, preserving
+    // the currently-selected voice so the user doesn't lose their pick
+    // while narrowing the list.
+    function _charFilterVoiceDropdown(filterStr) {
+      const sel = document.getElementById('cmVoice');
+      let curId = '', curProv = '';
+      if (sel && sel.value) {
+        const parts = sel.value.split('::');
+        if (parts.length === 2) { curProv = parts[0]; curId = parts[1]; }
+      }
+      _charPopulateVoiceDropdown(curId, curProv, filterStr);
+    }
+    window._charFilterVoiceDropdown = _charFilterVoiceDropdown;
 
     async function _charOpenModal(prefillId) {
       const modal = document.getElementById('charModal');
@@ -23590,9 +23653,17 @@
       }, 600);
     }
 
-    function _apPopulateVoices() {
+    // Cap on rendered <option>s. With 2000+ Google voices the unfiltered
+    // dropdown stalls or refuses to open. The search input above lets the
+    // user narrow to the voice they want; counts are surfaced in the
+    // little caption underneath.
+    const _AP_VOICE_MAX_DISPLAY = 200;
+
+    function _apPopulateVoices(filterStr) {
       const sel = document.getElementById('apVoice');
+      const countEl = document.getElementById('apVoiceCount');
       if (!sel) return;
+      const filter = String(filterStr || '').trim().toLowerCase();
       sel.innerHTML = '';
       const list = (_apProvider === 'google') ? _apGoogleVoices : _apElVoices;
       if (!list.length) {
@@ -23603,20 +23674,58 @@
           : 'No voices available';
         sel.appendChild(opt);
         sel.disabled = true;
+        if (countEl) countEl.textContent = '';
         return;
       }
       sel.disabled = false;
-      for (let i = 0; i < list.length; i++) {
-        const v = list[i];
+      function matches(v) {
+        if (!filter) return true;
+        const lab = String(v.label || v.id || '').toLowerCase();
+        return lab.indexOf(filter) !== -1;
+      }
+      const matched = list.filter(matches);
+      const display = matched.slice(0, _AP_VOICE_MAX_DISPLAY);
+      for (let i = 0; i < display.length; i++) {
+        const v = display[i];
         const opt = document.createElement('option');
         opt.value = v.id;
         opt.textContent = v.label || v.id;
         sel.appendChild(opt);
       }
-      const has = list.some(v => v.id === _apVoiceId);
-      sel.value = has ? _apVoiceId : list[0].id;
+      // Currently-saved voice may not be in the visible slice; pin it
+      // at the top as a "current pick" option so it stays selectable.
+      const currentVisible = display.some(v => v.id === _apVoiceId);
+      if (!currentVisible && _apVoiceId) {
+        const cur = list.find(v => v.id === _apVoiceId);
+        if (cur) {
+          const opt = document.createElement('option');
+          opt.value = cur.id;
+          opt.textContent = (cur.label || cur.id) + '  · current pick';
+          sel.insertBefore(opt, sel.firstChild);
+        }
+      }
+      const has = Array.prototype.some.call(sel.querySelectorAll('option'), o => o.value === _apVoiceId);
+      sel.value = has ? _apVoiceId : (display[0] && display[0].id) || '';
       _apVoiceId = sel.value;
+      // Caption: "Showing N of M voices…" so users know whether they're
+      // looking at the full list or a truncated slice.
+      if (countEl) {
+        const total = list.length;
+        if (filter) {
+          const truncated = matched.length > display.length;
+          countEl.textContent = 'Showing ' + display.length + ' of ' + matched.length + ' match' + (matched.length === 1 ? '' : 'es') +
+            ' (out of ' + total + ' total)' + (truncated ? ' — keep typing to narrow' : '') + '.';
+        } else {
+          const cap = (total > _AP_VOICE_MAX_DISPLAY)
+            ? ' (showing top ' + _AP_VOICE_MAX_DISPLAY + ' — type above to narrow)'
+            : '';
+          countEl.textContent = total + ' voice' + (total === 1 ? '' : 's') + ' available' + cap + '.';
+        }
+      }
     }
+    // Search-input handler — repopulate with the new filter.
+    function _apFilterVoiceDropdown(filterStr) { _apPopulateVoices(filterStr); }
+    window._apFilterVoiceDropdown = _apFilterVoiceDropdown;
 
     /* ── Pricing / estimation ──────────────────────────────────
        All prices are "current as of 2026" list price in USD per 1M chars.
@@ -25196,7 +25305,12 @@
       <div class="ap-row">
         <div>
           <label>Voice</label>
+          <input type="search" id="apVoiceSearch" autocomplete="off"
+            placeholder="Search voices — try &quot;studio&quot;, &quot;en-GB&quot;, &quot;female&quot;…"
+            oninput="_apFilterVoiceDropdown(this.value)"
+            style="width:100%;padding:6px 8px;margin-bottom:4px;font-size:12px;border:1px solid var(--divider, #ddd);border-radius:4px;background:var(--surface-alt, #fff);color:inherit">
           <select id="apVoice" onchange="_apSaveSettings()"></select>
+          <div id="apVoiceCount" style="font-size:10.5px;color:var(--hint);margin-top:3px"></div>
         </div>
         <div>
           <label>Speed</label>
@@ -25336,6 +25450,10 @@
         said" patterns near dialog.</div>
 
       <label for="cmVoice">Voice</label>
+      <input type="search" id="cmVoiceSearch" autocomplete="off"
+        placeholder="Search voices — try &quot;studio&quot;, &quot;en-GB&quot;, &quot;female&quot;…"
+        oninput="_charFilterVoiceDropdown(this.value)"
+        style="width:100%;padding:6px 8px;margin-bottom:4px;font-size:12px;border:1px solid var(--divider, #ddd);border-radius:4px;background:var(--surface-alt, #fff);color:inherit">
       <select id="cmVoice">
         <option value="">— No voice assigned (narrator default) —</option>
       </select>
