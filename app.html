@@ -6565,7 +6565,7 @@
        PROJECT + FIREBASE + INVITE SYSTEM
     ═══════════════════════════════════════════════════════════ */
 
-    let _projId = null;   // current Firestore doc id
+    var _projId = null;   // var (NOT let) so window._projId mirrors the value — characters.js + other modules read window._projId.
     let _fbReady = false;
     let _presenceUnsub = null;  // unsubscribe fn for presence listener
     let _AVATAR_COLORS = ['#8B4513', '#2c4a7c', '#4a7c59', '#9c3d4a', '#6b4c8a', '#c9956a', '#2a6a5a', '#3a6070'];
@@ -9565,7 +9565,7 @@
        `_state.x` write was going to an undefined global and silently
        evaporating — which is why pronunciations never substituted
        into chapter audio even though the modal Test button worked. */
-    let _state = {};
+    var _state = {};  // var, NOT let — see _projId note above. Module code reads window._state.
 
     /* ── Default import schema ── */
     const SCHEMA_PRESETS = {
