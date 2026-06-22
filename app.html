@@ -8997,9 +8997,17 @@
         const _stateLoaded = await _readDocState(data, id);
         _deserialise(_stateLoaded);
         _updateInviteUI();
-        // Load character data from Firebase to sync across devices
-        try { await _charLoadFromFirebase(); } catch (e) { console.warn('[char] load from firebase failed', e); }
-        try { await _dialogueLoadFromFirebase(); } catch (e) { console.warn('[dialogue] load from firebase failed', e); }
+        // Load character data from Firebase ASYNCHRONOUSLY — fire-and-
+        // forget so the folio paints immediately instead of waiting on
+        // two extra Firestore round-trips. Both helpers now call
+        // window.renderPreview() on success so the dialogue-character
+        // underline repaints the moment the data arrives.
+        setTimeout(() => {
+          (async () => {
+            try { await _charLoadFromFirebase(); } catch (e) { console.warn('[char] load from firebase failed', e); }
+            try { await _dialogueLoadFromFirebase(); } catch (e) { console.warn('[dialogue] load from firebase failed', e); }
+          })();
+        }, 0);
         // Kick off the annotation cloud-sync for this folio. Pulls
         // any cloud-side annotations into the local cache, then attaches
         // an onSnapshot subscription so collaborator/beta/reader edits
@@ -11136,12 +11144,12 @@
       const elKey = (typeof _apElKey !== 'undefined' ? _apElKey : '') ||
                     localStorage.getItem('folio_audio_el_key') || '';
 
-      if (gKey && (!Array.isArray(_apGoogleVoices) || !_apGoogleVoices.length)) {
-        await _apFetchGoogleVoices(gKey);
-      }
-      if (elKey && (!Array.isArray(_apElVoices) || !_apElVoices.length)) {
-        await _apFetchElevenLabsVoices(elKey);
-      }
+      // Always refetch when the modal opens: _apGoogleVoices is
+      // pre-seeded with a tiny hardcoded fallback list, so the old
+      // .length-zero gate kept the API list from EVER being fetched —
+      // users only saw the fallback. Idempotent: result overwrites.
+      if (gKey)  { await _apFetchGoogleVoices(gKey); }
+      if (elKey) { await _apFetchElevenLabsVoices(elKey); }
 
       // Voice picker — populate fresh each open so newly-loaded voices appear.
       _charPopulateVoiceDropdown(
@@ -13058,7 +13066,7 @@
         }) : () => '';
         const ftr = showNums && pn > 2 ? `<div style="position:absolute;bottom:${Math.round(8 * MM)}px;left:0;right:0;text-align:center;font-family:${font};font-size:${pt(H_FOOTER)};color:${T.text}66">${pn}</div>` : '';
         const hdr = isFirst ? '' : _hdrFn(chTitle, pn);
-        return `<div class="book-page"${chapAttr} style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;top:${contentT}px;left:${mg}px;right:${mg}px;bottom:${contentB}px;overflow:hidden;display:flex;flex-direction:column">${inner}</div></div>`;
+        return `<div class="book-page"${chapAttr} style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;top:${contentT}px;left:${mg}px;right:${mg}px;bottom:${contentB}px;overflow:hidden;display:block">${inner}</div></div>`;
       };
 
       // ── Inline-image rendering (Stage B) ────────────────────────────
@@ -13419,21 +13427,29 @@
             };
           }
 
-          // ~2px sub-pixel safety. Mirror vs. flexbox column drift can
-          // accumulate to a handful of pixels per paragraph; without
-          // this slack, a paragraph that "exactly fits" by measurement
-          // can still overflow by half a line in the actual render and
-          // get clipped by overflow:hidden on the content area.
-          const pageContentPx = contentH - 2;
+          // Generous sub-pixel safety. Mirror vs. flexbox column drift
+          // can accumulate to several px per page (worst at non-integer
+          // zoom levels where toFixed rounding compounds). Half a line
+          // minimum slack is the bullet-proof setting: at this point a
+          // paragraph that "exactly fits" by measurement provably
+          // cannot overflow the actual content area. Worst-case cost is
+          // ~1 line per page in tight layouts, far preferable to mid-
+          // character clipping under overflow:hidden.
+          const pageContentPx = contentH - Math.max(8, Math.ceil(lineH * 0.5));
           // Normalise markdown horizontal rules to scene breaks
           const normParas = paras.map(p =>
             /^[-*_]{3,}$/.test(p.trim()) ? '__SCENE_BREAK__' : p);
 
-          // First page: measure the actual title block height.
+          // First page: measure the actual title block height +
+          // include its margin-bottom (offsetHeight excludes margin).
+          // Without this, the first paragraph after the title appears
+          // ~38 px lower than the paginator thinks, and pages early in
+          // each chapter clip more often than the rest.
           const titleHPx = measureTitleBlock(titleBlock);
+          const titleMarginBottomPx = (titleBlock && titleBlock.length) ? Math.round(10 * MM) : 0;
           const pages = [];
           let currentPage = [];
-          let usedPx = titleHPx;
+          let usedPx = titleHPx + titleMarginBottomPx;
           const flushPage = () => {
             if (currentPage.length > 0) pages.push(currentPage);
             currentPage = [];
