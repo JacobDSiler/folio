@@ -84,6 +84,32 @@ service cloud.firestore {
         allow read, write: if isUser(parentUid(id));
       }
 
+      // Character cast — written by characters.js (src/modules) when the
+      // user adds / edits / deletes a character in Manage Characters.
+      // Stored at folio_projects/<id>/characters/<charId>.
+      //   Read: owner, or anyone if the folio is published (collaborators
+      //         and readers can see the cast so dialogue colors / voices
+      //         resolve on the share link too).
+      //   Write: owner only — the cast is editorial, not reader content.
+      match /characters/{charId} {
+        allow read:  if folioVisible(id);
+        allow write: if isUser(parentUid(id));
+      }
+
+      // Editorial metadata — single-doc helpers written by the modules
+      // alongside the main body. Currently used for:
+      //   metadata/dialogueAssignments  →  { chapterId: { hash: charId } }
+      // Add new entries (per-character voice settings, narrator config,
+      // etc.) under this same subcollection so they share the rule.
+      //   Read:  owner OR anyone on a published folio (the audio worker
+      //          and the dialogue-color highlight need this on the
+      //          public share link).
+      //   Write: owner only.
+      match /metadata/{doc} {
+        allow read:  if folioVisible(id);
+        allow write: if isUser(parentUid(id));
+      }
+
       // Live presence — readable by anyone who can see the folio; each
       // user may write only their own presence doc (it's keyed by uid).
       match /presence/{uid} {

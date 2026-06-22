@@ -13370,13 +13370,20 @@
             return lines;
           }
 
+          // Real margin-bottom of a rendered paragraph (matches the
+          // CSS in _apRenderPreviewParagraph). Numeric px so the
+          // accumulator can include it; both measurer + legacy fallback
+          // route through paraHeightPx so neither path under-counts.
+          const _paraMarginPx = (indentMode === '0') ? (1.3 * MM) : 0;
+
           // Para height in pixels (with measurement; falls back to legacy
-          // estimate * lineH if measurement is unavailable).
+          // estimate * lineH if measurement is unavailable). Always adds
+          // the real margin-bottom so the paginator does not over-fill.
           function paraHeightPx(text, opts) {
             const measured = measurePara(text, opts);
-            if (measured != null) return measured;
+            if (measured != null) return measured + _paraMarginPx;
             const extraLines = (indentMode === '0') ? 0.6 : 0;
-            return (estimateLinesLegacy(text) + extraLines) * lineH;
+            return (estimateLinesLegacy(text) + extraLines) * lineH + _paraMarginPx;
           }
 
           function sceneBreakHeightPx() {
@@ -13412,7 +13419,12 @@
             };
           }
 
-          const pageContentPx = contentH;
+          // ~2px sub-pixel safety. Mirror vs. flexbox column drift can
+          // accumulate to a handful of pixels per paragraph; without
+          // this slack, a paragraph that "exactly fits" by measurement
+          // can still overflow by half a line in the actual render and
+          // get clipped by overflow:hidden on the content area.
+          const pageContentPx = contentH - 2;
           // Normalise markdown horizontal rules to scene breaks
           const normParas = paras.map(p =>
             /^[-*_]{3,}$/.test(p.trim()) ? '__SCENE_BREAK__' : p);
