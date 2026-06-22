@@ -17,7 +17,7 @@
  *                                Body: { text, voice, speakingRate, apiKey }
  *   POST /elevenlabs             ElevenLabs TTS  → raw MP3 binary
  *                                Body: { text, voiceId, apiKey, modelId? }
- *   GET  /voices/google?apiKey=… Neural2 + WaveNet en-* voices
+ *   GET  /voices/google?apiKey=… ALL voice tiers, ALL languages (Studio/Neural2/Chirp/Polyglot/News/WaveNet/Standard)
  *   GET  /voices/elevenlabs?apiKey=… User's ElevenLabs voices
  *
  * Bindings (set in Cloudflare dashboard → Settings → Variables):
@@ -223,28 +223,47 @@ async function handleGoogleVoices(request, env) {
     if (!resp.ok) return json({ voices: GOOGLE_VOICES, dynamic: false }, 200, request, env);
     const data = await resp.json();
     const list = Array.isArray(data.voices) ? data.voices : [];
+    // Return EVERY voice tier Google currently offers via the standard
+    // synthesize endpoint, in EVERY language the account has access to.
+    // No more English-only / Neural2|WaveNet-only filter — Folio users
+    // want full library access + multilingual narration. Tier order
+    // below is the cost/quality hierarchy at the time of writing:
+    //   Studio     ~$160/M chars  (best quality, English / a few langs)
+    //   Neural2    ~$16 /M chars  (high quality, broad language coverage)
+    //   Chirp      newest synthesis tech, premium pricing
+    //   Polyglot   one voice across many languages
+    //   News       newscaster style, en-US
+    //   WaveNet    ~$16 /M chars  (legacy high quality)
+    //   Standard   ~$4  /M chars  (cheapest, lower quality)
+    const TIER_ORDER = ['Studio','Neural2','Chirp','Polyglot','News','WaveNet','Standard','Other'];
+    function classifyVoice(name) {
+      if (/Studio/i.test(name))   return 'Studio';
+      if (/Neural2/i.test(name))  return 'Neural2';
+      if (/Chirp/i.test(name))    return 'Chirp';
+      if (/Polyglot/i.test(name)) return 'Polyglot';
+      if (/News/i.test(name))     return 'News';
+      if (/WaveNet/i.test(name))  return 'WaveNet';
+      if (/Standard/i.test(name)) return 'Standard';
+      return 'Other';
+    }
     const filtered = list
       .filter(v => {
         const n = v.name || '';
-        const isEn = (v.languageCodes || []).some(lc => /^en[-_]/i.test(lc));
-        const isGood = /Neural2|WaveNet/.test(n);
-        return isEn && isGood;
+        return n.length > 0 && Array.isArray(v.languageCodes) && v.languageCodes.length > 0;
       })
       .map(v => {
         const name = v.name;
-        const lc = (v.languageCodes && v.languageCodes[0]) || 'en-US';
+        const lc = v.languageCodes[0] || 'en-US';
         const gender = (v.ssmlGender || '').toLowerCase();
-        const kind = /Neural2/.test(name) ? 'Neural2' : 'WaveNet';
-        const pretty =
-          kind + ' · ' +
-          (gender ? gender.charAt(0).toUpperCase() + gender.slice(1) : 'Voice') +
-          ' (' + lc + ')';
-        return { id: name, label: pretty, lang: lc };
+        const tier = classifyVoice(name);
+        const genderLabel = gender ? gender.charAt(0).toUpperCase() + gender.slice(1) : 'Voice';
+        const pretty = tier + ' · ' + genderLabel + ' (' + lc + ')';
+        return { id: name, label: pretty, lang: lc, tier: tier };
       });
     filtered.sort((a, b) => {
-      const aN = /Neural2/.test(a.id) ? 0 : 1;
-      const bN = /Neural2/.test(b.id) ? 0 : 1;
-      if (aN !== bN) return aN - bN;
+      const ta = TIER_ORDER.indexOf(a.tier); const tb = TIER_ORDER.indexOf(b.tier);
+      if (ta !== tb) return ta - tb;
+      if (a.lang !== b.lang) return a.lang.localeCompare(b.lang);
       return a.id.localeCompare(b.id);
     });
     return json(
