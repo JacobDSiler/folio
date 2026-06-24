@@ -6410,6 +6410,9 @@
         <button id="editModeBtn" class="zoom-fit-btn" onclick="toggleEditMode()"
           title="Click paragraphs in the preview to edit them directly"
           style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">✏ Edit</button>
+        <button id="readerPreviewBtn" class="zoom-fit-btn" onclick="_editorPreviewAsReader()"
+          title="See exactly what readers will see — paywall locks, TOC dimming, CTAs and all"
+          style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">👁 Preview as reader</button>
         <button class="zoom-fit-btn" onclick="openFindReplace()" title="Find &amp; Replace (Ctrl+H)"
           style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">⌕ Find</button>
         <button onclick="openPOD()" title="Print &amp; Publish"
@@ -14890,6 +14893,66 @@
         _detachEditHandlers();
       }
     }
+
+    /* ── Preview-as-Reader (editor-side paywall sim) ──────────────
+       Flips _readerMode = true temporarily so the locks/CTAs/TOC
+       dimming render exactly as a published reader would see them,
+       WITHOUT having to open the /s/<id> link in an incognito window.
+       Toggle off restores normal editor behaviour.
+
+       Implementation: store the prior _readerMode value in a flag we
+       own (_editorReaderPreview), flip the global, re-render, re-apply
+       locks. Restore on toggle-off.  Edit mode is force-disabled while
+       previewing so the author doesn't accidentally type into a "view"
+       that's actually still editable. */
+    let _editorReaderPreview = false;
+    function _editorPreviewAsReader() {
+      const btn = document.getElementById('readerPreviewBtn');
+      const area = document.getElementById('previewArea');
+      if (!_editorReaderPreview) {
+        // Entering preview-as-reader.
+        if (_editMode) toggleEditMode();  // force-exit edit mode for clarity
+        _editorReaderPreview = true;
+        try { window._readerMode = true; } catch (e) {}
+        try { _readerMode = true; } catch (e) {}
+        if (btn) {
+          btn.textContent = '✎ Resume editing';
+          btn.style.background = 'rgba(120, 90, 60, 0.55)';
+          btn.style.color = '#fff';
+          btn.title = 'Exit reader preview — switch back to editor view';
+        }
+        if (area) area.classList.add('reader-preview-active');
+        // Toast so the user knows they're in a sim.
+        if (typeof toastInfo === 'function')
+          toastInfo('Previewing as reader — locks + CTAs are live.', { icon: '👁', duration: 2800 });
+        // Re-render and apply the lock cards immediately.
+        try { if (typeof renderPreview === 'function') renderPreview(); } catch (e) {}
+        try {
+          if (typeof _serialApplyLocks === 'function' && typeof _rlCurrent !== 'undefined' && _rlCurrent)
+            setTimeout(() => _serialApplyLocks(_rlCurrent), 80);
+          if (typeof _lockApplyTocRows === 'function' && typeof _rlCurrent !== 'undefined' && _rlCurrent)
+            setTimeout(() => _lockApplyTocRows(_rlCurrent), 120);
+        } catch (e) { console.warn('[reader-preview] lock apply failed', e); }
+      } else {
+        // Exiting preview-as-reader.
+        _editorReaderPreview = false;
+        try { window._readerMode = false; } catch (e) {}
+        try { _readerMode = false; } catch (e) {}
+        if (btn) {
+          btn.textContent = '👁 Preview as reader';
+          btn.style.background = 'rgba(255,255,255,0.12)';
+          btn.style.color = '';
+          btn.title = 'See exactly what readers will see — paywall locks, TOC dimming, CTAs and all';
+        }
+        if (area) area.classList.remove('reader-preview-active');
+        // Re-render to clear any lock cards and restore full editor view.
+        try { if (typeof _serialClearLocks === 'function') _serialClearLocks(); } catch (e) {}
+        try { if (typeof renderPreview === 'function') renderPreview(); } catch (e) {}
+        if (typeof toastInfo === 'function')
+          toastInfo('Editor view restored.', { icon: '✎', duration: 1800 });
+      }
+    }
+    window._editorPreviewAsReader = _editorPreviewAsReader;
 
 
     function _onParaBlur(el) {
