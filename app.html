@@ -18829,7 +18829,12 @@
         _serialClearLocks();
         return;
       }
-      if (!release || !release.serial) {
+      // Lock-card rendering applies to any release that has a partial-
+      // visibility model: serial (time-released) OR paid (gates everything
+      // past previewSections). Free releases stay fully visible.
+      const _isPaid   = !!(release && release.priceMode === 'paid');
+      const _isSerial = !!(release && release.serial);
+      if (!release || (!_isSerial && !_isPaid)) {
         _serialClearLocks();
         return;
       }
@@ -18837,7 +18842,11 @@
       if (!bp) return;
       const chapters = (typeof getChapters === 'function') ? getChapters() : [];
       const chapterIds = chapters.map(c => c.id);
-      let released = _serialReleasedCount(release);
+      // Use the generic releasedCount: serial → time-gated; paid →
+      // previewSections; valid buyer token → Infinity (everything visible).
+      let released = (typeof _lockReleasedCount === 'function')
+        ? _lockReleasedCount(release)
+        : _serialReleasedCount(release);
       const shareTk = localStorage.getItem('folioShareToken_' + (_readerFolioId || _projId));
       if (_pwIsValid(shareTk)) released = Infinity; // Signed tokens bypass the schedule
 
@@ -19262,6 +19271,20 @@
       if (release.priceMode === 'paid' && (release.product || release.checkoutUrl)) {
         const buyUrl = _pwBuyURL(release);
         const subId = 'subForm_' + chIdx + '_' + Math.random().toString(36).slice(2, 6);
+        // Provider-aware CTA copy. Gumroad direct-purchase uses the
+        // classic "Buy on Gumroad" wording. Custom URL deals (Kickstarter,
+        // PayPal, Ko-fi, mailing-list signup, Stripe, etc.) get a generic
+        // "Read the rest now" + the host's domain for clarity, so a reader
+        // seeing the CTA understands they're going to a non-Gumroad page.
+        const _isCustom = release.provider === 'custom';
+        let _buyLabel = '💳 Read the rest now on Gumroad →';
+        let _buyHelp  = 'Buying unlocks every chapter immediately — no waiting on the schedule.';
+        if (_isCustom) {
+          let _domain = '';
+          try { _domain = new URL(buyUrl).hostname.replace(/^www\./, ''); } catch (e) {}
+          _buyLabel = '💳 Continue reading' + (_domain ? ' on ' + _esc(_domain) : '') + ' →';
+          _buyHelp  = 'Pay through the link above. Once you have your unlock code, paste it below to read the rest.';
+        }
         // Paid lock = primary Buy (the conversion), secondary Subscribe
         // (the email-capture-net for non-buyers — covers "I'm not buying
         // today but want to know when the next book lands"). Subscribe
@@ -19271,10 +19294,10 @@
           '<div style="margin-top:16px;display:flex;flex-direction:column;gap:10px;align-items:center">' +
           '<a href="' + buyUrl + '" target="_blank" rel="noopener" ' +
           'style="display:inline-block;font-size:13.5px;font-weight:600;padding:10px 22px;border-radius:8px;background:var(--accent-ui,#0a7);color:#fff;text-decoration:none">' +
-          '💳 Read the rest now on Gumroad →' +
+          _buyLabel +
           '</a>' +
           '<div style="font-size:10.5px;color:var(--hint);max-width:380px">' +
-          'Buying unlocks every chapter immediately — no waiting on the schedule.' +
+          _buyHelp +
           '</div>' +
           (folioId
             ? (
@@ -19310,16 +19333,31 @@
           '</div>';
       }
 
+      // Serial → countdown to scheduled unlock.
+      // Paid (non-serial) → no countdown; just "Continue reading after the
+      // preview" so the messaging matches the actual unlock model.
+      const _isSerialCard = !!release.serial;
+      const _countdownHTML = _isSerialCard
+        ? (
+          '<div style="font-size:13px;color:var(--text);margin-bottom:6px">' +
+          'Unlocks in <strong class="serial-countdown" data-serial-ch="' + chIdx + '">' +
+          _serialFormatCountdown(_serialMsUntilUnlock(release, chIdx)) +
+          '</strong></div>' +
+          '<div style="font-size:11.5px;color:var(--hint)">' + _esc(dateStr) + '</div>'
+        )
+        : (
+          '<div style="font-size:13px;color:var(--text);margin-bottom:6px">' +
+          'This chapter is part of the rest of the book.' +
+          '</div>' +
+          '<div style="font-size:11.5px;color:var(--hint)">Unlock with a purchase code or buy below.</div>'
+        );
+
       card.innerHTML =
         '<div style="font-size:30px;margin-bottom:12px;opacity:.55">🔒</div>' +
         '<div style="font-size:11px;color:var(--hint);text-transform:uppercase;letter-spacing:.1em;margin-bottom:6px">Chapter ' + chIdx + '</div>' +
         '<div style="font-family:\'Playfair Display\',Georgia,serif;font-size:22px;font-weight:700;color:var(--text);margin-bottom:14px">' +
         _esc(title) + '</div>' +
-        '<div style="font-size:13px;color:var(--text);margin-bottom:6px">' +
-        'Unlocks in <strong class="serial-countdown" data-serial-ch="' + chIdx + '">' +
-        _serialFormatCountdown(_serialMsUntilUnlock(release, chIdx)) +
-        '</strong></div>' +
-        '<div style="font-size:11.5px;color:var(--hint)">' + _esc(dateStr) + '</div>' +
+        _countdownHTML +
         ctaHTML;
       return card;
     }
