@@ -14905,14 +14905,17 @@
        locks. Restore on toggle-off.  Edit mode is force-disabled while
        previewing so the author doesn't accidentally type into a "view"
        that's actually still editable. */
-    let _editorReaderPreview = false;
+    // window-scoped so _lockReleasedCount + _serialApplyLocks (which read
+    // through the bypass logic) can detect when the owner is simulating
+    // the reader view and skip the owner/buyer token shortcut.
+    window._editorReaderPreview = false;
     function _editorPreviewAsReader() {
       const btn = document.getElementById('readerPreviewBtn');
       const area = document.getElementById('previewArea');
-      if (!_editorReaderPreview) {
+      if (!window._editorReaderPreview) {
         // Entering preview-as-reader.
         if (_editMode) toggleEditMode();  // force-exit edit mode for clarity
-        _editorReaderPreview = true;
+        window._editorReaderPreview = true;
         try { window._readerMode = true; } catch (e) {}
         try { _readerMode = true; } catch (e) {}
         if (btn) {
@@ -14928,6 +14931,10 @@
         // Re-render and apply the lock cards immediately.
         try { if (typeof renderPreview === 'function') renderPreview(); } catch (e) {}
         try {
+          // Run the paid-gate first (covers paid non-serial releases —
+          // the previewSections / full-gate path with the CTA).
+          if (typeof _pwReapply === 'function')
+            setTimeout(_pwReapply, 60);
           if (typeof _serialApplyLocks === 'function' && typeof _rlCurrent !== 'undefined' && _rlCurrent)
             setTimeout(() => _serialApplyLocks(_rlCurrent), 80);
           if (typeof _lockApplyTocRows === 'function' && typeof _rlCurrent !== 'undefined' && _rlCurrent)
@@ -14935,7 +14942,7 @@
         } catch (e) { console.warn('[reader-preview] lock apply failed', e); }
       } else {
         // Exiting preview-as-reader.
-        _editorReaderPreview = false;
+        window._editorReaderPreview = false;
         try { window._readerMode = false; } catch (e) {}
         try { _readerMode = false; } catch (e) {}
         if (btn) {
@@ -14947,6 +14954,10 @@
         if (area) area.classList.remove('reader-preview-active');
         // Re-render to clear any lock cards and restore full editor view.
         try { if (typeof _serialClearLocks === 'function') _serialClearLocks(); } catch (e) {}
+        // Also clear the paid-gate preview (hides the CTA card +
+        // un-hides any pw-hidden-page chapters) and dismiss the gate modal.
+        try { if (typeof _pwHidePreview === 'function') _pwHidePreview(); } catch (e) {}
+        try { if (typeof _pwHideGate === 'function') _pwHideGate(); } catch (e) {}
         try { if (typeof renderPreview === 'function') renderPreview(); } catch (e) {}
         if (typeof toastInfo === 'function')
           toastInfo('Editor view restored.', { icon: '✎', duration: 1800 });
@@ -18646,7 +18657,24 @@
         if (provider === 'custom') {
           if (!checkoutUrl) { _rlSetStatus('Please enter your checkout URL (PayPal / Stripe / Ko-fi / …).', '#c04040'); return; }
           if (!/^https?:\/\//i.test(checkoutUrl)) { _rlSetStatus('Checkout URL must start with https:// or http://.', '#c04040'); return; }
-          if (!unlockCode || unlockCode.length < 6) { _rlSetStatus('Please set an unlock code (6+ characters).', '#c04040'); return; }
+          // Auto-generate an unlock code if the author left it blank — saves
+          // one click of friction for the very common "I just want to publish
+          // and worry about the buyer-facing code later" flow. The generated
+          // code is human-typeable (no ambiguous chars) and 8 chars long.
+          // We also poke it into the input so the author can see + copy it
+          // before publishing.
+          if (!unlockCode || unlockCode.length < 6) {
+            const _alphabet = 'abcdefghjkmnpqrstuvwxyz23456789';  // skip 0/o/1/l/i for legibility
+            let _gen = '';
+            for (let _i = 0; _i < 8; _i++) {
+              _gen += _alphabet.charAt(Math.floor(Math.random() * _alphabet.length));
+            }
+            unlockCode = _gen;
+            const _ucEl = document.getElementById('rlUnlockCode');
+            if (_ucEl) _ucEl.value = unlockCode;
+            if (typeof toastInfo === 'function')
+              toastInfo('Generated unlock code: ' + unlockCode + ' — copy this, you\'ll email it to buyers.', { icon: '🔑', duration: 6000 });
+          }
         } else {
           if (!productId) { _rlSetStatus('Please enter the Gumroad product id (or full URL).', '#c04040'); return; }
         }
@@ -18910,8 +18938,19 @@
       let released = (typeof _lockReleasedCount === 'function')
         ? _lockReleasedCount(release)
         : _serialReleasedCount(release);
-      const shareTk = localStorage.getItem('folioShareToken_' + (_readerFolioId || _projId));
-      if (_pwIsValid(shareTk)) released = Infinity; // Signed tokens bypass the schedule
+      // Preview-as-reader sim: when the owner is testing the paywall from
+      // the editor, force the released count down to its raw preview-only
+      // value even if their browser has a valid owner/share token cached.
+      // Without this, every locked chapter unlocks for the owner and the
+      // sim shows the un-paywalled view, defeating the point.
+      if (window._editorReaderPreview) {
+        released = release.serial
+          ? _serialReleasedCount(release)
+          : (release.priceMode === 'paid' ? (Number(release.previewSections) || 0) : Infinity);
+      } else {
+        const shareTk = localStorage.getItem('folioShareToken_' + (_readerFolioId || _projId));
+        if (_pwIsValid(shareTk)) released = Infinity; // Signed tokens bypass the schedule
+      }
 
       // Idempotency guard. _serialApplyLocks runs repeatedly (load races,
       // previewRendered, the 60s ticker, refresh-from-cloud). Each run
@@ -19040,8 +19079,23 @@
     function _lockReleasedCount(release) {
       if (!release) return Infinity;
 
-      // Universal Unlock check for Signed Roles
       const currentId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+
+      // Preview-as-reader sim: when the owner is testing the paywall, all
+      // owner/buyer token shortcuts are bypassed so the count reflects
+      // what an unsigned reader would actually see.
+      if (window._editorReaderPreview) {
+        if (release.serial) {
+          return (typeof _serialReleasedCount === 'function')
+            ? _serialReleasedCount(release) : Infinity;
+        }
+        if (release.priceMode === 'paid') {
+          return Number(release.previewSections) || 0;
+        }
+        return Infinity;
+      }
+
+      // Universal Unlock check for Signed Roles
       const shareTk = localStorage.getItem('folioShareToken_' + currentId);
       if (_pwIsValid(shareTk)) return Infinity;
 
@@ -19923,6 +19977,23 @@
       _pwActiveRelease = release;
       _pwActiveFolioId = folioId;
 
+      // Preview-as-reader sim: when the owner is testing the paywall, FORCE
+      // the unlocked-token shortcut to be skipped so _pwShowPreview /
+      // _pwShowGate actually run. Without this, the owner's cached token or
+      // localStorage share-link JWT short-circuits the gate and the editor
+      // sim looks identical to the unlocked editor view (which is the bug
+      // Jacob was hitting — readerMode=true, but paywall still bypassed
+      // because _pwCheckAccess never ran the gate).
+      if (window._editorReaderPreview) {
+        const previewN = Number((release && release.previewSections) || 0) || 0;
+        if (previewN > 0) {
+          _pwShowPreview(folioId, release, previewN);
+        } else {
+          _pwShowGate(folioId, release);
+        }
+        return false;
+      }
+
       // Check for either a Gumroad purchase OR a signed role token
       const cached = _pwGetToken(folioId);
       const shareTk = localStorage.getItem('folioShareToken_' + folioId);
@@ -19960,6 +20031,18 @@
       const release = _pwActiveRelease;
       if (!release || release.priceMode !== 'paid') return;
       const folioId = _pwActiveFolioId || (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
+
+      // Preview-as-reader sim: same bypass as _pwCheckAccess — force the
+      // gate to render even when the owner has tokens cached.
+      if (window._editorReaderPreview) {
+        const previewN = Number((release && release.previewSections) || 0) || 0;
+        if (previewN > 0) {
+          _pwShowPreview(folioId, release, previewN);
+        } else {
+          _pwShowGate(folioId, release);
+        }
+        return;
+      }
 
       const cached = _pwGetToken(folioId);
       const shareTk = localStorage.getItem('folioShareToken_' + folioId);
