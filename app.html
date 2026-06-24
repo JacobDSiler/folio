@@ -18645,7 +18645,9 @@
       // Multi-provider: which payment provider is the author using?
       const provider = (typeof _rlProvider !== 'undefined' && _rlProvider === 'custom') ? 'custom' : 'gumroad';
       const checkoutUrl = (document.getElementById('rlCheckoutUrl') && document.getElementById('rlCheckoutUrl').value || '').trim();
-      const unlockCode = (document.getElementById('rlUnlockCode') && document.getElementById('rlUnlockCode').value || '').trim();
+      // let, not const — the auto-generate branch below may reassign it
+      // when the author leaves the field blank on a paid+custom release.
+      let unlockCode = (document.getElementById('rlUnlockCode') && document.getElementById('rlUnlockCode').value || '').trim();
       const priceRaw = (document.getElementById('rlPrice') && document.getElementById('rlPrice').value || '').trim();
       const currency = (document.getElementById('rlCurrency') && document.getElementById('rlCurrency').value) || 'USD';
       const audioBundle = !!(document.getElementById('rlAudioBundle') && document.getElementById('rlAudioBundle').checked);
