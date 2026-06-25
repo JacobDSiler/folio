@@ -20016,7 +20016,8 @@
       // because _pwCheckAccess never ran the gate).
       if (window._editorReaderPreview) {
         const previewN = Number((release && release.previewSections) || 0) || 0;
-        if (previewN > 0) {
+        const _hasTeasers = Array.isArray(release && release.teasers) && release.teasers.length > 0;
+        if (previewN > 0 || _hasTeasers) {
           _pwShowPreview(folioId, release, previewN);
         } else {
           _pwShowGate(folioId, release);
@@ -20043,7 +20044,13 @@
 
       // Expired or absent. Branch on whether the release offers a free preview.
       const previewN = Number((release && release.previewSections) || 0) || 0;
-      if (previewN > 0) {
+      // Teasers are part of the always-free reader view. If any chapter is
+      // ticked as a teaser, route through _pwShowPreview (which honours the
+      // teaser set + inserts the inline CTA) even when previewSections = 0.
+      // Otherwise the gate modal pops up and the teaser chapter never
+      // becomes visible, and the reader sees no CTA at all.
+      const _hasTeasers = Array.isArray(release && release.teasers) && release.teasers.length > 0;
+      if (previewN > 0 || _hasTeasers) {
         _pwShowPreview(folioId, release, previewN);
       } else {
         _pwShowGate(folioId, release);
@@ -20066,7 +20073,8 @@
       // gate to render even when the owner has tokens cached.
       if (window._editorReaderPreview) {
         const previewN = Number((release && release.previewSections) || 0) || 0;
-        if (previewN > 0) {
+        const _hasTeasers = Array.isArray(release && release.teasers) && release.teasers.length > 0;
+        if (previewN > 0 || _hasTeasers) {
           _pwShowPreview(folioId, release, previewN);
         } else {
           _pwShowGate(folioId, release);
