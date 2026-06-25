@@ -8026,7 +8026,7 @@
     // didn't exist yet, and on any folio whose rules check the parent's uid
     // the body write couldn't satisfy them.)
   async function _writeFolioCloud(folioId, name, opts) {
-    const { parentPayload, bodyPayload } = await _buildCloudSavePayload(name, opts);
+    const { parentPayload, bodyPayload, bodyPaidPayload } = await _buildCloudSavePayload(name, opts);
     const isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
 
     // NON-DESTRUCTIVE PATH: For invited Editors and Collabs
@@ -8049,10 +8049,30 @@
       }
     }
 
-    // MASTER PATH: For the Folio Owner
+    // MASTER PATH: For the Folio Owner.
+    //
+    // CRITICAL ORDERING for paid folios:
+    //   1. parent  — release config
+    //   2. body/paid — stripped chapter content (must land BEFORE body/main)
+    //   3. body/main — free-preview + teaser content
+    //
+    // body/paid first because body/main is destructive: it overwrites the
+    // previous body/main which currently HAS the full text. If we wrote
+    // body/main first and the body/paid write then failed (network drop,
+    // quota, rule mismatch), the cloud copy of the paid chapter content
+    // would be lost — exactly the corruption pattern Jacob was hitting.
+    // body/paid first means we always have somewhere to recover from.
     const parentRef = window._fb.doc(window._db, 'folio_projects', folioId);
     const bodyRef = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'main');
     await window._fb.setDoc(parentRef, parentPayload, { merge: true });
+    if (bodyPaidPayload) {
+      const bodyPaidRef = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'paid');
+      await window._fb.setDoc(bodyPaidRef, bodyPaidPayload);
+      console.log('[D1] body/paid written',
+        bodyPaidPayload.content_gz
+          ? '(gzipped, ' + bodyPaidPayload.content_gz.length + ' base64 chars)'
+          : '(' + Object.keys((bodyPaidPayload.content || {}).chapters || {}).length + ' inline chapters)');
+    }
     await window._fb.setDoc(bodyRef, bodyPayload);
   }
     // Read state from either:
