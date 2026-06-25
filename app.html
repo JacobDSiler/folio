@@ -20037,6 +20037,11 @@
         const _hasTeasers = Array.isArray(release && release.teasers) && release.teasers.length > 0;
         if (previewN > 0 || _hasTeasers) {
           _pwShowPreview(folioId, release, previewN);
+          // Match the reader path explicitly so editor preview and reader
+          // can never diverge.
+          if (typeof _serialApplyLocks === 'function') {
+            setTimeout(() => _serialApplyLocks(release), 60);
+          }
         } else {
           _pwShowGate(folioId, release);
         }
@@ -20070,6 +20075,13 @@
       const _hasTeasers = Array.isArray(release && release.teasers) && release.teasers.length > 0;
       if (previewN > 0 || _hasTeasers) {
         _pwShowPreview(folioId, release, previewN);
+        // Trigger per-chapter lock cards (matches _pwReapply). Without this,
+        // the reader path only ever gets the single CTA _pwShowPreview adds
+        // at the bottom — the editor preview shows per-chapter cards only
+        // because a render hook there fires _serialApplyLocks separately.
+        if (typeof _serialApplyLocks === 'function') {
+          setTimeout(() => _serialApplyLocks(release), 60);
+        }
       } else {
         _pwShowGate(folioId, release);
       }
@@ -20111,9 +20123,23 @@
         return;
       }
       const previewN = Number((release && release.previewSections) || 0) || 0;
-      if (previewN > 0) {
+      // Same teaser routing as _pwCheckAccess: any teaser flips us to the
+      // inline preview path (which honours teasers + adds the inline CTA)
+      // even at previewN=0. Without this, the first paint shows the inline
+      // preview correctly, then _pwReapply runs and routes through
+      // _pwShowGate, calling _pwHidePreview() which wipes everything.
+      const _hasTeasers = Array.isArray(release && release.teasers) && release.teasers.length > 0;
+      if (previewN > 0 || _hasTeasers) {
         // _pwShowPreview is idempotent — no-ops if its CTA card survived.
         _pwShowPreview(folioId, release, previewN);
+        // Trigger per-chapter lock cards. _pwShowPreview only adds ONE CTA
+        // at the bottom and hides chapters with pw-hidden-page; the per-
+        // chapter "Chapter N is locked" cards come from _serialApplyLocks.
+        // The editor preview path gets these from a different render hook;
+        // the reader path needs an explicit trigger.
+        if (typeof _serialApplyLocks === 'function') {
+          setTimeout(() => _serialApplyLocks(release), 60);
+        }
       } else {
         // 0-preview paid folio: the full gate. Don't re-show it if it's
         // already open (re-showing clears the license-key input); just
