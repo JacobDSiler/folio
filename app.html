@@ -7407,12 +7407,24 @@
       const _d1Release = (typeof _rlCurrent !== 'undefined' && _rlCurrent) ? _rlCurrent : null;
       if (_d1Release && _d1Release.priceMode === 'paid' && Array.isArray(stateObj.chapters)) {
         const _previewN = Number(_d1Release.previewSections) || 0;
+        // Teaser chapters are part of the always-free reader view (used as
+        // shareable "reader magnet" hooks). Their bodies stay in body/main
+        // alongside the free-preview chapters so the reader actually has
+        // text to read. Without this exemption, ticking a chapter as a
+        // teaser shows its title page but a blank body in the reader.
+        const _teaserSet = new Set(
+          Array.isArray(_d1Release.teasers) ? _d1Release.teasers : []
+        );
         const _paidContentMap = {};
         let _chCount = 0;
         stateObj.chapters = stateObj.chapters.map(c => {
           if (!c || c.type !== 'chapter') return c;
           _chCount++;
-          if (_chCount > _previewN) {
+          // Strip content for anything past the free preview UNLESS the
+          // chapter is also marked as a teaser. Teaser chapters survive
+          // intact in body/main.
+          const _isTeaser = _teaserSet.has(c.id);
+          if (_chCount > _previewN && !_isTeaser) {
             _paidContentMap[c.id] = c.content || '';
             return Object.assign({}, c, { content: '' });
           }
@@ -18547,6 +18559,10 @@
           const _unCo1 = document.getElementById('rlUnlockCode');
           if (_coUrl1) _coUrl1.value = _rlCurrent.checkoutUrl || '';
           if (_unCo1) _unCo1.value = _rlCurrent.unlockCode || '';
+          const _ctaLabelEl = document.getElementById('rlCtaLabel');
+          const _ctaBlurbEl = document.getElementById('rlCtaBlurb');
+          if (_ctaLabelEl) _ctaLabelEl.value = _rlCurrent.ctaLabel || '';
+          if (_ctaBlurbEl) _ctaBlurbEl.value = _rlCurrent.ctaBlurb || '';
           try { _rlSetProvider(_rlCurrent.provider === 'custom' ? 'custom' : 'gumroad'); } catch (e) { }
           if (priceField1) priceField1.value = (_rlCurrent.price != null ? String(_rlCurrent.price) : '');
           if (currField1) currField1.value = _rlCurrent.currency || 'USD';
@@ -18648,6 +18664,8 @@
       // let, not const — the auto-generate branch below may reassign it
       // when the author leaves the field blank on a paid+custom release.
       let unlockCode = (document.getElementById('rlUnlockCode') && document.getElementById('rlUnlockCode').value || '').trim();
+      const ctaLabel = (document.getElementById('rlCtaLabel') && document.getElementById('rlCtaLabel').value || '').trim().slice(0, 80);
+      const ctaBlurb = (document.getElementById('rlCtaBlurb') && document.getElementById('rlCtaBlurb').value || '').trim().slice(0, 180);
       const priceRaw = (document.getElementById('rlPrice') && document.getElementById('rlPrice').value || '').trim();
       const currency = (document.getElementById('rlCurrency') && document.getElementById('rlCurrency').value) || 'USD';
       const audioBundle = !!(document.getElementById('rlAudioBundle') && document.getElementById('rlAudioBundle').checked);
@@ -18720,6 +18738,10 @@
         provider: _rlMode === 'paid' ? provider : null,
         checkoutUrl: _rlMode === 'paid' && provider === 'custom' ? checkoutUrl : null,
         unlockCode: _rlMode === 'paid' && provider === 'custom' ? unlockCode : null,
+        // Author-customisable CTA copy (paid releases only). Falls back to
+        // provider-aware defaults at render time when blank.
+        ctaLabel: _rlMode === 'paid' && ctaLabel ? ctaLabel : null,
+        ctaBlurb: _rlMode === 'paid' && ctaBlurb ? ctaBlurb : null,
         product: _rlMode === 'paid' && provider === 'gumroad' ? productId : null,
         price: _rlMode === 'paid' ? priceNum : 0,
         currency: currency,
@@ -19404,6 +19426,12 @@
           _buyLabel = '💳 Continue reading' + (_domain ? ' on ' + _esc(_domain) : '') + ' →';
           _buyHelp  = 'Pay through the link above. Once you have your unlock code, paste it below to read the rest.';
         }
+        // Author-customisable CTA text overrides the defaults — used for
+        // Kickstarter pre-launch ("Follow to be notified"), active crowd-
+        // funding ("Back the project"), mailing-list signup, pre-order,
+        // anything else the standard wording doesn't fit.
+        if (release.ctaLabel) _buyLabel = _esc(release.ctaLabel);
+        if (release.ctaBlurb) _buyHelp  = _esc(release.ctaBlurb);
         // Paid lock = primary Buy (the conversion), secondary Subscribe
         // (the email-capture-net for non-buyers — covers "I'm not buying
         // today but want to know when the next book lands"). Subscribe
@@ -20200,6 +20228,16 @@
         ? '<div class="pwpc-cover" style="background-image:url(&quot;' + _pwEscAttr(cover) + '&quot;)"></div>'
         : '<div class="pwpc-cover"></div>';
 
+      // Author-customisable CTA button label + help/blurb. Falls back to
+      // provider-aware defaults when blank. Kickstarter pre-launch, active
+      // crowdfunding, mailing-list signup, pre-order — anything custom.
+      const _defaultBuyLabel = (release && release.provider === 'custom')
+        ? 'Buy &amp; get unlock code &rarr;'
+        : 'Buy on Gumroad &rarr;';
+      const _ctaLabelOut = (release && release.ctaLabel) ? _pwEsc(release.ctaLabel) : _defaultBuyLabel;
+      const _ctaBlurbOut = (release && release.ctaBlurb)
+        ? '<div style="font-size:11.5px;color:var(--muted);margin:8px 0 4px;line-height:1.4">' + _pwEsc(release.ctaBlurb) + '</div>'
+        : '';
       wrap.innerHTML =
         '<div class="pwpc-row">' +
         coverHtml +
@@ -20208,7 +20246,8 @@
         '<div class="pwpc-title">' + _pwEsc(title) + '</div>' +
         (author ? '<div style="font-size:11.5px;color:var(--muted);margin-bottom:6px">by ' + _pwEsc(author) + '</div>' : '') +
         (priceStr ? '<div class="pwpc-price">' + priceStr + '</div>' : '') +
-        '<a class="pwpc-buy" href="' + _pwEscAttr(_pwBuyURL(release)) + '" target="_blank" rel="noopener">' + ((release && release.provider === 'custom') ? 'Buy &amp; get unlock code &rarr;' : 'Buy on Gumroad &rarr;') + '</a>' +
+        '<a class="pwpc-buy" href="' + _pwEscAttr(_pwBuyURL(release)) + '" target="_blank" rel="noopener">' + _ctaLabelOut + '</a>' +
+        _ctaBlurbOut +
         '</div>' +
         '</div>' +
         '<div class="pwpc-have">' +
@@ -26084,6 +26123,23 @@
             After someone pays through your checkout URL, email them this code. They paste it on the paywall page to
             unlock the book for 30 days. Pick anything memorable but not guessable — change it occasionally if you
             suspect a leak.
+          </p>
+
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:8px 0 4px">CTA button text
+            <span style="opacity:.6;font-weight:400">(optional — overrides default)</span></label>
+          <input type="text" id="rlCtaLabel" maxlength="80"
+            placeholder="e.g. 💎 Back the Kickstarter →   or   📧 Get notified at launch →   or   💳 Buy now →"
+            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:4px">
+
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:8px 0 4px">CTA help text
+            <span style="opacity:.6;font-weight:400">(optional — appears below the button)</span></label>
+          <input type="text" id="rlCtaBlurb" maxlength="180"
+            placeholder="e.g. Pre-launch pledges get a signed copy and the audiobook. Live soon."
+            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:8px">
+          <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:0 0 6px">
+            Tailor the call-to-action to your scenario — Kickstarter pre-launch ("Follow to be notified"), active
+            crowdfunding ("Back the project"), mailing-list signup, pre-order, regular checkout, etc. Leave both blank
+            to fall back to the standard "Continue reading on &lt;domain&gt; →" copy.
           </p>
         </div>
 
