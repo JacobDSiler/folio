@@ -19023,6 +19023,13 @@
       });
       bp.querySelectorAll('.serial-lock-page').forEach(el => el.remove());
 
+      // Teaser exemption: any chapter id in release.teasers stays unlocked
+      // even when its index is past `released`. Lets the author hand-pick
+      // a free preview chapter beyond the cadence/preview cutoff.
+      const _teaserSet = new Set(
+        Array.isArray(release && release.teasers) ? release.teasers : []
+      );
+
       // Walk pages.
       //
       // KEY FACT (subtle): pageWrap stamps data-chapid ONLY on the FIRST
@@ -19048,7 +19055,11 @@
         if (chid && chapterIds.includes(chid)) {
           // First page of a (new) chapter — recompute lock state.
           chCounter++;
-          currentChapterLocked = (chCounter > released);
+          // Teaser chapters stay unlocked even when chCounter > released.
+          // Without this exemption the author's hand-picked free preview
+          // chapter still renders a lock card.
+          const _isTeaser = _teaserSet.has(chid);
+          currentChapterLocked = (chCounter > released) && !_isTeaser;
           if (currentChapterLocked && firstLockedChIdx !== chCounter) {
             const card = _serialBuildLockCard(release, chCounter, chapters[chCounter - 1]);
             bp.insertBefore(card, p);
@@ -19073,6 +19084,7 @@
         chaptersUnlocked: released,
         chaptersTotal: chapters.length,
         firstLockedChapterIdx: firstLockedChIdx,
+        teaserCount: _teaserSet.size,
       });
 
       // Also gate the TOC rows so locked chapters look the part. Refresh
@@ -19181,12 +19193,18 @@
         }
       }
 
+      // Same teaser exemption as _serialApplyLocks — TOC rows for teaser
+      // chapters render undimmed, not "🔒 ", since they remain readable.
+      const _teaserSet = new Set(
+        Array.isArray(release && release.teasers) ? release.teasers : []
+      );
+
       const rows = bp.querySelectorAll('.toc-nav-row[data-chapid]');
       rows.forEach(row => {
         const chid = row.getAttribute('data-chapid');
         const chIdx = chIdToIdx.get(chid);
         if (!chIdx) return;
-        if (chIdx <= released) return; // unlocked, leave alone
+        if (chIdx <= released || _teaserSet.has(chid)) return; // unlocked, leave alone
 
         row.classList.add('serial-toc-locked');
         row.style.opacity = '0.5';
@@ -20468,10 +20486,15 @@
       sel.innerHTML = '<option value="">Chapters…</option>';
       let chNum = 0;
       const releasedCount = _lockReleasedCount(_rlCurrent);
+      // Teaser chapters render unlocked in the dropdown even past the
+      // released cutoff — mirrors the body-walk + TOC-row exemptions.
+      const _teaserSet = new Set(
+        Array.isArray(_rlCurrent && _rlCurrent.teasers) ? _rlCurrent.teasers : []
+      );
       for (const c of chapters) {
         if (c.type === 'chapter') {
           chNum++;
-          const isLocked = (chNum > releasedCount);
+          const isLocked = (chNum > releasedCount) && !_teaserSet.has(c.id);
           const opt = document.createElement('option');
           opt.value = c.id;
           opt.textContent = (isLocked ? '🔒 ' : '') + `Ch ${chNum} · ${c.title || '(untitled)'}`;
