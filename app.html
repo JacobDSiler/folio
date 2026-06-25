@@ -19175,10 +19175,16 @@
         row.style.opacity = '';
         row.style.cursor = '';
         row.removeAttribute('data-locked-ch');
-        // Re-strip leading lock glyph if we previously added one
+        // Remove the .serial-lock-icon child (new format) AND strip any
+        // legacy "🔒 " text prefix (old format), so toggling free→paid
+        // and back never leaves stale glyphs behind.
         const first = row.querySelector('span');
-        if (first && first.textContent && first.textContent.startsWith('🔒 ')) {
-          first.textContent = first.textContent.slice(2).trimStart();
+        if (first) {
+          const ic = first.querySelector('.serial-lock-icon');
+          if (ic) ic.remove();
+          if (first.textContent && first.textContent.startsWith('🔒 ')) {
+            first.textContent = first.textContent.slice(2).trimStart();
+          }
         }
       });
 
@@ -19207,14 +19213,27 @@
         if (chIdx <= released || _teaserSet.has(chid)) return; // unlocked, leave alone
 
         row.classList.add('serial-toc-locked');
-        row.style.opacity = '0.5';
+        // No opacity dim. Colour emoji render at full strength regardless
+        // of opacity so the lock icon looks "stuck lit" while the label
+        // around it dims — Jacob preferred the consistent always-lit look.
+        // The lock icon + amber colour + cursor:not-allowed already say
+        // "locked" without dimming.
         row.style.cursor = 'not-allowed';
         row.setAttribute('data-locked-ch', String(chIdx));
-        // Prefix the label with a small lock glyph so the disabled state
-        // reads at a glance.
+        // Prefix the label with a small lock glyph. Use a constrained
+        // inline-block child instead of a raw emoji in the text node so
+        // the row's line-height doesn't grow (which pushed the last TOC
+        // entry past the page boundary). 78% font-size keeps the glyph
+        // visually balanced and inside the row's natural leading.
         const first = row.querySelector('span');
-        if (first && first.textContent && !first.textContent.startsWith('🔒 ')) {
-          first.textContent = '🔒 ' + first.textContent;
+        if (first && !first.querySelector('.serial-lock-icon')) {
+          const icon = document.createElement('span');
+          icon.className = 'serial-lock-icon';
+          icon.textContent = '🔒';
+          icon.setAttribute('style',
+            'display:inline-block;width:1.1em;font-size:0.78em;' +
+            'line-height:1;vertical-align:baseline;margin-right:0.35em');
+          first.insertBefore(icon, first.firstChild);
         }
       });
     }
@@ -19388,8 +19407,12 @@
           row.style.cursor = '';
           row.removeAttribute('data-locked-ch');
           const first = row.querySelector('span');
-          if (first && first.textContent && first.textContent.startsWith('🔒 ')) {
-            first.textContent = first.textContent.slice(2).trimStart();
+          if (first) {
+            const ic = first.querySelector('.serial-lock-icon');
+            if (ic) ic.remove();
+            if (first.textContent && first.textContent.startsWith('🔒 ')) {
+              first.textContent = first.textContent.slice(2).trimStart();
+            }
           }
         });
       }
