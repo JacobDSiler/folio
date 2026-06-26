@@ -18209,6 +18209,103 @@
     window._rlSubscribersRefresh = _rlSubscribersRefresh;
     window._rlSubscribersToggleList = _rlSubscribersToggleList;
     window._rlSubscribersExport = _rlSubscribersExport;
+
+    // Fire a subscriber event to the author's webhook (if configured).
+    // Fire-and-forget by design: Firestore is the system of record and
+    // we never want a flaky webhook to block the reader's "Subscribed!"
+    // confirmation. Errors get logged but never thrown.
+    async function _subFireWebhook(url, email, folioId, folioTitle, source) {
+      if (!url || !/^https?:\/\//i.test(url)) return false;
+      try {
+        const payload = {
+          email: email,
+          subscribedAt: Date.now(),
+          subscribedAtIso: new Date().toISOString(),
+          folioId: folioId,
+          folioTitle: folioTitle || '',
+          source: source || 'folio-paywall',
+        };
+        const res = await fetch(url, {
+          method: 'POST',
+          // Use cors mode so success/failure surfaces in console for
+          // debugging; cross-origin endpoints with no CORS will fail but
+          // we still recorded the subscriber in Firestore so the user is
+          // never affected.
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          console.warn('[webhook] subscribe webhook returned', res.status);
+          return false;
+        }
+        return true;
+      } catch (e) {
+        // CORS denial, DNS failure, network drop — all land here. The
+        // Firestore record is already saved, so the user isn't affected.
+        console.warn('[webhook] subscribe webhook fetch failed:', e.message || e);
+        return false;
+      }
+    }
+    window._subFireWebhook = _subFireWebhook;
+
+    // "Send test" button next to the webhook URL field. Fires a payload
+    // with a flag the receiver can detect, so a real signup isn't created
+    // downstream in Mailerlite. Shows result inline either way.
+    async function _rlSubscribersTestWebhook() {
+      const urlEl   = document.getElementById('rlSubscribeWebhookUrl');
+      const status  = document.getElementById('rlWebhookStatus');
+      const btn     = document.getElementById('rlWebhookTestBtn');
+      if (!urlEl || !status) return;
+      const url = (urlEl.value || '').trim();
+      if (!url) {
+        status.style.color = '#c04040';
+        status.textContent = 'Paste a webhook URL first.';
+        return;
+      }
+      if (!/^https?:\/\//i.test(url)) {
+        status.style.color = '#c04040';
+        status.textContent = 'URL must start with http:// or https://.';
+        return;
+      }
+      status.style.color = 'var(--hint)';
+      status.textContent = 'Sending test event…';
+      if (btn) btn.disabled = true;
+      const folioTitle = (document.getElementById('rlTitleField') && document.getElementById('rlTitleField').value)
+        || (document.getElementById('bookTitle') && document.getElementById('bookTitle').value) || '';
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: 'webhook-test@onfolio.press',
+            subscribedAt: Date.now(),
+            subscribedAtIso: new Date().toISOString(),
+            folioId: _projId || 'test',
+            folioTitle: folioTitle,
+            source: 'folio-paywall-test',
+            test: true,
+          }),
+        });
+        if (res.ok) {
+          status.style.color = '#0a7';
+          status.textContent = '✓ Test fired (HTTP ' + res.status + '). Check the receiving end.';
+        } else {
+          status.style.color = '#f59e0b';
+          status.textContent = '⚠ Webhook returned HTTP ' + res.status +
+            '. Test fired but the receiver replied with an error.';
+        }
+      } catch (e) {
+        // Common case: CORS denied at the receiver. The request DID land,
+        // we just can't read the response. Make this clear so the author
+        // doesn't conclude their webhook is broken when it actually fired.
+        status.style.color = '#f59e0b';
+        status.textContent = '⚠ Couldn\'t read the response (likely CORS). ' +
+          'Request was sent — check the receiver. ' + (e.message || '');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+    window._rlSubscribersTestWebhook = _rlSubscribersTestWebhook;
     // ─────────────────────────────────────────────────────────────────────
 
     // List subscribers for a folio. Used at release-next time.
@@ -18730,6 +18827,11 @@
           if (_lockTitleEl) _lockTitleEl.value = _rlCurrent.lockTitleLine || '';
           if (_lockSubEl)   _lockSubEl.value   = _rlCurrent.lockSubtitle  || '';
           if (_subHeadEl)   _subHeadEl.value   = _rlCurrent.subscribeHeading || '';
+          // Subscribe webhook URL — author pastes a Zapier/Make/custom URL.
+          // Every new lock-card subscribe POSTs JSON there as well as
+          // writing to Firestore. Pre-fill from the existing release.
+          const _whEl = document.getElementById('rlSubscribeWebhookUrl');
+          if (_whEl) _whEl.value = _rlCurrent.subscribeWebhookUrl || '';
           try { _rlSetProvider(_rlCurrent.provider === 'custom' ? 'custom' : 'gumroad'); } catch (e) { }
           if (priceField1) priceField1.value = (_rlCurrent.price != null ? String(_rlCurrent.price) : '');
           if (currField1) currField1.value = _rlCurrent.currency || 'USD';
@@ -18836,6 +18938,11 @@
       const lockTitleLine    = (document.getElementById('rlLockTitleLine')   && document.getElementById('rlLockTitleLine').value   || '').trim().slice(0, 140);
       const lockSubtitle     = (document.getElementById('rlLockSubtitle')    && document.getElementById('rlLockSubtitle').value    || '').trim().slice(0, 180);
       const subscribeHeading = (document.getElementById('rlSubscribeHeading') && document.getElementById('rlSubscribeHeading').value || '').trim().slice(0, 80);
+      // Validate the webhook URL up-front: must be empty or http(s). A
+      // bad URL gets silently dropped (saved as null) so a typo can't
+      // start firing requests to garbage at runtime.
+      let subscribeWebhookUrl = (document.getElementById('rlSubscribeWebhookUrl') && document.getElementById('rlSubscribeWebhookUrl').value || '').trim().slice(0, 500);
+      if (subscribeWebhookUrl && !/^https?:\/\//i.test(subscribeWebhookUrl)) subscribeWebhookUrl = '';
       const priceRaw = (document.getElementById('rlPrice') && document.getElementById('rlPrice').value || '').trim();
       const currency = (document.getElementById('rlCurrency') && document.getElementById('rlCurrency').value) || 'USD';
       const audioBundle = !!(document.getElementById('rlAudioBundle') && document.getElementById('rlAudioBundle').checked);
@@ -18918,6 +19025,10 @@
         lockTitleLine:    lockTitleLine    || null,
         lockSubtitle:     lockSubtitle     || null,
         subscribeHeading: subscribeHeading || null,
+        // Optional webhook the lock-card subscribe POSTs to (in addition
+        // to the Firestore write). Null = no webhook. The URL is on the
+        // public release doc; use unguessable URLs (Zapier), never API keys.
+        subscribeWebhookUrl: subscribeWebhookUrl || null,
         product: _rlMode === 'paid' && provider === 'gumroad' ? productId : null,
         price: _rlMode === 'paid' ? priceNum : 0,
         currency: currency,
@@ -19557,6 +19668,16 @@
         input.value = '';
         btn.disabled = true;
         btn.textContent = '✓ Done';
+        // Mirror to webhook (same fire-and-forget pattern as
+        // _serialCardSubscribe so the click-locked-chapter modal path
+        // ALSO feeds the author's Mailerlite/Zapier flow).
+        const _rl = (typeof _pwActiveRelease !== 'undefined' && _pwActiveRelease)
+          ? _pwActiveRelease
+          : (typeof _rlCurrent !== 'undefined' ? _rlCurrent : null);
+        if (_rl && _rl.subscribeWebhookUrl && typeof _subFireWebhook === 'function') {
+          _subFireWebhook(_rl.subscribeWebhookUrl, email, folioId,
+            _rl.title || '', 'folio-paywall-modal');
+        }
       } catch (e) {
         status.style.color = '#c04040';
         status.textContent = (e && e.message) || 'Subscribe failed';
@@ -19760,6 +19881,20 @@
         input.value = '';
         btn.disabled = true;
         btn.textContent = '✓ Subscribed';
+        // Fire-and-forget webhook AFTER the user sees the success
+        // confirmation. Reader UX never waits on a slow third-party
+        // endpoint, and a webhook failure is invisible (Firestore is
+        // the system of record).
+        //
+        // Resolve the active release: owner editor sets window._rlCurrent;
+        // reader mode sets window._pwActiveRelease. Either works.
+        const _rl = (typeof _pwActiveRelease !== 'undefined' && _pwActiveRelease)
+          ? _pwActiveRelease
+          : (typeof _rlCurrent !== 'undefined' ? _rlCurrent : null);
+        if (_rl && _rl.subscribeWebhookUrl && typeof _subFireWebhook === 'function') {
+          _subFireWebhook(_rl.subscribeWebhookUrl, email, folioId,
+            _rl.title || '', 'folio-paywall');
+        }
       } catch (e) {
         status.style.color = '#c04040';
         status.textContent = (e && e.message) || 'Subscribe failed';
@@ -26789,6 +26924,29 @@
         </div>
         <div id="rlSubscribersList" style="display:none;margin-top:10px;max-height:240px;overflow-y:auto;font-size:11.5px;color:var(--text)"></div>
         <div id="rlSubscribersStatus" style="font-size:10.5px;color:var(--hint);margin-top:6px;min-height:14px"></div>
+
+        <!-- Webhook pass-through. Author pastes a Zapier / Make / n8n /
+             custom URL. Every new subscriber is POSTed there as JSON in
+             addition to being saved to Firestore. -->
+        <div style="margin-top:12px;padding-top:10px;border-top:.5px dotted var(--border-mid)">
+          <label style="display:block;font-size:11px;font-weight:500;color:var(--hint);margin:0 0 4px">
+            🔗 Mirror new signups to webhook
+            <span style="opacity:.6;font-weight:400">(optional — Zapier, Make, n8n, custom)</span>
+          </label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="url" id="rlSubscribeWebhookUrl" maxlength="500"
+              placeholder="https://hooks.zapier.com/hooks/catch/...."
+              title="Each signup POSTs {email, subscribedAt, folioId, folioTitle, source} as JSON. URL is on the public release doc — use unguessable webhook URLs (Zapier's are fine), not API keys."
+              style="flex:1;font-size:11.5px;padding:6px 8px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);outline:none;font-family:var(--mono,ui-monospace,monospace)">
+            <button type="button" onclick="_rlSubscribersTestWebhook()" id="rlWebhookTestBtn"
+              style="font-size:10.5px;padding:6px 10px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap">Send test</button>
+          </div>
+          <div id="rlWebhookStatus" style="font-size:10px;color:var(--hint);margin-top:5px;min-height:13px;line-height:1.4"></div>
+          <p style="font-size:9.5px;color:var(--hint);margin:5px 0 0;line-height:1.5">
+            Best for Mailerlite via a Zapier "Catch Hook → Add Subscriber" zap. The webhook URL is stored on the
+            public release doc — Zapier's random URLs are safe by obscurity, but never paste a Mailerlite API token here.
+          </p>
+        </div>
       </div>
 
       <!-- Action row — Publish (primary) + Unpublish (shown for live releases) -->
