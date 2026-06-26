@@ -6071,6 +6071,26 @@
               <span id="btnReleaseBadge"
                 style="display:none;background:#d1fae5;color:#065f46;font-size:9px;padding:1px 6px;border-radius:8px;font-weight:400;letter-spacing:.02em">LIVE</span>
             </button>
+            <!-- Publish health — at-a-glance release state. Collapsed by
+                 default; clicking the summary expands the detail block. -->
+            <div id="publishHealthLine"
+              onclick="_publishHealthToggleDetail()"
+              style="display:none;margin-top:6px;padding:6px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--bg);font-size:10.5px;line-height:1.4;color:var(--text);cursor:pointer;user-select:none">
+              <div id="publishHealthSummary" style="display:flex;align-items:center;gap:6px">
+                <span id="publishHealthDot" style="width:8px;height:8px;border-radius:50%;background:#9ca3af;flex-shrink:0"></span>
+                <span id="publishHealthSummaryText" style="flex:1;color:var(--text)">Checking…</span>
+                <span id="publishHealthExpandHint" style="color:var(--hint);font-size:9px">▾</span>
+              </div>
+              <div id="publishHealthDetail" style="display:none;margin-top:8px;padding-top:8px;border-top:.5px dotted var(--border-mid);color:var(--hint);font-size:10px;line-height:1.55">
+                <div id="publishHealthDetailRows"></div>
+                <div style="display:flex;gap:5px;margin-top:7px;flex-wrap:wrap">
+                  <button type="button" onclick="event.stopPropagation();_publishHealthRefresh()"
+                    style="font-size:9.5px;padding:3px 7px;border-radius:4px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">↻ Refresh</button>
+                  <button type="button" onclick="event.stopPropagation();_publishHealthDiagnose()"
+                    style="font-size:9.5px;padding:3px 7px;border-radius:4px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">🔍 Diagnose</button>
+                </div>
+              </div>
+            </div>
             <p class="small-note" style="margin-top:6px">Saves all chapters, design &amp; settings to the cloud. Images
               stay local (file size).</p>
           </div>
@@ -18702,6 +18722,14 @@
           const _ctaBlurbEl = document.getElementById('rlCtaBlurb');
           if (_ctaLabelEl) _ctaLabelEl.value = _rlCurrent.ctaLabel || '';
           if (_ctaBlurbEl) _ctaBlurbEl.value = _rlCurrent.ctaBlurb || '';
+          // Lock-card copy overrides — same fall-back-to-default semantics
+          // as ctaLabel/ctaBlurb. Empty value means "use the default text".
+          const _lockTitleEl = document.getElementById('rlLockTitleLine');
+          const _lockSubEl   = document.getElementById('rlLockSubtitle');
+          const _subHeadEl   = document.getElementById('rlSubscribeHeading');
+          if (_lockTitleEl) _lockTitleEl.value = _rlCurrent.lockTitleLine || '';
+          if (_lockSubEl)   _lockSubEl.value   = _rlCurrent.lockSubtitle  || '';
+          if (_subHeadEl)   _subHeadEl.value   = _rlCurrent.subscribeHeading || '';
           try { _rlSetProvider(_rlCurrent.provider === 'custom' ? 'custom' : 'gumroad'); } catch (e) { }
           if (priceField1) priceField1.value = (_rlCurrent.price != null ? String(_rlCurrent.price) : '');
           if (currField1) currField1.value = _rlCurrent.currency || 'USD';
@@ -18805,6 +18833,9 @@
       let unlockCode = (document.getElementById('rlUnlockCode') && document.getElementById('rlUnlockCode').value || '').trim();
       const ctaLabel = (document.getElementById('rlCtaLabel') && document.getElementById('rlCtaLabel').value || '').trim().slice(0, 80);
       const ctaBlurb = (document.getElementById('rlCtaBlurb') && document.getElementById('rlCtaBlurb').value || '').trim().slice(0, 180);
+      const lockTitleLine    = (document.getElementById('rlLockTitleLine')   && document.getElementById('rlLockTitleLine').value   || '').trim().slice(0, 140);
+      const lockSubtitle     = (document.getElementById('rlLockSubtitle')    && document.getElementById('rlLockSubtitle').value    || '').trim().slice(0, 180);
+      const subscribeHeading = (document.getElementById('rlSubscribeHeading') && document.getElementById('rlSubscribeHeading').value || '').trim().slice(0, 80);
       const priceRaw = (document.getElementById('rlPrice') && document.getElementById('rlPrice').value || '').trim();
       const currency = (document.getElementById('rlCurrency') && document.getElementById('rlCurrency').value) || 'USD';
       const audioBundle = !!(document.getElementById('rlAudioBundle') && document.getElementById('rlAudioBundle').checked);
@@ -18881,6 +18912,12 @@
         // provider-aware defaults at render time when blank.
         ctaLabel: _rlMode === 'paid' && ctaLabel ? ctaLabel : null,
         ctaBlurb: _rlMode === 'paid' && ctaBlurb ? ctaBlurb : null,
+        // Author-customisable lock-card copy. Empty/blank = use the
+        // hardcoded default at render time. Save explicitly null so the
+        // render-side `release.lockTitleLine || 'default'` pattern is clean.
+        lockTitleLine:    lockTitleLine    || null,
+        lockSubtitle:     lockSubtitle     || null,
+        subscribeHeading: subscribeHeading || null,
         product: _rlMode === 'paid' && provider === 'gumroad' ? productId : null,
         price: _rlMode === 'paid' ? priceNum : 0,
         currency: currency,
@@ -19629,7 +19666,9 @@
           (folioId
             ? (
               '<div style="width:100%;max-width:400px;margin-top:6px;padding-top:12px;border-top:.5px dashed var(--border-mid)">' +
-              '<div style="font-size:11px;color:var(--hint);margin-bottom:6px;letter-spacing:.04em">OR — JUST WANT TO HEAR WHEN THIS UNLOCKS?</div>' +
+              '<div style="font-size:11px;color:var(--hint);margin-bottom:6px;letter-spacing:.04em">' +
+              _esc(release.subscribeHeading || 'OR — JUST WANT TO HEAR WHEN THIS UNLOCKS?') +
+              '</div>' +
               '<div id="' + subId + '" style="display:flex;gap:6px">' +
               '<input type="email" id="' + subId + '_email" name="' + subId + '_email" ' +
               'autocomplete="email" placeholder="you@example.com" ' +
@@ -19674,9 +19713,11 @@
         )
         : (
           '<div style="font-size:13px;color:var(--text);margin-bottom:6px">' +
-          'This chapter is part of the rest of the book.' +
+          _esc(release.lockTitleLine || 'This chapter is part of the rest of the book.') +
           '</div>' +
-          '<div style="font-size:11.5px;color:var(--hint)">Unlock with a purchase code or buy below.</div>'
+          '<div style="font-size:11.5px;color:var(--hint)">' +
+          _esc(release.lockSubtitle || 'Unlock with a purchase code or buy below.') +
+          '</div>'
         );
 
       card.innerHTML =
@@ -19771,7 +19812,221 @@
         if (lbl) lbl.textContent = 'Release…';
         if (badge) badge.style.display = 'none';
       }
+      // Publish health: refresh whenever the button state changes (which
+      // fires after _rlRefreshFromCloud + after publish/unpublish).
+      if (typeof _publishHealthRefresh === 'function') {
+        setTimeout(_publishHealthRefresh, 0);
+      }
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Publish health badge.
+    //
+    // At-a-glance release state in the editor sidebar so future regressions
+    // (like the body/paid drop we hit) surface immediately instead of
+    // requiring a console diagnostic. Shows one line — status + mode +
+    // teaser count + last-publish age — and click-to-expand for the full
+    // detail panel including the manual diagnose button.
+
+    let _publishHealthState = null;  // last computed state, used by toggle
+
+    function _publishHealthFormatAge(ms) {
+      if (!ms || ms < 0) return '—';
+      const s = Math.floor(ms / 1000);
+      if (s < 60) return s + 's ago';
+      const m = Math.floor(s / 60);
+      if (m < 60) return m + 'm ago';
+      const h = Math.floor(m / 60);
+      if (h < 24) return h + 'h ago';
+      const d = Math.floor(h / 24);
+      return d + 'd ago';
+    }
+
+    async function _publishHealthRefresh() {
+      const line = document.getElementById('publishHealthLine');
+      const dot = document.getElementById('publishHealthDot');
+      const summaryText = document.getElementById('publishHealthSummaryText');
+      const rows = document.getElementById('publishHealthDetailRows');
+      if (!line || !dot || !summaryText) return;
+      // No project loaded → hide the line entirely. There's nothing useful
+      // to surface and showing "Unknown" would just be noise.
+      if (!_projId) { line.style.display = 'none'; return; }
+      line.style.display = '';
+      // Unpublished folios: short circuit. Grey dot, "Unpublished" label,
+      // detail panel explains the folio is local-only.
+      if (!_rlCurrent || !_rlCurrent.published) {
+        _publishHealthState = {
+          status: 'unpublished', mode: null, teasers: 0, previewN: 0,
+          publishedAt: null, bodyMainExists: null, bodyPaidExists: null,
+          ageMs: null,
+        };
+        dot.style.background = '#9ca3af';                       // grey
+        summaryText.innerHTML = '<span style="color:var(--hint)">Unpublished — local only</span>';
+        if (rows) rows.innerHTML = '<div>This folio hasn\'t been published. Hit <strong>Release…</strong> to share a reader link.</div>';
+        return;
+      }
+      // Published: gather the live cloud state. Doing the fetches in
+      // parallel keeps this snappy even on slow connections.
+      const release = _rlCurrent;
+      const previewN = Number(release.previewSections) || 0;
+      const teasers = Array.isArray(release.teasers) ? release.teasers : [];
+      const publishedAt = release.publishedAt || null;
+      const ageMs = publishedAt ? (Date.now() - publishedAt) : null;
+      let bodyMainExists = null, bodyMainUpdatedAt = null;
+      let bodyPaidExists = null, bodyPaidUpdatedAt = null;
+      try {
+        const bodyMainRef = window._fb.doc(window._db, 'folio_projects', _projId, 'body', 'main');
+        const bodyMainSnap = await window._fb.getDoc(bodyMainRef);
+        bodyMainExists = bodyMainSnap.exists();
+        if (bodyMainExists) {
+          const u = bodyMainSnap.data().updatedAt;
+          // serverTimestamp may be a Firestore Timestamp; convert to ms.
+          bodyMainUpdatedAt = (u && typeof u.toMillis === 'function') ? u.toMillis() : (typeof u === 'number' ? u : null);
+        }
+      } catch (e) { console.warn('[health] body/main fetch failed:', e); }
+      if (release.priceMode === 'paid') {
+        try {
+          const bodyPaidRef = window._fb.doc(window._db, 'folio_projects', _projId, 'body', 'paid');
+          const bodyPaidSnap = await window._fb.getDoc(bodyPaidRef);
+          bodyPaidExists = bodyPaidSnap.exists();
+          if (bodyPaidExists) {
+            const u = bodyPaidSnap.data().updatedAt;
+            bodyPaidUpdatedAt = (u && typeof u.toMillis === 'function') ? u.toMillis() : (typeof u === 'number' ? u : null);
+          }
+        } catch (e) { console.warn('[health] body/paid fetch failed:', e); }
+      }
+      // Health verdict. Issues we can detect today:
+      //   - Paid release with no body/paid (the regression we just fixed —
+      //     surfaces if it ever happens again)
+      //   - body/main missing entirely (something corrupted the publish)
+      // Future: parity warnings (body/main and body/paid timestamps differ
+      // by > 5min), missing chapter ids, etc.
+      let status = 'live';
+      const issues = [];
+      if (bodyMainExists === false) {
+        status = 'issue';
+        issues.push('body/main is missing on disk — reader link will 404.');
+      }
+      if (release.priceMode === 'paid' && bodyPaidExists === false) {
+        status = 'issue';
+        issues.push('Paid release but body/paid is missing — non-teaser chapters can\'t be unlocked by buyers.');
+      }
+      _publishHealthState = {
+        status, mode: release.priceMode, teasers: teasers.length, previewN,
+        publishedAt, ageMs, bodyMainExists, bodyMainUpdatedAt,
+        bodyPaidExists, bodyPaidUpdatedAt, issues,
+      };
+      // Render summary. Status colour: green = healthy, amber = issue.
+      // Unpublished/grey handled above.
+      const dotColour = status === 'live' ? '#10b981' : '#f59e0b';
+      dot.style.background = dotColour;
+      const modeLabel = release.priceMode === 'paid' ? 'Paid'
+                      : release.priceMode === 'private' ? 'Private' : 'Free';
+      const teaserChip = teasers.length > 0
+        ? ' · ' + teasers.length + ' teaser' + (teasers.length === 1 ? '' : 's') : '';
+      const statusWord = status === 'live' ? 'Live' : 'Issue';
+      summaryText.textContent = statusWord + ' · ' + modeLabel + teaserChip +
+        (ageMs != null ? ' · ' + _publishHealthFormatAge(ageMs) : '');
+      // Build detail rows. Each row is label + value, monospace-aligned.
+      if (rows) {
+        const lines = [];
+        lines.push(_publishHealthRow('Mode', modeLabel));
+        if (release.priceMode === 'paid') {
+          lines.push(_publishHealthRow('Free preview', String(previewN) + ' chapter' + (previewN === 1 ? '' : 's')));
+        }
+        lines.push(_publishHealthRow('Teasers', String(teasers.length)));
+        if (release.provider) lines.push(_publishHealthRow('Provider', release.provider));
+        lines.push(_publishHealthRow('Published', publishedAt ? new Date(publishedAt).toLocaleString() : '—'));
+        lines.push(_publishHealthRow('body/main', bodyMainExists === null ? '?' : bodyMainExists
+          ? ('✓ ' + (bodyMainUpdatedAt ? new Date(bodyMainUpdatedAt).toLocaleTimeString() : 'ok'))
+          : '✗ missing'));
+        if (release.priceMode === 'paid') {
+          lines.push(_publishHealthRow('body/paid', bodyPaidExists === null ? '?' : bodyPaidExists
+            ? ('✓ ' + (bodyPaidUpdatedAt ? new Date(bodyPaidUpdatedAt).toLocaleTimeString() : 'ok'))
+            : '✗ missing'));
+        }
+        if (issues.length > 0) {
+          lines.push('<div style="margin-top:6px;padding:6px 8px;border-radius:4px;background:#fef3c7;color:#92400e;border:.5px solid #f59e0b">' +
+            '⚠ ' + issues.map(_publishHealthEscape).join('<br>') +
+            '</div>');
+        }
+        rows.innerHTML = lines.join('');
+      }
+    }
+
+    function _publishHealthRow(label, value) {
+      return '<div style="display:flex;justify-content:space-between;gap:8px;padding:1px 0">' +
+        '<span style="color:var(--hint)">' + _publishHealthEscape(label) + '</span>' +
+        '<span style="color:var(--text);text-align:right">' + _publishHealthEscape(value) + '</span>' +
+        '</div>';
+    }
+
+    function _publishHealthEscape(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function _publishHealthToggleDetail() {
+      const detail = document.getElementById('publishHealthDetail');
+      const hint = document.getElementById('publishHealthExpandHint');
+      if (!detail) return;
+      if (detail.style.display === 'none') {
+        detail.style.display = '';
+        if (hint) hint.textContent = '▴';
+      } else {
+        detail.style.display = 'none';
+        if (hint) hint.textContent = '▾';
+      }
+    }
+
+    // Manual deep-dive. Reuses the same disk-state diagnostic we've been
+    // running by hand for two sessions, but kicks it off from a button so
+    // future debugging doesn't need a 30-line console paste.
+    async function _publishHealthDiagnose() {
+      console.log('═══════════════════════════════════════════════════════');
+      console.log('[health] manual diagnose — projId:', _projId);
+      try {
+        const parentRef = window._fb.doc(window._db, 'folio_projects', _projId);
+        const parentSnap = await window._fb.getDoc(parentRef);
+        const data = parentSnap.data() || {};
+        console.log('[health] release on disk:', data.release);
+        console.log('[health] parent.uid:', data.uid, 'window._uid:', window._uid,
+          'owner check:', data.uid === window._uid);
+        const mainRef = window._fb.doc(window._db, 'folio_projects', _projId, 'body', 'main');
+        const mainSnap = await window._fb.getDoc(mainRef);
+        if (mainSnap.exists()) {
+          const md = mainSnap.data();
+          if (md.state_gz) {
+            const bytes = Uint8Array.from(atob(md.state_gz), c => c.charCodeAt(0));
+            const stream = new Response(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')));
+            const text = await stream.text();
+            const st = JSON.parse(text);
+            console.log('[health] body/main (decoded): chapter count', (st.chapters || []).length);
+            (st.chapters || []).forEach((c, i) => {
+              if (c.type === 'chapter') console.log(`  Ch ${i + 1}: ${c.title} | len: ${(c.content || '').length}`);
+            });
+          } else { console.log('[health] body/main has no state_gz'); }
+        } else { console.log('[health] body/main missing'); }
+        if (data.release && data.release.priceMode === 'paid') {
+          const paidRef = window._fb.doc(window._db, 'folio_projects', _projId, 'body', 'paid');
+          const paidSnap = await window._fb.getDoc(paidRef);
+          console.log('[health] body/paid exists:', paidSnap.exists());
+          if (paidSnap.exists()) {
+            const pd = paidSnap.data();
+            console.log('[health] body/paid keys:', Object.keys(pd));
+            if (pd.content_gz) console.log('  content_gz base64 length:', pd.content_gz.length);
+          }
+        }
+      } catch (e) { console.error('[health] diagnose failed:', e); }
+      console.log('═══════════════════════════════════════════════════════');
+      if (typeof toastSuccess === 'function')
+        toastSuccess('Diagnostic printed to console (F12)', { duration: 2200 });
+    }
+
+    window._publishHealthRefresh = _publishHealthRefresh;
+    window._publishHealthToggleDetail = _publishHealthToggleDetail;
+    window._publishHealthDiagnose = _publishHealthDiagnose;
+    // ─────────────────────────────────────────────────────────────────────
 
     // Close on backdrop click / Escape
     window.addEventListener('click', (e) => {
@@ -26359,6 +26614,34 @@
             Tailor the call-to-action to your scenario — Kickstarter pre-launch ("Follow to be notified"), active
             crowdfunding ("Back the project"), mailing-list signup, pre-order, regular checkout, etc. Leave both blank
             to fall back to the standard "Continue reading on &lt;domain&gt; →" copy.
+          </p>
+
+          <!-- Lock-card copy overrides. Each placeholder shows the default
+               so the author knows what they're overriding. Leave blank to
+               keep the default. -->
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:10px 0 4px">Lock title line
+            <span style="opacity:.6;font-weight:400">(shown above the buy button)</span></label>
+          <input type="text" id="rlLockTitleLine" maxlength="140"
+            placeholder="This chapter is part of the rest of the book."
+            title="Default: This chapter is part of the rest of the book."
+            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:4px">
+
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:8px 0 4px">Lock subtitle
+            <span style="opacity:.6;font-weight:400">(small text under the title line)</span></label>
+          <input type="text" id="rlLockSubtitle" maxlength="180"
+            placeholder="Unlock with a purchase code or buy below."
+            title="Default: Unlock with a purchase code or buy below."
+            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:4px">
+
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:8px 0 4px">Subscribe section heading
+            <span style="opacity:.6;font-weight:400">(divider above the email field)</span></label>
+          <input type="text" id="rlSubscribeHeading" maxlength="80"
+            placeholder="OR — JUST WANT TO HEAR WHEN THIS UNLOCKS?"
+            title="Default: OR — JUST WANT TO HEAR WHEN THIS UNLOCKS?"
+            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:8px">
+          <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:0 0 6px">
+            Tweak the lock-card copy to match your wording — "This chapter is part of the pre-launch reward,"
+            "Back the project for instant access," etc. Each placeholder shows the default; leave blank to keep it.
           </p>
         </div>
 
