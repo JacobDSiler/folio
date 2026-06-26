@@ -18084,6 +18084,113 @@
       return { id: ref.id, token };
     }
 
+    // ─────────────────────────────────────────────────────────────────────
+    // Release-modal Subscribers panel.
+    //
+    // _subAdd has been writing to the subscribers subcollection on every
+    // lock-card subscribe click for a long time — but the author had no
+    // UI to *see* who'd signed up. This panel surfaces count + list +
+    // CSV export inside the release modal so the author can do something
+    // with the captured emails (Kickstarter pre-launch list, Mailerlite
+    // import, etc.). Reads are owner-only at the rule layer (audit B5).
+
+    async function _rlSubscribersRefresh() {
+      const countEl = document.getElementById('rlSubscribersCount');
+      const statusEl = document.getElementById('rlSubscribersStatus');
+      if (statusEl) { statusEl.style.color = 'var(--hint)'; statusEl.textContent = 'Loading…'; }
+      try {
+        const subs = await _subList(_projId);
+        if (countEl) countEl.textContent = String(subs.length);
+        if (statusEl) statusEl.textContent = subs.length === 0
+          ? 'No subscribers yet — share your reader link to start collecting emails.'
+          : '';
+        // If the list is open, refresh its rows so the View toggle stays
+        // in sync with the count.
+        const listEl = document.getElementById('rlSubscribersList');
+        if (listEl && listEl.style.display !== 'none') _rlSubscribersRenderList(subs);
+        return subs;
+      } catch (e) {
+        if (statusEl) { statusEl.style.color = '#c04040'; statusEl.textContent = 'Failed to load subscribers.'; }
+        console.warn('[subscribers] refresh failed:', e);
+        return [];
+      }
+    }
+
+    function _rlSubscribersRenderList(subs) {
+      const listEl = document.getElementById('rlSubscribersList');
+      if (!listEl) return;
+      if (!subs.length) {
+        listEl.innerHTML = '<div style="padding:8px;color:var(--hint);text-align:center">No subscribers yet.</div>';
+        return;
+      }
+      // Newest first — readers want to see the most recent signup
+      subs.sort((a, b) => (b.subscribedAt || 0) - (a.subscribedAt || 0));
+      listEl.innerHTML = subs.map(s => {
+        const when = s.subscribedAt ? new Date(s.subscribedAt).toLocaleString() : '—';
+        // Escape the email so a malicious display value can't inject HTML.
+        const safeEmail = String(s.email || '').replace(/[&<>"']/g, c =>
+          ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        return '<div style="display:flex;justify-content:space-between;gap:8px;padding:6px 0;border-bottom:.5px dotted var(--border-mid);font-family:monospace;font-size:11px">' +
+          '<span>' + safeEmail + '</span>' +
+          '<span style="color:var(--hint);font-size:10.5px;white-space:nowrap">' + when + '</span>' +
+          '</div>';
+      }).join('');
+    }
+
+    async function _rlSubscribersToggleList() {
+      const listEl = document.getElementById('rlSubscribersList');
+      const btn = document.getElementById('rlSubscribersToggle');
+      if (!listEl) return;
+      if (listEl.style.display === 'none') {
+        const subs = await _rlSubscribersRefresh();
+        _rlSubscribersRenderList(subs);
+        listEl.style.display = '';
+        if (btn) btn.textContent = 'Hide';
+      } else {
+        listEl.style.display = 'none';
+        if (btn) btn.textContent = 'View';
+      }
+    }
+
+    async function _rlSubscribersExport() {
+      const statusEl = document.getElementById('rlSubscribersStatus');
+      if (statusEl) { statusEl.style.color = 'var(--hint)'; statusEl.textContent = 'Exporting…'; }
+      try {
+        const subs = await _subList(_projId);
+        if (!subs.length) {
+          if (statusEl) statusEl.textContent = 'No subscribers to export yet.';
+          return;
+        }
+        // Sort oldest first so the CSV reads as a signup timeline.
+        subs.sort((a, b) => (a.subscribedAt || 0) - (b.subscribedAt || 0));
+        const rows = [['email', 'subscribed_at_iso', 'subscribed_at_ms']];
+        subs.forEach(s => {
+          const iso = s.subscribedAt ? new Date(s.subscribedAt).toISOString() : '';
+          const email = String(s.email || '').replace(/"/g, '""');
+          rows.push([email, iso, String(s.subscribedAt || '')]);
+        });
+        const csv = rows.map(r => r.map(c => '"' + c + '"').join(',')).join('\r\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const stamp = new Date().toISOString().slice(0, 10);
+        a.href = url;
+        a.download = 'folio_subscribers_' + (_projId || 'unknown') + '_' + stamp + '.csv';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+        if (statusEl) { statusEl.style.color = '#0a7'; statusEl.textContent = 'Exported ' + subs.length + ' subscribers.'; }
+      } catch (e) {
+        if (statusEl) { statusEl.style.color = '#c04040'; statusEl.textContent = 'Export failed: ' + (e.message || 'unknown'); }
+        console.warn('[subscribers] export failed:', e);
+      }
+    }
+
+    window._rlSubscribersRefresh = _rlSubscribersRefresh;
+    window._rlSubscribersToggleList = _rlSubscribersToggleList;
+    window._rlSubscribersExport = _rlSubscribersExport;
+    // ─────────────────────────────────────────────────────────────────────
+
     // List subscribers for a folio. Used at release-next time.
     async function _subList(folioId) {
       if (!window._fb || !window._db || !folioId) return [];
@@ -18550,6 +18657,18 @@
       // Funnel: render the teaser-chapter checklist after the synchronous
       // hydration below has populated the previewN field + _rlCurrent.
       setTimeout(() => { try { if (typeof _rlRenderTeasers === 'function') _rlRenderTeasers(); } catch (e) { } }, 60);
+      // Subscribers: refresh count + close any open list from a prior
+      // open. Slight delay so the panel's DOM is mounted before the
+      // refresh queries it.
+      setTimeout(() => {
+        try {
+          const listEl = document.getElementById('rlSubscribersList');
+          const toggleBtn = document.getElementById('rlSubscribersToggle');
+          if (listEl) listEl.style.display = 'none';
+          if (toggleBtn) toggleBtn.textContent = 'View';
+          if (typeof _rlSubscribersRefresh === 'function') _rlSubscribersRefresh();
+        } catch (e) { console.warn('[subscribers] modal-open refresh:', e); }
+      }, 80);
 
       // Hydrate fields from current folio metadata + existing release
       const titleField = document.getElementById('rlTitleField');
@@ -26368,6 +26487,25 @@
             style="font-size:11.5px;padding:6px 10px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap">📋
             Copy</button>
         </div>
+      </div>
+
+      <!-- Subscribers — readers who tapped Subscribe on the lock card -->
+      <div id="rlSubscribersSection" style="margin-top:14px;padding:12px 14px;border:.5px dashed var(--border-mid);border-radius:8px;background:var(--bg)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+          <div style="font-size:12px;font-weight:500;color:var(--text)">
+            📧 Subscribers: <span id="rlSubscribersCount" style="font-weight:600">—</span>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" id="rlSubscribersRefresh" onclick="_rlSubscribersRefresh()" title="Refresh"
+              style="font-size:10.5px;padding:5px 9px;border-radius:5px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">↻</button>
+            <button type="button" id="rlSubscribersToggle" onclick="_rlSubscribersToggleList()"
+              style="font-size:10.5px;padding:5px 9px;border-radius:5px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">View</button>
+            <button type="button" id="rlSubscribersExport" onclick="_rlSubscribersExport()"
+              style="font-size:10.5px;padding:5px 10px;border-radius:5px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">Export CSV</button>
+          </div>
+        </div>
+        <div id="rlSubscribersList" style="display:none;margin-top:10px;max-height:240px;overflow-y:auto;font-size:11.5px;color:var(--text)"></div>
+        <div id="rlSubscribersStatus" style="font-size:10.5px;color:var(--hint);margin-top:6px;min-height:14px"></div>
       </div>
 
       <!-- Action row — Publish (primary) + Unpublish (shown for live releases) -->
