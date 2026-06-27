@@ -18832,6 +18832,10 @@
           // writing to Firestore. Pre-fill from the existing release.
           const _whEl = document.getElementById('rlSubscribeWebhookUrl');
           if (_whEl) _whEl.value = _rlCurrent.subscribeWebhookUrl || '';
+          // Reader-side export opt-out (paid releases). Default off so
+          // legacy releases keep the new "export visible content" behaviour.
+          const _dueEl = document.getElementById('rlDisableUnpurchasedExport');
+          if (_dueEl) _dueEl.checked = !!_rlCurrent.disableUnpurchasedExport;
           try { _rlSetProvider(_rlCurrent.provider === 'custom' ? 'custom' : 'gumroad'); } catch (e) { }
           if (priceField1) priceField1.value = (_rlCurrent.price != null ? String(_rlCurrent.price) : '');
           if (currField1) currField1.value = _rlCurrent.currency || 'USD';
@@ -19029,6 +19033,10 @@
         // to the Firestore write). Null = no webhook. The URL is on the
         // public release doc; use unguessable URLs (Zapier), never API keys.
         subscribeWebhookUrl: subscribeWebhookUrl || null,
+        // Reader export gate. true = block export until purchased (paid
+        // releases only). Default false = hybrid C: readers export what's
+        // visible (free preview + teasers).
+        disableUnpurchasedExport: !!(document.getElementById('rlDisableUnpurchasedExport') && document.getElementById('rlDisableUnpurchasedExport').checked),
         product: _rlMode === 'paid' && provider === 'gumroad' ? productId : null,
         price: _rlMode === 'paid' ? priceNum : 0,
         currency: currency,
@@ -21782,6 +21790,389 @@
     window._rdCloseDrawer = _rdCloseDrawer;
     window._rdJumpToChapter = _rdJumpToChapter;
     window._rdResumeProgress = _rdResumeProgress;
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Reader hamburger menu + Export.
+    //
+    // Hybrid C paywall model:
+    //   * Free folio              → export everything
+    //   * Paid folio, unlocked    → export everything (buyer has access)
+    //   * Paid folio, NOT unlocked → export only what's visible to the
+    //     reader (free preview + teasers). Author can disable export
+    //     entirely for unpurchased readers via release.disableUnpurchasedExport.
+    //
+    // The visibility is implicit in getChapters() output once the paywall
+    // load path has merged body/paid / teaser content correctly. We don't
+    // need to filter again; we filter for the DISABLE-export case only.
+
+    function _rdMenuToggle(ev) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      const menu = document.getElementById('rdMenu');
+      const btn  = document.getElementById('rdMenuBtn');
+      const note = document.getElementById('rdExportNote');
+      if (!menu) return;
+      const opening = menu.style.display === 'none' || !menu.style.display;
+      if (opening) {
+        // Update the contextual note based on current paywall state so
+        // the reader understands what they're about to get.
+        if (note) {
+          const _rl = (typeof _pwActiveRelease !== 'undefined' && _pwActiveRelease)
+            ? _pwActiveRelease : null;
+          const _isPaid    = !!(_rl && _rl.priceMode === 'paid');
+          const _isUnlocked = document.documentElement.getAttribute('data-paid-unlocked') === '1';
+          const _disabled  = !!(_rl && _rl.disableUnpurchasedExport && _isPaid && !_isUnlocked);
+          if (_disabled) {
+            note.textContent = 'Export is unlocked after purchase.';
+            note.style.color = '#c04040';
+            // Grey out and disable each item
+            menu.querySelectorAll('.rdmenu-item').forEach(el => {
+              el.disabled = true;
+              el.style.opacity = '0.45';
+              el.style.cursor = 'not-allowed';
+            });
+          } else {
+            menu.querySelectorAll('.rdmenu-item').forEach(el => {
+              el.disabled = false;
+              el.style.opacity = '';
+              el.style.cursor = 'pointer';
+            });
+            if (_isPaid && !_isUnlocked) {
+              note.textContent = 'Locked chapters are skipped — unlock to export the full book.';
+              note.style.color = 'var(--hint)';
+            } else {
+              note.textContent = '';
+            }
+          }
+        }
+        menu.style.display = 'block';
+        if (btn) btn.setAttribute('aria-expanded', 'true');
+      } else {
+        menu.style.display = 'none';
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+      }
+    }
+    window._rdMenuToggle = _rdMenuToggle;
+
+    // Close on outside click / Escape. Mounted once at boot.
+    document.addEventListener('click', (e) => {
+      const menu = document.getElementById('rdMenu');
+      if (!menu || menu.style.display === 'none') return;
+      if (e.target && e.target.closest && e.target.closest('#rdMenu, #rdMenuBtn')) return;
+      menu.style.display = 'none';
+      const btn = document.getElementById('rdMenuBtn');
+      if (btn) btn.setAttribute('aria-expanded', 'false');
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      const menu = document.getElementById('rdMenu');
+      if (menu && menu.style.display !== 'none') {
+        menu.style.display = 'none';
+        const btn = document.getElementById('rdMenuBtn');
+        if (btn) btn.setAttribute('aria-expanded', 'false');
+      }
+    });
+
+    // Gather reader-accessible chapters into a normalised structure.
+    // Returns { meta:{title,author,description}, chapters:[{title, html, text}] }.
+    // Empty-content chapters (paid + not unlocked) are skipped so exports
+    // don't ship blank title pages.
+    function _rdExportGatherChapters() {
+      const get = (typeof getChapters === 'function') ? getChapters() : [];
+      const meta = {
+        title:  (document.getElementById('bookTitle') && document.getElementById('bookTitle').value) || 'Untitled',
+        author: (document.getElementById('bookAuthor') && document.getElementById('bookAuthor').value) || '',
+        description: (typeof S !== 'undefined' && S && S.description) || '',
+      };
+      const chapters = [];
+      let n = 0;
+      for (const c of get) {
+        if (!c || c.type !== 'chapter') continue;
+        const html = String(c.content || '').trim();
+        if (!html) continue;          // skip locked-and-empty
+        n++;
+        // Strip HTML for text-mode formats. Uses a sandboxed parser —
+        // never innerHTML-d into the live DOM so a hostile chapter
+        // can't execute scripts during export.
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const text = (doc.body.textContent || '').replace(/ /g, ' ').trim();
+        chapters.push({
+          title: String(c.title || ('Chapter ' + n)),
+          html: html,
+          text: text,
+        });
+      }
+      return { meta, chapters };
+    }
+
+    function _rdExportSafeFilename(s) {
+      return String(s || 'folio')
+        .normalize('NFKD').replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-z0-9-_]+/gi, '_').replace(/_+/g, '_')
+        .replace(/^_|_$/g, '').slice(0, 80) || 'folio';
+    }
+
+    function _rdExportDownload(blob, filename) {
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 200);
+    }
+
+    function _rdExportEscXml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // TXT — plain concatenation. Chapter titles as bare lines, separated
+    // by double blank lines. No formatting. Universal fallback.
+    function _rdExportTxt() {
+      const { meta, chapters } = _rdExportGatherChapters();
+      const parts = [meta.title];
+      if (meta.author) parts.push('by ' + meta.author);
+      if (meta.description) parts.push('', meta.description);
+      parts.push('', '');
+      chapters.forEach((ch, i) => {
+        parts.push('Chapter ' + (i + 1), ch.title, '');
+        parts.push(ch.text, '', '');
+      });
+      const blob = new Blob([parts.join('\n')], { type: 'text/plain;charset=utf-8' });
+      _rdExportDownload(blob, _rdExportSafeFilename(meta.title) + '.txt');
+    }
+
+    // Markdown — minimal conversion: <p> → paragraph, <em>/<strong>/<u> →
+    // inline marks, <br> → line break. Chapter title as H1, book title H1.
+    function _rdExportMd() {
+      const { meta, chapters } = _rdExportGatherChapters();
+      const htmlToMd = (html) => {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const walk = (node) => {
+          let out = '';
+          for (const n of node.childNodes) {
+            if (n.nodeType === 3) { out += n.textContent; continue; }
+            if (n.nodeType !== 1) continue;
+            const t = n.tagName.toLowerCase();
+            const inner = walk(n);
+            if (t === 'p') out += inner.trim() + '\n\n';
+            else if (t === 'br') out += '\n';
+            else if (t === 'em' || t === 'i') out += '*' + inner + '*';
+            else if (t === 'strong' || t === 'b') out += '**' + inner + '**';
+            else if (t === 'u') out += '_' + inner + '_';
+            else if (t === 'h1') out += '# ' + inner.trim() + '\n\n';
+            else if (t === 'h2') out += '## ' + inner.trim() + '\n\n';
+            else if (t === 'h3') out += '### ' + inner.trim() + '\n\n';
+            else if (t === 'blockquote') out += '> ' + inner.trim().replace(/\n/g, '\n> ') + '\n\n';
+            else out += inner;
+          }
+          return out;
+        };
+        return walk(doc.body).replace(/\n{3,}/g, '\n\n').trim();
+      };
+      const lines = ['# ' + meta.title];
+      if (meta.author) lines.push('*by ' + meta.author + '*');
+      if (meta.description) lines.push('', meta.description);
+      lines.push('', '---', '');
+      chapters.forEach((ch, i) => {
+        lines.push('## Chapter ' + (i + 1) + ' · ' + ch.title);
+        lines.push('');
+        lines.push(htmlToMd(ch.html));
+        lines.push('', '---', '');
+      });
+      const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+      _rdExportDownload(blob, _rdExportSafeFilename(meta.title) + '.md');
+    }
+
+    // PDF — opens a print-friendly window and triggers the browser's
+    // print dialog with "Save as PDF" as the default flow. Leverages
+    // the browser's native paginator + font hinting (better quality
+    // than rasterising via html2canvas + jsPDF for text-heavy books).
+    // No external library needed.
+    function _rdExportPdf() {
+      const { meta, chapters } = _rdExportGatherChapters();
+      const w = window.open('', '_blank');
+      if (!w) {
+        alert('Pop-up blocked — please allow pop-ups for this site and try again.');
+        return;
+      }
+      const css = [
+        '@page { size: 6in 9in; margin: 0.75in 0.7in }',
+        'html, body { margin: 0; padding: 0; font-family: Georgia, "Times New Roman", serif; color: #1a1a1a; line-height: 1.55; font-size: 11.5pt }',
+        '.title-page { page-break-after: always; text-align: center; padding-top: 3in }',
+        '.title-page h1 { font-size: 28pt; margin: 0 0 0.4in; font-weight: 700; letter-spacing: -.01em }',
+        '.title-page .author { font-size: 13pt; color: #555; font-style: italic }',
+        '.chapter { page-break-before: always }',
+        '.chapter h2 { font-size: 18pt; margin: 0 0 0.3in; text-align: center; font-weight: 700; letter-spacing: -.01em }',
+        '.chapter .ch-num { font-size: 10pt; text-transform: uppercase; letter-spacing: .15em; color: #888; text-align: center; margin: 0 0 0.1in }',
+        '.chapter p { margin: 0 0 0.12in; text-indent: 0.25in }',
+        '.chapter p:first-of-type { text-indent: 0 }',
+      ].join('\n');
+      const titleHtml = '<div class="title-page"><h1>' + _rdExportEscXml(meta.title) + '</h1>' +
+        (meta.author ? '<div class="author">by ' + _rdExportEscXml(meta.author) + '</div>' : '') + '</div>';
+      const chHtml = chapters.map((ch, i) =>
+        '<div class="chapter">' +
+        '<div class="ch-num">Chapter ' + (i + 1) + '</div>' +
+        '<h2>' + _rdExportEscXml(ch.title) + '</h2>' +
+        ch.html +
+        '</div>'
+      ).join('');
+      w.document.open();
+      w.document.write(
+        '<!doctype html><html><head><meta charset="utf-8"><title>' +
+        _rdExportEscXml(meta.title) + '</title><style>' + css + '</style></head>' +
+        '<body>' + titleHtml + chHtml + '</body></html>'
+      );
+      w.document.close();
+      // Slight delay so the browser has laid out the doc before printing
+      setTimeout(() => { try { w.focus(); w.print(); } catch (e) { } }, 350);
+    }
+
+    // EPUB — minimal EPUB 2.0. ZIP with mimetype (stored, not deflated),
+    // container.xml, content.opf (manifest + spine), toc.ncx, and one
+    // XHTML file per chapter. Renders cleanly in iBooks, Kindle, Kobo.
+    async function _rdExportEpub() {
+      if (typeof JSZip === 'undefined' && typeof _loadJSZip === 'function') {
+        await _loadJSZip();
+      }
+      if (typeof JSZip === 'undefined') {
+        alert('EPUB library not loaded. Try refreshing the page.');
+        return;
+      }
+      const { meta, chapters } = _rdExportGatherChapters();
+      const zip = new JSZip();
+      // mimetype MUST be the first file in the ZIP, stored (not deflated)
+      zip.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
+
+      const containerXml = '<?xml version="1.0"?>\n' +
+        '<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">\n' +
+        '  <rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>\n' +
+        '</container>';
+      zip.folder('META-INF').file('container.xml', containerXml);
+
+      const bookId = 'urn:folio:' + ((typeof _readerFolioId !== 'undefined' && _readerFolioId) ||
+        (typeof _projId !== 'undefined' && _projId) || ('folio-' + Date.now()));
+
+      // Per-chapter XHTML files
+      const oebps = zip.folder('OEBPS');
+      chapters.forEach((ch, i) => {
+        const xhtml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+          '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">\n' +
+          '<html xmlns="http://www.w3.org/1999/xhtml"><head>' +
+          '<title>' + _rdExportEscXml(ch.title) + '</title>' +
+          '<link rel="stylesheet" href="style.css" type="text/css"/>' +
+          '</head><body>' +
+          '<p class="ch-num">Chapter ' + (i + 1) + '</p>' +
+          '<h1>' + _rdExportEscXml(ch.title) + '</h1>' +
+          // Chapter html may contain non-XHTML constructs — sanitise via
+          // DOMParser → serializer to make it valid XHTML.
+          (() => {
+            try {
+              const doc = new DOMParser().parseFromString('<div>' + ch.html + '</div>', 'text/html');
+              return new XMLSerializer().serializeToString(doc.body.firstChild)
+                .replace(/^<div[^>]*>/, '').replace(/<\/div>$/, '');
+            } catch (e) { return ch.text.replace(/\n/g, '<br/>'); }
+          })() +
+          '</body></html>';
+        oebps.file('ch' + (i + 1) + '.xhtml', xhtml);
+      });
+
+      // Minimal stylesheet
+      oebps.file('style.css',
+        'body { font-family: Georgia, serif; line-height: 1.55; color: #1a1a1a; margin: 1em }\n' +
+        'h1 { font-size: 1.6em; text-align: center; margin: 0 0 1em }\n' +
+        '.ch-num { font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.15em; color: #888; text-align: center; margin: 0 0 0.2em }\n' +
+        'p { margin: 0 0 0.6em; text-indent: 1.2em }\n' +
+        'p:first-of-type { text-indent: 0 }');
+
+      // content.opf — manifest + spine
+      const manifestItems = chapters.map((_, i) =>
+        '    <item id="ch' + (i + 1) + '" href="ch' + (i + 1) + '.xhtml" media-type="application/xhtml+xml"/>'
+      ).join('\n');
+      const spineItems = chapters.map((_, i) =>
+        '    <itemref idref="ch' + (i + 1) + '"/>'
+      ).join('\n');
+      const opf = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+        '<package version="2.0" xmlns="http://www.idpf.org/2007/opf" unique-identifier="BookId">\n' +
+        '  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:opf="http://www.idpf.org/2007/opf">\n' +
+        '    <dc:title>' + _rdExportEscXml(meta.title) + '</dc:title>\n' +
+        '    <dc:creator opf:role="aut">' + _rdExportEscXml(meta.author || 'Unknown') + '</dc:creator>\n' +
+        '    <dc:language>en</dc:language>\n' +
+        '    <dc:identifier id="BookId">' + _rdExportEscXml(bookId) + '</dc:identifier>\n' +
+        (meta.description ? '    <dc:description>' + _rdExportEscXml(meta.description) + '</dc:description>\n' : '') +
+        '  </metadata>\n' +
+        '  <manifest>\n' +
+        '    <item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n' +
+        '    <item id="css" href="style.css" media-type="text/css"/>\n' +
+        manifestItems + '\n' +
+        '  </manifest>\n' +
+        '  <spine toc="ncx">\n' +
+        spineItems + '\n' +
+        '  </spine>\n' +
+        '</package>';
+      oebps.file('content.opf', opf);
+
+      // toc.ncx
+      const navPoints = chapters.map((ch, i) =>
+        '    <navPoint id="nav' + (i + 1) + '" playOrder="' + (i + 1) + '">\n' +
+        '      <navLabel><text>' + _rdExportEscXml(ch.title) + '</text></navLabel>\n' +
+        '      <content src="ch' + (i + 1) + '.xhtml"/>\n' +
+        '    </navPoint>'
+      ).join('\n');
+      const ncx = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+        '<!DOCTYPE ncx PUBLIC "-//NISO//DTD ncx 2005-1//EN" "http://www.daisy.org/z3986/2005/ncx-2005-1.dtd">\n' +
+        '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\n' +
+        '  <head>\n' +
+        '    <meta name="dtb:uid" content="' + _rdExportEscXml(bookId) + '"/>\n' +
+        '    <meta name="dtb:depth" content="1"/>\n' +
+        '    <meta name="dtb:totalPageCount" content="0"/>\n' +
+        '    <meta name="dtb:maxPageNumber" content="0"/>\n' +
+        '  </head>\n' +
+        '  <docTitle><text>' + _rdExportEscXml(meta.title) + '</text></docTitle>\n' +
+        '  <navMap>\n' +
+        navPoints + '\n' +
+        '  </navMap>\n' +
+        '</ncx>';
+      oebps.file('toc.ncx', ncx);
+
+      const blob = await zip.generateAsync({
+        type: 'blob',
+        mimeType: 'application/epub+zip',
+        // mimetype must be uncompressed (STORE) and first — we set
+        // STORE on the file above; JSZip handles ordering.
+      });
+      _rdExportDownload(blob, _rdExportSafeFilename(meta.title) + '.epub');
+    }
+
+    // Top-level export dispatcher — called from the menu items. Honours
+    // the author's "disable export for unpurchased readers" toggle as a
+    // last line of defence (the menu items are already disabled visually,
+    // but this also blocks a direct console-call path).
+    async function _rdExportRun(kind) {
+      const _rl = (typeof _pwActiveRelease !== 'undefined' && _pwActiveRelease)
+        ? _pwActiveRelease : null;
+      const _isPaid     = !!(_rl && _rl.priceMode === 'paid');
+      const _isUnlocked = document.documentElement.getAttribute('data-paid-unlocked') === '1';
+      if (_rl && _rl.disableUnpurchasedExport && _isPaid && !_isUnlocked) {
+        alert('Export is unlocked after purchase.');
+        return;
+      }
+      // Close the menu so the user sees the result
+      const menu = document.getElementById('rdMenu');
+      if (menu) menu.style.display = 'none';
+      try {
+        if      (kind === 'txt')  _rdExportTxt();
+        else if (kind === 'md')   _rdExportMd();
+        else if (kind === 'pdf')  _rdExportPdf();
+        else if (kind === 'epub') await _rdExportEpub();
+      } catch (e) {
+        console.error('[export] ' + kind + ' failed:', e);
+        alert('Export failed: ' + (e.message || 'unknown error'));
+      }
+    }
+    window._rdExportRun = _rdExportRun;
+    // ─────────────────────────────────────────────────────────────────────
 
     /* ═══════════════════════════════════════════════════════════════════
        ANNOTATIONS — Phase 1 (localStorage only, scope-aware data shape)
@@ -26439,10 +26830,50 @@
     <button id="rdBmBtn" onclick="_rdOpenDrawer('bookmarks')" title="Bookmarks">🔖</button>
     <button id="rdAnBtn" onclick="_rdOpenDrawer('annotations')" title="Notes">✍</button>
     <button id="rdAudioBtn" onclick="_rdAudioToggleDrawer()" title="Audiobook">🎧</button>
+    <!-- Hamburger — utilities menu (Export, future: bookmarks panel, etc.) -->
+    <button id="rdMenuBtn" onclick="_rdMenuToggle(event)" title="More" aria-haspopup="true" aria-expanded="false">☰</button>
     <button id="rdTourBtn" onclick="_tourStart()" title="Take the reader tour (90 seconds)"
       style="background:var(--accent-ui,#0a7);color:#fff;border:none;font-size:11.5px;font-weight:500;cursor:pointer;padding:5px 11px;border-radius:7px;margin-left:6px;letter-spacing:.01em;display:inline-flex;align-items:center;gap:4px;line-height:1">🧭
       <span>Tour</span></button>
   </div>
+
+  <!-- Reader utilities dropdown — anchored under #rdMenuBtn. Hidden by
+       default; _rdMenuToggle flips display + positions it. Outside-click
+       handler closes it. Mobile-friendly: full-width on narrow screens
+       via the media query in folio-rdMenu-css below. -->
+  <div id="rdMenu" role="menu" aria-labelledby="rdMenuBtn"
+    style="display:none;position:fixed;top:48px;right:8px;z-index:300;background:var(--surface);border:.5px solid var(--border-mid);border-radius:10px;box-shadow:0 6px 24px rgba(0,0,0,0.18);min-width:240px;max-width:min(360px,calc(100vw - 16px));font-family:var(--sans);font-size:13px;color:var(--text);padding:6px;overflow:hidden">
+    <div style="padding:8px 10px 4px;font-size:10.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.08em">Export this book</div>
+    <button class="rdmenu-item" type="button" onclick="_rdExportRun('pdf')" role="menuitem"
+      style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:none;background:none;color:var(--text);font-size:13px;cursor:pointer;text-align:left;border-radius:6px">
+      <span style="font-size:16px;width:22px;text-align:center">📄</span>
+      <span style="flex:1">PDF<span style="display:block;font-size:10.5px;color:var(--hint);margin-top:1px">via browser print → Save as PDF</span></span>
+    </button>
+    <button class="rdmenu-item" type="button" onclick="_rdExportRun('epub')" role="menuitem"
+      style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:none;background:none;color:var(--text);font-size:13px;cursor:pointer;text-align:left;border-radius:6px">
+      <span style="font-size:16px;width:22px;text-align:center">📚</span>
+      <span style="flex:1">EPUB<span style="display:block;font-size:10.5px;color:var(--hint);margin-top:1px">for Kindle, Kobo, Apple Books, etc.</span></span>
+    </button>
+    <button class="rdmenu-item" type="button" onclick="_rdExportRun('md')" role="menuitem"
+      style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:none;background:none;color:var(--text);font-size:13px;cursor:pointer;text-align:left;border-radius:6px">
+      <span style="font-size:16px;width:22px;text-align:center">📝</span>
+      <span style="flex:1">Markdown<span style="display:block;font-size:10.5px;color:var(--hint);margin-top:1px">plain-text with headings</span></span>
+    </button>
+    <button class="rdmenu-item" type="button" onclick="_rdExportRun('txt')" role="menuitem"
+      style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:none;background:none;color:var(--text);font-size:13px;cursor:pointer;text-align:left;border-radius:6px">
+      <span style="font-size:16px;width:22px;text-align:center">📃</span>
+      <span style="flex:1">Plain text<span style="display:block;font-size:10.5px;color:var(--hint);margin-top:1px">no formatting</span></span>
+    </button>
+    <div id="rdExportNote" style="padding:8px 12px 4px;font-size:10.5px;color:var(--hint);line-height:1.4;border-top:.5px dotted var(--border-mid);margin-top:4px"></div>
+  </div>
+
+  <style id="folio-rdMenu-css">
+    #rdMenu .rdmenu-item:hover,
+    #rdMenu .rdmenu-item:focus { background: var(--bg); outline: none; }
+    @media (max-width: 480px) {
+      #rdMenu { left: 8px; right: 8px; max-width: none; }
+    }
+  </style>
 
   <div id="rdAudioDrawer" role="dialog" aria-label="Audiobook player">
     <div class="rdad-hd">
@@ -26841,6 +27272,20 @@
         Readers see a 🎧 button in the reader bar; opens an in-browser player synced to chapters. Free releases unlock
         immediately; paid releases require the Gumroad license; serial releases unlock chapter-by-chapter alongside the
         text.
+      </p>
+
+      <!-- Reader export — author opt-out for unpurchased readers (paid mode).
+           Defaults to OFF, i.e. readers CAN export whatever's visible to them
+           (free preview + teasers). Tick to require purchase before any export. -->
+      <label
+        style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:6px 0 4px;cursor:pointer">
+        <input type="checkbox" id="rlDisableUnpurchasedExport" style="margin:0">
+        <span><strong>Require purchase</strong> before readers can export <span style="opacity:.7;font-weight:400">(paid releases only)</span></span>
+      </label>
+      <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:2px 0 12px 24px">
+        Off (default): readers can export whatever's visible — for a paid+teaser release that means just the preview
+        and teaser chapters. Encourages "I'll email this chapter to a friend" sharing.<br>
+        On: the export menu greys out until the reader has purchased the book.
       </p>
 
       <!-- Serial release — progressive chapter unlock by date/cadence -->
