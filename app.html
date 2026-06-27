@@ -1872,20 +1872,83 @@
 
     @media(max-width:768px) {
       .app {
+        /* Single column on mobile — preview fills the viewport. The
+           sidebar becomes a slide-in panel via the rules below. */
         grid-template-columns: 1fr;
-        grid-template-rows: auto 1fr
+        grid-template-rows: 1fr
       }
 
+      /* Sidebar slides in from the left on mobile, never takes flow
+         space. Z-index above the preview but below the overlay so the
+         overlay's tap-to-dismiss target sits in front of preview but
+         behind the open sidebar. */
       .sidebar {
-        height: auto;
-        max-height: 60vh;
-        border-right: none;
-        border-bottom: .5px solid var(--border)
+        position: fixed;
+        top: 0; left: 0;
+        height: 100%;
+        width: 85vw;
+        max-width: 340px;
+        max-height: 100%;
+        border-right: .5px solid var(--border);
+        border-bottom: none;
+        transform: translateX(-100%);
+        transition: transform .22s ease;
+        z-index: 220;
+        box-shadow: 4px 0 24px rgba(0,0,0,0.18);
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch
+      }
+
+      body.editor-sidebar-open .sidebar {
+        transform: translateX(0)
+      }
+
+      #editorHamburgerOverlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(10, 8, 5, 0.5);
+        backdrop-filter: blur(2px);
+        z-index: 210;
+      }
+
+      body.editor-sidebar-open #editorHamburgerOverlay {
+        display: block !important;
+      }
+
+      /* Hamburger button — top-left, over the preview. */
+      #editorHamburgerBtn {
+        display: block !important;
+        position: fixed;
+        top: 8px; left: 8px;
+        z-index: 230;
+        width: 38px; height: 38px;
+        padding: 0;
+        font-size: 18px;
+        line-height: 1;
+        background: var(--surface);
+        color: var(--text);
+        border: .5px solid var(--border-mid);
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+        cursor: pointer;
+      }
+
+      body.editor-sidebar-open #editorHamburgerBtn {
+        background: var(--bg);
+      }
+
+      /* Reader bar can collide with the hamburger spot when readerMode
+         is on; reader's own controls live further right, so we let the
+         hamburger sit on top. Reader mode doesn't show the sidebar
+         anyway (html[data-reader] .sidebar { display: none }). */
+      html[data-reader] #editorHamburgerBtn,
+      html[data-reader] #editorHamburgerOverlay {
+        display: none !important;
       }
 
       .preview-area {
         display: flex;
-        min-height: 50vh
+        min-height: 100vh
       }
 
       .preview-toolbar .zoom-fit-btn,
@@ -5442,6 +5505,16 @@
 </head>
 
 <body>
+  <!-- Mobile-only hamburger + slide-in overlay. The button is fixed
+       top-left over the preview; tapping it adds .editor-sidebar-open
+       to <body> which slides the sidebar in from the left. The overlay
+       behind dismisses on tap. Both are hidden on desktop via the
+       @media rule in folio-editor-mobile-css. -->
+  <button id="editorHamburgerBtn" type="button" onclick="_editorHamburgerToggle()"
+    aria-label="Open editor menu" aria-expanded="false"
+    style="display:none">☰</button>
+  <div id="editorHamburgerOverlay" onclick="_editorHamburgerToggle(false)" style="display:none"></div>
+
   <div class="app">
 
     <!-- Find & Replace bar -->
@@ -18753,9 +18826,21 @@
         const titleStr = escAttr(c.title || ('Chapter ' + chNum));
         const note = isPreview ? ' <span style="opacity:.55;font-size:11px">(in free preview)</span>' : '';
         const idAttr = escAttr(c.id);
-        const copyBtn = (isTeaser && !isPreview && folioId)
-          ? '<button type="button" onclick="_rlCopyTeaserLink(\'' + idAttr.replace(/'/g, '%27') + '\', event)" ' +
-          'style="font-size:11px;padding:2px 9px;border:.5px solid var(--accent-ui);background:none;color:var(--accent-ui);border-radius:6px;cursor:pointer;font-family:inherit">Copy link</button>'
+        // Copy link is ALWAYS available now (except for preview chapters
+        // which are inside the free preview already and don't need a deep
+        // link). For non-teaser chapters, the click auto-ticks the
+        // checkbox AND toasts a reminder to re-publish so the link
+        // actually works for readers. Style differs by state so the
+        // author can see at a glance whether the link is live or
+        // pending-republish.
+        const copyBtn = (!isPreview && folioId)
+          ? (isTeaser
+              ? '<button type="button" onclick="_rlCopyTeaserLink(\'' + idAttr.replace(/'/g, '%27') + '\', event)" ' +
+                'title="Copy a shareable single-chapter link — readers land directly on this chapter." ' +
+                'style="font-size:11px;padding:2px 9px;border:.5px solid var(--accent-ui);background:none;color:var(--accent-ui);border-radius:6px;cursor:pointer;font-family:inherit">Copy link</button>'
+              : '<button type="button" onclick="_rlCopyTeaserLink(\'' + idAttr.replace(/'/g, '%27') + '\', event)" ' +
+                'title="Copy a teaser link — this chapter will be auto-marked as a teaser; remember to click Update release for the link to go live." ' +
+                'style="font-size:11px;padding:2px 9px;border:.5px dashed #d97706;background:#fef3c7;color:#92400e;border-radius:6px;cursor:pointer;font-family:inherit">Copy link →</button>')
           : '';
         return '<label style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:.5px solid var(--border-mid);cursor:' + (isPreview ? 'not-allowed' : 'pointer') + ';opacity:' + (isPreview ? '.55' : '1') + '">' +
           '<input type="checkbox" class="rl-teaser-cb" value="' + idAttr + '" ' + (isTeaser ? 'checked' : '') + ' ' + (isPreview ? 'disabled' : '') + '>' +
@@ -18768,12 +18853,10 @@
     window._rlRenderTeasers = _rlRenderTeasers;
 
     function _rlCopyTeaserLink(chId, ev) {
-      // The URL pattern matches the existing ?read= reader; the &teaser=
-      // param is currently informational (the reader fetches teaser content
-      // automatically for any paid folio with release.teasers entries).
+      // The URL routes through the share worker so it unfurls cleanly
+      // for social-media previews; the receiving reader reads the
+      // ?teaser= param + jumps to the chapter on load.
       const folioId = (typeof _projId !== 'undefined' && _projId) ? _projId : '';
-      // Teaser links route through the share worker like any other
-      // share link, so a shared free-chapter link unfurls too.
       const url = FOLIO_SHARE_BASE + encodeURIComponent(folioId) + '?teaser=' + encodeURIComponent(chId);
       const btn = (ev && ev.currentTarget) || null;
       try {
@@ -18784,8 +18867,32 @@
           ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
         }
         _btnFlashCopied(btn);
-        if (typeof toastSuccess === 'function') toastSuccess('Preview link copied', { icon: '🔗', duration: 1800 });
       } catch (e) { console.warn('[funnel] copy failed', e); }
+
+      // Is this chapter already a teaser? If not, auto-tick the box +
+      // surface a louder reminder that the author must Update release
+      // for the link to actually work for readers.
+      const _isTeaser = !!(_rlCurrent && Array.isArray(_rlCurrent.teasers) && _rlCurrent.teasers.indexOf(chId) >= 0);
+      // Reflect the auto-tick visually so the author sees the state change.
+      try {
+        const cb = document.querySelector('.rl-teaser-cb[value="' + chId.replace(/"/g, '\\"') + '"]');
+        if (cb && !cb.checked) cb.checked = true;
+      } catch (e) { }
+      if (_isTeaser) {
+        if (typeof toastSuccess === 'function')
+          toastSuccess('Teaser link copied', { icon: '🔗', duration: 1800 });
+      } else {
+        // Stronger framing — the link is on the clipboard, but it
+        // won't actually unlock the chapter for readers until the
+        // author re-publishes with this chapter ticked.
+        if (typeof toastWarning === 'function') {
+          toastWarning(
+            'Link copied + chapter auto-ticked as teaser. ' +
+            'Click "Update release" below for the link to go live for readers.',
+            { icon: '🔗', duration: 6000 }
+          );
+        }
+      }
     }
     window._rlCopyTeaserLink = _rlCopyTeaserLink;
 
@@ -21868,6 +21975,27 @@
     window._rdJumpToChapter = _rdJumpToChapter;
     window._rdResumeProgress = _rdResumeProgress;
 
+    // Mobile editor hamburger — toggles the slide-in sidebar on phones.
+    // No-ops invisibly on desktop because the button is display:none
+    // there. Pass `false` explicitly to force-close (used by the
+    // overlay's tap handler).
+    function _editorHamburgerToggle(forceState) {
+      const body = document.body;
+      const btn = document.getElementById('editorHamburgerBtn');
+      const opening = (forceState === true) ? true
+                    : (forceState === false) ? false
+                    : !body.classList.contains('editor-sidebar-open');
+      body.classList.toggle('editor-sidebar-open', opening);
+      if (btn) btn.setAttribute('aria-expanded', opening ? 'true' : 'false');
+    }
+    window._editorHamburgerToggle = _editorHamburgerToggle;
+    // Auto-close on Escape (same handler pattern as the rd menu)
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.body.classList.contains('editor-sidebar-open')) {
+        _editorHamburgerToggle(false);
+      }
+    });
+
     // Teaser-deep-link banner. Mounted under the reader bar when the
     // reader arrives via ?teaser=<chId>. Lets them see they're in the
     // middle of a book (not the start) and offers a one-click jump back
@@ -24764,17 +24892,59 @@
       );
       if (!resp.ok) {
         const body = await resp.text();
-        if (/detected_unusual_activity/i.test(body)) {
-          throw new Error(
-            'ElevenLabs flagged this account for "unusual activity" and disabled ' +
-            'the free tier. Sign in at elevenlabs.io and contact their support to ' +
-            're-enable it, or upgrade to Starter ($5/mo). ' + resp.status
-          );
-        }
-        throw new Error('ElevenLabs: ' + resp.status + ' ' + body.slice(0, 200));
+        throw new Error(_apElParseError(resp.status, body));
       }
       return await resp.blob();
     }
+
+    // Parse an ElevenLabs error response body into a single human-readable
+    // string. EL returns structured JSON like:
+    //   { "detail": { "status": "quota_exceeded", "message": "…" } }
+    // or sometimes just { "detail": "Voice not found" }, or HTML for
+    // edge cases. We cover the cases authors most often hit + always
+    // fall back to a useful generic.
+    function _apElParseError(status, rawBody) {
+      let parsed = null;
+      try { parsed = JSON.parse(rawBody); } catch (e) { /* not JSON */ }
+      const detail = parsed && parsed.detail;
+      const elStatus  = (detail && typeof detail === 'object') ? String(detail.status || '') : '';
+      const elMessage = (detail && typeof detail === 'object') ? String(detail.message || '') : (typeof detail === 'string' ? detail : '');
+
+      // Account-disabled (free tier flagged) — already special-cased
+      if (elStatus === 'detected_unusual_activity' || /detected_unusual_activity/i.test(rawBody)) {
+        return 'ElevenLabs disabled the free tier on this account for "unusual activity". ' +
+          'Sign in at elevenlabs.io and contact their support to re-enable it, or upgrade to Starter ($5/mo).';
+      }
+      if (elStatus === 'quota_exceeded' || /quota_exceeded/i.test(rawBody)) {
+        return 'ElevenLabs quota exceeded — out of characters this month. ' +
+          'Open https://elevenlabs.io/app/subscription to upgrade your plan or wait for the monthly reset.' +
+          (elMessage ? ' (' + elMessage + ')' : '');
+      }
+      if (elStatus === 'invalid_api_key' || status === 401) {
+        return 'ElevenLabs API key was rejected. Double-check it in the Audio panel — ' +
+          'get a fresh one at https://elevenlabs.io/app/settings/api-keys.';
+      }
+      if (elStatus === 'voice_not_found' || /voice_not_found/i.test(rawBody)) {
+        return 'ElevenLabs couldn\'t find the selected voice on this account. ' +
+          'Pick a different voice in the Audio panel — your account\'s voice list may have changed.';
+      }
+      if (elStatus === 'voice_limit_reached') {
+        return 'ElevenLabs custom-voice limit reached on your plan. ' +
+          'Remove an existing custom voice at elevenlabs.io, or upgrade your plan.';
+      }
+      if (status === 429) {
+        return 'ElevenLabs rate-limited this request. Wait a few seconds and try again — ' +
+          'if it keeps happening, your concurrency cap may be too low on your plan tier.';
+      }
+      if (status === 422 && elMessage) {
+        return 'ElevenLabs rejected the request: ' + elMessage;
+      }
+      // Generic fallback — keep some context. Truncate so a HTML error
+      // page doesn't blow up the toast.
+      return 'ElevenLabs error ' + status +
+        (elMessage ? ': ' + elMessage : (rawBody ? ': ' + rawBody.slice(0, 160) : ''));
+    }
+    window._apElParseError = _apElParseError;
 
     /* ── Voice list fetching ───────────────────────────────────── */
     async function _apFetchGoogleVoices(apiKey) {
@@ -24797,7 +24967,21 @@
         const resp = await fetch('https://api.elevenlabs.io/v1/voices', {
           headers: { 'xi-api-key': key, 'Accept': 'application/json' },
         });
-        if (!resp.ok) { _apElVoices = []; return; }
+        if (!resp.ok) {
+          _apElVoices = [];
+          // Surface the actual reason — silently emptying the voice list
+          // when an author pastes a bad key just looks broken with no
+          // explanation. Same parser as the synthesis path.
+          try {
+            const body = await resp.text();
+            const msg = (typeof _apElParseError === 'function')
+              ? _apElParseError(resp.status, body)
+              : ('ElevenLabs voice list ' + resp.status);
+            if (typeof toastWarning === 'function')
+              toastWarning(msg, { duration: 7000 });
+          } catch (e) { }
+          return;
+        }
         const data = await resp.json();
         const raw = Array.isArray(data.voices) ? data.voices : [];
         _apElVoices = raw.map(v => ({
@@ -24806,7 +24990,13 @@
           category: v.category || '',
           previewUrl: v.preview_url || '',
         }));
-      } catch (e) { _apElVoices = []; }
+      } catch (e) {
+        _apElVoices = [];
+        // Network failure, CORS denial, etc.
+        if (typeof toastWarning === 'function')
+          toastWarning('Couldn\'t reach ElevenLabs: ' + (e.message || 'network error'),
+            { duration: 6000 });
+      }
     }
 
     /* ── Cloud settings sync (Firestore) ───────────────────────
