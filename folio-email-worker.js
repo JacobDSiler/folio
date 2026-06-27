@@ -198,6 +198,45 @@ function buildEmail(payload) {
   return { subject, html, text };
 }
 
+/* ── Author "new subscriber" notification email ──────────────────
+   Separate template from the subscriber-facing chapter-release email
+   because the audience and intent are different: this one lands in
+   the author's inbox, telling them somebody just signed up to their
+   pre-launch / serial release. Tight, plain, no unsubscribe footer
+   (it's transactional to the author themselves). */
+function buildSignupNotifyEmail({ folioTitle, subscriberEmail, readerUrl }) {
+  const subject = 'New subscriber: ' + (subscriberEmail || 'someone') +
+                  ' joined "' + (folioTitle || 'your folio') + '"';
+  const text =
+    'Good news — someone just subscribed to ' + (folioTitle || 'your folio') + '.\n\n' +
+    'Their email: ' + subscriberEmail + '\n\n' +
+    'See your reader link: ' + (readerUrl || '(no link)') + '\n\n' +
+    '— — —\n' +
+    'You are receiving this because you turned on "Email me when someone new subscribes" in your Folio release settings.\n';
+  const html =
+    '<!DOCTYPE html>' +
+    '<html><body style="font-family:Georgia,serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#222;background:#fafafa">' +
+      '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:6px">New subscriber</div>' +
+      '<h1 style="font-size:22px;margin:0 0 18px;font-weight:600">' + esc(folioTitle || 'your folio') + '</h1>' +
+      '<div style="background:#fff;border-radius:10px;padding:24px;border:1px solid #eee">' +
+        '<div style="font-size:13px;color:#666;margin-bottom:6px">Someone just subscribed:</div>' +
+        '<div style="font-family:ui-monospace,Menlo,monospace;font-size:14px;font-weight:600;color:#111;margin-bottom:18px">' +
+          esc(subscriberEmail) +
+        '</div>' +
+        (readerUrl
+          ? '<a href="' + esc(readerUrl) + '" ' +
+            'style="display:inline-block;background:#c98c2a;color:#fff;text-decoration:none;padding:9px 18px;border-radius:6px;font-size:13px;font-weight:500">' +
+            'Open your reader link →' +
+            '</a>'
+          : '') +
+      '</div>' +
+      '<p style="font-size:11px;color:#999;margin-top:32px;line-height:1.6">' +
+        'You\'re receiving this because you turned on "Email me when someone new subscribes" in your Folio release settings.' +
+      '</p>' +
+    '</body></html>';
+  return { subject, html, text };
+}
+
 /* ── Lightweight rate limit (cache-based) ────────────────────── */
 async function checkRateLimit(request, opts) {
   // Per-IP limit using the CF cache as a sloppy counter.
@@ -728,6 +767,98 @@ export default {
       } catch (e) {
         return errorJson('Send failed: ' + (e.message || 'unknown'),
                          e.status || 502, request, env);
+      }
+    }
+
+    // ── Author "new subscriber" notification ────────────────────────
+    // POST /notify-subscriber-signup
+    //   { folioId, subscriberEmail }
+    //
+    // Called by the reader's _serialCardSubscribe / _serialModalSubscribe
+    // right after _subAdd writes to Firestore, IFF the release has
+    // notifyOwnerOnSubscribe set. We re-validate that flag server-side
+    // (the public release doc) so a third-party can't spam the author's
+    // notification email by hand-crafting requests.
+    //
+    // The author's email lives on the release doc as `notifyEmail`. It's
+    // therefore publicly visible — the modal tooltip recommends a
+    // `you+folio@gmail.com`-style alias for privacy. Future v2 could
+    // move this to an owner-only doc + Identity Toolkit lookup.
+    //
+    // Rate limit: 60/hr per IP. A viral signup moment shouldn't
+    // email-bomb the author either; future v2 can batch.
+    if (request.method === 'POST' && path === '/notify-subscriber-signup') {
+      const okRate = await checkRateLimit(request, { cap: 60, bucket: 'notify-signup' });
+      if (!okRate) {
+        return errorJson('Rate limited (60/hr per IP)', 429, request, env);
+      }
+      let payload;
+      try { payload = await request.json(); }
+      catch (e) { return errorJson('Body must be valid JSON', 400, request, env); }
+      const folioId         = String((payload && payload.folioId) || '').trim();
+      const subscriberEmail = String((payload && payload.subscriberEmail) || '').trim();
+      if (!folioId)
+        return errorJson('Missing folioId', 400, request, env);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(subscriberEmail))
+        return errorJson('Missing or invalid subscriberEmail', 400, request, env);
+
+      // Look up the release on the parent doc via service account.
+      let auth, parentData;
+      try {
+        auth = await getAccessToken(env);
+        const parentUrl = 'https://firestore.googleapis.com/v1/projects/' +
+          auth.projectId + '/databases/(default)/documents/folio_projects/' +
+          encodeURIComponent(folioId);
+        const r = await fetch(parentUrl, {
+          headers: { 'Authorization': 'Bearer ' + auth.token },
+        });
+        if (!r.ok) return errorJson('Folio not found', 404, request, env);
+        const raw = await r.json();
+        parentData = fsDecodeFields((raw && raw.fields) || {});
+      } catch (e) {
+        return errorJson('Folio lookup failed: ' + (e.message || 'unknown'),
+                         502, request, env);
+      }
+      const release = (parentData && parentData.release) || {};
+      if (!release.notifyOwnerOnSubscribe) {
+        // Silently no-op — the author hasn't opted in. Returning OK
+        // (not 4xx) so the client never sees a "failed" toast.
+        return json({ ok: true, sent: false, reason: 'opt-out' }, 200, request, env);
+      }
+      const notifyTo = String(release.notifyEmail || '').trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(notifyTo)) {
+        return json({ ok: true, sent: false, reason: 'no-notify-email' }, 200, request, env);
+      }
+      // Build the email + send.
+      const folioTitle = String(release.title || parentData.name || 'your folio');
+      const readerUrl = 'https://onfolio.press/app.html?read=' + encodeURIComponent(folioId);
+      try {
+        const { subject, html, text } = buildSignupNotifyEmail({
+          folioTitle, subscriberEmail, readerUrl,
+        });
+        const body = {
+          from: env.FROM_EMAIL,
+          to: [notifyTo],
+          subject, html, text,
+        };
+        const r = await fetch(RESEND_API, {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + env.RESEND_API_KEY,
+            'Content-Type':  'application/json',
+          },
+          body: JSON.stringify(body),
+        });
+        let data = null;
+        try { data = await r.json(); } catch (e) {}
+        if (!r.ok) {
+          return errorJson('Send failed: ' + ((data && (data.message || data.name)) || r.status),
+                           r.status, request, env);
+        }
+        return json({ ok: true, sent: true, id: (data && data.id) || null }, 200, request, env);
+      } catch (e) {
+        return errorJson('Notify send failed: ' + (e.message || 'unknown'),
+                         502, request, env);
       }
     }
 
