@@ -18210,6 +18210,43 @@
     window._rlSubscribersToggleList = _rlSubscribersToggleList;
     window._rlSubscribersExport = _rlSubscribersExport;
 
+    // Show/hide the notification email input row based on the toggle.
+    // Called on toggle change + on modal-open pre-fill.
+    function _rlToggleNotifyEmail() {
+      const toggle = document.getElementById('rlNotifyOwnerOnSubscribe');
+      const row = document.getElementById('rlNotifyEmailRow');
+      if (!toggle || !row) return;
+      row.style.display = toggle.checked ? '' : 'none';
+    }
+    window._rlToggleNotifyEmail = _rlToggleNotifyEmail;
+
+    // Fire-and-forget call to the email worker's /notify-subscriber-signup
+    // endpoint. Called from _serialCardSubscribe / _serialModalSubscribe
+    // after _subAdd succeeds. Worker re-validates the opt-in flag server-
+    // side, so a malicious client can't email-spam an author who hasn't
+    // opted in. We pass folioId + subscriberEmail and let the worker
+    // look up the rest from the public release doc.
+    async function _subNotifyAuthor(folioId, subscriberEmail) {
+      if (!folioId || !subscriberEmail) return;
+      const url = (typeof window.FOLIO_EMAIL_WORKER_URL === 'string' && window.FOLIO_EMAIL_WORKER_URL)
+        ? window.FOLIO_EMAIL_WORKER_URL
+        : 'https://folio-email.jacobdsiler.workers.dev';
+      try {
+        await fetch(url + '/notify-subscriber-signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folioId, subscriberEmail }),
+        });
+        // We don't await the response in a user-facing way. The worker
+        // returns { ok: true, sent: false } when the author hasn't opted
+        // in, which is normal — no surface action needed.
+      } catch (e) {
+        // CORS denial / network failure: silent, never blocks reader UX.
+        console.warn('[notify-author] fetch failed:', e.message || e);
+      }
+    }
+    window._subNotifyAuthor = _subNotifyAuthor;
+
     // Fire a subscriber event to the author's webhook (if configured).
     // Fire-and-forget by design: Firestore is the system of record and
     // we never want a flaky webhook to block the reader's "Subscribed!"
@@ -18836,6 +18873,14 @@
           // legacy releases keep the new "export visible content" behaviour.
           const _dueEl = document.getElementById('rlDisableUnpurchasedExport');
           if (_dueEl) _dueEl.checked = !!_rlCurrent.disableUnpurchasedExport;
+          // Author signup-notification opt-in. Pre-fill the toggle + email.
+          // Show/hide the email row via the toggle handler so the form
+          // reads cleanly on reopen.
+          const _notifyToggle = document.getElementById('rlNotifyOwnerOnSubscribe');
+          const _notifyEmailEl = document.getElementById('rlNotifyEmail');
+          if (_notifyToggle) _notifyToggle.checked = !!_rlCurrent.notifyOwnerOnSubscribe;
+          if (_notifyEmailEl) _notifyEmailEl.value = _rlCurrent.notifyEmail || '';
+          if (typeof _rlToggleNotifyEmail === 'function') _rlToggleNotifyEmail();
           try { _rlSetProvider(_rlCurrent.provider === 'custom' ? 'custom' : 'gumroad'); } catch (e) { }
           if (priceField1) priceField1.value = (_rlCurrent.price != null ? String(_rlCurrent.price) : '');
           if (currField1) currField1.value = _rlCurrent.currency || 'USD';
@@ -19037,6 +19082,12 @@
         // releases only). Default false = hybrid C: readers export what's
         // visible (free preview + teasers).
         disableUnpurchasedExport: !!(document.getElementById('rlDisableUnpurchasedExport') && document.getElementById('rlDisableUnpurchasedExport').checked),
+        // Author signup notification. Opt-in (default off). Email is on
+        // the public release doc — the modal warns about that. Worker
+        // re-validates the opt-in server-side so a bad client can't email
+        // an author who hasn't asked for it.
+        notifyOwnerOnSubscribe: !!(document.getElementById('rlNotifyOwnerOnSubscribe') && document.getElementById('rlNotifyOwnerOnSubscribe').checked),
+        notifyEmail: ((document.getElementById('rlNotifyEmail') && document.getElementById('rlNotifyEmail').value) || '').trim().slice(0, 200) || null,
         product: _rlMode === 'paid' && provider === 'gumroad' ? productId : null,
         price: _rlMode === 'paid' ? priceNum : 0,
         currency: currency,
@@ -19686,6 +19737,9 @@
           _subFireWebhook(_rl.subscribeWebhookUrl, email, folioId,
             _rl.title || '', 'folio-paywall-modal');
         }
+        if (_rl && _rl.notifyOwnerOnSubscribe && typeof _subNotifyAuthor === 'function') {
+          _subNotifyAuthor(folioId, email);
+        }
       } catch (e) {
         status.style.color = '#c04040';
         status.textContent = (e && e.message) || 'Subscribe failed';
@@ -19902,6 +19956,9 @@
         if (_rl && _rl.subscribeWebhookUrl && typeof _subFireWebhook === 'function') {
           _subFireWebhook(_rl.subscribeWebhookUrl, email, folioId,
             _rl.title || '', 'folio-paywall');
+        }
+        if (_rl && _rl.notifyOwnerOnSubscribe && typeof _subNotifyAuthor === 'function') {
+          _subNotifyAuthor(folioId, email);
         }
       } catch (e) {
         status.style.color = '#c04040';
@@ -20987,6 +21044,14 @@
 
       document.documentElement.setAttribute('data-role', _readerRole);
 
+      // Teaser deep-link. Authors share `?read=<id>&teaser=<chId>` to
+      // social media for a single-chapter taste; the reader lands directly
+      // on that chapter (which must already be ticked as a teaser in the
+      // release config, otherwise the paywall hides it just like any other
+      // locked chapter). Stashed here, applied after loadFolioById so the
+      // preview has actually rendered before we jump.
+      const _teaserChId = params.get('teaser');
+
       const startLoad = () => {
         if (typeof loadFolioById !== 'function') {
           console.error('[reader] loadFolioById is not available — cannot open ?read= URL');
@@ -20995,6 +21060,18 @@
         loadFolioById(id).then(() => {
           if (typeof _pwCheckAccess === 'function') {
             setTimeout(() => _pwCheckAccess(id), 150);
+          }
+          // After load + paywall, jump to the requested teaser chapter
+          // (if any). Slightly longer delay than _pwCheckAccess so the
+          // page walk completes first; _rdJumpToChapter retries internally
+          // if the chapter isn't painted yet.
+          if (_teaserChId) {
+            setTimeout(() => {
+              try {
+                if (typeof _rdJumpToChapter === 'function') _rdJumpToChapter(_teaserChId);
+                _rdShowTeaserBanner(_teaserChId, id);
+              } catch (e) { console.warn('[teaser] jump failed:', e); }
+            }, 600);
           }
         }).catch(err => {
           const code = err && err.code;
@@ -21791,6 +21868,52 @@
     window._rdJumpToChapter = _rdJumpToChapter;
     window._rdResumeProgress = _rdResumeProgress;
 
+    // Teaser-deep-link banner. Mounted under the reader bar when the
+    // reader arrives via ?teaser=<chId>. Lets them see they're in the
+    // middle of a book (not the start) and offers a one-click jump back
+    // to the cover. Dismissible — sets a session flag so it doesn't
+    // bounce back if they navigate.
+    function _rdShowTeaserBanner(chId, folioId) {
+      // Don't re-mount if already there.
+      if (document.getElementById('rdTeaserBanner')) return;
+      // Look up the chapter title for friendlier copy.
+      let chTitle = '';
+      try {
+        const chs = (typeof getChapters === 'function') ? getChapters() : [];
+        const c = chs.find(x => x.id === chId);
+        if (c) chTitle = c.title || '';
+      } catch (e) { }
+      const banner = document.createElement('div');
+      banner.id = 'rdTeaserBanner';
+      banner.setAttribute('role', 'status');
+      banner.style.cssText =
+        'position:sticky;top:0;z-index:90;background:linear-gradient(180deg,#fef3c7,#fde68a);' +
+        'border-bottom:.5px solid #d97706;color:#78350f;font-family:var(--sans);' +
+        'font-size:12.5px;padding:9px 14px;display:flex;align-items:center;' +
+        'gap:10px;flex-wrap:wrap';
+      const startUrl = window.location.pathname + '?read=' + encodeURIComponent(folioId);
+      const safeTitle = chTitle ? (' — ' + chTitle.replace(/[<>&"]/g, '')) : '';
+      banner.innerHTML =
+        '<span style="font-size:14px">🔗</span>' +
+        '<span style="flex:1;line-height:1.4">' +
+        '<strong>Shared chapter</strong>' + safeTitle + ' · You\'re reading a teaser from the middle of the book.' +
+        '</span>' +
+        '<a href="' + startUrl + '" ' +
+        'style="background:#92400e;color:#fff;font-size:11.5px;font-weight:500;padding:5px 11px;border-radius:6px;text-decoration:none;white-space:nowrap">' +
+        'Start from the beginning →' +
+        '</a>' +
+        '<button type="button" onclick="this.parentElement.remove()" aria-label="Dismiss" ' +
+        'style="background:none;border:none;color:#78350f;font-size:18px;cursor:pointer;padding:0 4px;line-height:1">×</button>';
+      // Mount at the very top of the reader viewport.
+      const previewArea = document.getElementById('previewArea');
+      if (previewArea && previewArea.parentNode) {
+        previewArea.parentNode.insertBefore(banner, previewArea);
+      } else {
+        document.body.insertBefore(banner, document.body.firstChild);
+      }
+    }
+    window._rdShowTeaserBanner = _rdShowTeaserBanner;
+
     // ─────────────────────────────────────────────────────────────────────
     // Reader hamburger menu + Export.
     //
@@ -21997,16 +22120,23 @@
         alert('Pop-up blocked — please allow pop-ups for this site and try again.');
         return;
       }
+      // Page sizing: use the browser's default paper size (Letter in NA,
+      // A4 elsewhere) and apply our own 1.1" outer margins. The previous
+      // `@page size: 6in 9in` was being ignored by the Save-as-PDF flow,
+      // leaving the book content on a smaller centred area of letter-size
+      // paper with huge white borders. Letting the browser choose paper
+      // size + setting comfortable inner margins reads as a normal book
+      // PDF on every device the reader opens it on.
       const css = [
-        '@page { size: 6in 9in; margin: 0.75in 0.7in }',
-        'html, body { margin: 0; padding: 0; font-family: Georgia, "Times New Roman", serif; color: #1a1a1a; line-height: 1.55; font-size: 11.5pt }',
-        '.title-page { page-break-after: always; text-align: center; padding-top: 3in }',
-        '.title-page h1 { font-size: 28pt; margin: 0 0 0.4in; font-weight: 700; letter-spacing: -.01em }',
-        '.title-page .author { font-size: 13pt; color: #555; font-style: italic }',
+        '@page { margin: 1.1in 1in }',
+        'html, body { margin: 0; padding: 0; font-family: Georgia, "Times New Roman", serif; color: #1a1a1a; line-height: 1.6; font-size: 12pt }',
+        '.title-page { page-break-after: always; text-align: center; padding-top: 2.5in }',
+        '.title-page h1 { font-size: 32pt; margin: 0 0 0.4in; font-weight: 700; letter-spacing: -.01em }',
+        '.title-page .author { font-size: 14pt; color: #555; font-style: italic }',
         '.chapter { page-break-before: always }',
-        '.chapter h2 { font-size: 18pt; margin: 0 0 0.3in; text-align: center; font-weight: 700; letter-spacing: -.01em }',
+        '.chapter h2 { font-size: 22pt; margin: 0 0 0.4in; text-align: center; font-weight: 700; letter-spacing: -.01em }',
         '.chapter .ch-num { font-size: 10pt; text-transform: uppercase; letter-spacing: .15em; color: #888; text-align: center; margin: 0 0 0.1in }',
-        '.chapter p { margin: 0 0 0.12in; text-indent: 0.25in }',
+        '.chapter p { margin: 0 0 0.14in; text-indent: 0.3in }',
         '.chapter p:first-of-type { text-indent: 0 }',
       ].join('\n');
       const titleHtml = '<div class="title-page"><h1>' + _rdExportEscXml(meta.title) + '</h1>' +
@@ -27273,6 +27403,25 @@
         immediately; paid releases require the Gumroad license; serial releases unlock chapter-by-chapter alongside the
         text.
       </p>
+
+      <!-- Email me when someone new subscribes. Author types a notification
+           email in (or leaves blank to disable). Stored on release.notifyEmail —
+           publicly visible on the release doc, so tooltip recommends a
+           +alias for privacy. -->
+      <label
+        style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:6px 0 4px;cursor:pointer">
+        <input type="checkbox" id="rlNotifyOwnerOnSubscribe" onchange="_rlToggleNotifyEmail()" style="margin:0">
+        <span><strong>Email me</strong> when someone new subscribes</span>
+      </label>
+      <div id="rlNotifyEmailRow" style="display:none;margin:4px 0 10px 24px">
+        <input type="email" id="rlNotifyEmail" maxlength="200" autocomplete="email"
+          placeholder="you+folio@example.com"
+          title="This email is stored on the public release doc — for privacy use a plus-alias like you+folio-resonance@gmail.com that routes to your real inbox without exposing it."
+          style="width:100%;max-width:340px;font-size:12.5px;padding:6px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);outline:none;font-family:var(--mono,ui-monospace,monospace)">
+        <div style="font-size:10px;color:var(--hint);margin-top:4px;line-height:1.4">
+          ⚠ Stored on the public release doc. Use a <code>+alias</code> (like <code>you+folio-resonance@gmail.com</code>) so your real inbox stays out of public view.
+        </div>
+      </div>
 
       <!-- Reader export — author opt-out for unpurchased readers (paid mode).
            Defaults to OFF, i.e. readers CAN export whatever's visible to them
