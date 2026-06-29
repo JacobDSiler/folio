@@ -18852,10 +18852,35 @@
     }
     window._rlRenderTeasers = _rlRenderTeasers;
 
-    async function _rlCopyTeaserLink(chId, ev) {
-      // The URL routes through the share worker so it unfurls cleanly
-      // for social-media previews; the receiving reader reads the
-      // ?teaser= param + jumps to the chapter on load.
+    function _rlCopyTeaserLink(chId, ev) {
+      // Two distinct cases:
+      //
+      //  (A) Chapter is already in release.teasers (publicly listed) —
+      //      the URL already works for any reader; we just copy it.
+      //
+      //  (B) Chapter is NOT in release.teasers — the URL won't actually
+      //      unlock the chapter yet (this would need the signed-teaser
+      //      link feature, which isn't built yet). We do NOT copy the
+      //      URL (a broken link copied to clipboard is worse than no
+      //      link at all) and we do NOT auto-publish (that would
+      //      make the chapter public, defeating the "exclusive
+      //      single-chapter link" use case the author actually wants).
+      //      We surface a clear "coming soon" warning instead.
+      const _isTeaser = !!(_rlCurrent && Array.isArray(_rlCurrent.teasers) && _rlCurrent.teasers.indexOf(chId) >= 0);
+
+      if (!_isTeaser) {
+        if (typeof toastWarning === 'function') {
+          toastWarning(
+            'Single-chapter share links for unlisted chapters aren\'t live yet. ' +
+            'For now, tick the chapter as a public teaser + click Update release ' +
+            'if you want this link to work — or wait for the signed-link feature.',
+            { icon: '🔒', duration: 8000 }
+          );
+        }
+        return;
+      }
+
+      // Case A — public teaser. Copy + confirm.
       const folioId = (typeof _projId !== 'undefined' && _projId) ? _projId : '';
       const url = FOLIO_SHARE_BASE + encodeURIComponent(folioId) + '?teaser=' + encodeURIComponent(chId);
       const btn = (ev && ev.currentTarget) || null;
@@ -18867,56 +18892,9 @@
           ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
         }
         _btnFlashCopied(btn);
-      } catch (e) { console.warn('[funnel] copy failed', e); }
-
-      const _isTeaser = !!(_rlCurrent && Array.isArray(_rlCurrent.teasers) && _rlCurrent.teasers.indexOf(chId) >= 0);
-      if (_isTeaser) {
-        // Already published as a teaser — link is live, just confirm.
         if (typeof toastSuccess === 'function')
           toastSuccess('Teaser link copied', { icon: '🔗', duration: 1800 });
-        return;
-      }
-
-      // Chapter is NOT yet a teaser. The previous version only ticked
-      // the checkbox + reminded the author to click Update release —
-      // but readers who got the link before the republish hit a locked
-      // chapter behind a banner that promised them content. So we now
-      // tick AND publish immediately, so the link actually works the
-      // moment it lands on the clipboard.
-      try {
-        const cb = document.querySelector('.rl-teaser-cb[value="' + chId.replace(/"/g, '\\"') + '"]');
-        if (cb && !cb.checked) cb.checked = true;
-      } catch (e) { }
-
-      // Show a quick in-flight toast so the author knows we're working
-      // on it. _rlPublish itself toasts on completion / failure.
-      if (typeof toastInfo === 'function')
-        toastInfo('Link copied — publishing teaser…', { icon: '🔗', duration: 2200 });
-
-      // Auto-publish. _rlPublish reads the now-ticked checkboxes from
-      // the DOM and re-uses every other field already populated in the
-      // open release modal. If the author later un-checks the box and
-      // republishes, the teaser comes back off — no lock-in.
-      try {
-        if (typeof _rlPublish === 'function') {
-          await _rlPublish();
-          if (typeof toastSuccess === 'function')
-            toastSuccess('Teaser link is live — share away.', { icon: '✓', duration: 3500 });
-        } else {
-          throw new Error('publish function not loaded');
-        }
-      } catch (e) {
-        console.warn('[teaser] auto-publish failed:', e);
-        // Fall back to the old "you have to republish manually" path
-        // so the author isn't left with a copied link they can't use.
-        if (typeof toastWarning === 'function') {
-          toastWarning(
-            'Link copied + chapter auto-ticked, but the publish failed. ' +
-            'Click "Update release" below to retry. (' + (e.message || 'unknown error') + ')',
-            { icon: '⚠', duration: 8000 }
-          );
-        }
-      }
+      } catch (e) { console.warn('[funnel] copy failed', e); }
     }
     window._rlCopyTeaserLink = _rlCopyTeaserLink;
 
