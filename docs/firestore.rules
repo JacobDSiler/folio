@@ -168,6 +168,33 @@ service cloud.firestore {
         // Updates are owner-only regardless.
         allow update: if isUser(parentUid(id));
       }
+
+      // Signed teaser links — per-folio Firestore-backed share tokens
+      // that unlock ONE specific chapter for whoever holds the URL,
+      // without making that chapter publicly listed in release.teasers.
+      // Pattern: the owner mints a doc (tokenId = unguessable random)
+      // with `{chapterId, createdAt}`. The reader URL carries the
+      // tokenId in `?tt=`. The paywall worker reads the doc via its
+      // service account to verify before returning the chapter content.
+      //
+      //   Read   : owner only at the rule layer (the worker uses a
+      //            service account which bypasses rules — readers
+      //            never touch this subcollection directly).
+      //   Create : owner only, with a small payload shape lock so a
+      //            malicious owner-session can't sneak unexpected
+      //            fields into the doc.
+      //   Update : never (regenerate by delete + create).
+      //   Delete : owner only (revoke single link OR revoke-all
+      //            via subcollection sweep).
+      match /signed_teasers/{tokenId} {
+        allow read, delete: if isUser(parentUid(id));
+        allow create: if isUser(parentUid(id))
+                      && request.resource.data.keys()
+                           .hasOnly(['chapterId', 'createdAt'])
+                      && request.resource.data.chapterId is string
+                      && request.resource.data.chapterId.size() < 100;
+        allow update: if false;
+      }
     }
 
     // Per-user app settings — strictly your own.
