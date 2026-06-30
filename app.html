@@ -17429,6 +17429,11 @@
            trigger the handshake.
        ════════════════════════════════════════════════════════════ */
 
+    // !!! IMPORTANT — this list is the targetOrigin postMessage uses to
+    // ping the cleaner back AND the source-origin filter for payload
+    // messages. A stale entry here = silent dropped messages = "the
+    // signal never arrives" symptom from the cleaner side. If the cleaner
+    // moves to a new domain, add the new origin here.
     const FOLIO_IMPORT_TRUSTED_ORIGINS = [
       'https://gutenbergcleaner.jacobsiler.com',
       // Additional companion apps go here. Each MUST be an HTTPS
@@ -17489,6 +17494,16 @@
       // and the two state resets step on each other.
       try { localStorage.removeItem('folio_last_open'); } catch (e) { }
       _folioImportShowOverlay('Waiting for manuscript from companion app…');
+
+      // Diagnostic: log every targetOrigin we're about to ping. If the
+      // cleaner timed out, this is the first thing to check — a stale
+      // entry here (e.g. an old branding domain) means postMessage is
+      // silently dropped and the handshake never starts. If you see
+      // this log but the cleaner still times out, the cleaner's current
+      // origin is missing from FOLIO_IMPORT_TRUSTED_ORIGINS above.
+      console.log('[folio-import] ready-pinging origins:',
+        FOLIO_IMPORT_TRUSTED_ORIGINS, '— window.opener.origin from this side is opaque cross-origin, ' +
+        'but the cleaner will console.log its own location.origin if you add the diagnostic there.');
 
       // Ready-ping each trusted origin. We don't know which one opened us,
       // and postMessage requires a specific targetOrigin to avoid leaking
