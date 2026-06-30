@@ -8335,6 +8335,50 @@
               });
             }
           }
+          // SIGNED TEASER LINK (?tt=<tokenId>). Independent of
+          // release.teasers — the URL itself is the credential. Fires
+          // for any reader (owner included; harmless on the owner path)
+          // and is additive: just unlocks one specific chapter on top
+          // of whatever teaser-content / paid-content already merged.
+          // Worker validates the token + chapter id pairing before
+          // returning content, so a tampered URL can't reach a
+          // different chapter.
+          try {
+            const _ttParam = (() => {
+              try { return new URLSearchParams(window.location.search).get('tt') || ''; }
+              catch (e) { return ''; }
+            })();
+            const _teaserChId = (() => {
+              try { return new URLSearchParams(window.location.search).get('teaser') || ''; }
+              catch (e) { return ''; }
+            })();
+            if (_ttParam && _teaserChId && state && Array.isArray(state.chapters)) {
+              const _url = (typeof PAYWALL_WORKER_URL === 'string' && PAYWALL_WORKER_URL)
+                ? PAYWALL_WORKER_URL
+                : 'https://folio-paywall.jacobdsiler.workers.dev';
+              const _stUrl = _url + '/signed-teaser-content' +
+                '?folio=' + encodeURIComponent(folioId) +
+                '&ch=' + encodeURIComponent(_teaserChId) +
+                '&tt=' + encodeURIComponent(_ttParam);
+              const _r = await fetch(_stUrl);
+              if (_r.ok) {
+                const _j = await _r.json().catch(() => ({}));
+                if (_j && _j.ok && _j.chapterId && _j.content != null) {
+                  state.chapters = state.chapters.map(c => {
+                    if (c && c.type === 'chapter' && c.id === _j.chapterId) {
+                      return Object.assign({}, c, { content: _j.content });
+                    }
+                    return c;
+                  });
+                  console.log('[signed-teaser] unlocked', _j.chapterId);
+                }
+              } else {
+                console.warn('[signed-teaser] worker returned', _r.status,
+                  '— link may be revoked or tampered with');
+              }
+            }
+          } catch (e) { console.warn('[signed-teaser] fetch failed:', e); }
+
           if (_paidDoc) {
             let _map = null;
             if (_paidDoc.content_gz && _supportsCompressionStream()) {
@@ -18852,51 +18896,144 @@
     }
     window._rlRenderTeasers = _rlRenderTeasers;
 
-    function _rlCopyTeaserLink(chId, ev) {
+    async function _rlCopyTeaserLink(chId, ev) {
+      const folioId = (typeof _projId !== 'undefined' && _projId) ? _projId : '';
+      const btn = (ev && ev.currentTarget) || null;
+      if (!folioId) return;
+
       // Two distinct cases:
       //
       //  (A) Chapter is already in release.teasers (publicly listed) —
-      //      the URL already works for any reader; we just copy it.
+      //      the existing teaser-content fetch already serves it. URL
+      //      is just ?read=&teaser=<chid>.
       //
-      //  (B) Chapter is NOT in release.teasers — the URL won't actually
-      //      unlock the chapter yet (this would need the signed-teaser
-      //      link feature, which isn't built yet). We do NOT copy the
-      //      URL (a broken link copied to clipboard is worse than no
-      //      link at all) and we do NOT auto-publish (that would
-      //      make the chapter public, defeating the "exclusive
-      //      single-chapter link" use case the author actually wants).
-      //      We surface a clear "coming soon" warning instead.
+      //  (B) Chapter is NOT in release.teasers — mint a signed-teaser
+      //      token. The token is a random Firestore doc the worker
+      //      reads with its service account to authorise serving that
+      //      specific chapter ONLY to a holder of that URL. The chapter
+      //      itself stays unlisted (release.teasers is unchanged) so it
+      //      remains exclusive to whoever the author shares the URL with
+      //      (mailing list subscribers, podcast bonus, beta readers,
+      //      etc.). Revocation is per-link (delete the doc) or per-folio
+      //      ("Revoke all signed links" button).
       const _isTeaser = !!(_rlCurrent && Array.isArray(_rlCurrent.teasers) && _rlCurrent.teasers.indexOf(chId) >= 0);
 
-      if (!_isTeaser) {
-        if (typeof toastWarning === 'function') {
-          toastWarning(
-            'Single-chapter share links for unlisted chapters aren\'t live yet. ' +
-            'For now, tick the chapter as a public teaser + click Update release ' +
-            'if you want this link to work — or wait for the signed-link feature.',
-            { icon: '🔒', duration: 8000 }
-          );
+      let url;
+      if (_isTeaser) {
+        url = FOLIO_SHARE_BASE + encodeURIComponent(folioId) + '?teaser=' + encodeURIComponent(chId);
+      } else {
+        // Mint via Firestore. Doc id = unguessable random; worker reads
+        // by id + cross-checks chapterId before serving content.
+        if (!window._fb || !window._db) {
+          if (typeof toastWarning === 'function')
+            toastWarning('Cloud not ready — try again in a moment.', { duration: 3500 });
+          return;
         }
-        return;
+        if (typeof toastInfo === 'function')
+          toastInfo('Minting signed link…', { icon: '🔗', duration: 1500 });
+        try {
+          const tokenBytes = new Uint8Array(16);
+          (window.crypto || window.msCrypto).getRandomValues(tokenBytes);
+          const tokenId = Array.from(tokenBytes)
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+          const ref = window._fb.doc(window._db, 'folio_projects', folioId,
+            'signed_teasers', tokenId);
+          await window._fb.setDoc(ref, {
+            chapterId: chId,
+            createdAt: Date.now(),
+          });
+          url = FOLIO_SHARE_BASE + encodeURIComponent(folioId) +
+                '?teaser=' + encodeURIComponent(chId) +
+                '&tt=' + encodeURIComponent(tokenId);
+        } catch (e) {
+          console.warn('[signed-teaser] mint failed:', e);
+          if (typeof toastWarning === 'function') {
+            toastWarning('Couldn\'t mint signed link: ' + (e.message || 'unknown error'),
+              { icon: '⚠', duration: 6000 });
+          }
+          return;
+        }
       }
 
-      // Case A — public teaser. Copy + confirm.
-      const folioId = (typeof _projId !== 'undefined' && _projId) ? _projId : '';
-      const url = FOLIO_SHARE_BASE + encodeURIComponent(folioId) + '?teaser=' + encodeURIComponent(chId);
-      const btn = (ev && ev.currentTarget) || null;
+      // Copy + confirm.
       try {
         if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(url);
+          await navigator.clipboard.writeText(url);
         } else {
           const ta = document.createElement('textarea'); ta.value = url; document.body.appendChild(ta);
           ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
         }
         _btnFlashCopied(btn);
-        if (typeof toastSuccess === 'function')
-          toastSuccess('Teaser link copied', { icon: '🔗', duration: 1800 });
+        if (_isTeaser) {
+          if (typeof toastSuccess === 'function')
+            toastSuccess('Teaser link copied', { icon: '🔗', duration: 1800 });
+        } else {
+          if (typeof toastSuccess === 'function')
+            toastSuccess('Signed link copied — unlocks this chapter only, ' +
+              'without listing it as a public teaser.', { icon: '🔐', duration: 4500 });
+        }
       } catch (e) { console.warn('[funnel] copy failed', e); }
     }
     window._rlCopyTeaserLink = _rlCopyTeaserLink;
+
+    // Revoke ALL signed teaser links for the current folio. Deletes
+    // every doc in /signed_teasers — every previously-minted URL stops
+    // working on its next load. Public release.teasers links are
+    // unaffected (they use a different code path). Confirms before
+    // running to avoid accidental sweep.
+    async function _rlRevokeAllSignedTeasers() {
+      if (!_projId || !window._fb || !window._db) return;
+      const status = document.getElementById('rlSignedTeasersStatus');
+      const setStatus = (txt, color) => {
+        if (status) { status.style.color = color || 'var(--hint)'; status.textContent = txt; }
+      };
+      try {
+        const colRef = window._fb.collection(window._db,
+          'folio_projects', _projId, 'signed_teasers');
+        const snap = await window._fb.getDocs(colRef);
+        const count = snap.size;
+        if (count === 0) {
+          setStatus('No signed links to revoke.', 'var(--hint)');
+          return;
+        }
+        const ok = window.confirm(
+          'Revoke ALL ' + count + ' signed teaser link' + (count === 1 ? '' : 's') +
+          ' for this folio? This is permanent — anyone holding those URLs ' +
+          'will hit a "Token revoked" error on next load.'
+        );
+        if (!ok) return;
+        setStatus('Revoking ' + count + '…', 'var(--hint)');
+        let removed = 0;
+        for (const d of snap.docs) {
+          try {
+            await window._fb.deleteDoc(d.ref);
+            removed++;
+          } catch (e) { console.warn('[signed-teaser] delete failed', e); }
+        }
+        setStatus('Revoked ' + removed + ' link' + (removed === 1 ? '' : 's') + '.', '#0a7');
+        // Refresh count display
+        if (typeof _rlRefreshSignedTeaserCount === 'function')
+          _rlRefreshSignedTeaserCount();
+      } catch (e) {
+        console.warn('[signed-teaser] revoke failed:', e);
+        setStatus('Revoke failed: ' + (e.message || 'unknown'), '#c04040');
+      }
+    }
+    window._rlRevokeAllSignedTeasers = _rlRevokeAllSignedTeasers;
+
+    // Refresh the "N active signed links" count shown in the release
+    // modal. Called on modal-open + after revoke-all.
+    async function _rlRefreshSignedTeaserCount() {
+      const el = document.getElementById('rlSignedTeasersCount');
+      if (!el || !_projId || !window._fb || !window._db) return;
+      try {
+        const colRef = window._fb.collection(window._db,
+          'folio_projects', _projId, 'signed_teasers');
+        const snap = await window._fb.getDocs(colRef);
+        el.textContent = String(snap.size);
+      } catch (e) { el.textContent = '?'; }
+    }
+    window._rlRefreshSignedTeaserCount = _rlRefreshSignedTeaserCount;
 
     function openReleaseModal() {
       const panel = document.getElementById('releasePanel');
@@ -18931,6 +19068,15 @@
           if (toggleBtn) toggleBtn.textContent = 'View';
           if (typeof _rlSubscribersRefresh === 'function') _rlSubscribersRefresh();
         } catch (e) { console.warn('[subscribers] modal-open refresh:', e); }
+      }, 80);
+      // Signed teaser links count refresh (same timing).
+      setTimeout(() => {
+        try {
+          const _statusEl = document.getElementById('rlSignedTeasersStatus');
+          if (_statusEl) _statusEl.textContent = '';  // clear stale "Revoked N" from prior open
+          if (typeof _rlRefreshSignedTeaserCount === 'function')
+            _rlRefreshSignedTeaserCount();
+        } catch (e) { console.warn('[signed-teaser] modal-open refresh:', e); }
       }, 80);
 
       // Hydrate fields from current folio metadata + existing release
@@ -27576,6 +27722,21 @@
         <div id="rlTeasers"
           style="max-height:200px;overflow:auto;border:.5px solid var(--border-mid);border-radius:7px;padding:4px 9px;background:var(--surface);font-size:12.5px">
         </div>
+
+        <!-- Signed teaser links — exclusive single-chapter URLs that
+             unlock without publicly listing the chapter as a teaser.
+             Shows count + revoke-all action. -->
+        <div style="margin-top:10px;padding:8px 10px;background:var(--bg);border:.5px dashed var(--border-mid);border-radius:7px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <div style="flex:1;font-size:11.5px;color:var(--text);line-height:1.4">
+            🔐 <strong>Signed teaser links</strong> active: <span id="rlSignedTeasersCount" style="font-weight:600">—</span>
+            <div style="font-size:10.5px;color:var(--hint);margin-top:2px">
+              Click "Copy link" on a non-teaser chapter to mint one. Each link unlocks ONLY that chapter for whoever holds the URL.
+            </div>
+          </div>
+          <button type="button" onclick="_rlRevokeAllSignedTeasers()"
+            style="font-size:10.5px;padding:5px 10px;border-radius:5px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap">Revoke all</button>
+        </div>
+        <div id="rlSignedTeasersStatus" style="font-size:10.5px;color:var(--hint);margin-top:4px;min-height:14px"></div>
 
       </div>
 

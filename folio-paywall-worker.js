@@ -491,6 +491,118 @@ async function handleTeaserContent(request, env) {
   }
 }
 
+/* GET /signed-teaser-content?folio=<folioId>&ch=<chapterId>&tt=<tokenId>
+   Anonymous endpoint, but the URL itself is the credential — the tokenId
+   was minted by the folio owner (writing to /signed_teasers/{tt}) and
+   only somebody holding the URL knows it. We look the token up via the
+   service account, verify it matches the requested chapter, then return
+   ONLY that chapter's content from body/paid.
+
+   Unlike /teaser-content (which only ever returns chapters in
+   release.teasers), this endpoint can unlock any chapter the owner has
+   minted a token for — without making it publicly listed.
+
+   Revocation is trivial: delete the /signed_teasers/{tt} doc and the
+   next lookup 404s. */
+async function handleSignedTeaserContent(request, env) {
+  if (!env.GCP_SERVICE_ACCOUNT) {
+    return errorJson('Server not configured (missing GCP_SERVICE_ACCOUNT)', 500, request, env);
+  }
+  const url = new URL(request.url);
+  const folioId = (url.searchParams.get('folio') || '').trim();
+  const chId    = (url.searchParams.get('ch')    || '').trim();
+  const tt      = (url.searchParams.get('tt')    || '').trim();
+  if (!folioId) return errorJson('Missing folio', 400, request, env);
+  if (!chId)    return errorJson('Missing ch', 400, request, env);
+  if (!tt)      return errorJson('Missing tt', 400, request, env);
+  // Defensive shape — tokenIds we mint are hex strings; reject obvious
+  // path-traversal / overly-long inputs before we ever touch Firestore.
+  if (!/^[A-Za-z0-9_-]{8,64}$/.test(tt)) {
+    return errorJson('Invalid token shape', 400, request, env);
+  }
+  try {
+    const sa = await getAccessToken(env);
+    const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+    if (!projectId) return errorJson('No Firestore project id', 500, request, env);
+    // 1. Look up the signed-teaser doc.
+    const tokenDoc = await fsGet(projectId, sa.token,
+      'folio_projects/' + encodeURIComponent(folioId) +
+      '/signed_teasers/' + encodeURIComponent(tt));
+    if (!tokenDoc) {
+      // 401, not 404 — to a reader holding the URL the right framing
+      // is "this link doesn't work" rather than "this resource is missing".
+      return errorJson('Token revoked or never existed', 401, request, env);
+    }
+    if (String(tokenDoc.chapterId || '') !== chId) {
+      // The URL was tampered with (ch swapped) or the token was for a
+      // different chapter. Either way, refuse.
+      return errorJson('Token / chapter mismatch', 401, request, env);
+    }
+    // 2. Verify the folio is still published (revoking a release should
+    //    also implicitly disable signed teasers — author can re-publish
+    //    or sweep the subcollection if they want explicit cleanup).
+    const parent = await fsGet(projectId, sa.token,
+      'folio_projects/' + encodeURIComponent(folioId));
+    if (!parent || !parent.release || !parent.release.published) {
+      return errorJson('Folio not published', 404, request, env);
+    }
+    // 3. Read body/paid + extract just the one chapter's content.
+    const paid = await fsGet(projectId, sa.token,
+      'folio_projects/' + encodeURIComponent(folioId) + '/body/paid');
+    let chapters = {};
+    if (paid) {
+      if (paid.content_gz) {
+        try {
+          const bin = atob(paid.content_gz);
+          const bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+          const txt = await new Response(
+            new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))
+          ).text();
+          const parsed = JSON.parse(txt);
+          chapters = (parsed && parsed.chapters) || {};
+        } catch (e) { console.warn('[signed-teaser] decompress failed', e); }
+      } else if (paid.content && paid.content.chapters) {
+        chapters = paid.content.chapters;
+      }
+    }
+    // Chapter might also live in body/main (e.g. it's IN release.teasers
+    // already, so the owner had a regular teaser link). Fall back to that.
+    let content = chapters[chId];
+    if (content == null) {
+      const mainDoc = await fsGet(projectId, sa.token,
+        'folio_projects/' + encodeURIComponent(folioId) + '/body/main');
+      if (mainDoc) {
+        let mainState = null;
+        if (mainDoc.state_gz) {
+          try {
+            const bin = atob(mainDoc.state_gz);
+            const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            const txt = await new Response(
+              new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'))
+            ).text();
+            mainState = JSON.parse(txt);
+          } catch (e) { console.warn('[signed-teaser] main decompress failed', e); }
+        } else if (mainDoc.state) {
+          mainState = mainDoc.state;
+        }
+        if (mainState && Array.isArray(mainState.chapters)) {
+          const ch = mainState.chapters.find(c => c && c.id === chId && c.type === 'chapter');
+          if (ch) content = ch.content || '';
+        }
+      }
+    }
+    if (content == null) {
+      return errorJson('Chapter content not found', 404, request, env);
+    }
+    return json({ ok: true, chapterId: chId, content: content }, 200, request, env);
+  } catch (e) {
+    return errorJson('Signed teaser fetch failed: ' + (e.message || 'unknown'),
+                     502, request, env);
+  }
+}
+
 /* POST /verify-code  { folioId, code }
    Custom-provider unlock. Author sets a shared passphrase in
    release.unlockCode via the release modal; buyer pastes the same
@@ -592,6 +704,7 @@ export default {
           'GET  /paid-content?folio=…    (Authorization: Bearer <jwt>)',
           'POST /verify-code   { folioId, code }  (custom-provider unlock)',
           'GET  /teaser-content?folio=…  (anonymous; serves chapters flagged in release.teasers)',
+          'GET  /signed-teaser-content?folio=&ch=&tt=  (anonymous; URL is the credential)',
         ],
       }, 200, request, env);
     }
@@ -601,6 +714,7 @@ export default {
     if (path === '/paid-content'  && request.method === 'GET')  return handlePaidContent(request, env);
     if (path === '/verify-code'   && request.method === 'POST') return handleVerifyCode(request, env);
     if (path === '/teaser-content' && request.method === 'GET')  return handleTeaserContent(request, env);
+    if (path === '/signed-teaser-content' && request.method === 'GET') return handleSignedTeaserContent(request, env);
 
     return errorJson('Not found: ' + path, 404, request, env);
   },
