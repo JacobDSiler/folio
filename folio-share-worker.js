@@ -275,6 +275,14 @@ export default {
     }
     folioId = (folioId || '').trim();
     const teaser = (url.searchParams.get('teaser') || '').trim();
+    // Signed-teaser token. Mirrors the `tt=` param the editor mints when
+    // the author copies a teaser link for a NON-listed chapter — the URL
+    // itself is the credential and the app's _readDocState calls
+    // /signed-teaser-content to unlock just that chapter. Worker MUST
+    // forward this through to the reader URL; dropping it makes the
+    // signed-teaser feature silently no-op (locked card with banner,
+    // no content unlock).
+    const tt = (url.searchParams.get('tt') || '').trim();
 
     // No id → send everyone to the Folio home page.
     if (!folioId) return Response.redirect(readerBase + '/', 302);
@@ -282,9 +290,11 @@ export default {
     // Canonical reader URL (where humans end up).
     let readerUrl = readerBase + '/app.html?read=' + encodeURIComponent(folioId);
     if (teaser) readerUrl += '&teaser=' + encodeURIComponent(teaser);
+    if (tt)     readerUrl += '&tt='     + encodeURIComponent(tt);
     // Canonical share URL (what crawlers record as og:url).
     let shareUrl = url.origin + url.pathname;
     if (teaser) shareUrl += '?teaser=' + encodeURIComponent(teaser);
+    if (tt)     shareUrl += (shareUrl.includes('?') ? '&' : '?') + 'tt=' + encodeURIComponent(tt);
 
     const ua = request.headers.get('User-Agent') || '';
     if (!CRAWLER_RE.test(ua)) {
@@ -350,29 +360,4 @@ export default {
     // were published before _rlPublish started saving coverUrl. Only
     // triggers when no image has been resolved yet AND we have a
     // working SA token from the parent-doc call.
-    if (!image && projectId && saToken) {
-      try {
-        const fromBody = await fetchCoverFromBody(projectId, saToken, folioId);
-        if (fromBody) image = fromBody;
-      } catch (e) {
-        // body-doc fallback failed — fall through to the default
-      }
-    }
-
-    if (!image) image = DEFAULT_OG_IMAGE;
-
-    const html = ogPage({
-      title, description, image, ogType,
-      shareUrl, readerUrl,
-      fbAppId,
-    });
-    return new Response(html, {
-      status: 200,
-      headers: {
-        'Content-Type':  'text/html; charset=utf-8',
-        // Let crawlers (and their re-scrapes) cache briefly.
-        'Cache-Control': 'public, max-age=300',
-      },
-    });
-  },
-};
+    if (!image &&
