@@ -385,8 +385,10 @@
     messagingSenderId: "514858431339",
     appId: "1:514858431339:web:8b3acbe89966b45fe3922e"
   };
+  console.log('[shelf] booting — Firebase project:', firebaseConfig.projectId);
   const app = initializeApp(firebaseConfig);
   const db  = getFirestore(app);
+  console.log('[shelf] Firestore instance created:', !!db);
 
   // Folios universe — fetched once on load, filtered/sorted client-side.
   // For v1 a 200-folio cap is plenty; pagination kicks in for v2 if we
@@ -396,6 +398,7 @@
   async function fetchShelf() {
     const status = document.getElementById('shelfStatus');
     const grid   = document.getElementById('shelfGrid');
+    console.log('[shelf] fetchShelf starting');
     try {
       const q = query(
         collection(db, 'folio_projects'),
@@ -403,7 +406,9 @@
         where('release.published',   '==', true),
         limit(200)
       );
+      console.log('[shelf] query built, calling getDocs…');
       const snap = await getDocs(q);
+      console.log('[shelf] getDocs returned', snap.size, 'docs matching (listOnShelf==true AND published==true)');
       const out = [];
       snap.forEach(d => {
         const data = d.data() || {};
@@ -424,10 +429,37 @@
       });
       _allFolios = out;
       window._shelfFolios = out;
+      // Diagnostic: if 0 matched, run a broader query (published only)
+      // so we can see whether the collection is readable at all and
+      // how many folios have `listOnShelf` set to false/missing.
+      if (snap.size === 0) {
+        console.warn('[shelf] 0 folios matched the strict query. Running diagnostic broader query…');
+        try {
+          const qDiag = query(
+            collection(db, 'folio_projects'),
+            where('release.published', '==', true),
+            limit(20)
+          );
+          const diagSnap = await getDocs(qDiag);
+          console.log('[shelf] diagnostic: found', diagSnap.size,
+            'published folios. Sample release fields:');
+          diagSnap.forEach(d => {
+            const r = (d.data() && d.data().release) || {};
+            console.log('  •', d.id, {
+              listOnShelf:  r.listOnShelf,
+              shelfGenre:   r.shelfGenre,
+              published:    r.published,
+              title:        r.title,
+            });
+          });
+        } catch (diagE) {
+          console.error('[shelf] diagnostic query failed too:', diagE);
+        }
+      }
       renderShelf();
     } catch (e) {
       console.error('[shelf] fetch failed:', e);
-      if (status) status.textContent = 'Couldn\'t load the shelf. Refresh to retry.';
+      if (status) status.textContent = 'Couldn\'t load the shelf. Refresh to retry. See console for details.';
       if (grid)   grid.innerHTML = '';
     }
   }
@@ -514,45 +546,4 @@
       const href = '/app.html?read=' + encodeURIComponent(f.id);
       return '<a class="shelf-card" href="' + esc(href) + '">' +
         cover +
-        '<h2 class="shelf-card-title">' + esc(f.title) + '</h2>' +
-        (f.author ? '<p class="shelf-card-author">by ' + esc(f.author) + '</p>' : '') +
-        blurb +
-        '<div class="shelf-card-foot">' + badge + genreLabel + '</div>' +
-        '</a>';
-    }).join('');
-  }
-  window.renderShelf = renderShelf;
-
-  // Theme — read on load, toggle on click, persist in localStorage.
-  function applyTheme(theme) {
-    document.documentElement.setAttribute('data-theme', theme);
-    const btn = document.getElementById('shelfThemeBtn');
-    if (btn) btn.textContent = theme === 'dark' ? '☀' : '☽';
-  }
-  function toggleTheme() {
-    const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
-    const next = cur === 'dark' ? 'light' : 'dark';
-    try { localStorage.setItem('shelf_theme', next); } catch (e) { }
-    applyTheme(next);
-  }
-  window.toggleTheme = toggleTheme;
-
-  const saved = (() => { try { return localStorage.getItem('shelf_theme'); } catch (e) { return null; } })();
-  const prefers = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  applyTheme(saved || (prefers ? 'dark' : 'light'));
-
-  // Boot
-  fetchShelf();
-
-  // Genre labels for the card chip — must mirror the dropdown options.
-  const GENRE_LABELS = {
-    literary: 'Literary',
-    general:  'Fiction',
-    mystery:  'Mystery',
-    thriller: 'Thriller',
-    romance:  'Romance',
-    fantasy:  'Fantasy',
-    scifi:    'Sci-fi',
-    horror:   'Horror',
-    historical: 'Historical',
-    ya:      
+        '<h2 class="shelf-c
