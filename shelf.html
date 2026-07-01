@@ -375,13 +375,15 @@
   import { getFirestore, collection, query, where, getDocs, limit }
     from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
 
+  // Same Firebase project as app.html + index.html (miscellaneous-117e9).
+  // These values are the public web-client config — safe to embed.
   const firebaseConfig = {
-    apiKey: "AIzaSyAKZjqVjyJlBVbnB-uHe-93cBjB5fjp9C0",
+    apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",
     authDomain: "auth.jacobsiler.com",
-    projectId: "folio-1f0a0",
-    storageBucket: "folio-1f0a0.firebasestorage.app",
-    messagingSenderId: "234395474961",
-    appId: "1:234395474961:web:5d23c1a3a4f6e8a9b3c7d2"
+    projectId: "miscellaneous-117e9",
+    storageBucket: "miscellaneous-117e9.firebasestorage.app",
+    messagingSenderId: "514858431339",
+    appId: "1:514858431339:web:8b3acbe89966b45fe3922e"
   };
   const app = initializeApp(firebaseConfig);
   const db  = getFirestore(app);
@@ -553,10 +555,4 @@
     scifi:    'Sci-fi',
     horror:   'Horror',
     historical: 'Historical',
-    ya:       'Young adult',
-    children: 'Children’s',
-    memoir:   'Memoir',
-    selfhelp: 'Self-help',
-    business: 'Business',
-    health:   'Health',
-    poetry:   
+    ya:      
