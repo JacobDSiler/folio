@@ -85,24 +85,53 @@ try {
         Stop-Here 1
     }
 
-    $allOutputs = Get-ChildItem -Path $base -Directory -Recurse -Filter 'outputs' -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime -Descending
+    $allOutputs = Get-ChildItem -Path $base -Directory -Recurse -Filter 'outputs' -ErrorAction SilentlyContinue
 
     if (-not $allOutputs) {
         Write-Host "No Cowork 'outputs' folder found under: $base" -ForegroundColor Red
         Stop-Here 1
     }
 
-    # First pick: most-recent folder that actually has the commit stamp.
-    $stamped = $allOutputs | Where-Object {
+    # AUTO-DISCOVERY (v2) — sort candidate outputs folders by the newest
+    # LastWriteTime of their PRIMARY ARTIFACT (app.html), not by the
+    # folder's own LastWriteTime.
+    #
+    # Why: folder mtime updates on any child write (including stubs a
+    # different Cowork session might drop in during boot), so it lies
+    # about "which session is doing the actual work." app.html's mtime
+    # is the ground truth — it only updates when Claude edited the file.
+    #
+    # Falls back to the .folio-pending-commit.txt mtime if app.html is
+    # absent, then to the folder mtime as a last resort. Requires the
+    # commit stamp file exists at all (that's still the "push-ready" gate).
+    $candidates = $allOutputs | Where-Object {
         Test-Path (Join-Path $_.FullName '.folio-pending-commit.txt')
-    } | Select-Object -First 1
+    } | ForEach-Object {
+        $folder = $_
+        $primary = Join-Path $folder.FullName 'app.html'
+        $stamp   = Join-Path $folder.FullName '.folio-pending-commit.txt'
+        $mtime = if (Test-Path $primary) {
+            (Get-Item $primary).LastWriteTime
+        } elseif (Test-Path $stamp) {
+            (Get-Item $stamp).LastWriteTime
+        } else {
+            $folder.LastWriteTime
+        }
+        [PSCustomObject]@{ Folder = $folder; Mtime = $mtime }
+    } | Sort-Object Mtime -Descending
 
-    if ($stamped) {
-        $outputsDir = $stamped
+    if ($candidates) {
+        $outputsDir = $candidates | Select-Object -First 1 -ExpandProperty Folder
+        # Diagnostic: show the picked folder + its content mtime so we
+        # can confirm the auto-discovery is picking the right session.
+        $pickedMtime = ($candidates | Select-Object -First 1).Mtime
+        Write-Host ("(Auto-discovery: picked folder whose app.html was last modified {0})" -f $pickedMtime) `
+            -ForegroundColor DarkGray
     } else {
-        $outputsDir = $allOutputs | Select-Object -First 1
-        Write-Host "(No outputs folder has a .folio-pending-commit.txt - falling back to most-recent.)" -ForegroundColor DarkGray
+        # No folder has the commit stamp — fall back to plain "most-
+        # recent folder by folder mtime" to preserve old behaviour.
+        $outputsDir = $allOutputs | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        Write-Host "(No outputs folder has a .folio-pending-commit.txt - falling back to most-recent folder mtime.)" -ForegroundColor DarkGray
     }
 
     $srcRoot    = $outputsDir.FullName
