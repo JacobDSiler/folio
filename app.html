@@ -1,9 +1,5 @@
 <!DOCTYPE html>
-<!-- FOLIO BUILD v2026.07.01.1 — bump this on every deploy so we can
-     verify what GitHub Pages actually shipped: View Source + Ctrl+F.
-     Search for "FOLIO BUILD" — if the version here matches your
-     expected version, the deploy is live. If it lags, GitHub Pages
-     hasn't rebuilt yet. -->
+<!-- FOLIO BUILD v2026.07.01.6 — reader→imprint link + shelf listing (restored from 67c6cc7) -->
 <html lang="en">
 
 <head>
@@ -21468,7 +21464,19 @@
         'collab': 'Collaborator'
       };
       const currentLabel = roleLabels[_readerRole] || 'Reader';
-      subEl.textContent = author ? `by ${author} · ${currentLabel}` : currentLabel;
+      const ownerUid = (typeof _loadedFolioOwnerUid !== 'undefined' && _loadedFolioOwnerUid) || '';
+      if (author && ownerUid) {
+        // Author name links to their Folio Imprint page — readers who enjoyed
+        // this book can discover the author's other folios in one click.
+        const safeAuthor = String(author).replace(/[<>&"']/g, function (c) {
+          return ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' })[c];
+        });
+        subEl.innerHTML = 'by <a href="/imprint/?uid=' + encodeURIComponent(ownerUid) +
+          '" style="color:inherit;text-decoration:underline dotted;text-underline-offset:2px" ' +
+          'title="See more folios by this author">' + safeAuthor + '</a> · ' + currentLabel;
+      } else {
+        subEl.textContent = author ? ('by ' + author + ' · ' + currentLabel) : currentLabel;
+      }
     }
 
     // 3. Reader Bar Actions visibility
@@ -27934,4 +27942,890 @@
       <label
         style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:6px 0 4px;cursor:pointer">
         <input type="checkbox" id="rlAudioBundle" style="margin:0">
-        <span><strong>Include the audiobook</strong> with this release <span style
+        <span><strong>Include the audiobook</strong> with this release <span style="opacity:.7;font-weight:400">(if
+            generated in the Audio panel)</span></span>
+      </label>
+      <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:2px 0 12px 24px">
+        Readers see a 🎧 button in the reader bar; opens an in-browser player synced to chapters. Free releases unlock
+        immediately; paid releases require the Gumroad license; serial releases unlock chapter-by-chapter alongside the
+        text.
+      </p>
+
+      <!-- Email me when someone new subscribes. Author types a notification
+           email in (or leaves blank to disable). Stored on release.notifyEmail —
+           publicly visible on the release doc, so tooltip recommends a
+           +alias for privacy. -->
+      <label
+        style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:6px 0 4px;cursor:pointer">
+        <input type="checkbox" id="rlNotifyOwnerOnSubscribe" onchange="_rlToggleNotifyEmail()" style="margin:0">
+        <span><strong>Email me</strong> when someone new subscribes</span>
+      </label>
+      <div id="rlNotifyEmailRow" style="display:none;margin:4px 0 10px 24px">
+        <input type="email" id="rlNotifyEmail" maxlength="200" autocomplete="email"
+          placeholder="you+folio@example.com"
+          title="This email is stored on the public release doc — for privacy use a plus-alias like you+folio-resonance@gmail.com that routes to your real inbox without exposing it."
+          style="width:100%;max-width:340px;font-size:12.5px;padding:6px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);outline:none;font-family:var(--mono,ui-monospace,monospace)">
+        <div style="font-size:10px;color:var(--hint);margin-top:4px;line-height:1.4">
+          ⚠ Stored on the public release doc. Use a <code>+alias</code> (like <code>you+folio-resonance@gmail.com</code>) so your real inbox stays out of public view.
+        </div>
+      </div>
+
+      <!-- Reader export — author opt-out for unpurchased readers (paid mode).
+           Defaults to OFF, i.e. readers CAN export whatever's visible to them
+           (free preview + teasers). Tick to require purchase before any export. -->
+      <label
+        style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:6px 0 4px;cursor:pointer">
+        <input type="checkbox" id="rlDisableUnpurchasedExport" style="margin:0">
+        <span><strong>Require purchase</strong> before readers can export <span style="opacity:.7;font-weight:400">(paid releases only)</span></span>
+      </label>
+      <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:2px 0 12px 24px">
+        Off (default): readers can export whatever's visible — for a paid+teaser release that means just the preview
+        and teaser chapters. Encourages "I'll email this chapter to a friend" sharing.<br>
+        On: the export menu greys out until the reader has purchased the book.
+      </p>
+
+      <!-- Serial release — progressive chapter unlock by date/cadence -->
+      <label
+        style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:14px 0 0;cursor:pointer">
+        <input type="checkbox" id="rlSerialEnabled" onchange="_serialToggleEnabled()" style="margin:0">
+        <span><strong>Serial release</strong> — unlock chapters one at a time on a schedule</span>
+      </label>
+
+      <div id="rlSerialFields"
+        style="display:none;padding:12px;background:var(--bg);border-radius:8px;border:.5px solid var(--border-mid);margin:8px 0 10px">
+        <div style="display:flex;gap:8px">
+          <div style="flex:1">
+            <label
+              style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Cadence</label>
+            <select id="rlSerialCadence" onchange="_serialUpdatePreview()"
+              style="width:100%;font-size:13px;padding:7px 8px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Every 2 weeks</option>
+              <option value="monthly">Monthly</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </div>
+          <div id="rlSerialCustomWrap" style="display:none;width:140px">
+            <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Days
+              between</label>
+            <input type="number" id="rlSerialCustom" min="1" step="1" value="7" oninput="_serialUpdatePreview()"
+              style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+          </div>
+        </div>
+
+        <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:10px 0 4px">First release
+          at</label>
+        <input type="datetime-local" id="rlSerialFirst" onchange="_serialUpdatePreview()"
+          oninput="_serialUpdatePreview()"
+          style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+
+
+        <div id="rlSerialPreview"
+          style="margin-top:10px;padding:8px 10px;background:var(--surface);border:.5px dashed var(--border-mid);border-radius:6px;font-size:11.5px;line-height:1.55;color:var(--text);min-height:30px">
+          <span style="color:var(--hint)">Pick a first-release date to see the schedule.</span>
+        </div>
+
+        <label
+          style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin-top:10px;cursor:pointer">
+          <input type="checkbox" id="rlNotifyOnUnlock" style="margin:0">
+          <span>Email subscribers each time a chapter unlocks</span>
+        </label>
+      </div>
+
+      <!-- Status line (publish/unpublish progress + error messages) -->
+      <div id="rlStatus" style="font-size:11.5px;color:var(--hint);min-height:1.4em;margin:6px 0 10px"></div>
+
+      <!-- Reader URL, shown only after a release exists -->
+      <div id="rlUrlBox"
+        style="display:none;padding:10px 12px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;margin-bottom:10px">
+        <div style="font-size:10.5px;color:var(--hint);letter-spacing:.02em;margin-bottom:4px">Reader link</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <code id="rlUrlText"
+            style="flex:1;font-family:var(--mono,ui-monospace,monospace);font-size:12px;color:var(--text);word-break:break-all;line-height:1.4"></code>
+          <button type="button" onclick="_rlCopyUrl(event)"
+            style="font-size:11.5px;padding:6px 10px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap">📋
+            Copy</button>
+        </div>
+      </div>
+
+      <!-- Subscribers — readers who tapped Subscribe on the lock card -->
+      <div id="rlSubscribersSection" style="margin-top:14px;padding:12px 14px;border:.5px dashed var(--border-mid);border-radius:8px;background:var(--bg)">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+          <div style="font-size:12px;font-weight:500;color:var(--text)">
+            📧 Subscribers: <span id="rlSubscribersCount" style="font-weight:600">—</span>
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button type="button" id="rlSubscribersRefresh" onclick="_rlSubscribersRefresh()" title="Refresh"
+              style="font-size:10.5px;padding:5px 9px;border-radius:5px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">↻</button>
+            <button type="button" id="rlSubscribersToggle" onclick="_rlSubscribersToggleList()"
+              style="font-size:10.5px;padding:5px 9px;border-radius:5px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">View</button>
+            <button type="button" id="rlSubscribersExport" onclick="_rlSubscribersExport()"
+              style="font-size:10.5px;padding:5px 10px;border-radius:5px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">Export CSV</button>
+          </div>
+        </div>
+        <div id="rlSubscribersList" style="display:none;margin-top:10px;max-height:240px;overflow-y:auto;font-size:11.5px;color:var(--text)"></div>
+        <div id="rlSubscribersStatus" style="font-size:10.5px;color:var(--hint);margin-top:6px;min-height:14px"></div>
+
+        <!-- Webhook pass-through. Author pastes a Zapier / Make / n8n /
+             custom URL. Every new subscriber is POSTed there as JSON in
+             addition to being saved to Firestore. -->
+        <div style="margin-top:12px;padding-top:10px;border-top:.5px dotted var(--border-mid)">
+          <label style="display:block;font-size:11px;font-weight:500;color:var(--hint);margin:0 0 4px">
+            🔗 Mirror new signups to webhook
+            <span style="opacity:.6;font-weight:400">(optional — Zapier, Make, n8n, custom)</span>
+          </label>
+          <div style="display:flex;gap:6px;align-items:center">
+            <input type="url" id="rlSubscribeWebhookUrl" maxlength="500"
+              placeholder="https://hooks.zapier.com/hooks/catch/...."
+              title="Each signup POSTs {email, subscribedAt, folioId, folioTitle, source} as JSON. URL is on the public release doc — use unguessable webhook URLs (Zapier's are fine), not API keys."
+              style="flex:1;font-size:11.5px;padding:6px 8px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);outline:none;font-family:var(--mono,ui-monospace,monospace)">
+            <button type="button" onclick="_rlSubscribersTestWebhook()" id="rlWebhookTestBtn"
+              style="font-size:10.5px;padding:6px 10px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap">Send test</button>
+          </div>
+          <div id="rlWebhookStatus" style="font-size:10px;color:var(--hint);margin-top:5px;min-height:13px;line-height:1.4"></div>
+          <p style="font-size:9.5px;color:var(--hint);margin:5px 0 0;line-height:1.5">
+            Best for Mailerlite via a Zapier "Catch Hook → Add Subscriber" zap. The webhook URL is stored on the
+            public release doc — Zapier's random URLs are safe by obscurity, but never paste a Mailerlite API token here.
+          </p>
+        </div>
+      </div>
+
+      <!-- Action row — Publish (primary) + Unpublish (shown for live releases) -->
+      <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+        <button type="button" id="rlPublishBtn" onclick="_rlPublish()"
+          style="flex:1;font-size:13px;font-weight:500;padding:10px 14px;border-radius:8px;border:none;background:#065f46;color:#fff;cursor:pointer">🔖
+          Publish</button>
+        <button type="button" id="rlUnpublishBtn" onclick="_rlUnpublish()"
+          style="display:none;font-size:12px;padding:10px 12px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">Unpublish</button>
+      </div>
+    </div>
+  </div>
+
+
+  <style id="folio-tour-css">
+    /* ══════ GUIDED TOUR — opt-in, dismissible, accessible from menu ══════ */
+    #folioTour {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      pointer-events: auto;
+      font-family: var(--sans);
+    }
+
+    #folioTour.open {
+      display: block;
+    }
+
+    /* Four blur overlays around the spot — top / bottom / left / right.
+   The "spot" itself has no overlay, so it stays crystal clear while
+   the rest of the page is dim + blurred. Each overlay carries the
+   same blur/tint, positioned via inline styles by _tourPosition. */
+    #folioTour .ft-dim,
+    #folioTour .ft-dim-t,
+    #folioTour .ft-dim-b,
+    #folioTour .ft-dim-l,
+    #folioTour .ft-dim-r {
+      position: absolute;
+      background: rgba(10, 8, 5, 0.55);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      transition: top .25s ease, left .25s ease, right .25s ease, bottom .25s ease, width .25s ease, height .25s ease;
+    }
+
+    /* The .ft-dim fallback covers the full screen when there's no target
+   (welcome/finish stops). The quadrant overlays are used for stops
+   anchored on a real element. */
+    #folioTour .ft-dim {
+      inset: 0;
+    }
+
+    #folioTour.ft-no-spot .ft-dim-t,
+    #folioTour.ft-no-spot .ft-dim-b,
+    #folioTour.ft-no-spot .ft-dim-l,
+    #folioTour.ft-no-spot .ft-dim-r {
+      display: none;
+    }
+
+    #folioTour:not(.ft-no-spot) .ft-dim {
+      display: none;
+    }
+
+    /* Spotlight ring drawn AROUND the (now transparent) cleared region
+   to give it a soft highlight glow that draws the eye. */
+    #folioTour .ft-spot {
+      position: absolute;
+      border-radius: 10px;
+      box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 0 24px rgba(255, 255, 255, 0.55);
+      pointer-events: none;
+      transition: top .35s ease, left .35s ease, width .35s ease, height .35s ease;
+    }
+
+    #folioTour.ft-no-spot .ft-spot {
+      display: none;
+    }
+
+    /* Stop-change attention pulse. JS toggles .ft-pulse on the spot;
+   the animation runs once and clears. */
+    @keyframes ft-pulse {
+      0% {
+        box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 0 24px rgba(255, 255, 255, 0.55);
+      }
+
+      40% {
+        box-shadow: 0 0 0 5px rgba(255, 255, 255, 1.00), 0 0 56px rgba(255, 255, 255, 0.95);
+      }
+
+      100% {
+        box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.85), 0 0 24px rgba(255, 255, 255, 0.55);
+      }
+    }
+
+    #folioTour .ft-spot.ft-pulse {
+      animation: ft-pulse .9s ease-out 1;
+    }
+
+    #folioTour .ft-card {
+      position: absolute;
+      max-width: 360px;
+      width: calc(100% - 32px);
+      max-height: calc(100vh - 32px);
+      overflow-y: auto;
+      background: var(--surface, #fff);
+      color: var(--text, #1a1a1a);
+      border-radius: 14px;
+      border: .5px solid var(--border-mid, #ddd);
+      box-shadow: 0 16px 56px rgba(0, 0, 0, 0.45);
+      padding: 18px 20px 16px;
+      font-size: 13px;
+      line-height: 1.55;
+      transition: top .35s ease, left .35s ease;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    #folioTour .ft-card .ft-row {
+      position: sticky;
+      bottom: -16px;
+      background: var(--surface, #fff);
+      padding: 6px 0 0;
+      margin-top: auto;
+      z-index: 1;
+    }
+
+    /* Bottom-sheet mode for narrow viewports — pins the card to the
+   bottom of the screen so the spotlight + the card never collide,
+   buttons stay visible, and content scrolls internally when long. */
+    @media (max-width: 699px) {
+      #folioTour .ft-card {
+        max-width: none;
+        width: calc(100% - 16px);
+        max-height: 45vh;
+        border-radius: 14px 14px 10px 10px;
+        padding: 16px 16px 14px;
+        transition: none;
+      }
+
+      /* JS positions the card via inline styles. The media-query rule
+     just ensures the dimensions fit when the JS asks for bottom-
+     sheet placement. */
+    }
+
+    #folioTour .ft-kicker {
+      font-size: 10.5px;
+      color: var(--hint, #888);
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      margin-bottom: 4px;
+    }
+
+    #folioTour .ft-title {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 17px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      margin: 0 0 8px;
+    }
+
+    #folioTour .ft-body {
+      margin: 0 0 12px;
+      color: var(--text, #1a1a1a);
+    }
+
+    #folioTour .ft-body em {
+      color: var(--accent-ui, #0a7);
+      font-style: normal;
+      font-weight: 600;
+    }
+
+    #folioTour .ft-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #folioTour .ft-dots {
+      display: flex;
+      gap: 4px;
+    }
+
+    #folioTour .ft-dots span {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--border-mid, #ccc);
+    }
+
+    #folioTour .ft-dots span.cur {
+      background: var(--accent-ui, #0a7);
+    }
+
+    #folioTour .ft-btns {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    #folioTour .ft-btn {
+      font-size: 11.5px;
+      padding: 6px 11px;
+      border-radius: 7px;
+      border: .5px solid var(--border-mid, #ccc);
+      background: var(--bg, #faf9f7);
+      color: var(--text, #1a1a1a);
+      cursor: pointer;
+      font-family: inherit;
+      transition: background .12s;
+    }
+
+    #folioTour .ft-btn:hover {
+      background: var(--surface, #fff);
+    }
+
+    #folioTour .ft-btn.primary {
+      background: var(--accent-ui, #0a7);
+      color: #fff;
+      border-color: var(--accent-ui, #0a7);
+    }
+
+    #folioTour .ft-btn.primary:hover {
+      filter: brightness(.95);
+    }
+
+    #folioTour .ft-skip {
+      font-size: 10.5px;
+      color: var(--hint, #888);
+      background: none;
+      border: none;
+      padding: 6px 4px;
+      cursor: pointer;
+      font-family: inherit;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    #folioTour .ft-skip:hover {
+      color: var(--text, #1a1a1a);
+    }
+
+    /* First-folio prompt — small toast-like card at the top of the screen. */
+    #folioTourPrompt {
+      display: none;
+      position: fixed;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1900;
+      background: var(--surface, #fff);
+      border: .5px solid var(--border-mid, #ddd);
+      border-radius: 12px;
+      padding: 12px 16px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+      font-family: var(--sans);
+      font-size: 12.5px;
+      color: var(--text, #1a1a1a);
+      max-width: 460px;
+      width: calc(100% - 32px);
+      align-items: center;
+      gap: 14px;
+    }
+
+    #folioTourPrompt.open {
+      display: flex;
+    }
+
+    #folioTourPrompt .ftp-msg {
+      flex: 1;
+      line-height: 1.45;
+    }
+
+    #folioTourPrompt .ftp-msg strong {
+      font-weight: 600;
+    }
+
+    #folioTourPrompt .ftp-btn {
+      font-size: 11.5px;
+      padding: 6px 12px;
+      border-radius: 7px;
+      border: .5px solid var(--border-mid, #ccc);
+      background: var(--bg, #faf9f7);
+      color: var(--text, #1a1a1a);
+      cursor: pointer;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+
+    #folioTourPrompt .ftp-btn.primary {
+      background: var(--accent-ui, #0a7);
+      color: #fff;
+      border-color: var(--accent-ui, #0a7);
+    }
+
+    #folioTourPrompt .ftp-btn:hover {
+      filter: brightness(.96);
+    }
+
+    #folioTourPrompt .ftp-chip {
+      display: inline-block;
+      background: var(--accent-ui, #0a7);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 999px;
+      margin-left: 4px;
+      vertical-align: middle;
+      letter-spacing: .02em;
+    }
+  </style>
+
+  <!-- ══════ GUIDED TOUR ══════ -->
+  <div id="folioTour" role="dialog" aria-modal="true" aria-labelledby="ftTitle" aria-hidden="true">
+    <div class="ft-dim" onclick="_tourSkip()"></div>
+    <div class="ft-dim-t" id="ftDimT" onclick="_tourSkip()"></div>
+    <div class="ft-dim-b" id="ftDimB" onclick="_tourSkip()"></div>
+    <div class="ft-dim-l" id="ftDimL" onclick="_tourSkip()"></div>
+    <div class="ft-dim-r" id="ftDimR" onclick="_tourSkip()"></div>
+    <div class="ft-spot" id="ftSpot"></div>
+    <div class="ft-card" id="ftCard">
+      <div class="ft-kicker" id="ftKicker">Step 1 of 7</div>
+      <h3 class="ft-title" id="ftTitle">Welcome to Folio</h3>
+      <p class="ft-body" id="ftBody">Body</p>
+      <div class="ft-row">
+        <button type="button" class="ft-skip" onclick="_tourSkip()">Skip the tour</button>
+        <div class="ft-btns">
+          <div class="ft-dots" id="ftDots" aria-hidden="true"></div>
+          <button type="button" class="ft-btn" id="ftPrev" onclick="_tourPrev()">← Back</button>
+          <button type="button" class="ft-btn primary" id="ftNext" onclick="_tourNext()">Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- First-folio soft prompt -->
+  <div id="folioTourPrompt" role="dialog" aria-labelledby="ftpMsg">
+    <div class="ftp-msg" id="ftpMsg">
+      <strong>Want a quick tour?</strong> <span class="ftp-chip">~90s</span><br>
+      Folio quietly contains an audiobook generator, a paywall, serial releases, and more — let me show you around.
+    </div>
+    <button type="button" class="ftp-btn primary" onclick="_tourStart(); _tourPromptHide();">Show me</button>
+    <button type="button" class="ftp-btn" onclick="_tourPromptHide(true)">No thanks</button>
+  </div>
+
+  <script>
+    /* ══════ GUIDED TOUR ENGINE ══════
+       Opt-in walkthrough of Folio's main features. Stops are declarative:
+       each {target, tab, title, body, position} points at a real DOM
+       element. The engine handles tab-switching, scrolling into view,
+       positioning the card on the appropriate side, and a spotlight
+       ring around the target.
+    
+       Persistence:
+         localStorage.folio_tour_seen  - '1' once finished or skipped
+                                          (suppresses the auto-prompt)
+         window._tourActive             - true while tour is running
+    */
+
+    const _TOUR_STOPS_EDITOR = [
+      {
+        target: null,
+        title: 'Welcome to Folio',
+        body: 'Folio is a one-stop writer\'s workspace: format your book, generate an audiobook, set up a paywall or a serial release, and publish — all from a single page. The tour takes about 90 seconds.',
+      },
+      {
+        target: '.tabs',
+        position: 'bottom',
+        title: 'Four tabs hold everything',
+        body: '<em>Manuscript</em> is your import + chapters. <em>Book</em> is design, typography and cover. <em>Audio</em> is the audiobook studio. <em>Folio</em> handles cloud saves and your library.',
+      },
+      {
+        target: '#tab-import',
+        tab: 'manuscript',
+        position: 'right',
+        title: 'Bring your manuscript in',
+        body: 'Drop a Word doc, PDF, Markdown, or plain text — Folio auto-splits chapters by heading. Your chapter list sits right below, in the same Manuscript tab.',
+      },
+      {
+        target: '#tab-audio',
+        tab: 'audio',
+        position: 'right',
+        title: 'The Audio tab',
+        body: 'Everything for the audiobook lives here. Teach Folio how to say character names and unusual words in the Pronunciations list, and define your cast for per-character voices. These guide the narration.',
+      },
+      {
+        target: '#btnAUDIO',
+        tab: 'audio',
+        position: 'right',
+        title: 'Generate your audiobook',
+        body: 'This button opens the audiobook studio — Folio runs your chapters through text-to-speech and stores the narration in your cloud Folio. Readers of a paid book get the audiobook as part of their purchase; serial readers unlock it chapter by chapter.',
+      },
+      {
+        target: '#btnRelease',
+        position: 'top',
+        title: 'Publish in one of three ways',
+        body: 'Free public reader, paid book (Gumroad <em>or</em> any payment vendor + unlock code), or a serial release — daily, weekly, or any custom cadence. The release modal handles it all.',
+      },
+      {
+        target: '#btnRelease',
+        position: 'top',
+        title: 'Funnel: turn chapters into ads',
+        body: 'Inside the release modal, mark any paid chapter as a public <em>teaser</em>. Each teaser gives you a shareable link to a single chapter — readers land on a buy button at the end. Perfect for social posts and newsletter excerpts.',
+      },
+      {
+        target: null,
+        title: 'You\'re set. Happy writing!',
+        body: 'You can replay this tour any time from the ☁ Folio tab. Questions? Check the menu or the docs. Now go put a book together.',
+      },
+    ];
+
+    const _TOUR_STOPS_READER = [
+      {
+        target: null,
+        title: 'Welcome — you\'re reading a Folio book',
+        body: 'Folio readers are full-featured: bookmarks, annotations, hover-pronunciations, audiobook playback, even free email alerts when the next chapter unlocks on a serial release. The tour takes about a minute.',
+      },
+      {
+        target: '#bookPreview',
+        position: 'right',
+        title: 'The pages',
+        body: 'Pages are stacked top-to-bottom — scroll with your mouse wheel, trackpad, or finger. Use the <em>Chapters</em> dropdown above to jump anywhere in the book, or <em>Home</em>/<em>End</em> on a keyboard to skip to the start or end. Everything you change (text size, fonts, bookmarks, notes) lives in your browser and syncs if you\'re signed in.',
+      },
+      {
+        target: '#rdChapSel',
+        position: 'bottom',
+        title: 'Jump between chapters',
+        body: 'The dropdown shows every chapter in this book. Locked chapters in a serial release stay greyed out until their unlock date — no spoilers from the table of contents.',
+      },
+      {
+        target: '#rdTypoBtn',
+        position: 'bottom',
+        title: 'Make it comfortable',
+        body: 'Pick your font (Lora, Inter, Playfair, dyslexic-friendly), text size, and line height. Folio remembers your settings per device.',
+      },
+      {
+        target: '#rdPronBtn',
+        position: 'bottom',
+        title: 'Pronunciation tips',
+        body: 'For any book with names or words that look unfamiliar — technical terms, foreign vocabulary, place names, period words, fantasy or sci-fi coinage, anything — toggle this on and hover over highlighted words to see the author\'s pronunciation hint.',
+      },
+      {
+        target: '#rdBmBtn',
+        position: 'bottom',
+        title: 'Bookmarks',
+        body: 'Save your place — Folio jumps back to it next time you open the book. Sign in to sync bookmarks across devices.',
+      },
+      {
+        target: '#rdAnBtn',
+        position: 'bottom',
+        title: 'Highlight and annotate',
+        body: 'Select any text to highlight it, add a note, or copy a shareable link straight to that spot. Notes sync with your account.',
+      },
+      {
+        target: '#rdAudioBtn',
+        position: 'bottom',
+        title: 'Listen along',
+        body: 'If the author bundled an audiobook with this release, the 🎧 button opens a player synced to chapters. For paid books, the same purchase unlocks the audio too — no extra step.',
+      },
+      {
+        target: null,
+        title: 'Enjoy the read',
+        body: 'You can replay this tour any time — look for the <em>?</em> button on the reader bar.',
+      },
+    ];
+
+    /* Pick which stops list to use based on whether we\'re in reader
+       mode (URL has ?read=) or editor mode. */
+    function _tourStops() {
+      return (typeof _readerMode !== 'undefined' && _readerMode)
+        ? _TOUR_STOPS_READER : _TOUR_STOPS_EDITOR;
+    }
+
+    let _tourIdx = 0;
+    let _tourResizeHandle = null;
+
+    function _tourStart() {
+      _tourIdx = 0;
+      window._tourActive = true;
+      const t = document.getElementById('folioTour');
+      if (!t) return;
+      t.classList.add('open');
+      t.setAttribute('aria-hidden', 'false');
+      _tourGo(0);
+      // Reposition on resize / scroll so the spotlight tracks the target.
+      if (_tourResizeHandle) return;
+      _tourResizeHandle = () => { try { _tourPosition(); } catch (e) { } };
+      window.addEventListener('resize', _tourResizeHandle);
+      window.addEventListener('scroll', _tourResizeHandle, true);
+    }
+    window._tourStart = _tourStart;
+
+    function _tourGo(i) {
+      if (i < 0 || i >= _tourStops().length) return;
+      _tourIdx = i;
+      const stop = _tourStops()[i];
+      // Switch tab if the stop requests it.
+      if (stop.tab && typeof switchTab === 'function') {
+        try {
+          const btn = (typeof _tabBtnFor === 'function') ? _tabBtnFor(stop.tab) : null;
+          if (btn) switchTab(stop.tab, btn);
+        } catch (e) { }
+      }
+      // Update card text + nav state.
+      document.getElementById('ftKicker').textContent = 'Step ' + (i + 1) + ' of ' + _tourStops().length;
+      document.getElementById('ftTitle').textContent = stop.title;
+      document.getElementById('ftBody').innerHTML = stop.body;
+      document.getElementById('ftPrev').style.visibility = (i === 0) ? 'hidden' : '';
+      document.getElementById('ftNext').textContent =
+        (i === _tourStops().length - 1) ? 'Finish' : 'Next →';
+      // Dots.
+      const dots = document.getElementById('ftDots');
+      dots.innerHTML = '';
+      for (let k = 0; k < _tourStops().length; k++) {
+        const d = document.createElement('span');
+        if (k === i) d.className = 'cur';
+        dots.appendChild(d);
+      }
+      // Position card + spotlight on a microtask so any tab-switch DOM
+      // changes are visible to getBoundingClientRect.
+      setTimeout(_tourPosition, 60);
+    }
+
+    function _tourPosition() {
+      const stop = _tourStops()[_tourIdx];
+      const card = document.getElementById('ftCard');
+      const spot = document.getElementById('ftSpot');
+      const tour = document.getElementById('folioTour');
+      if (!stop || !card || !spot || !tour) return;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      // Mobile / narrow viewports: skip the side-of-target placement
+      // entirely and use a fixed bottom-sheet card. The spotlight +
+      // overlays still highlight the target above; the card stays
+      // pinned to the bottom of the screen so buttons are always
+      // reachable and the layout never spills.
+      const MOBILE = vw < 700;
+      // Centered card if no target.
+      if (!stop.target) {
+        tour.classList.add('ft-no-spot');
+        if (MOBILE) {
+          card.style.width = '';
+          card.style.left = '8px';
+          card.style.right = '8px';
+          card.style.top = '';
+          card.style.bottom = '8px';
+          return;
+        }
+        const cw = Math.min(360, vw - 32);
+        card.style.width = cw + 'px';
+        card.style.right = '';
+        card.style.bottom = '';
+        setTimeout(() => {
+          const ch = card.offsetHeight;
+          card.style.left = ((vw - cw) / 2) + 'px';
+          card.style.top = ((vh - ch) / 2) + 'px';
+        }, 0);
+        return;
+      }
+      tour.classList.remove('ft-no-spot');
+      const el = document.querySelector(stop.target);
+      if (!el) {
+        // Target missing — treat as centered.
+        tour.classList.add('ft-no-spot');
+        if (MOBILE) {
+          card.style.width = '';
+          card.style.left = '8px';
+          card.style.right = '8px';
+          card.style.top = '';
+          card.style.bottom = '8px';
+          return;
+        }
+        const cw = Math.min(360, vw - 32);
+        card.style.width = cw + 'px';
+        card.style.right = '';
+        card.style.bottom = '';
+        card.style.left = ((vw - cw) / 2) + 'px';
+        card.style.top = ((vh - card.offsetHeight) / 2) + 'px';
+        return;
+      }
+      // Scroll the target into view first.
+      try { el.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' }); } catch (e) { }
+      setTimeout(() => {
+        const r = el.getBoundingClientRect();
+        // Inflate spotlight by 6px on each side.
+        const pad = 6;
+        const sTop = Math.max(0, r.top - pad);
+        const sLeft = Math.max(0, r.left - pad);
+        const sW = r.width + pad * 2;
+        const sH = r.height + pad * 2;
+        spot.style.top = sTop + 'px';
+        spot.style.left = sLeft + 'px';
+        spot.style.width = sW + 'px';
+        spot.style.height = sH + 'px';
+        // Attention pulse: clear, force reflow, re-add so the animation
+        // restarts even when the same class was applied last stop.
+        spot.classList.remove('ft-pulse');
+        void spot.offsetWidth;
+        spot.classList.add('ft-pulse');
+        // Position four blur overlays around the spot so only the
+        // highlighted region stays crystal clear.
+        const dT = document.getElementById('ftDimT');
+        const dB = document.getElementById('ftDimB');
+        const dL = document.getElementById('ftDimL');
+        const dR = document.getElementById('ftDimR');
+        if (dT) { dT.style.top = '0'; dT.style.left = '0'; dT.style.right = '0'; dT.style.height = sTop + 'px'; }
+        if (dB) { dB.style.top = (sTop + sH) + 'px'; dB.style.left = '0'; dB.style.right = '0'; dB.style.bottom = '0'; }
+        if (dL) { dL.style.top = sTop + 'px'; dL.style.left = '0'; dL.style.width = sLeft + 'px'; dL.style.height = sH + 'px'; }
+        if (dR) { dR.style.top = sTop + 'px'; dR.style.left = (sLeft + sW) + 'px'; dR.style.right = '0'; dR.style.height = sH + 'px'; }
+        if (MOBILE) {
+          // Bottom-sheet: full-width card pinned to the bottom of the screen.
+          card.style.width = '';
+          card.style.left = '8px';
+          card.style.right = '8px';
+          card.style.top = '';
+          card.style.bottom = '8px';
+          return;
+        }
+        // Reset bottom/right so desktop placement uses top/left.
+        card.style.right = '';
+        card.style.bottom = '';
+        // Position the card. Pick a side based on `position` + available space.
+        const cw = Math.min(360, vw - 32);
+        card.style.width = cw + 'px';
+        const ch = card.offsetHeight || 220;
+        const gap = 14;
+        let pos = stop.position || 'bottom';
+        let top, left;
+        const tryBottom = r.bottom + gap + ch < vh - 12;
+        const tryTop = r.top - gap - ch > 12;
+        const tryRight = r.right + gap + cw < vw - 12;
+        const tryLeft = r.left - gap - cw > 12;
+        if (pos === 'bottom' && !tryBottom) pos = tryTop ? 'top' : (tryRight ? 'right' : 'left');
+        if (pos === 'top' && !tryTop) pos = tryBottom ? 'bottom' : (tryRight ? 'right' : 'left');
+        if (pos === 'right' && !tryRight) pos = tryLeft ? 'left' : (tryBottom ? 'bottom' : 'top');
+        if (pos === 'left' && !tryLeft) pos = tryRight ? 'right' : (tryBottom ? 'bottom' : 'top');
+        if (pos === 'bottom') { top = r.bottom + gap; left = clamp(r.left + r.width / 2 - cw / 2, 12, vw - cw - 12); }
+        else if (pos === 'top') { top = r.top - gap - ch; left = clamp(r.left + r.width / 2 - cw / 2, 12, vw - cw - 12); }
+        else if (pos === 'right') { left = r.right + gap; top = clamp(r.top + r.height / 2 - ch / 2, 12, vh - ch - 12); }
+        else { left = r.left - gap - cw; top = clamp(r.top + r.height / 2 - ch / 2, 12, vh - ch - 12); }
+        // Final hard clamp — guarantees the card stays fully on-screen
+        // even if the side-picker cascade couldn't find a perfect fit.
+        top = clamp(top, 12, vh - ch - 12);
+        left = clamp(left, 12, vw - cw - 12);
+        card.style.width = cw + 'px';
+        card.style.top = top + 'px';
+        card.style.left = left + 'px';
+      }, 120);
+
+      function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+    }
+
+    function _tourNext() {
+      if (_tourIdx >= _tourStops().length - 1) { _tourFinish(); return; }
+      _tourGo(_tourIdx + 1);
+    }
+    window._tourNext = _tourNext;
+    function _tourPrev() { _tourGo(_tourIdx - 1); }
+    window._tourPrev = _tourPrev;
+
+    function _tourSkip() { _tourFinish(); }
+    window._tourSkip = _tourSkip;
+
+    function _tourFinish() {
+      const t = document.getElementById('folioTour');
+      if (t) { t.classList.remove('open'); t.setAttribute('aria-hidden', 'true'); }
+      window._tourActive = false;
+      const inReader = (typeof _readerMode !== 'undefined' && _readerMode);
+      const seenKey = inReader ? 'folio_tour_seen_reader' : 'folio_tour_seen';
+      try { localStorage.setItem(seenKey, '1'); } catch (e) { }
+      if (_tourResizeHandle) {
+        window.removeEventListener('resize', _tourResizeHandle);
+        window.removeEventListener('scroll', _tourResizeHandle, true);
+        _tourResizeHandle = null;
+      }
+    }
+
+    /* First-folio soft prompt. Triggered once, after the user has at
+       least one folio in the cloud — i.e. they've crossed the threshold
+       from "browsing" to "writing." */
+    function _tourMaybePrompt() {
+      // Per-mode flags so a reader-mode visit doesn't suppress the
+      // editor-mode prompt (or vice versa).
+      const inReader = (typeof _readerMode !== 'undefined' && _readerMode);
+      const seenKey = inReader ? 'folio_tour_seen_reader' : 'folio_tour_seen';
+      const promptKey = inReader ? 'folio_tour_prompted_reader' : 'folio_tour_prompted';
+      try {
+        if (localStorage.getItem(seenKey) === '1') return;
+        if (localStorage.getItem(promptKey) === '1') return;
+        // Don't prompt while the tour itself is already open.
+        if (window._tourActive) return;
+      } catch (e) { return; }
+      // Swap the prompt copy for reader mode.
+      const msg = document.getElementById('ftpMsg');
+      if (msg && inReader) {
+        msg.innerHTML = '<strong>New to Folio?</strong> <span class="ftp-chip">~60s</span><br>Bookmarks, annotations, pronunciation tips, audiobook playback — let me show you the reader\'s features.';
+      }
+      const p = document.getElementById('folioTourPrompt');
+      if (p) p.classList.add('open');
+      try { localStorage.setItem(promptKey, '1'); } catch (e) { }
+    }
+    window._tourMaybePrompt = _tourMaybePrompt;
+
+    function _tourPromptHide(markSeen) {
+      const p = document.getElementById('folioTourPrompt');
+      if (p) p.classList.remove('open');
+      if (markSeen) {
+        const inReader = (typeof _readerMode !== 'undefined' && _readerMode);
+        const seenKey = inReader ? 'folio_tour_seen_reader' : 'folio_tour_seen';
+        try { localStorage.setItem(seenKey, '1'); } catch (e) { }
+      }
+    }
+    window._tourPromptHide = _tourPromptHide;
+
+    /* ESC key dismisses the tour. */
+    document.addEventListener('keydown', function (e) {
+      if (!window._tourActive) return;
+      if (e.key === 'Escape') { _tourSkip(); }
+      else if (e.key === 'ArrowRight') { _tourNext(); }
+      else if (e.key === 'ArrowLeft') { _tourPrev(); }
+    });
+
+    /* Auto-prompt hook: 4s after folio-loaded, check the prompt
+       conditions. Plenty of time for the cloud-load handler to populate
+       projName and the user to look around briefly. */
+    window.addEventListener('folio-loaded', function () {
+      setTimeout(_tourMaybePrompt, 4000);
+    });
+
+    /* Fallback: if folio-loaded never fires (offline / missing folio /
+       fresh visitor with no project), still surface the prompt after a
+       reasonable delay. The localStorage flags prevent duplicate prompts
+       when both timers fire on a successful load. */
+    window.addEventListener('DOMContentLoaded', function () {
+      setTimeout(_tourMaybePrompt, 8000);
+    });
+  </script>
+</body>
+
+</html>
