@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- FOLIO BUILD v2026.07.01.12 — Phase 2B: reader menu boost + post-publish nudge + custom_id fix -->
+<!-- FOLIO BUILD v2026.07.01.13 — _rlBoostBuy top-level scope + state-aware boost card -->
 <html lang="en">
 
 <head>
@@ -19214,32 +19214,10 @@
               }
             }
           } catch(e) { console.warn('[featured] status render failed:', e); }
-          // Boost buy handler — wires the three tier buttons to the paywall
-          // worker's /boost-checkout endpoint, then redirects the browser to
-          // PayPal's approval URL. On return, the worker captures + writes
-          // featuredUntil, then 302s back to /shelf?boosted=1.
-          window._rlBoostBuy = function _rlBoostBuy(tier) {
-            const statusEl = document.getElementById('rlBoostStatus');
-            const btnRow = document.querySelectorAll('.rl-boost-btn');
-            const setStatus = function (msg, kind) {
-              if (!statusEl) return;
-              statusEl.textContent = msg || '';
-              statusEl.style.color = kind === 'err' ? 'var(--danger, #c04040)'
-                                    : kind === 'ok' ? 'var(--accent-ui)'
-                                    : 'var(--hint)';
-            };
-            const folioId = (typeof _loadedFolioId !== 'undefined' && _loadedFolioId) || '';
-            if (!folioId) { setStatus('Cannot boost — no folio loaded. Open a folio from your library, then try again.', 'err'); return; }
-            if (!_rlCurrent || _rlCurrent.published !== true) {
-              setStatus('Publish the release first, then boost. Featured is for live listings only.', 'err');
-              return;
-            }
-            return window.folioBoostBuy(folioId, tier, {
-              setStatus: setStatus,
-              onDisable: function () { btnRow.forEach(function (b) { b.disabled = true; b.style.opacity = '.6'; }); },
-              onEnable:  function () { btnRow.forEach(function (b) { b.disabled = false; b.style.opacity = '1'; }); },
-            });
-          };
+          // Re-render the boost card state (tier buttons vs "publish + list first"
+          // hint) based on current published + listOnShelf flags. Called on modal
+          // open, on featuredUntil change, and whenever the shelf toggle flips.
+          try { if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState(); } catch (_) {}
           // Tip URL (author's external tip destination — Ko-fi etc.).
           const _tipEl = document.getElementById('rlTipUrl');
           if (_tipEl) _tipEl.value = _rlCurrent.tipUrl || '';
@@ -20763,6 +20741,74 @@
         console.error('[boost] checkout failed:', e);
         setStatus('Network error: ' + (e.message || 'unknown'), 'err');
         onEnable();
+      }
+    };
+
+    // Release-modal boost tier-button handler — top-level so the buttons work
+    // regardless of modal populate state. Reads current folio + release from
+    // module-scope vars; if we're not in a valid state, sets a friendly status
+    // instead of blowing up with a ReferenceError.
+    window._rlBoostBuy = function _rlBoostBuy(tier) {
+      const statusEl = document.getElementById('rlBoostStatus');
+      const btnRow = document.querySelectorAll('.rl-boost-btn');
+      const setStatus = function (msg, kind) {
+        if (!statusEl) return;
+        statusEl.textContent = msg || '';
+        statusEl.style.color = kind === 'err' ? 'var(--danger, #c04040)'
+                              : kind === 'ok' ? 'var(--accent-ui)'
+                              : 'var(--hint)';
+      };
+      const folioId = (typeof _loadedFolioId !== 'undefined' && _loadedFolioId) || '';
+      if (!folioId) { setStatus('Cannot boost — no folio loaded. Open a folio from your library, then try again.', 'err'); return; }
+      const rc = (typeof _rlCurrent !== 'undefined') ? _rlCurrent : null;
+      if (!rc || rc.published !== true) {
+        setStatus('Publish the release first, then boost. Featured is for live listings only.', 'err');
+        return;
+      }
+      return window.folioBoostBuy(folioId, tier, {
+        setStatus: setStatus,
+        onDisable: function () { btnRow.forEach(function (b) { b.disabled = true; b.style.opacity = '.6'; }); },
+        onEnable:  function () { btnRow.forEach(function (b) { b.disabled = false; b.style.opacity = '1'; }); },
+      });
+    };
+
+    // State-aware boost card render. Called from:
+    //   • openReleaseModal populate flow
+    //   • rlListOnShelf checkbox change (via _rlToggleShelfFields)
+    //   • post-publish success (release just went live)
+    // Rules:
+    //   Published AND listOnShelf   →  show tier buttons (revenue path)
+    //   Otherwise                    →  hide buttons, show a helpful hint
+    //                                    with a Support Folio (Ko-fi) fallback
+    window._rlUpdateBoostCardState = function _rlUpdateBoostCardState() {
+      const buttonsRow = document.getElementById('rlBoostButtonsRow');
+      const pitch = document.getElementById('rlFeaturedPitch');
+      const notReady = document.getElementById('rlBoostNotReady');
+      const status = document.getElementById('rlBoostStatus');
+      if (!buttonsRow || !notReady) return;
+      // Read the live published flag from _rlCurrent, and the LIVE checkbox
+      // state (not saved-to-cloud state) for listOnShelf so toggling the
+      // checkbox updates the card immediately.
+      const rc = (typeof _rlCurrent !== 'undefined') ? _rlCurrent : null;
+      const isPublished = !!(rc && rc.published === true);
+      const shelfCb = document.getElementById('rlListOnShelf');
+      const isOnShelf = !!(shelfCb && shelfCb.checked);
+      const canBoost = isPublished && isOnShelf;
+      buttonsRow.style.display = canBoost ? '' : 'none';
+      if (pitch)  pitch.style.display  = canBoost ? '' : 'none';
+      if (status) status.style.display = canBoost ? '' : 'none';
+      notReady.style.display = canBoost ? 'none' : '';
+      if (!canBoost) {
+        const msgEl = document.getElementById('rlBoostNotReadyMsg');
+        if (msgEl) {
+          if (!isPublished && !isOnShelf) {
+            msgEl.innerHTML = 'Publish this release <em>and</em> tick <strong>List on the Shelf</strong> above to unlock a Featured Boost.';
+          } else if (!isPublished) {
+            msgEl.innerHTML = 'Publish this release to unlock a Featured Boost.';
+          } else {
+            msgEl.innerHTML = 'Tick <strong>List on the Shelf</strong> above to unlock a Featured Boost — you need a shelf listing before boosting can matter.';
+          }
+        }
       }
     };
 
@@ -28086,7 +28132,7 @@
       <div style="margin:14px 0 10px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
         <label
           style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:0 0 4px;cursor:pointer">
-          <input type="checkbox" id="rlListOnShelf" onchange="_rlToggleShelfFields()" style="margin:0">
+          <input type="checkbox" id="rlListOnShelf" onchange="_rlToggleShelfFields(); if(typeof _rlUpdateBoostCardState==='function')_rlUpdateBoostCardState()" style="margin:0">
           <span>📚 <strong>List on the Folio Shelf</strong>
             <span style="opacity:.7;font-weight:400">(public marketplace at onfolio.press/shelf)</span></span>
         </label>
@@ -28166,7 +28212,7 @@
         <p id="rlFeaturedPitch" style="font-size:10.5px;color:var(--hint);line-height:1.55;margin:2px 0 10px 24px">
           Featured listings sit at the top of <a href="/shelf" target="_blank" style="color:var(--accent-ui)">the Shelf</a> with an ✨ badge and a gold border. Best for new arrivals, Kickstarter pushes, and quiet folios that deserve a second look. Pay once via PayPal — your listing goes live the moment payment clears. If you're already featured, buying again <em>extends</em> the boost from now.
         </p>
-        <div style="display:flex;flex-wrap:wrap;gap:8px;margin:0 0 4px 24px">
+        <div id="rlBoostButtonsRow" style="display:flex;flex-wrap:wrap;gap:8px;margin:0 0 4px 24px">
           <button type="button" class="rl-boost-btn" data-tier="24h" onclick="_rlBoostBuy('24h')"
             style="flex:1;min-width:120px;padding:9px 12px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);font-size:12px;cursor:pointer;font-family:inherit;text-align:center;line-height:1.35">
             <div style="font-weight:600">$3</div>
@@ -28185,6 +28231,23 @@
           </button>
         </div>
         <div id="rlBoostStatus" style="font-size:10.5px;color:var(--hint);margin:8px 0 0 24px;min-height:14px;line-height:1.5"></div>
+        <!-- Fallback state — shown when the folio isn't yet Published + Shelved.
+             Boosting is only useful once the folio is discoverable on the Shelf,
+             so we replace the tier buttons with a state-specific hint + a warm
+             Support Folio (Ko-fi) button so the "want to help" impulse still
+             has a landing place. -->
+        <div id="rlBoostNotReady" style="display:none;margin:6px 0 4px 24px;padding:10px 12px;border:.5px dashed var(--border-mid);border-radius:7px;background:var(--surface)">
+          <div id="rlBoostNotReadyMsg" style="font-size:11.5px;color:var(--hint);line-height:1.55;margin:0 0 8px">
+            Publish this release <em>and</em> tick <strong>List on the Shelf</strong> above to unlock a Featured Boost.
+          </div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+            <a href="https://ko-fi.com/jacobsiler" target="_blank" rel="noopener"
+              style="display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--bg);color:var(--text);font-size:11.5px;text-decoration:none;font-family:inherit">
+              💛 <span>Support Folio on Ko-fi</span>
+            </a>
+            <span style="font-size:10.5px;color:var(--hint);line-height:1.4">Keeps the platform 0% commission + ad-free while you finish preparing your release.</span>
+          </div>
+        </div>
       </div>
 
       <!-- Audiobook attachment — available for every release mode, not
