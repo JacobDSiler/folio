@@ -165,6 +165,7 @@ try {
     $srcEmailWorker = Join-Path $srcRoot 'folio-email-worker.js'
     $srcLuluWorker  = Join-Path $srcRoot 'folio-publish-lulu-worker.js'
     $srcShareWorker = Join-Path $srcRoot 'folio-share-worker.js'
+    $srcShelf       = Join-Path $srcRoot 'shelf.html'
     $srcOgImage     = Join-Path $srcRoot 'og-default.png'
     if (Test-Path $srcGuide) {
         Copy-Item -Force $srcGuide (Join-Path $repoRoot 'serials-guide.html')
@@ -185,6 +186,10 @@ try {
     if (Test-Path $srcShareWorker) {
         Copy-Item -Force $srcShareWorker (Join-Path $repoRoot 'folio-share-worker.js')
         Write-Host "  folio-share-worker.js    -> repo root" -ForegroundColor DarkGray
+    }
+    if (Test-Path $srcShelf) {
+        Copy-Item -Force $srcShelf (Join-Path $repoRoot 'shelf.html')
+        Write-Host "  shelf.html               -> repo root" -ForegroundColor DarkGray
     }
     if (Test-Path $srcOgImage) {
         Copy-Item -Force $srcOgImage (Join-Path $repoRoot 'og-default.png')
@@ -300,6 +305,7 @@ try {
     if (Test-Path (Join-Path $repoRoot 'terms.html'))               { $toAdd += 'terms.html' }
     if (Test-Path (Join-Path $repoRoot 'serials-guide.html'))       { $toAdd += 'serials-guide.html' }
     if (Test-Path (Join-Path $repoRoot 'api-keys-guide.html'))      { $toAdd += 'api-keys-guide.html' }
+    if (Test-Path (Join-Path $repoRoot 'shelf.html'))               { $toAdd += 'shelf.html' }
     # Stage the docs/ folder when present (markdown reference docs)
     if (Test-Path (Join-Path $repoRoot 'docs')) { $toAdd += 'docs' }
     # Stage the scripts/ folder so iterations to this push script itself

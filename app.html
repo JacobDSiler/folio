@@ -19050,6 +19050,32 @@
     }
     window._rlRefreshSignedTeaserCount = _rlRefreshSignedTeaserCount;
 
+    // Show/hide the Shelf sub-fields (genre, blurb, use-desc) based on
+    // the parent "List on the Shelf" toggle. Called on toggle change +
+    // on modal-open pre-fill.
+    function _rlToggleShelfFields() {
+      const toggle = document.getElementById('rlListOnShelf');
+      const fields = document.getElementById('rlShelfFields');
+      if (!toggle || !fields) return;
+      fields.style.display = toggle.checked ? '' : 'none';
+    }
+    window._rlToggleShelfFields = _rlToggleShelfFields;
+
+    // Show/hide the Shelf blurb textarea based on the "use my release
+    // description" tickbox. When the author opts to reuse the description,
+    // the blurb input becomes redundant and hides; on publish we serialise
+    // an empty shelfBlurb so the shelf render falls back to release.description.
+    function _rlToggleShelfDescField() {
+      const useDesc = document.getElementById('rlShelfUseDesc');
+      const lbl = document.getElementById('rlShelfBlurbLabel');
+      const ta = document.getElementById('rlShelfBlurb');
+      if (!useDesc) return;
+      const hide = !!useDesc.checked;
+      if (lbl) lbl.style.display = hide ? 'none' : '';
+      if (ta)  ta.style.display  = hide ? 'none' : '';
+    }
+    window._rlToggleShelfDescField = _rlToggleShelfDescField;
+
     function openReleaseModal() {
       const panel = document.getElementById('releasePanel');
       if (!panel) {
@@ -19151,6 +19177,17 @@
           if (_notifyToggle) _notifyToggle.checked = !!_rlCurrent.notifyOwnerOnSubscribe;
           if (_notifyEmailEl) _notifyEmailEl.value = _rlCurrent.notifyEmail || '';
           if (typeof _rlToggleNotifyEmail === 'function') _rlToggleNotifyEmail();
+          // Folio Shelf opt-in + blurb + genre + use-description tickbox.
+          const _shelfToggle  = document.getElementById('rlListOnShelf');
+          const _shelfGenre   = document.getElementById('rlShelfGenre');
+          const _shelfBlurb   = document.getElementById('rlShelfBlurb');
+          const _shelfUseDesc = document.getElementById('rlShelfUseDesc');
+          if (_shelfToggle)  _shelfToggle.checked  = !!_rlCurrent.listOnShelf;
+          if (_shelfGenre)   _shelfGenre.value     = _rlCurrent.shelfGenre || '';
+          if (_shelfBlurb)   _shelfBlurb.value     = _rlCurrent.shelfBlurb || '';
+          if (_shelfUseDesc) _shelfUseDesc.checked = !!_rlCurrent.shelfUseDescription;
+          if (typeof _rlToggleShelfFields === 'function')  _rlToggleShelfFields();
+          if (typeof _rlToggleShelfDescField === 'function') _rlToggleShelfDescField();
           try { _rlSetProvider(_rlCurrent.provider === 'custom' ? 'custom' : 'gumroad'); } catch (e) { }
           if (priceField1) priceField1.value = (_rlCurrent.price != null ? String(_rlCurrent.price) : '');
           if (currField1) currField1.value = _rlCurrent.currency || 'USD';
@@ -19358,6 +19395,20 @@
         // an author who hasn't asked for it.
         notifyOwnerOnSubscribe: !!(document.getElementById('rlNotifyOwnerOnSubscribe') && document.getElementById('rlNotifyOwnerOnSubscribe').checked),
         notifyEmail: ((document.getElementById('rlNotifyEmail') && document.getElementById('rlNotifyEmail').value) || '').trim().slice(0, 200) || null,
+        // Folio Shelf opt-in + shelf metadata. shelfBlurb falls back to
+        // release.description at render time when shelfUseDescription
+        // is true OR when shelfBlurb is empty, so omitting either here
+        // is safe — the Shelf renderer just picks the next non-empty
+        // source. shelfListedAt is set once on first opt-in for
+        // "newest" sorting; preserve it across edits so a listing's
+        // creation date doesn't reset every time the author republishes.
+        listOnShelf: !!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked),
+        shelfGenre: ((document.getElementById('rlShelfGenre') && document.getElementById('rlShelfGenre').value) || '').trim().slice(0, 40) || null,
+        shelfBlurb: ((document.getElementById('rlShelfBlurb') && document.getElementById('rlShelfBlurb').value) || '').trim().slice(0, 280) || null,
+        shelfUseDescription: !!(document.getElementById('rlShelfUseDesc') && document.getElementById('rlShelfUseDesc').checked),
+        shelfListedAt: (_rlCurrent && _rlCurrent.shelfListedAt)
+          ? _rlCurrent.shelfListedAt
+          : (!!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked) ? Date.now() : null),
         product: _rlMode === 'paid' && provider === 'gumroad' ? productId : null,
         price: _rlMode === 'paid' ? priceNum : 0,
         currency: currency,
@@ -27753,6 +27804,68 @@
         </div>
         <div id="rlSignedTeasersStatus" style="font-size:10.5px;color:var(--hint);margin-top:4px;min-height:14px"></div>
 
+      </div>
+
+      <!-- ═══ THE FOLIO SHELF — public listing on /shelf ═══════════════
+           Opt-in: when ticked, the folio appears on the public Shelf
+           where readers can browse / search / filter / discover. Free
+           or paid both list — Shelf is the discovery surface, not a
+           paywall. Customisation of the listing card itself is the
+           Pro feature (Folio Press), shipped later. -->
+      <div style="margin:14px 0 10px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
+        <label
+          style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:0 0 4px;cursor:pointer">
+          <input type="checkbox" id="rlListOnShelf" onchange="_rlToggleShelfFields()" style="margin:0">
+          <span>📚 <strong>List on the Folio Shelf</strong>
+            <span style="opacity:.7;font-weight:400">(public marketplace at onfolio.press/shelf)</span></span>
+        </label>
+        <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:2px 0 8px 24px">
+          Readers can browse, search, and filter every folio on the Shelf. Free or paid, all are welcome.
+          Listed folios link to your reader URL — payment + unlock still flow exactly as configured above.
+        </p>
+
+        <div id="rlShelfFields" style="display:none;margin-left:24px">
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:8px 0 4px">
+            Genre
+          </label>
+          <select id="rlShelfGenre"
+            style="width:100%;max-width:340px;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+            <option value="">(uncategorised)</option>
+            <option value="literary">Literary fiction</option>
+            <option value="general">Fiction (general)</option>
+            <option value="mystery">Mystery / Crime</option>
+            <option value="thriller">Thriller / Suspense</option>
+            <option value="romance">Romance</option>
+            <option value="fantasy">Fantasy</option>
+            <option value="scifi">Science fiction</option>
+            <option value="horror">Horror</option>
+            <option value="historical">Historical fiction</option>
+            <option value="ya">Young adult</option>
+            <option value="children">Children's</option>
+            <option value="memoir">Memoir / Biography</option>
+            <option value="selfhelp">Self-help</option>
+            <option value="business">Business</option>
+            <option value="health">Health / Wellness</option>
+            <option value="poetry">Poetry</option>
+            <option value="essays">Essays / Short stories</option>
+            <option value="educational">Educational / How-to</option>
+            <option value="other">Other</option>
+          </select>
+
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text);margin:10px 0 4px;cursor:pointer">
+            <input type="checkbox" id="rlShelfUseDesc" onchange="_rlToggleShelfDescField()" style="margin:0">
+            <span>Use my <em>release description</em> as the Shelf blurb</span>
+          </label>
+
+          <label id="rlShelfBlurbLabel" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:8px 0 4px">
+            Shelf blurb <span style="opacity:.6;font-weight:400">(shows on your listing card — keep it punchy)</span>
+          </label>
+          <textarea id="rlShelfBlurb" rows="2" maxlength="280" placeholder="A two-sentence hook that makes browsers click."
+            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;resize:vertical;font-family:inherit"></textarea>
+          <div style="font-size:10px;color:var(--hint);margin-top:3px">
+            Customising the card visuals (colours, fonts, background) is a <strong>Folio Press</strong> Pro feature — coming soon.
+          </div>
+        </div>
       </div>
 
       <!-- Audiobook attachment — available for every release mode, not
