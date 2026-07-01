@@ -19188,6 +19188,9 @@
           if (_shelfUseDesc) _shelfUseDesc.checked = !!_rlCurrent.shelfUseDescription;
           if (typeof _rlToggleShelfFields === 'function')  _rlToggleShelfFields();
           if (typeof _rlToggleShelfDescField === 'function') _rlToggleShelfDescField();
+          // Tip URL (author's external tip destination — Ko-fi etc.).
+          const _tipEl = document.getElementById('rlTipUrl');
+          if (_tipEl) _tipEl.value = _rlCurrent.tipUrl || '';
           try { _rlSetProvider(_rlCurrent.provider === 'custom' ? 'custom' : 'gumroad'); } catch (e) { }
           if (priceField1) priceField1.value = (_rlCurrent.price != null ? String(_rlCurrent.price) : '');
           if (currField1) currField1.value = _rlCurrent.currency || 'USD';
@@ -19409,6 +19412,12 @@
         shelfListedAt: (_rlCurrent && _rlCurrent.shelfListedAt)
           ? _rlCurrent.shelfListedAt
           : (!!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked) ? Date.now() : null),
+        // Author's tip URL — validated as http(s), stored null when
+        // blank/invalid so the render-side `if (tipUrl)` gate is clean.
+        tipUrl: (() => {
+          const v = ((document.getElementById('rlTipUrl') && document.getElementById('rlTipUrl').value) || '').trim().slice(0, 500);
+          return /^https?:\/\//i.test(v) ? v : null;
+        })(),
         product: _rlMode === 'paid' && provider === 'gumroad' ? productId : null,
         price: _rlMode === 'paid' ? priceNum : 0,
         currency: currency,
@@ -22278,25 +22287,40 @@
       if (!menu) return;
       const opening = menu.style.display === 'none' || !menu.style.display;
       if (opening) {
+        const _rl = (typeof _pwActiveRelease !== 'undefined' && _pwActiveRelease)
+          ? _pwActiveRelease : null;
+        // Tip-the-author link — surface iff release.tipUrl is set. The
+        // link element stays in the DOM either way so we can update its
+        // href in place; only the display flips.
+        const _tipLink = document.getElementById('rdTipAuthorLink');
+        if (_tipLink) {
+          const tipUrl = String((_rl && _rl.tipUrl) || '').trim();
+          if (/^https?:\/\//i.test(tipUrl)) {
+            _tipLink.href = tipUrl;
+            _tipLink.style.display = 'flex';
+          } else {
+            _tipLink.style.display = 'none';
+          }
+        }
         // Update the contextual note based on current paywall state so
-        // the reader understands what they're about to get.
+        // the reader understands what they're about to get. NOTE: the
+        // grey-out below now targets ONLY export items so the tip and
+        // Support-Folio links stay clickable regardless of paywall state.
         if (note) {
-          const _rl = (typeof _pwActiveRelease !== 'undefined' && _pwActiveRelease)
-            ? _pwActiveRelease : null;
           const _isPaid    = !!(_rl && _rl.priceMode === 'paid');
           const _isUnlocked = document.documentElement.getAttribute('data-paid-unlocked') === '1';
           const _disabled  = !!(_rl && _rl.disableUnpurchasedExport && _isPaid && !_isUnlocked);
+          const _exportItems = menu.querySelectorAll('.rdmenu-item[onclick^="_rdExportRun"]');
           if (_disabled) {
             note.textContent = 'Export is unlocked after purchase.';
             note.style.color = '#c04040';
-            // Grey out and disable each item
-            menu.querySelectorAll('.rdmenu-item').forEach(el => {
+            _exportItems.forEach(el => {
               el.disabled = true;
               el.style.opacity = '0.45';
               el.style.cursor = 'not-allowed';
             });
           } else {
-            menu.querySelectorAll('.rdmenu-item').forEach(el => {
+            _exportItems.forEach(el => {
               el.disabled = false;
               el.style.opacity = '';
               el.style.cursor = 'pointer';
@@ -27399,6 +27423,24 @@
       <span style="flex:1">Plain text<span style="display:block;font-size:10.5px;color:var(--hint);margin-top:1px">no formatting</span></span>
     </button>
     <div id="rdExportNote" style="padding:8px 12px 4px;font-size:10.5px;color:var(--hint);line-height:1.4;border-top:.5px dotted var(--border-mid);margin-top:4px"></div>
+
+    <!-- Tip section — only rendered when there's something to show
+         (release.tipUrl set OR the Support Folio link is always on).
+         Same styling family as the export items so the menu reads as
+         one cohesive surface. -->
+    <div id="rdTipSection" style="border-top:.5px dotted var(--border-mid);margin-top:6px;padding-top:6px">
+      <div style="padding:8px 10px 4px;font-size:10.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.08em">Enjoying this?</div>
+      <a class="rdmenu-item" id="rdTipAuthorLink" href="#" target="_blank" rel="noopener" role="menuitem"
+        style="display:none;align-items:center;gap:10px;width:100%;padding:9px 12px;border:none;background:none;color:var(--text);font-size:13px;cursor:pointer;text-align:left;border-radius:6px;text-decoration:none">
+        <span style="font-size:16px;width:22px;text-align:center">☕</span>
+        <span style="flex:1">Tip the author<span style="display:block;font-size:10.5px;color:var(--hint);margin-top:1px">100% goes to the author — Folio takes 0%</span></span>
+      </a>
+      <a class="rdmenu-item" id="rdSupportFolioLink" href="https://ko-fi.com/jacobsiler" target="_blank" rel="noopener" role="menuitem"
+        style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:none;background:none;color:var(--text);font-size:13px;cursor:pointer;text-align:left;border-radius:6px;text-decoration:none">
+        <span style="font-size:16px;width:22px;text-align:center">💛</span>
+        <span style="flex:1">Support Folio<span style="display:block;font-size:10.5px;color:var(--hint);margin-top:1px">Keep the platform free of ads + author cuts</span></span>
+      </a>
+    </div>
   </div>
 
   <style id="folio-rdMenu-css">
@@ -27856,6 +27898,17 @@
             <input type="checkbox" id="rlShelfUseDesc" onchange="_rlToggleShelfDescField()" style="margin:0">
             <span>Use my <em>release description</em> as the Shelf blurb</span>
           </label>
+
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:10px 0 4px">
+            ☕ Tip URL <span style="opacity:.6;font-weight:400">(optional — readers see a "Tip the author" link in the reader menu)</span>
+          </label>
+          <input type="url" id="rlTipUrl" maxlength="500"
+            placeholder="https://ko-fi.com/yourhandle   or   https://buymeacoffee.com/…"
+            title="Paste your Ko-fi, Buy Me a Coffee, Stripe Payment Link, PayPal.me URL — anything that accepts tips. Folio never touches this money; 100% goes to you."
+            style="width:100%;font-size:12.5px;padding:6px 9px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);outline:none;font-family:var(--mono,ui-monospace,monospace)">
+          <div style="font-size:10px;color:var(--hint);margin-top:3px;line-height:1.4">
+            Folio takes 0% of any tip — 100% goes to you. Readers see "☕ Tip the author" in the reader's ☰ menu.
+          </div>
 
           <label id="rlShelfBlurbLabel" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:8px 0 4px">
             Shelf blurb <span style="opacity:.6;font-weight:400">(shows on your listing card — keep it punchy)</span>
