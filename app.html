@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- FOLIO BUILD v2026.07.01.9 — Featured Boost + Timestamp + modal sticky footer -->
+<!-- FOLIO BUILD v2026.07.01.11 — PayPal boost checkout wired to release modal -->
 <html lang="en">
 
 <head>
@@ -19214,6 +19214,52 @@
               }
             }
           } catch(e) { console.warn('[featured] status render failed:', e); }
+          // Boost buy handler — wires the three tier buttons to the paywall
+          // worker's /boost-checkout endpoint, then redirects the browser to
+          // PayPal's approval URL. On return, the worker captures + writes
+          // featuredUntil, then 302s back to /shelf?boosted=1.
+          window._rlBoostBuy = async function _rlBoostBuy(tier) {
+            const statusEl = document.getElementById('rlBoostStatus');
+            const btnRow = document.querySelectorAll('.rl-boost-btn');
+            const setStatus = function (msg, kind) {
+              if (!statusEl) return;
+              statusEl.textContent = msg || '';
+              statusEl.style.color = kind === 'err' ? 'var(--danger, #c04040)'
+                                    : kind === 'ok' ? 'var(--accent-ui)'
+                                    : 'var(--hint)';
+            };
+            const folioId = (typeof _loadedFolioId !== 'undefined' && _loadedFolioId) || '';
+            if (!folioId) { setStatus('Cannot boost — no folio loaded. Open a folio from your library, then try again.', 'err'); return; }
+            if (!_rlCurrent || _rlCurrent.published !== true) {
+              setStatus('Publish the release first, then boost. Featured is for live listings only.', 'err');
+              return;
+            }
+            const uid = (window._authUser && window._authUser.uid) || (window._fbAuth && window._fbAuth.currentUser && window._fbAuth.currentUser.uid) || '';
+            btnRow.forEach(function (b) { b.disabled = true; b.style.opacity = '.6'; });
+            setStatus('Redirecting to PayPal…');
+            try {
+              const url = (typeof PAYWALL_WORKER_URL === 'string' && PAYWALL_WORKER_URL)
+                ? PAYWALL_WORKER_URL
+                : 'https://folio-paywall.jacobdsiler.workers.dev';
+              const r = await fetch(url + '/boost-checkout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folioId: folioId, tier: tier, uid: uid }),
+              });
+              const data = await r.json().catch(function () { return {}; });
+              if (!r.ok || !data.approvalUrl) {
+                setStatus('Checkout failed: ' + (data.error || r.status), 'err');
+                btnRow.forEach(function (b) { b.disabled = false; b.style.opacity = '1'; });
+                return;
+              }
+              setStatus('✅ Order created. Taking you to PayPal now…', 'ok');
+              window.location.href = data.approvalUrl;
+            } catch (e) {
+              console.error('[boost] checkout failed:', e);
+              setStatus('Network error: ' + (e.message || 'unknown'), 'err');
+              btnRow.forEach(function (b) { b.disabled = false; b.style.opacity = '1'; });
+            }
+          };
           // Tip URL (author's external tip destination — Ko-fi etc.).
           const _tipEl = document.getElementById('rlTipUrl');
           if (_tipEl) _tipEl.value = _rlCurrent.tipUrl || '';
@@ -27964,20 +28010,41 @@
         </div>
       </div>
 
-      <!-- ═══ FEATURED BOOST — v1: manual verification, external payment ═══
-           Author gets top-of-shelf placement with a ✨ badge for 24-72h.
-           Status field (release.featuredUntil, ms epoch) is set manually
-           by Jacob when payment lands. Automated Stripe integration in v2. -->
+      <!-- ═══ FEATURED BOOST — v2: PayPal-backed automated fulfilment ═══
+           Author clicks a tier button, worker mints a PayPal order with
+           folioId+durationMs+uid in custom_id, browser redirects to PayPal.
+           On approve, PayPal 302s back to /boost-return, worker captures
+           the payment + writes release.featuredUntil via service account,
+           then 302s the browser to /shelf?boosted=1. Zero manual work. -->
       <div id="rlFeaturedSection" style="margin:14px 0 10px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
         <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:0 0 4px">
-          🚀 <strong>Boost your listing</strong> <span style="opacity:.7;font-weight:400">(top-of-Shelf placement + ✨ badge)</span>
+          🚀 <strong>Boost this launch</strong> <span style="opacity:.7;font-weight:400">(top-of-Shelf placement + ✨ badge)</span>
         </div>
         <div id="rlFeaturedStatus" style="font-size:11px;color:var(--hint);margin:4px 0 8px 24px;line-height:1.5">
           Not currently featured.
         </div>
-        <p id="rlFeaturedPitch" style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:2px 0 6px 24px">
-          Featured listings render at the top of <a href="/shelf" target="_blank" style="color:var(--accent-ui)">the Shelf</a> with an ✨ badge and a gold border — significantly more clicks vs the regular grid, especially for new arrivals and Kickstarter pushes. v1 pricing is manual: <a href="mailto:folio@jacobsiler.com?subject=Boost%20my%20Folio%20Shelf%20listing" style="color:var(--accent-ui)">email Jacob</a> with your folio + how long you want featured (24h / 72h / 7 days). Paid via any method (Gumroad, Stripe Payment Link, Ko-fi, PayPal). Once payment lands, your listing goes live within an hour.
+        <p id="rlFeaturedPitch" style="font-size:10.5px;color:var(--hint);line-height:1.55;margin:2px 0 10px 24px">
+          Featured listings sit at the top of <a href="/shelf" target="_blank" style="color:var(--accent-ui)">the Shelf</a> with an ✨ badge and a gold border. Best for new arrivals, Kickstarter pushes, and quiet folios that deserve a second look. Pay once via PayPal — your listing goes live the moment payment clears. If you're already featured, buying again <em>extends</em> the boost from now.
         </p>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin:0 0 4px 24px">
+          <button type="button" class="rl-boost-btn" data-tier="24h" onclick="_rlBoostBuy('24h')"
+            style="flex:1;min-width:120px;padding:9px 12px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);font-size:12px;cursor:pointer;font-family:inherit;text-align:center;line-height:1.35">
+            <div style="font-weight:600">$3</div>
+            <div style="font-size:10.5px;color:var(--hint);margin-top:2px">24 hours</div>
+          </button>
+          <button type="button" class="rl-boost-btn" data-tier="72h" onclick="_rlBoostBuy('72h')"
+            style="flex:1;min-width:120px;padding:9px 12px;border:.5px solid var(--accent);border-radius:7px;background:var(--surface);color:var(--text);font-size:12px;cursor:pointer;font-family:inherit;text-align:center;line-height:1.35;position:relative">
+            <div style="position:absolute;top:-8px;right:8px;font-size:9px;background:var(--accent);color:#fff;padding:1px 6px;border-radius:8px;font-weight:600;letter-spacing:.02em">POPULAR</div>
+            <div style="font-weight:600">$9</div>
+            <div style="font-size:10.5px;color:var(--hint);margin-top:2px">72 hours</div>
+          </button>
+          <button type="button" class="rl-boost-btn" data-tier="7d" onclick="_rlBoostBuy('7d')"
+            style="flex:1;min-width:120px;padding:9px 12px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);font-size:12px;cursor:pointer;font-family:inherit;text-align:center;line-height:1.35">
+            <div style="font-weight:600">$19</div>
+            <div style="font-size:10.5px;color:var(--hint);margin-top:2px">7 days</div>
+          </button>
+        </div>
+        <div id="rlBoostStatus" style="font-size:10.5px;color:var(--hint);margin:8px 0 0 24px;min-height:14px;line-height:1.5"></div>
       </div>
 
       <!-- Audiobook attachment — available for every release mode, not

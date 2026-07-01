@@ -1,0 +1,393 @@
+<!doctype html>
+<!-- FOLIO BUILD v2026.07.01.10 admin-boost -->
+<html lang="en">
+<head>
+<script>
+  console.log('[admin-boost] ⚡ non-module boot at', new Date().toISOString());
+  window.addEventListener('error', e => console.error('[admin-boost] window error:', e.message, e.filename, e.lineno));
+  window.addEventListener('unhandledrejection', e => console.error('[admin-boost] rejection:', e.reason));
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Folio Admin — Boost fulfilment</title>
+<meta name="robots" content="noindex,nofollow">
+<style>
+:root {
+  --bg:#faf7f1; --surface:#fff; --text:#1a1611; --muted:#5a5347; --hint:#8a8174;
+  --border:rgba(0,0,0,0.10); --border-mid:rgba(0,0,0,0.14);
+  --accent:#c98c2a; --accent-ui:#065f46; --danger:#c04040;
+  --shadow:0 1px 3px rgba(0,0,0,0.06),0 4px 14px rgba(0,0,0,0.04);
+}
+html[data-theme="dark"] {
+  --bg:#14110d; --surface:#1f1a14; --text:#e8dece; --muted:#a89e8b; --hint:#79705f;
+  --border:rgba(232,222,206,0.10); --border-mid:rgba(232,222,206,0.16);
+  --accent:#d4a44f; --accent-ui:#34d399; --danger:#f87171;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
+a{color:var(--accent-ui);text-decoration:none}
+a:hover{text-decoration:underline}
+.admin-hdr{background:var(--surface);border-bottom:.5px solid var(--border);padding:14px 20px;position:sticky;top:0;z-index:10}
+.admin-hdr-row{max-width:900px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.admin-brand{font-family:'Playfair Display',Georgia,serif;font-size:18px;font-weight:600;letter-spacing:-.01em;color:var(--text);margin:0}
+.admin-brand .accent{color:var(--accent)}
+.admin-hdr-actions{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted)}
+.admin-hdr-actions a{color:var(--muted)}
+
+.admin-wrap{max-width:900px;margin:0 auto;padding:22px 20px 60px}
+.admin-h1{font-family:'Playfair Display',Georgia,serif;font-size:26px;font-weight:600;letter-spacing:-.01em;margin:6px 0 4px}
+.admin-lead{font-size:13px;color:var(--muted);margin:0 0 22px;line-height:1.55}
+
+.card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:16px;box-shadow:var(--shadow)}
+.card h2{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:600;margin:0 0 6px}
+.card .sub{font-size:12px;color:var(--hint);margin:0 0 14px;line-height:1.5}
+
+label{display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:10px 0 4px}
+input,select,textarea{width:100%;font-size:13px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit}
+input[type="text"],input[type="url"]{font-family:ui-monospace,Menlo,monospace;font-size:12.5px}
+input:focus,select:focus{border-color:var(--accent-ui)}
+
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row > *{flex:1;min-width:180px}
+
+button.primary{background:var(--accent-ui);color:#fff;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit}
+button.primary:hover{filter:brightness(.94)}
+button.primary:disabled{background:var(--hint);cursor:not-allowed}
+button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--text);padding:6px 12px;border-radius:6px;font-size:11.5px;cursor:pointer;font-family:inherit}
+button.ghost:hover{background:var(--bg)}
+
+.status{font-size:12px;margin-top:10px;min-height:16px}
+.status.ok{color:var(--accent-ui);font-weight:500}
+.status.err{color:var(--danger)}
+
+.list{margin-top:10px}
+.list-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:.5px dotted var(--border-mid);font-size:12px}
+.list-item:last-child{border-bottom:none}
+.list-item .title{flex:1;font-weight:500}
+.list-item .meta{font-size:11px;color:var(--hint)}
+.list-empty{padding:14px 10px;color:var(--hint);text-align:center;font-size:12px}
+
+.auth-gate{text-align:center;padding:60px 20px}
+.auth-gate h2{font-family:'Playfair Display',Georgia,serif;font-size:22px;margin:0 0 10px}
+.auth-gate p{color:var(--muted);font-size:13px;margin:0 0 20px}
+
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+<header class="admin-hdr">
+  <div class="admin-hdr-row">
+    <h1 class="admin-brand"><span class="accent">🔧</span> Folio Admin — Boost</h1>
+    <div class="admin-hdr-actions">
+      <a href="/shelf">← Shelf</a>
+      <span id="signedInAs"></span>
+      <button class="ghost hidden" id="signOutBtn" onclick="doSignOut()">Sign out</button>
+    </div>
+  </div>
+</header>
+
+<div class="admin-wrap">
+
+  <div id="authGate" class="auth-gate">
+    <h2>Sign in required</h2>
+    <p>This page fulfils Featured Boost orders. Owner-locked to admin uids in <code>firestore.rules</code>.</p>
+    <button class="primary" id="signInBtn" onclick="doSignIn()">Sign in with Google</button>
+    <div class="status err" id="authStatus"></div>
+  </div>
+
+  <div id="adminBody" class="hidden">
+
+    <h1 class="admin-h1">Boost a listing</h1>
+    <p class="admin-lead">Paste the folio ID + pick a duration. One click writes <code>release.featuredUntil</code> to that folio. Currently active boosts are listed below.</p>
+
+    <div class="card">
+      <h2>New boost</h2>
+      <div class="sub">Sets <code>release.featuredUntil</code> to <code>now + duration</code>. If the folio was already featured, this extends by the picked duration from now — it doesn't stack on top of the existing expiry.</div>
+
+      <label for="folioId">Folio ID</label>
+      <input type="text" id="folioId" placeholder="proj_1780180509410_j07ppo" autocomplete="off">
+
+      <div class="row">
+        <div>
+          <label for="duration">Duration</label>
+          <select id="duration">
+            <option value="86400000">24 hours</option>
+            <option value="259200000" selected>72 hours (3 days)</option>
+            <option value="604800000">7 days</option>
+            <option value="1209600000">14 days</option>
+            <option value="2592000000">30 days</option>
+            <option value="custom">Custom (pick date/time)</option>
+          </select>
+        </div>
+        <div id="customDateRow" class="hidden">
+          <label for="customDate">Featured until (custom)</label>
+          <input type="datetime-local" id="customDate">
+        </div>
+      </div>
+
+      <label for="notes">Notes (local only — not saved)</label>
+      <input type="text" id="notes" placeholder="Payment receipt #, amount, etc. — for your records">
+
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="primary" id="applyBtn" onclick="applyBoost()">🚀 Apply boost</button>
+        <button class="ghost" onclick="clearBoost()">Remove boost (set to null)</button>
+      </div>
+      <div class="status" id="applyStatus"></div>
+    </div>
+
+    <div class="card">
+      <h2>Currently featured</h2>
+      <div class="sub">Folios where <code>featuredUntil</code> is in the future. Refresh to re-fetch.</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+        <button class="ghost" onclick="loadFeatured()">↻ Refresh</button>
+        <span class="status" id="featuredStatus" style="margin-top:0"></span>
+      </div>
+      <div id="featuredList" class="list"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const ADMIN_UIDS = ['x9AgFZ7O8WVz2UVtyO4ggWKNfc73']; // must match firestore.rules isAdmin()
+
+  const $ = id => document.getElementById(id);
+
+  document.getElementById('duration').addEventListener('change', function(){
+    document.getElementById('customDateRow').classList.toggle('hidden', this.value !== 'custom');
+  });
+
+  let _fb = {};
+  let _user = null;
+
+  async function boot() {
+    try {
+      const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const authMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+      const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      _fb.initializeApp = appMod.initializeApp;
+      _fb.getAuth = authMod.getAuth;
+      _fb.GoogleAuthProvider = authMod.GoogleAuthProvider;
+      _fb.signInWithPopup = authMod.signInWithPopup;
+      _fb.signOut = authMod.signOut;
+      _fb.onAuthStateChanged = authMod.onAuthStateChanged;
+      _fb.getFirestore = fsMod.getFirestore;
+      _fb.doc = fsMod.doc;
+      _fb.updateDoc = fsMod.updateDoc;
+      _fb.getDoc = fsMod.getDoc;
+      _fb.collection = fsMod.collection;
+      _fb.query = fsMod.query;
+      _fb.where = fsMod.where;
+      _fb.getDocs = fsMod.getDocs;
+      _fb.limit = fsMod.limit;
+      _fb.Timestamp = fsMod.Timestamp;
+
+      const cfg = {
+        apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",
+        authDomain: "auth.jacobsiler.com",
+        projectId: "miscellaneous-117e9",
+        storageBucket: "miscellaneous-117e9.firebasestorage.app",
+        messagingSenderId: "514858431339",
+        appId: "1:514858431339:web:8b3acbe89966b45fe3922e"
+      };
+      const app = _fb.initializeApp(cfg);
+      _fb.auth = _fb.getAuth(app);
+      _fb.db = _fb.getFirestore(app);
+      console.log('[admin-boost] ✅ Firebase ready');
+
+      _fb.onAuthStateChanged(_fb.auth, onAuthChange);
+    } catch (e) {
+      console.error('[admin-boost] boot failed:', e);
+      $('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown');
+    }
+  }
+
+  function onAuthChange(u) {
+    _user = u;
+    if (!u) {
+      $('authGate').classList.remove('hidden');
+      $('adminBody').classList.add('hidden');
+      $('signedInAs').textContent = '';
+      $('signOutBtn').classList.add('hidden');
+      return;
+    }
+    console.log('[admin-boost] signed in as', u.uid, u.email);
+    $('signedInAs').textContent = u.email || u.uid;
+    $('signOutBtn').classList.remove('hidden');
+    if (!ADMIN_UIDS.includes(u.uid)) {
+      $('authGate').classList.remove('hidden');
+      $('adminBody').classList.add('hidden');
+      $('authStatus').textContent = 'Signed in as ' + (u.email || u.uid) + ' but this uid is NOT in the admin allowlist. Add it to ADMIN_UIDS + firestore.rules isAdmin() to grant access.';
+      return;
+    }
+    $('authGate').classList.add('hidden');
+    $('adminBody').classList.remove('hidden');
+    loadFeatured();
+  }
+
+  async function doSignIn() {
+    $('authStatus').textContent = '';
+    try {
+      const provider = new _fb.GoogleAuthProvider();
+      await _fb.signInWithPopup(_fb.auth, provider);
+    } catch (e) {
+      console.error('[admin-boost] sign-in failed:', e);
+      $('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown');
+    }
+  }
+  window.doSignIn = doSignIn;
+
+  async function doSignOut() {
+    try { await _fb.signOut(_fb.auth); }
+    catch (e) { console.warn('[admin-boost] sign-out:', e); }
+  }
+  window.doSignOut = doSignOut;
+
+  function setApplyStatus(msg, kind) {
+    const s = $('applyStatus');
+    s.textContent = msg;
+    s.className = 'status' + (kind ? ' ' + kind : '');
+  }
+
+  async function applyBoost() {
+    const folioId = $('folioId').value.trim();
+    if (!folioId) { setApplyStatus('Paste a folio ID first.', 'err'); return; }
+    const duration = $('duration').value;
+    let untilMs;
+    if (duration === 'custom') {
+      const d = $('customDate').value;
+      if (!d) { setApplyStatus('Pick a custom date/time.', 'err'); return; }
+      untilMs = new Date(d).getTime();
+    } else {
+      untilMs = Date.now() + Number(duration);
+    }
+    if (!isFinite(untilMs) || untilMs < Date.now()) {
+      setApplyStatus('Duration must resolve to a future timestamp.', 'err');
+      return;
+    }
+    $('applyBtn').disabled = true;
+    setApplyStatus('Writing release.featuredUntil…');
+    try {
+      const ref = _fb.doc(_fb.db, 'folio_projects', folioId);
+      // Verify the doc exists first — nicer error than an obscure write fail
+      const snap = await _fb.getDoc(ref);
+      if (!snap.exists()) {
+        setApplyStatus('No folio at that ID.', 'err');
+        $('applyBtn').disabled = false;
+        return;
+      }
+      const title = (snap.data() && snap.data().release && snap.data().release.title) || '(untitled)';
+      await _fb.updateDoc(ref, {
+        'release.featuredUntil': _fb.Timestamp.fromMillis(untilMs)
+      });
+      const untilDate = new Date(untilMs).toLocaleString();
+      setApplyStatus('✅ ' + title + ' is now featured until ' + untilDate, 'ok');
+      console.log('[admin-boost] boost applied:', folioId, '→', untilDate);
+      loadFeatured();
+    } catch (e) {
+      console.error('[admin-boost] apply failed:', e);
+      setApplyStatus('Write failed: ' + (e.message || 'unknown'), 'err');
+    } finally {
+      $('applyBtn').disabled = false;
+    }
+  }
+  window.applyBoost = applyBoost;
+
+  async function clearBoost() {
+    const folioId = $('folioId').value.trim();
+    if (!folioId) { setApplyStatus('Paste a folio ID first.', 'err'); return; }
+    if (!confirm('Remove the featured boost from folio ' + folioId + '?')) return;
+    $('applyBtn').disabled = true;
+    setApplyStatus('Clearing release.featuredUntil…');
+    try {
+      const ref = _fb.doc(_fb.db, 'folio_projects', folioId);
+      await _fb.updateDoc(ref, { 'release.featuredUntil': null });
+      setApplyStatus('✅ Boost cleared', 'ok');
+      loadFeatured();
+    } catch (e) {
+      console.error('[admin-boost] clear failed:', e);
+      setApplyStatus('Clear failed: ' + (e.message || 'unknown'), 'err');
+    } finally {
+      $('applyBtn').disabled = false;
+    }
+  }
+  window.clearBoost = clearBoost;
+
+  function fu2ms(raw) {
+    if (!raw) return 0;
+    if (typeof raw === 'number') return raw;
+    if (typeof raw.toMillis === 'function') return raw.toMillis();
+    if (typeof raw.seconds === 'number') return raw.seconds * 1000;
+    if (raw instanceof Date) return raw.getTime();
+    return 0;
+  }
+
+  async function loadFeatured() {
+    const status = $('featuredStatus');
+    const list = $('featuredList');
+    status.textContent = 'Loading…';
+    list.innerHTML = '';
+    try {
+      // Query published folios and filter client-side by featuredUntil.
+      // (We don't have a composite index on featuredUntil, so this is safer.)
+      const q = _fb.query(
+        _fb.collection(_fb.db, 'folio_projects'),
+        _fb.where('release.published', '==', true),
+        _fb.limit(200)
+      );
+      const snap = await _fb.getDocs(q);
+      const now = Date.now();
+      const active = [];
+      snap.forEach(d => {
+        const data = d.data() || {};
+        const r = data.release || {};
+        const until = fu2ms(r.featuredUntil || data.featuredUntil);
+        if (until > now) {
+          active.push({
+            id: d.id,
+            title: r.title || '(untitled)',
+            author: r.author || '',
+            until
+          });
+        }
+      });
+      active.sort((a, b) => a.until - b.until);
+      status.textContent = active.length + ' active';
+      if (active.length === 0) {
+        list.innerHTML = '<div class="list-empty">No folios are currently featured.</div>';
+        return;
+      }
+      list.innerHTML = active.map(a => {
+        const remaining = a.until - now;
+        const days = Math.floor(remaining / 86400000);
+        const hrs = Math.floor((remaining % 86400000) / 3600000);
+        const remainingStr = days > 0 ? days + 'd ' + hrs + 'h' : hrs + 'h';
+        return '<div class="list-item">' +
+          '<span class="title">' + escapeHtml(a.title) + (a.author ? ' <em style="color:var(--muted);font-weight:400">— ' + escapeHtml(a.author) + '</em>' : '') + '</span>' +
+          '<span class="meta">' + remainingStr + ' left · until ' + new Date(a.until).toLocaleString() + '</span>' +
+          '<button class="ghost" onclick="loadIntoForm(\'' + a.id.replace(/'/g, "\\'") + '\')">Load</button>' +
+          '</div>';
+      }).join('');
+    } catch (e) {
+      console.error('[admin-boost] loadFeatured failed:', e);
+      status.textContent = 'Failed to load: ' + (e.message || 'unknown');
+    }
+  }
+  window.loadFeatured = loadFeatured;
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  }
+
+  function loadIntoForm(folioId) {
+    $('folioId').value = folioId;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  window.loadIntoForm = loadIntoForm;
+
+  boot();
+</script>
+</body>
+</html>
