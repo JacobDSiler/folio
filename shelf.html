@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- FOLIO BUILD v2026.07.01.2 -->
+<!-- FOLIO BUILD v2026.07.01.3 -->
 <html lang="en">
 <head>
 <!-- Non-module boot check — runs synchronously before ANY <script type="module">
@@ -13,6 +13,30 @@
   window.addEventListener('unhandledrejection', function (e) {
     console.error('[shelf] unhandled promise rejection:', e.reason);
   });
+
+  // Dynamic-import probe — this tests the ES-module fetch path in a
+  // context where the failure WILL surface as a rejection (module
+  // <script> failures sometimes silently drop). If this catch block
+  // fires, we finally see the true reason for the module block below
+  // never executing.
+  console.log('[shelf] 🔍 probing dynamic import of firebase-app…');
+  import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js')
+    .then(m => {
+      console.log('[shelf] ✅ firebase-app.js loaded OK — exports:', Object.keys(m).slice(0, 8));
+    })
+    .catch(err => {
+      console.error('[shelf] ❌ firebase-app.js FAILED to load — this is the root cause:');
+      console.error('  message:', err.message);
+      console.error('  full error:', err);
+    });
+
+  // Also fetch it as a plain resource so we see the HTTP response
+  // (status + a few bytes of body). Distinguishes "network 404/blocked"
+  // from "loaded fine but errored during evaluation."
+  fetch('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js')
+    .then(r => r.text().then(t => ({ status: r.status, ok: r.ok, len: t.length, head: t.slice(0, 80) })))
+    .then(o => console.log('[shelf] 🌐 raw fetch of firebase-app.js →', o))
+    .catch(err => console.error('[shelf] 🌐 raw fetch FAILED:', err.message));
 </script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -379,7 +403,7 @@
   <a href="/privacy.html">Privacy</a> ·
   <a href="/terms.html">Terms</a>
   <div style="margin-top:6px;font-size:9.5px;color:var(--hint);opacity:.6">
-    build v2026.07.01.2
+    build v2026.07.01.3
   </div>
 </footer>
 
@@ -517,33 +541,4 @@
     else items.sort((a, b) => b.listedAt - a.listedAt);
 
     if (items.length === 0) {
-      grid.innerHTML = '';
-      grid.style.display = 'none';
-      if (!document.getElementById('shelfEmptyState')) {
-        const empty = document.createElement('div');
-        empty.id = 'shelfEmptyState';
-        empty.className = 'shelf-empty';
-        empty.innerHTML = _allFolios.length === 0
-          ? '<div class="lead">The shelf is empty.</div>' +
-            '<div>Be the first — <a href="/app.html">write a folio</a> and tick <em>List on the Folio Shelf</em>.</div>'
-          : '<div class="lead">No folios match those filters.</div>' +
-            '<div>Try clearing the filter or search.</div>';
-        document.querySelector('.shelf-grid-wrap').appendChild(empty);
-      }
-      if (status) status.textContent = _allFolios.length === 0
-        ? '' : '0 folios match · ' + _allFolios.length + ' on the shelf';
-      return;
-    }
-    const empty = document.getElementById('shelfEmptyState');
-    if (empty) empty.remove();
-    grid.style.display = '';
-
-    if (status) {
-      status.textContent = items.length === _allFolios.length
-        ? items.length + ' folio' + (items.length === 1 ? '' : 's') + ' on the shelf'
-        : items.length + ' of ' + _allFolios.length;
-    }
-
-    grid.innerHTML = items.map(f => {
-      const cover = f.coverUrl
-        ? '<img class="shelf-card-cover" src="' + esc(f.coverUrl) +
+      grid.innerHTML =
