@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- FOLIO BUILD v2026.07.01.11 — PayPal boost checkout wired to release modal -->
+<!-- FOLIO BUILD v2026.07.01.12 — Phase 2B: reader menu boost + post-publish nudge + custom_id fix -->
 <html lang="en">
 
 <head>
@@ -19218,7 +19218,7 @@
           // worker's /boost-checkout endpoint, then redirects the browser to
           // PayPal's approval URL. On return, the worker captures + writes
           // featuredUntil, then 302s back to /shelf?boosted=1.
-          window._rlBoostBuy = async function _rlBoostBuy(tier) {
+          window._rlBoostBuy = function _rlBoostBuy(tier) {
             const statusEl = document.getElementById('rlBoostStatus');
             const btnRow = document.querySelectorAll('.rl-boost-btn');
             const setStatus = function (msg, kind) {
@@ -19234,31 +19234,11 @@
               setStatus('Publish the release first, then boost. Featured is for live listings only.', 'err');
               return;
             }
-            const uid = (window._authUser && window._authUser.uid) || (window._fbAuth && window._fbAuth.currentUser && window._fbAuth.currentUser.uid) || '';
-            btnRow.forEach(function (b) { b.disabled = true; b.style.opacity = '.6'; });
-            setStatus('Redirecting to PayPal…');
-            try {
-              const url = (typeof PAYWALL_WORKER_URL === 'string' && PAYWALL_WORKER_URL)
-                ? PAYWALL_WORKER_URL
-                : 'https://folio-paywall.jacobdsiler.workers.dev';
-              const r = await fetch(url + '/boost-checkout', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ folioId: folioId, tier: tier, uid: uid }),
-              });
-              const data = await r.json().catch(function () { return {}; });
-              if (!r.ok || !data.approvalUrl) {
-                setStatus('Checkout failed: ' + (data.error || r.status), 'err');
-                btnRow.forEach(function (b) { b.disabled = false; b.style.opacity = '1'; });
-                return;
-              }
-              setStatus('✅ Order created. Taking you to PayPal now…', 'ok');
-              window.location.href = data.approvalUrl;
-            } catch (e) {
-              console.error('[boost] checkout failed:', e);
-              setStatus('Network error: ' + (e.message || 'unknown'), 'err');
-              btnRow.forEach(function (b) { b.disabled = false; b.style.opacity = '1'; });
-            }
+            return window.folioBoostBuy(folioId, tier, {
+              setStatus: setStatus,
+              onDisable: function () { btnRow.forEach(function (b) { b.disabled = true; b.style.opacity = '.6'; }); },
+              onEnable:  function () { btnRow.forEach(function (b) { b.disabled = false; b.style.opacity = '1'; }); },
+            });
           };
           // Tip URL (author's external tip destination — Ko-fi etc.).
           const _tipEl = document.getElementById('rlTipUrl');
@@ -19567,6 +19547,8 @@
         _rlUpdateButton();
         const urlBox = document.getElementById('rlUrlBox');
         if (urlBox) urlBox.style.display = 'block';
+        const nudge = document.getElementById('rlPostPublishNudge');
+        if (nudge) nudge.style.display = 'none';  // reset each time; nudge fn will re-show
         const urlText = document.getElementById('rlUrlText');
         if (urlText) urlText.textContent = _rlUrl();
         const btn = document.getElementById('rlPublishBtn');
@@ -19576,6 +19558,11 @@
         _rlSetStatus('Published ✓ — copy the link and share it.', '#065f46');
         if (typeof toastSuccess === 'function')
           toastSuccess('Folio released', { icon: '🔖', duration: 2400 });
+        // Post-publish boost moment — the highest-intent second in the whole
+        // author lifecycle. Warm, one-line prompt with a single "Boost 72h"
+        // button that scrolls the modal to the boost section. Not pushy —
+        // just there for the "great, now how do I get eyeballs?" thought.
+        if (typeof _rlShowPostPublishNudge === 'function') _rlShowPostPublishNudge();
       } catch (e) {
         _rlSetStatus('Publish failed: ' + e.message, '#c04040');
       }
@@ -20711,6 +20698,17 @@
     window.closeReleaseModal = closeReleaseModal;
     window._rlSetMode = _rlSetMode;
     window._rlPublish = _rlPublish;
+
+    // Post-publish boost nudge — shown for a few seconds inside the release
+    // modal right after a successful publish. Warm, non-pushy, one-click
+    // Boost 72h button (the popular tier).
+    window._rlShowPostPublishNudge = function _rlShowPostPublishNudge() {
+      const nudge = document.getElementById('rlPostPublishNudge');
+      if (!nudge) return;
+      nudge.style.display = 'block';
+      // Gently scroll the modal so the nudge is in view.
+      try { nudge.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (_) {}
+    };
     window._rlUnpublish = _rlUnpublish;
     window._rlCopyUrl = _rlCopyUrl;
     window._rlOpenPreview = _rlOpenPreview;
@@ -20726,6 +20724,47 @@
        ═══════════════════════════════════════════════════════════════════ */
 
     const PAYWALL_WORKER_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
+
+    // ═══ Core boost-buy helper — shared by release modal, reader ☰ menu,
+    // post-publish moment, shelf card, and imprint page. Given a folioId
+    // and tier, POSTs to /boost-checkout and redirects the browser to
+    // PayPal's approval URL. Every UI surface that offers a boost buy
+    // hits this one function so we don't duplicate the PayPal wiring.
+    //
+    // opts.setStatus(msg, kind)  — 'ok' | 'err' | undefined
+    // opts.onDisable() / onEnable()  — toggle any local buttons around it
+    // Returns a promise that resolves before redirect (or on error). ═══
+    window.folioBoostBuy = async function folioBoostBuy(folioId, tier, opts) {
+      opts = opts || {};
+      const setStatus = opts.setStatus || function () {};
+      const onDisable = opts.onDisable || function () {};
+      const onEnable  = opts.onEnable  || function () {};
+      if (!folioId) { setStatus('No folio id available — try again after the folio has finished loading.', 'err'); return; }
+      const uid = (window._uid) ||
+                  (window._authUser && window._authUser.uid) ||
+                  (window._fbAuth && window._fbAuth.currentUser && window._fbAuth.currentUser.uid) || '';
+      onDisable();
+      setStatus('Preparing your order…');
+      try {
+        const r = await fetch(PAYWALL_WORKER_URL + '/boost-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folioId: folioId, tier: tier, uid: uid }),
+        });
+        const data = await r.json().catch(function () { return {}; });
+        if (!r.ok || !data.approvalUrl) {
+          setStatus('Checkout failed: ' + (data.error || r.status), 'err');
+          onEnable();
+          return;
+        }
+        setStatus('✅ Redirecting to PayPal…', 'ok');
+        window.location.href = data.approvalUrl;
+      } catch (e) {
+        console.error('[boost] checkout failed:', e);
+        setStatus('Network error: ' + (e.message || 'unknown'), 'err');
+        onEnable();
+      }
+    };
 
     function _pwTokenKey(releaseId) {
       return 'folio_paywall_' + (releaseId || 'unknown');
@@ -22430,6 +22469,71 @@
       }
     }
     window._rdMenuToggle = _rdMenuToggle;
+
+    // Reader menu owner-only Boost section — show iff the current signed-in
+    // user is the folio's owner. Watched by an event listener that fires
+    // whenever the menu opens (_rdMenuToggle sets aria-expanded).
+    function _rdBoostSectionSyncVisibility() {
+      const sec = document.getElementById('rdBoostSection');
+      if (!sec) return;
+      const myUid = window._uid ||
+                    (window._authUser && window._authUser.uid) ||
+                    (window._fbAuth && window._fbAuth.currentUser && window._fbAuth.currentUser.uid) || '';
+      const ownerUid = (typeof _loadedFolioOwnerUid !== 'undefined' && _loadedFolioOwnerUid) || '';
+      const isOwner = !!(myUid && ownerUid && myUid === ownerUid);
+      const isPublished = !!(_rlCurrent && _rlCurrent.published === true);
+      sec.style.display = (isOwner && isPublished) ? 'block' : 'none';
+      // Reset the expand + status every time the menu opens.
+      const exp = document.getElementById('rdBoostExpand');
+      if (exp) exp.style.display = 'none';
+      const chev = document.getElementById('rdBoostChevron');
+      if (chev) chev.style.transform = '';
+      const st = document.getElementById('rdBoostStatus');
+      if (st) { st.textContent = ''; st.style.color = 'var(--hint)'; }
+    }
+    // Piggyback on the existing menu btn — every click that toggles the
+    // menu also syncs the boost visibility.
+    document.addEventListener('DOMContentLoaded', function () {
+      const btn = document.getElementById('rdMenuBtn');
+      if (btn) btn.addEventListener('click', function () {
+        // Wait a tick so _rdMenuToggle has finished flipping display.
+        setTimeout(_rdBoostSectionSyncVisibility, 0);
+      });
+    });
+    // Also expose it globally so post-load code (auth state changes) can call.
+    window._rdBoostSectionSyncVisibility = _rdBoostSectionSyncVisibility;
+
+    // Expand/collapse the tier buttons inside the boost menu item.
+    window._rdBoostToggleExpand = function _rdBoostToggleExpand(ev) {
+      if (ev && ev.stopPropagation) ev.stopPropagation();
+      const exp = document.getElementById('rdBoostExpand');
+      const chev = document.getElementById('rdBoostChevron');
+      if (!exp) return;
+      const opening = exp.style.display === 'none';
+      exp.style.display = opening ? 'block' : 'none';
+      if (chev) chev.style.transform = opening ? 'rotate(90deg)' : '';
+    };
+
+    // Reader menu Boost tier click — folioId comes from _loadedFolioId
+    // (same source as the release modal buttons use).
+    window._rdBoostBuy = function _rdBoostBuy(tier) {
+      const statusEl = document.getElementById('rdBoostStatus');
+      const btnRow = document.querySelectorAll('.rd-boost-btn');
+      const setStatus = function (msg, kind) {
+        if (!statusEl) return;
+        statusEl.textContent = msg || '';
+        statusEl.style.color = kind === 'err' ? 'var(--danger, #c04040)'
+                              : kind === 'ok' ? 'var(--accent-ui)'
+                              : 'var(--hint)';
+      };
+      const folioId = (typeof _loadedFolioId !== 'undefined' && _loadedFolioId) || '';
+      if (!folioId) { setStatus('Cannot boost — no folio loaded.', 'err'); return; }
+      return window.folioBoostBuy(folioId, tier, {
+        setStatus: setStatus,
+        onDisable: function () { btnRow.forEach(function (b) { b.disabled = true; b.style.opacity = '.6'; }); },
+        onEnable:  function () { btnRow.forEach(function (b) { b.disabled = false; b.style.opacity = '1'; }); },
+      });
+    };
 
     // Close on outside click / Escape. Mounted once at boot.
     document.addEventListener('click', (e) => {
@@ -27529,6 +27633,42 @@
         <span style="font-size:16px;width:22px;text-align:center">💛</span>
         <span style="flex:1">Support Folio<span style="display:block;font-size:10.5px;color:var(--hint);margin-top:1px">Keep the platform free of ads + author cuts</span></span>
       </a>
+      <!-- Owner-only "Boost this folio" — the reader ☰ menu is the second
+           natural moment for boost intent (author is re-reading their own
+           work, thinking "why isn't anyone else seeing this?"). Hidden by
+           default; unhidden in _rdMenuToggle when the loaded folio's
+           owner uid matches the signed-in user. Expands inline instead of
+           opening the release modal, so the reader isn't yanked into
+           editor context. -->
+      <div id="rdBoostSection" style="display:none;border-top:.5px dotted var(--border-mid);margin-top:6px;padding:6px 4px 4px" role="none">
+        <button type="button" class="rdmenu-item" id="rdBoostToggle" role="menuitem"
+          style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;border:none;background:none;color:var(--text);font-size:13px;cursor:pointer;text-align:left;border-radius:6px"
+          onclick="_rdBoostToggleExpand(event)">
+          <span style="font-size:16px;width:22px;text-align:center">🚀</span>
+          <span style="flex:1">Boost this folio<span style="display:block;font-size:10.5px;color:var(--hint);margin-top:1px">Top-of-Shelf placement + ✨ badge — pay via PayPal</span></span>
+          <span id="rdBoostChevron" style="font-size:12px;color:var(--hint);transition:transform .15s ease">▸</span>
+        </button>
+        <div id="rdBoostExpand" style="display:none;padding:4px 12px 8px">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0">
+            <button type="button" class="rd-boost-btn" data-tier="24h" onclick="_rdBoostBuy('24h')"
+              style="flex:1;min-width:75px;padding:7px 8px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);font-size:11.5px;cursor:pointer;font-family:inherit;text-align:center;line-height:1.3">
+              <div style="font-weight:600">$3</div>
+              <div style="font-size:10px;color:var(--hint);margin-top:1px">24h</div>
+            </button>
+            <button type="button" class="rd-boost-btn" data-tier="72h" onclick="_rdBoostBuy('72h')"
+              style="flex:1;min-width:75px;padding:7px 8px;border:.5px solid var(--accent);border-radius:6px;background:var(--surface);color:var(--text);font-size:11.5px;cursor:pointer;font-family:inherit;text-align:center;line-height:1.3">
+              <div style="font-weight:600">$9</div>
+              <div style="font-size:10px;color:var(--hint);margin-top:1px">72h ★</div>
+            </button>
+            <button type="button" class="rd-boost-btn" data-tier="7d" onclick="_rdBoostBuy('7d')"
+              style="flex:1;min-width:75px;padding:7px 8px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);font-size:11.5px;cursor:pointer;font-family:inherit;text-align:center;line-height:1.3">
+              <div style="font-weight:600">$19</div>
+              <div style="font-size:10px;color:var(--hint);margin-top:1px">7 days</div>
+            </button>
+          </div>
+          <div id="rdBoostStatus" style="font-size:10.5px;color:var(--hint);min-height:14px;margin-top:4px;line-height:1.4"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -28149,7 +28289,30 @@
       <div id="rlStatus" style="font-size:11.5px;color:var(--hint);min-height:1.4em;margin:6px 0 10px"></div>
 
       <!-- Reader URL, shown only after a release exists -->
-      <div id="rlUrlBox"
+      <!-- Post-publish boost nudge — hidden by default; shown by
+             _rlShowPostPublishNudge right after a successful publish.
+             High-intent moment: the author just clicked Publish, they're
+             feeling the momentum. One warm sentence + one button. -->
+        <div id="rlPostPublishNudge" style="display:none;margin:14px 0 8px;padding:14px 16px;border:.5px solid var(--accent);border-radius:8px;background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%)">
+          <div style="display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text);margin:0 0 6px">
+            <span style="font-size:18px">🚀</span>
+            <strong>Want to give it a boost?</strong>
+          </div>
+          <p style="font-size:11.5px;color:var(--hint);line-height:1.5;margin:0 0 10px 28px">
+            The next 72 hours are when your launch has the most momentum — a Featured Boost puts you at the top of <a href="/shelf" target="_blank" style="color:var(--accent-ui)">the Shelf</a> with the ✨ badge so readers actually find you. $9 via PayPal. Not now? No worries — the tier buttons are always in the section above.
+          </p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-left:28px">
+            <button type="button" onclick="window._rlBoostBuy('72h')"
+              style="padding:8px 16px;border:.5px solid var(--accent);border-radius:7px;background:var(--accent);color:#fff;font-size:12.5px;cursor:pointer;font-family:inherit;font-weight:500">
+              🚀 Boost 72h — $9
+            </button>
+            <button type="button" onclick="document.getElementById('rlPostPublishNudge').style.display='none'"
+              style="padding:8px 14px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);font-size:12px;cursor:pointer;font-family:inherit">
+              Maybe later
+            </button>
+          </div>
+        </div>
+        <div id="rlUrlBox"
         style="display:none;padding:10px 12px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;margin-bottom:10px">
         <div style="font-size:10.5px;color:var(--hint);letter-spacing:.02em;margin-bottom:4px">Reader link</div>
         <div style="display:flex;gap:8px;align-items:center">
