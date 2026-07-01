@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- FOLIO BUILD v2026.07.01.8 — Featured Boost + Timestamp handling -->
+<!-- FOLIO BUILD v2026.07.01.9 — Featured Boost + Timestamp + modal sticky footer -->
 <html lang="en">
 
 <head>
@@ -27532,7 +27532,7 @@
   <div id="podPanel" role="dialog" aria-modal="true" aria-labelledby="podTitle"
     style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:250;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);align-items:center;justify-content:center">
     <div
-      style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:560px;width:94%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:26px 28px 22px;font-family:var(--sans);color:var(--text)">
+      style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:560px;width:94%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:26px 28px 0;font-family:var(--sans);color:var(--text)">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
         <h3 id="podTitle" style="font-size:15px;font-weight:600;margin:0;letter-spacing:-0.01em">📦 Print &amp; Publish
         </h3>
@@ -28136,8 +28136,18 @@
         </div>
       </div>
 
-      <!-- Action row — Publish (primary) + Unpublish (shown for live releases) -->
-      <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+      <!-- Action row — Publish (primary) + Unpublish (shown for live releases).
+           STICKY FOOTER: position:sticky + bottom:0 keeps the button row
+           pinned to the bottom of the scrollable modal so the Publish
+           button is ALWAYS visible even when the middle content overflows.
+           Own background + padding + border-top so it looks like a proper
+           footer, not floating buttons over content. -->
+      <div style="display:flex;gap:8px;align-items:center;
+                  position:sticky;bottom:0;
+                  background:var(--surface);
+                  margin-top:14px;padding:12px 0 22px;
+                  border-top:.5px solid var(--border);
+                  z-index:2">
         <button type="button" id="rlPublishBtn" onclick="_rlPublish()"
           style="flex:1;font-size:13px;font-weight:500;padding:10px 14px;border-radius:8px;border:none;background:#065f46;color:#fff;cursor:pointer">🔖
           Publish</button>
