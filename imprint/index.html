@@ -1,0 +1,238 @@
+<!doctype html>
+<!-- FOLIO BUILD v2026.07.01.5 imprint -->
+<html lang="en">
+<head>
+<script>
+  console.log('[imprint] ⚡ non-module boot at', new Date().toISOString());
+  window.addEventListener('error', e => console.error('[imprint] window error:', e.message, e.filename, e.lineno));
+  window.addEventListener('unhandledrejection', e => console.error('[imprint] rejection:', e.reason));
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Folio Imprint — an author's shelf on Folio</title>
+<meta name="description" content="An author's collected folios on Folio. 0% commission, ever.">
+<meta property="og:title" content="Folio Imprint">
+<meta property="og:type" content="profile">
+<meta property="og:image" content="https://onfolio.press/og-default.png">
+<style>
+:root {
+  --bg:#faf7f1; --surface:#fff; --text:#1a1611; --muted:#5a5347; --hint:#8a8174;
+  --border:rgba(0,0,0,0.10); --border-mid:rgba(0,0,0,0.14);
+  --accent:#c98c2a; --accent-ui:#065f46;
+  --shadow:0 1px 3px rgba(0,0,0,0.06),0 4px 14px rgba(0,0,0,0.04);
+  --shadow-h:0 4px 12px rgba(0,0,0,0.10),0 12px 32px rgba(0,0,0,0.08);
+  --badge-free:#dcfce7; --badge-free-t:#065f46;
+  --badge-paid:#fef3c7; --badge-paid-t:#92400e;
+  --badge-serial:#dbeafe; --badge-serial-t:#1e40af;
+}
+html[data-theme="dark"] {
+  --bg:#14110d; --surface:#1f1a14; --text:#e8dece; --muted:#a89e8b; --hint:#79705f;
+  --border:rgba(232,222,206,0.10); --border-mid:rgba(232,222,206,0.16);
+  --accent:#d4a44f; --accent-ui:#34d399;
+  --shadow:0 1px 3px rgba(0,0,0,0.4),0 4px 14px rgba(0,0,0,0.3);
+  --shadow-h:0 4px 12px rgba(0,0,0,0.5),0 12px 32px rgba(0,0,0,0.4);
+  --badge-free:#064e3b; --badge-free-t:#a7f3d0;
+  --badge-paid:#451a03; --badge-paid-t:#fbbf24;
+  --badge-serial:#1e3a8a; --badge-serial-t:#bfdbfe;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
+a{color:var(--accent-ui);text-decoration:none}
+a:hover{text-decoration:underline}
+.imprint-hdr{background:var(--surface);border-bottom:.5px solid var(--border);padding:16px 20px;position:sticky;top:0;z-index:10}
+.imprint-hdr-row{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.imprint-back{font-size:12.5px;color:var(--muted)}
+.imprint-back:hover{color:var(--text)}
+.imprint-theme-btn{background:none;border:.5px solid var(--border-mid);color:var(--text);width:36px;height:36px;border-radius:50%;font-size:16px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center}
+.imprint-theme-btn:hover{background:var(--bg)}
+
+.imprint-cover{max-width:1100px;margin:0 auto;padding:52px 20px 12px;text-align:center}
+.imprint-kicker{font-size:10.5px;text-transform:uppercase;letter-spacing:.16em;color:var(--hint);margin-bottom:14px}
+.imprint-author{font-family:'Playfair Display',Georgia,serif;font-size:42px;font-weight:700;letter-spacing:-.02em;color:var(--text);margin:0 0 8px;line-height:1.15}
+.imprint-tagline{font-size:14px;color:var(--muted);margin:0 0 18px;font-style:italic}
+.imprint-count{font-size:12px;color:var(--hint);margin-bottom:22px}
+.imprint-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:8px}
+.imprint-actions a{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:7px 14px;border-radius:8px;background:var(--surface);border:.5px solid var(--border-mid);color:var(--text);text-decoration:none;transition:background .12s}
+.imprint-actions a:hover{background:var(--bg);text-decoration:none}
+.imprint-actions .tip{background:var(--accent);color:#fff;border-color:transparent}
+.imprint-actions .tip:hover{filter:brightness(.94)}
+
+.imprint-grid-wrap{max-width:1100px;margin:0 auto;padding:32px 20px 60px}
+.imprint-status{font-size:12px;color:var(--hint);margin:8px 0 14px;min-height:16px}
+.imprint-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px}
+.imprint-card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;text-decoration:none;color:var(--text);transition:transform .12s,box-shadow .12s;box-shadow:var(--shadow);cursor:pointer;overflow:hidden}
+.imprint-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-h);text-decoration:none}
+.imprint-card-cover{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:6px;background:linear-gradient(135deg,var(--bg),var(--surface));border:.5px solid var(--border);margin-bottom:12px}
+.imprint-card-cover-placeholder{display:flex;align-items:center;justify-content:center;color:var(--hint);font-family:'Playfair Display',Georgia,serif;font-size:14px;text-align:center;padding:12px;font-style:italic;line-height:1.3}
+.imprint-card-title{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:600;line-height:1.25;color:var(--text);margin:0 0 4px}
+.imprint-card-blurb{font-size:12.5px;color:var(--muted);line-height:1.45;margin:0 0 10px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.imprint-card-foot{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:auto;padding-top:8px;border-top:.5px dotted var(--border-mid)}
+.imprint-badge{display:inline-block;font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;padding:2px 8px;border-radius:10px}
+.imprint-badge.free{background:var(--badge-free);color:var(--badge-free-t)}
+.imprint-badge.paid{background:var(--badge-paid);color:var(--badge-paid-t)}
+.imprint-badge.serial{background:var(--badge-serial);color:var(--badge-serial-t)}
+.imprint-card-genre{font-size:10.5px;color:var(--hint);margin-left:auto}
+
+.imprint-empty{text-align:center;padding:80px 20px;color:var(--hint);font-size:14px}
+.imprint-empty .lead{font-family:'Playfair Display',Georgia,serif;font-size:22px;color:var(--text);margin-bottom:8px}
+
+.imprint-foot{max-width:1100px;margin:40px auto 0;padding:22px 20px 28px;border-top:.5px solid var(--border);font-size:12px;color:var(--hint);text-align:center}
+.imprint-foot a{color:var(--muted)}
+</style>
+</head>
+<body>
+<header class="imprint-hdr">
+  <div class="imprint-hdr-row">
+    <a class="imprint-back" href="/shelf">← Back to the Shelf</a>
+    <button class="imprint-theme-btn" id="imprintThemeBtn" onclick="toggleTheme()" title="Toggle day/night mode">☽</button>
+  </div>
+</header>
+
+<section class="imprint-cover">
+  <div class="imprint-kicker">Folio Imprint</div>
+  <h1 class="imprint-author" id="imprintAuthorName">Loading…</h1>
+  <div class="imprint-tagline" id="imprintTagline"></div>
+  <div class="imprint-count" id="imprintCount"></div>
+  <div class="imprint-actions" id="imprintActions"></div>
+</section>
+
+<div class="imprint-grid-wrap">
+  <div class="imprint-status" id="imprintStatus"></div>
+  <div class="imprint-grid" id="imprintGrid"></div>
+</div>
+
+<footer class="imprint-foot">
+  Folio — beautiful books in your browser · <strong>0% commission, ever</strong> ·
+  <a href="/">Home</a> · <a href="/shelf">Shelf</a> · <a href="/app.html">Write a folio</a> ·
+  <a id="imprintSupportLink" href="https://ko-fi.com/jacobsiler" target="_blank" rel="noopener">☕ Support Folio</a> ·
+  <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a>
+  <div style="margin-top:6px;font-size:9.5px;color:var(--hint);opacity:.6">build v2026.07.01.5</div>
+</footer>
+
+<script>
+const GENRE_LABELS = {literary:'Literary',general:'Fiction',mystery:'Mystery',thriller:'Thriller',romance:'Romance',fantasy:'Fantasy',scifi:'Sci-fi',horror:'Horror',historical:'Historical',ya:'Young adult',children:'Children’s',memoir:'Memoir',selfhelp:'Self-help',business:'Business',health:'Health',poetry:'Poetry',essays:'Essays',educational:'Educational',other:'Other'};
+
+let _fbDb=null,_fbQuery=null,_fbGetDocs=null,_fbCollection=null,_fbWhere=null,_fbLimit=null;
+
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+
+function applyTheme(t){document.documentElement.setAttribute('data-theme',t);const b=document.getElementById('imprintThemeBtn');if(b)b.textContent=t==='dark'?'☀':'☽'}
+function toggleTheme(){const c=document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light';const n=c==='dark'?'light':'dark';try{localStorage.setItem('shelf_theme',n)}catch(e){}applyTheme(n)}
+window.toggleTheme=toggleTheme;
+(function(){const s=(function(){try{return localStorage.getItem('shelf_theme')}catch(e){return null}})();const p=window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches;applyTheme(s||(p?'dark':'light'))})();
+
+function getUidParam(){
+  try { return (new URLSearchParams(window.location.search).get('uid')||'').trim(); }
+  catch(e){ return ''; }
+}
+
+function renderEmpty(msg){
+  const grid=document.getElementById('imprintGrid');
+  const status=document.getElementById('imprintStatus');
+  if(status)status.textContent='';
+  if(grid){
+    grid.style.display='none';
+    const wrap=document.querySelector('.imprint-grid-wrap');
+    let empty=document.getElementById('imprintEmptyState');
+    if(!empty){empty=document.createElement('div');empty.id='imprintEmptyState';empty.className='imprint-empty';wrap.appendChild(empty);}
+    empty.innerHTML='<div class="lead">'+esc(msg||'Nothing here yet.')+'</div><div>Head back to <a href="/shelf">the Shelf</a> to browse other authors.</div>';
+  }
+}
+
+function renderCards(folios){
+  const grid=document.getElementById('imprintGrid');
+  const status=document.getElementById('imprintStatus');
+  if(!grid)return;
+  const existing=document.getElementById('imprintEmptyState');
+  if(existing)existing.remove();
+  grid.style.display='';
+  if(status)status.textContent=folios.length+' folio'+(folios.length===1?'':'s')+' by this author';
+  folios.sort((a,b)=>b.listedAt-a.listedAt);
+  grid.innerHTML=folios.map(f=>{
+    const cover=f.coverUrl?'<img class="imprint-card-cover" src="'+esc(f.coverUrl)+'" alt="" loading="lazy">':'<div class="imprint-card-cover imprint-card-cover-placeholder">'+esc(f.title)+'</div>';
+    const badge=f.serial?'<span class="imprint-badge serial">serial</span>':f.priceMode==='paid'?'<span class="imprint-badge paid">paid</span>':'<span class="imprint-badge free">free</span>';
+    const genre=f.genre?'<span class="imprint-card-genre">'+esc(GENRE_LABELS[f.genre]||f.genre)+'</span>':'';
+    const blurb=f.blurb?'<p class="imprint-card-blurb">'+esc(f.blurb)+'</p>':'';
+    return '<a class="imprint-card" href="/app.html?read='+encodeURIComponent(f.id)+'">'+cover+'<h2 class="imprint-card-title">'+esc(f.title)+'</h2>'+blurb+'<div class="imprint-card-foot">'+badge+genre+'</div></a>';
+  }).join('');
+}
+
+function renderHeader(authorName, tipUrl, count){
+  document.getElementById('imprintAuthorName').textContent = authorName || 'Unknown author';
+  document.getElementById('imprintCount').textContent = count + (count===1?' folio published':' folios published');
+  const actions=document.getElementById('imprintActions');
+  actions.innerHTML='';
+  if(tipUrl && /^https?:\/\//i.test(tipUrl)){
+    const a=document.createElement('a');
+    a.href=tipUrl;a.target='_blank';a.rel='noopener';a.className='tip';
+    a.innerHTML='☕ Tip the author';
+    actions.appendChild(a);
+  }
+  const shelfLink=document.createElement('a');
+  shelfLink.href='/shelf';shelfLink.textContent='📚 Browse the Shelf';
+  actions.appendChild(shelfLink);
+  try{document.title=(authorName||'Author')+' on Folio';}catch(e){}
+}
+
+async function boot(){
+  const uid=getUidParam();
+  const status=document.getElementById('imprintStatus');
+  if(!uid){
+    document.getElementById('imprintAuthorName').textContent='No author specified';
+    if(status)status.textContent='Missing ?uid= in the URL. Click an author name on the Shelf to open their Imprint.';
+    return;
+  }
+  console.log('[imprint] loading folios for uid:',uid);
+  if(status)status.textContent='Loading…';
+  try{
+    const appMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+    const fsMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    const {initializeApp}=appMod;
+    const {getFirestore,collection,query,where,getDocs,limit}=fsMod;
+    _fbCollection=collection;_fbQuery=query;_fbWhere=where;_fbGetDocs=getDocs;_fbLimit=limit;
+    const firebaseConfig={apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",authDomain:"auth.jacobsiler.com",projectId:"miscellaneous-117e9",storageBucket:"miscellaneous-117e9.firebasestorage.app",messagingSenderId:"514858431339",appId:"1:514858431339:web:8b3acbe89966b45fe3922e"};
+    const app=initializeApp(firebaseConfig);
+    _fbDb=getFirestore(app);
+    console.log('[imprint] ✅ Firestore ready');
+
+    const q=_fbQuery(_fbCollection(_fbDb,'folio_projects'),_fbWhere('uid','==',uid),_fbWhere('release.published','==',true),_fbLimit(200));
+    const snap=await _fbGetDocs(q);
+    console.log('[imprint] ✅ getDocs returned',snap.size,'folios by this author');
+
+    if(snap.size===0){
+      renderHeader('Unknown author', null, 0);
+      renderEmpty('This author hasn’t published any folios yet.');
+      return;
+    }
+
+    const folios=[];let authorName='';let tipUrl='';
+    snap.forEach(d=>{
+      const data=d.data()||{};
+      const r=data.release||{};
+      if(!authorName && r.author) authorName=String(r.author);
+      if(!tipUrl && r.tipUrl && /^https?:\/\//i.test(r.tipUrl)) tipUrl=String(r.tipUrl);
+      folios.push({
+        id:d.id,
+        title:String(r.title||data.name||'Untitled'),
+        blurb:String(r.shelfBlurb||(r.shelfUseDescription?r.description:'')||r.description||''),
+        genre:String(r.shelfGenre||''),
+        coverUrl:(typeof r.coverUrl==='string'&&/^https:\/\//i.test(r.coverUrl))?r.coverUrl:'',
+        priceMode:String(r.priceMode||'free'),
+        serial:!!r.serial,
+        listedAt:Number(r.shelfListedAt||r.publishedAt||0)
+      });
+    });
+
+    renderHeader(authorName, tipUrl, folios.length);
+    renderCards(folios);
+  }catch(e){
+    console.error('[imprint] boot failed:',e);
+    if(status)status.textContent='Couldn’t load this Imprint. Check the console for the error.';
+  }
+}
+
+boot();
+</script>
+</body>
+</html>
