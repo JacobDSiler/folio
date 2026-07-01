@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The Folio Shelf — browse books on onfolio.press</title>
+<meta name="description" content="Browse, search, and discover books published on Folio. Free reads, paid releases, all in one place.">
+
+<!-- Open Graph -->
+<meta property="og:title" content="The Folio Shelf">
+<meta property="og:description" content="Browse books on Folio. Free reads + paid releases + serial fiction.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://onfolio.press/shelf">
+<meta property="og:image" content="https://onfolio.press/og-default.png">
+
+<style>
+  /* ── THEME TOKENS ────────────────────────────────────────────
+     Day + night via CSS custom-properties so the entire stylesheet
+     is mode-agnostic. Toggle persists in localStorage. */
+  :root {
+    --bg:        #faf7f1;
+    --surface:   #ffffff;
+    --text:      #1a1611;
+    --muted:     #5a5347;
+    --hint:      #8a8174;
+    --border:    rgba(0,0,0,0.10);
+    --border-mid:rgba(0,0,0,0.14);
+    --accent:    #c98c2a;
+    --accent-ui: #065f46;
+    --shadow:    0 1px 3px rgba(0,0,0,0.06), 0 4px 14px rgba(0,0,0,0.04);
+    --shadow-h:  0 4px 12px rgba(0,0,0,0.10), 0 12px 32px rgba(0,0,0,0.08);
+    --badge-free:#dcfce7;
+    --badge-free-t:#065f46;
+    --badge-paid:#fef3c7;
+    --badge-paid-t:#92400e;
+    --badge-serial:#dbeafe;
+    --badge-serial-t:#1e40af;
+  }
+  html[data-theme="dark"] {
+    --bg:        #14110d;
+    --surface:   #1f1a14;
+    --text:      #e8dece;
+    --muted:     #a89e8b;
+    --hint:      #79705f;
+    --border:    rgba(232,222,206,0.10);
+    --border-mid:rgba(232,222,206,0.16);
+    --accent:    #d4a44f;
+    --accent-ui: #34d399;
+    --shadow:    0 1px 3px rgba(0,0,0,0.4), 0 4px 14px rgba(0,0,0,0.3);
+    --shadow-h:  0 4px 12px rgba(0,0,0,0.5), 0 12px 32px rgba(0,0,0,0.4);
+    --badge-free:#064e3b;
+    --badge-free-t:#a7f3d0;
+    --badge-paid:#451a03;
+    --badge-paid-t:#fbbf24;
+    --badge-serial:#1e3a8a;
+    --badge-serial-t:#bfdbfe;
+  }
+
+  * { box-sizing: border-box }
+  html, body { margin: 0; padding: 0 }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+  a { color: var(--accent-ui); text-decoration: none }
+  a:hover { text-decoration: underline }
+
+  /* ── HEADER ─────────────────────────────────────────────── */
+  .shelf-hdr {
+    background: var(--surface);
+    border-bottom: .5px solid var(--border);
+    padding: 16px 20px;
+    position: sticky; top: 0; z-index: 10;
+    backdrop-filter: blur(8px);
+    background-color: color-mix(in srgb, var(--surface) 92%, transparent);
+  }
+  .shelf-hdr-row {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .shelf-brand {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -.01em;
+    color: var(--text);
+  }
+  .shelf-brand a { color: inherit; text-decoration: none }
+  .shelf-brand .accent { color: var(--accent) }
+  .shelf-hdr-actions {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .shelf-theme-btn {
+    background: none;
+    border: .5px solid var(--border-mid);
+    color: var(--text);
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    font-size: 16px;
+    cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background .12s;
+  }
+  .shelf-theme-btn:hover { background: var(--bg) }
+
+  /* ── CONTROLS ───────────────────────────────────────────── */
+  .shelf-controls {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 18px 20px 8px;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .shelf-search {
+    flex: 1; min-width: 220px;
+    background: var(--surface);
+    border: .5px solid var(--border-mid);
+    border-radius: 8px;
+    padding: 9px 14px;
+    font-size: 14px;
+    color: var(--text);
+    outline: none;
+    font-family: inherit;
+  }
+  .shelf-search:focus { border-color: var(--accent-ui) }
+  .shelf-select {
+    background: var(--surface);
+    border: .5px solid var(--border-mid);
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  /* ── GRID ───────────────────────────────────────────────── */
+  .shelf-grid-wrap {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 12px 20px 60px;
+  }
+  .shelf-status {
+    font-size: 12px;
+    color: var(--hint);
+    margin: 8px 0 14px;
+    min-height: 16px;
+  }
+  .shelf-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 18px;
+  }
+
+  /* ── CARD ───────────────────────────────────────────────── */
+  .shelf-card {
+    background: var(--surface);
+    border: .5px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: var(--text);
+    transition: transform .12s, box-shadow .12s, border-color .12s;
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    position: relative;
+    overflow: hidden;
+  }
+  .shelf-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-h);
+    border-color: var(--border-mid);
+    text-decoration: none;
+  }
+  .shelf-card-cover {
+    width: 100%;
+    aspect-ratio: 2/3;
+    object-fit: cover;
+    border-radius: 6px;
+    background: linear-gradient(135deg, var(--bg), var(--surface));
+    border: .5px solid var(--border);
+    margin-bottom: 12px;
+  }
+  .shelf-card-cover-placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--hint);
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 14px;
+    text-align: center;
+    padding: 12px;
+    font-style: italic;
+    line-height: 1.3;
+  }
+  .shelf-card-title {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 17px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--text);
+    margin: 0 0 4px;
+  }
+  .shelf-card-author {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 0 0 8px;
+    font-style: italic;
+  }
+  .shelf-card-blurb {
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.45;
+    margin: 0 0 10px;
+    display: -webkit-box;
+    -webkit-line-clamp: 4;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .shelf-card-foot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: .5px dotted var(--border-mid);
+  }
+  .shelf-badge {
+    display: inline-block;
+    font-size: 9.5px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+  .shelf-badge.free   { background: var(--badge-free);   color: var(--badge-free-t) }
+  .shelf-badge.paid   { background: var(--badge-paid);   color: var(--badge-paid-t) }
+  .shelf-badge.serial { background: var(--badge-serial); color: var(--badge-serial-t) }
+  .shelf-card-genre {
+    font-size: 10.5px;
+    color: var(--hint);
+    margin-left: auto;
+  }
+
+  /* ── EMPTY / LOADING ────────────────────────────────────── */
+  .shelf-empty {
+    text-align: center;
+    padding: 80px 20px;
+    color: var(--hint);
+    font-size: 14px;
+  }
+  .shelf-empty .lead {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 22px;
+    color: var(--text);
+    margin-bottom: 8px;
+  }
+  .shelf-loader {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--hint);
+    font-size: 13px;
+  }
+  .shelf-loader::after {
+    content: '';
+    display: inline-block;
+    width: 14px; height: 14px;
+    margin-left: 8px;
+    vertical-align: -3px;
+    border: 2px solid var(--border-mid);
+    border-top-color: var(--accent-ui);
+    border-radius: 50%;
+    animation: spin .8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg) } }
+
+  /* ── FOOTER ─────────────────────────────────────────────── */
+  .shelf-foot {
+    max-width: 1100px;
+    margin: 40px auto 0;
+    padding: 22px 20px 28px;
+    border-top: .5px solid var(--border);
+    font-size: 12px;
+    color: var(--hint);
+    text-align: center;
+  }
+  .shelf-foot a { color: var(--muted) }
+</style>
+</head>
+<body>
+
+<header class="shelf-hdr">
+  <div class="shelf-hdr-row">
+    <h1 class="shelf-brand">
+      <a href="/"><span class="accent">📚</span> The Folio Shelf</a>
+    </h1>
+    <div class="shelf-hdr-actions">
+      <a href="/app.html" style="font-size:12.5px;color:var(--muted)">Write a folio →</a>
+      <button class="shelf-theme-btn" id="shelfThemeBtn" onclick="toggleTheme()" title="Toggle day/night mode">☽</button>
+    </div>
+  </div>
+</header>
+
+<div class="shelf-controls">
+  <input class="shelf-search" id="shelfSearch" type="search" placeholder="Search by title or author…" oninput="renderShelf()">
+  <select class="shelf-select" id="shelfPrice" onchange="renderShelf()">
+    <option value="">All releases</option>
+    <option value="free">Free</option>
+    <option value="paid">Paid</option>
+    <option value="serial">Serial</option>
+  </select>
+  <select class="shelf-select" id="shelfGenre" onchange="renderShelf()">
+    <option value="">All genres</option>
+    <option value="literary">Literary fiction</option>
+    <option value="general">Fiction (general)</option>
+    <option value="mystery">Mystery / Crime</option>
+    <option value="thriller">Thriller / Suspense</option>
+    <option value="romance">Romance</option>
+    <option value="fantasy">Fantasy</option>
+    <option value="scifi">Science fiction</option>
+    <option value="horror">Horror</option>
+    <option value="historical">Historical fiction</option>
+    <option value="ya">Young adult</option>
+    <option value="children">Children's</option>
+    <option value="memoir">Memoir / Biography</option>
+    <option value="selfhelp">Self-help</option>
+    <option value="business">Business</option>
+    <option value="health">Health / Wellness</option>
+    <option value="poetry">Poetry</option>
+    <option value="essays">Essays / Short stories</option>
+    <option value="educational">Educational / How-to</option>
+    <option value="other">Other</option>
+  </select>
+  <select class="shelf-select" id="shelfSort" onchange="renderShelf()">
+    <option value="newest">Newest</option>
+    <option value="alpha">A → Z</option>
+    <option value="author">By author</option>
+  </select>
+</div>
+
+<div class="shelf-grid-wrap">
+  <div class="shelf-status" id="shelfStatus">Loading the shelf…</div>
+  <div class="shelf-grid" id="shelfGrid"></div>
+  <div class="shelf-loader" id="shelfLoader" style="display:none">Loading</div>
+</div>
+
+<footer class="shelf-foot">
+  Folio — beautiful books in your browser ·
+  <a href="/">Home</a> ·
+  <a href="/app.html">Write a folio</a> ·
+  <a href="/privacy.html">Privacy</a> ·
+  <a href="/terms.html">Terms</a>
+</footer>
+
+<!-- Firebase — same project as the editor + reader, public-read on
+     published folios is granted by the existing Firestore rule. -->
+<script type="module">
+  import { initializeApp }
+    from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js';
+  import { getFirestore, collection, query, where, getDocs, limit }
+    from 'https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js';
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAKZjqVjyJlBVbnB-uHe-93cBjB5fjp9C0",
+    authDomain: "auth.jacobsiler.com",
+    projectId: "folio-1f0a0",
+    storageBucket: "folio-1f0a0.firebasestorage.app",
+    messagingSenderId: "234395474961",
+    appId: "1:234395474961:web:5d23c1a3a4f6e8a9b3c7d2"
+  };
+  const app = initializeApp(firebaseConfig);
+  const db  = getFirestore(app);
+
+  // Folios universe — fetched once on load, filtered/sorted client-side.
+  // For v1 a 200-folio cap is plenty; pagination kicks in for v2 if we
+  // ever cross that line.
+  let _allFolios = [];
+
+  async function fetchShelf() {
+    const status = document.getElementById('shelfStatus');
+    const grid   = document.getElementById('shelfGrid');
+    try {
+      const q = query(
+        collection(db, 'folio_projects'),
+        where('release.listOnShelf', '==', true),
+        where('release.published',   '==', true),
+        limit(200)
+      );
+      const snap = await getDocs(q);
+      const out = [];
+      snap.forEach(d => {
+        const data = d.data() || {};
+        const r = data.release || {};
+        out.push({
+          id: d.id,
+          title:       String(r.title || data.name || 'Untitled'),
+          author:      String(r.author || ''),
+          description: String(r.description || ''),
+          blurb:       String(r.shelfBlurb || (r.shelfUseDescription ? r.description : '') || r.description || ''),
+          genre:       String(r.shelfGenre || ''),
+          coverUrl:    (typeof r.coverUrl === 'string' && /^https:\/\//i.test(r.coverUrl)) ? r.coverUrl : '',
+          priceMode:   String(r.priceMode || 'free'),
+          serial:      !!r.serial,
+          publishedAt: Number(r.publishedAt || 0),
+          listedAt:    Number(r.shelfListedAt || r.publishedAt || 0),
+        });
+      });
+      _allFolios = out;
+      window._shelfFolios = out;
+      renderShelf();
+    } catch (e) {
+      console.error('[shelf] fetch failed:', e);
+      if (status) status.textContent = 'Couldn\'t load the shelf. Refresh to retry.';
+      if (grid)   grid.innerHTML = '';
+    }
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+  window._shelfEsc = esc;
+
+  function renderShelf() {
+    const status = document.getElementById('shelfStatus');
+    const grid   = document.getElementById('shelfGrid');
+    if (!grid) return;
+
+    const searchEl = document.getElementById('shelfSearch');
+    const priceEl  = document.getElementById('shelfPrice');
+    const genreEl  = document.getElementById('shelfGenre');
+    const sortEl   = document.getElementById('shelfSort');
+    const search = ((searchEl && searchEl.value) || '').trim().toLowerCase();
+    const price  = (priceEl && priceEl.value) || '';
+    const genre  = (genreEl && genreEl.value) || '';
+    const sort   = (sortEl && sortEl.value) || 'newest';
+
+    let items = _allFolios.slice();
+    if (price === 'serial') items = items.filter(f => f.serial);
+    else if (price === 'free') items = items.filter(f => f.priceMode === 'free' && !f.serial);
+    else if (price === 'paid') items = items.filter(f => f.priceMode === 'paid' && !f.serial);
+    if (genre) items = items.filter(f => f.genre === genre);
+    if (search) {
+      items = items.filter(f =>
+        f.title.toLowerCase().includes(search) ||
+        f.author.toLowerCase().includes(search)
+      );
+    }
+    if (sort === 'alpha') items.sort((a, b) => a.title.localeCompare(b.title));
+    else if (sort === 'author') items.sort((a, b) => a.author.localeCompare(b.author) || a.title.localeCompare(b.title));
+    else items.sort((a, b) => b.listedAt - a.listedAt);
+
+    if (items.length === 0) {
+      grid.innerHTML = '';
+      grid.style.display = 'none';
+      if (!document.getElementById('shelfEmptyState')) {
+        const empty = document.createElement('div');
+        empty.id = 'shelfEmptyState';
+        empty.className = 'shelf-empty';
+        empty.innerHTML = _allFolios.length === 0
+          ? '<div class="lead">The shelf is empty.</div>' +
+            '<div>Be the first — <a href="/app.html">write a folio</a> and tick <em>List on the Folio Shelf</em>.</div>'
+          : '<div class="lead">No folios match those filters.</div>' +
+            '<div>Try clearing the filter or search.</div>';
+        document.querySelector('.shelf-grid-wrap').appendChild(empty);
+      }
+      if (status) status.textContent = _allFolios.length === 0
+        ? '' : '0 folios match · ' + _allFolios.length + ' on the shelf';
+      return;
+    }
+    const empty = document.getElementById('shelfEmptyState');
+    if (empty) empty.remove();
+    grid.style.display = '';
+
+    if (status) {
+      status.textContent = items.length === _allFolios.length
+        ? items.length + ' folio' + (items.length === 1 ? '' : 's') + ' on the shelf'
+        : items.length + ' of ' + _allFolios.length;
+    }
+
+    grid.innerHTML = items.map(f => {
+      const cover = f.coverUrl
+        ? '<img class="shelf-card-cover" src="' + esc(f.coverUrl) + '" alt="" loading="lazy">'
+        : '<div class="shelf-card-cover shelf-card-cover-placeholder">' + esc(f.title) + '</div>';
+      const badge = f.serial
+        ? '<span class="shelf-badge serial">serial</span>'
+        : f.priceMode === 'paid'
+          ? '<span class="shelf-badge paid">paid</span>'
+          : '<span class="shelf-badge free">free</span>';
+      const genreLabel = f.genre
+        ? '<span class="shelf-card-genre">' + esc(GENRE_LABELS[f.genre] || f.genre) + '</span>'
+        : '';
+      const blurb = f.blurb
+        ? '<p class="shelf-card-blurb">' + esc(f.blurb) + '</p>'
+        : '';
+      const href = '/app.html?read=' + encodeURIComponent(f.id);
+      return '<a class="shelf-card" href="' + esc(href) + '">' +
+        cover +
+        '<h2 class="shelf-card-title">' + esc(f.title) + '</h2>' +
+        (f.author ? '<p class="shelf-card-author">by ' + esc(f.author) + '</p>' : '') +
+        blurb +
+        '<div class="shelf-card-foot">' + badge + genreLabel + '</div>' +
+        '</a>';
+    }).join('');
+  }
+  window.renderShelf = renderShelf;
+
+  // Theme — read on load, toggle on click, persist in localStorage.
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    const btn = document.getElementById('shelfThemeBtn');
+    if (btn) btn.textContent = theme === 'dark' ? '☀' : '☽';
+  }
+  function toggleTheme() {
+    const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    const next = cur === 'dark' ? 'light' : 'dark';
+    try { localStorage.setItem('shelf_theme', next); } catch (e) { }
+    applyTheme(next);
+  }
+  window.toggleTheme = toggleTheme;
+
+  const saved = (() => { try { return localStorage.getItem('shelf_theme'); } catch (e) { return null; } })();
+  const prefers = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+  applyTheme(saved || (prefers ? 'dark' : 'light'));
+
+  // Boot
+  fetchShelf();
+
+  // Genre labels for the card chip — must mirror the dropdown options.
+  const GENRE_LABELS = {
+    literary: 'Literary',
+    general:  'Fiction',
+    mystery:  'Mystery',
+    thriller: 'Thriller',
+    romance:  'Romance',
+    fantasy:  'Fantasy',
+    scifi:    'Sci-fi',
+    horror:   'Horror',
+    historical: 'Historical',
+    ya:       'Young adult',
+    children: 'Children’s',
+    memoir:   'Memoir',
+    selfhelp: 'Self-help',
+    business: 'Business',
+    health:   'Health',
+    poetry:   'Poetry',
+    essays:   'Essays',
+    educational: 'Educational',
+    other:    'Other',
+  };
+  window.GENRE_LABELS = GENRE_LABELS;
+</script>
+
+</body>
+</html>
