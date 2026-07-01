@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- FOLIO BUILD v2026.07.01.6 -->
+<!-- FOLIO BUILD v2026.07.01.7 -->
 <html lang="en">
 <head>
 <script>
@@ -129,7 +129,7 @@ a:hover{text-decoration:underline}
   <a href="/">Home</a> · <a href="/app.html">Write a folio</a> ·
   <a id="shelfSupportLink" href="https://ko-fi.com/jacobsiler" target="_blank" rel="noopener">☕ Support Folio</a> ·
   <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a>
-  <div style="margin-top:6px;font-size:9.5px;color:var(--hint);opacity:.6">build v2026.07.01.6</div>
+  <div style="margin-top:6px;font-size:9.5px;color:var(--hint);opacity:.6">build v2026.07.01.7</div>
 </footer>
 <script>
 const GENRE_LABELS = {literary:'Literary',general:'Fiction',mystery:'Mystery',thriller:'Thriller',romance:'Romance',fantasy:'Fantasy',scifi:'Sci-fi',horror:'Horror',historical:'Historical',ya:'Young adult',children:'Children’s',memoir:'Memoir',selfhelp:'Self-help',business:'Business',health:'Health',poetry:'Poetry',essays:'Essays',educational:'Educational',other:'Other'};
@@ -278,7 +278,21 @@ async function fetchShelf(){
         serial:!!r.serial,
         publishedAt:Number(r.publishedAt||0),
         listedAt:Number(r.shelfListedAt||r.publishedAt||0),
-        featuredUntil:Number(r.featuredUntil||0)
+        // featuredUntil can be a Firestore Timestamp (from the console
+        // "timestamp" type), a raw millisecond number, a Date, or null.
+        // Coerce to ms number so the shelf's `> now` comparison works
+        // regardless of what shape the author (or admin) wrote. Also
+        // falls back to a top-level data.featuredUntil in case somebody
+        // wrote it outside the release map.
+        featuredUntil:(function(){
+          const raw=(r&&r.featuredUntil)||data.featuredUntil||null;
+          if(!raw)return 0;
+          if(typeof raw==='number')return raw;
+          if(typeof raw.toMillis==='function')return raw.toMillis();
+          if(typeof raw.seconds==='number')return raw.seconds*1000;
+          if(raw instanceof Date)return raw.getTime();
+          return 0;
+        })()
       });
     });
     _allFolios=out;window._shelfFolios=out;

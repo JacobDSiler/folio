@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- FOLIO BUILD v2026.07.01.7 — Featured Boost on the Shelf -->
+<!-- FOLIO BUILD v2026.07.01.8 — Featured Boost + Timestamp handling -->
 <html lang="en">
 
 <head>
@@ -19193,7 +19193,16 @@
           try {
             const _fs = document.getElementById('rlFeaturedStatus');
             if (_fs) {
-              const _fu = Number((_rlCurrent && _rlCurrent.featuredUntil) || 0);
+              // featuredUntil can be a Firestore Timestamp, raw ms number,
+              // Date, or null. Coerce to ms so the > now check works.
+              const _raw = (_rlCurrent && _rlCurrent.featuredUntil) || null;
+              let _fu = 0;
+              if (_raw) {
+                if (typeof _raw === 'number') _fu = _raw;
+                else if (typeof _raw.toMillis === 'function') _fu = _raw.toMillis();
+                else if (typeof _raw.seconds === 'number') _fu = _raw.seconds * 1000;
+                else if (_raw instanceof Date) _fu = _raw.getTime();
+              }
               const _now = Date.now();
               if (_fu > _now) {
                 const _d = new Date(_fu);
