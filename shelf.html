@@ -1,7 +1,19 @@
 <!doctype html>
-<!-- FOLIO BUILD v2026.07.01.1 -->
+<!-- FOLIO BUILD v2026.07.01.2 -->
 <html lang="en">
 <head>
+<!-- Non-module boot check — runs synchronously before ANY <script type="module">
+     imports. If this doesn't log to the console, something is blocking
+     script execution entirely (browser extension, CSP, corrupted response). -->
+<script>
+  console.log('[shelf] ⚡ non-module boot — page load reached this point at', new Date().toISOString());
+  window.addEventListener('error', function (e) {
+    console.error('[shelf] window error caught:', e.message, e.filename, e.lineno);
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    console.error('[shelf] unhandled promise rejection:', e.reason);
+  });
+</script>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>The Folio Shelf — browse books on onfolio.press</title>
@@ -367,7 +379,7 @@
   <a href="/privacy.html">Privacy</a> ·
   <a href="/terms.html">Terms</a>
   <div style="margin-top:6px;font-size:9.5px;color:var(--hint);opacity:.6">
-    build v2026.07.01.1
+    build v2026.07.01.2
   </div>
 </footer>
 
@@ -534,17 +546,4 @@
 
     grid.innerHTML = items.map(f => {
       const cover = f.coverUrl
-        ? '<img class="shelf-card-cover" src="' + esc(f.coverUrl) + '" alt="" loading="lazy">'
-        : '<div class="shelf-card-cover shelf-card-cover-placeholder">' + esc(f.title) + '</div>';
-      const badge = f.serial
-        ? '<span class="shelf-badge serial">serial</span>'
-        : f.priceMode === 'paid'
-          ? '<span class="shelf-badge paid">paid</span>'
-          : '<span class="shelf-badge free">free</span>';
-      const genreLabel = f.genre
-        ? '<span class="shelf-card-genre">' + esc(GENRE_LABELS[f.genre] || f.genre) + '</span>'
-        : '';
-      const blurb = f.blurb
-        ? '<p class="shelf-card-blurb">' + esc(f.blurb) + '</p>'
-        : '';
-      const href = '/app.html
+        ? '<img class="shelf-card-cover" src="' + esc(f.coverUrl) +
