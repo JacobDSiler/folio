@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- FOLIO BUILD v2026.07.01.6 — reader→imprint link + shelf listing (restored from 67c6cc7) -->
+<!-- FOLIO BUILD v2026.07.01.7 — Featured Boost on the Shelf -->
 <html lang="en">
 
 <head>
@@ -19189,6 +19189,22 @@
           if (_shelfUseDesc) _shelfUseDesc.checked = !!_rlCurrent.shelfUseDescription;
           if (typeof _rlToggleShelfFields === 'function')  _rlToggleShelfFields();
           if (typeof _rlToggleShelfDescField === 'function') _rlToggleShelfDescField();
+          // Featured Boost status display
+          try {
+            const _fs = document.getElementById('rlFeaturedStatus');
+            if (_fs) {
+              const _fu = Number((_rlCurrent && _rlCurrent.featuredUntil) || 0);
+              const _now = Date.now();
+              if (_fu > _now) {
+                const _d = new Date(_fu);
+                _fs.innerHTML = '✨ <strong>Currently featured</strong> until ' + _d.toLocaleString() + ' — thanks for supporting Folio!';
+                _fs.style.color = 'var(--accent)';
+              } else {
+                _fs.textContent = 'Not currently featured.';
+                _fs.style.color = 'var(--hint)';
+              }
+            }
+          } catch(e) { console.warn('[featured] status render failed:', e); }
           // Tip URL (author's external tip destination — Ko-fi etc.).
           const _tipEl = document.getElementById('rlTipUrl');
           if (_tipEl) _tipEl.value = _rlCurrent.tipUrl || '';
@@ -19410,6 +19426,11 @@
         shelfGenre: ((document.getElementById('rlShelfGenre') && document.getElementById('rlShelfGenre').value) || '').trim().slice(0, 40) || null,
         shelfBlurb: ((document.getElementById('rlShelfBlurb') && document.getElementById('rlShelfBlurb').value) || '').trim().slice(0, 280) || null,
         shelfUseDescription: !!(document.getElementById('rlShelfUseDesc') && document.getElementById('rlShelfUseDesc').checked),
+        // Preserve featuredUntil across republishes so the author doesn't
+        // lose their boost by editing + updating the release. Jacob sets
+        // this manually via Firestore for v1 (payment landed = write the
+        // timestamp).
+        featuredUntil: (_rlCurrent && _rlCurrent.featuredUntil) || null,
         shelfListedAt: (_rlCurrent && _rlCurrent.shelfListedAt)
           ? _rlCurrent.shelfListedAt
           : (!!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked) ? Date.now() : null),
@@ -27932,6 +27953,22 @@
             Customising the card visuals (colours, fonts, background) is a <strong>Folio Press</strong> Pro feature — coming soon.
           </div>
         </div>
+      </div>
+
+      <!-- ═══ FEATURED BOOST — v1: manual verification, external payment ═══
+           Author gets top-of-shelf placement with a ✨ badge for 24-72h.
+           Status field (release.featuredUntil, ms epoch) is set manually
+           by Jacob when payment lands. Automated Stripe integration in v2. -->
+      <div id="rlFeaturedSection" style="margin:14px 0 10px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
+        <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:0 0 4px">
+          🚀 <strong>Boost your listing</strong> <span style="opacity:.7;font-weight:400">(top-of-Shelf placement + ✨ badge)</span>
+        </div>
+        <div id="rlFeaturedStatus" style="font-size:11px;color:var(--hint);margin:4px 0 8px 24px;line-height:1.5">
+          Not currently featured.
+        </div>
+        <p id="rlFeaturedPitch" style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:2px 0 6px 24px">
+          Featured listings render at the top of <a href="/shelf" target="_blank" style="color:var(--accent-ui)">the Shelf</a> with an ✨ badge and a gold border — significantly more clicks vs the regular grid, especially for new arrivals and Kickstarter pushes. v1 pricing is manual: <a href="mailto:folio@jacobsiler.com?subject=Boost%20my%20Folio%20Shelf%20listing" style="color:var(--accent-ui)">email Jacob</a> with your folio + how long you want featured (24h / 72h / 7 days). Paid via any method (Gumroad, Stripe Payment Link, Ko-fi, PayPal). Once payment lands, your listing goes live within an hour.
+        </p>
       </div>
 
       <!-- Audiobook attachment — available for every release mode, not
