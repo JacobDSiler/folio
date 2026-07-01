@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- FOLIO BUILD v2026.07.01.5 -->
+<!-- FOLIO BUILD v2026.07.01.6 -->
 <html lang="en">
 <head>
 <script>
@@ -72,6 +72,11 @@ a:hover{text-decoration:underline}
 .shelf-badge.paid{background:var(--badge-paid);color:var(--badge-paid-t)}
 .shelf-badge.serial{background:var(--badge-serial);color:var(--badge-serial-t)}
 .shelf-card-genre{font-size:10.5px;color:var(--hint);margin-left:auto}
+.shelf-featured-divider{max-width:1100px;margin:8px auto 4px;padding:0 20px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.10em;color:var(--accent);display:flex;align-items:center;gap:10px}
+.shelf-featured-divider::before,.shelf-featured-divider::after{content:'';flex:1;height:.5px;background:var(--border-mid)}
+.shelf-card.featured{border:1px solid var(--accent);box-shadow:0 0 0 3px rgba(201,140,42,0.10),var(--shadow)}
+.shelf-card.featured:hover{box-shadow:0 0 0 3px rgba(201,140,42,0.14),var(--shadow-h)}
+.shelf-badge.featured{background:var(--accent);color:#fff}
 .shelf-empty{text-align:center;padding:80px 20px;color:var(--hint);font-size:14px}
 .shelf-empty .lead{font-family:'Playfair Display',Georgia,serif;font-size:22px;color:var(--text);margin-bottom:8px}
 .shelf-foot{max-width:1100px;margin:40px auto 0;padding:22px 20px 28px;border-top:.5px solid var(--border);font-size:12px;color:var(--hint);text-align:center}
@@ -112,6 +117,11 @@ a:hover{text-decoration:underline}
 </div>
 <div class="shelf-grid-wrap">
   <div class="shelf-status" id="shelfStatus">Loading the shelf…</div>
+  <div id="shelfFeaturedContainer" style="display:none">
+    <div class="shelf-featured-divider">✨ Featured</div>
+    <div class="shelf-grid" id="shelfFeaturedGrid"></div>
+  </div>
+  <div id="shelfRegularDivider" class="shelf-featured-divider" style="display:none;color:var(--hint)"><span style="text-transform:none;letter-spacing:.04em;font-weight:400">the rest of the shelf</span></div>
   <div class="shelf-grid" id="shelfGrid"></div>
 </div>
 <footer class="shelf-foot">
@@ -119,7 +129,7 @@ a:hover{text-decoration:underline}
   <a href="/">Home</a> · <a href="/app.html">Write a folio</a> ·
   <a id="shelfSupportLink" href="https://ko-fi.com/jacobsiler" target="_blank" rel="noopener">☕ Support Folio</a> ·
   <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a>
-  <div style="margin-top:6px;font-size:9.5px;color:var(--hint);opacity:.6">build v2026.07.01.5</div>
+  <div style="margin-top:6px;font-size:9.5px;color:var(--hint);opacity:.6">build v2026.07.01.6</div>
 </footer>
 <script>
 const GENRE_LABELS = {literary:'Literary',general:'Fiction',mystery:'Mystery',thriller:'Thriller',romance:'Romance',fantasy:'Fantasy',scifi:'Sci-fi',horror:'Horror',historical:'Historical',ya:'Young adult',children:'Children’s',memoir:'Memoir',selfhelp:'Self-help',business:'Business',health:'Health',poetry:'Poetry',essays:'Essays',educational:'Educational',other:'Other'};
@@ -164,6 +174,41 @@ function renderShelf(){
   if(existing)existing.remove();
   grid.style.display='';
   if(status)status.textContent=items.length===_allFolios.length?items.length+' folio'+(items.length===1?'':'s')+' on the shelf':items.length+' of '+_allFolios.length;
+  // Split featured vs regular. Featured = featuredUntil > now.
+  // Rendered in a separate grid at the top with a ✨ badge.
+  const now = Date.now();
+  const featured = items.filter(f => f.featuredUntil > now);
+  const regular  = items.filter(f => !(f.featuredUntil > now));
+  const featuredContainer = document.getElementById('shelfFeaturedContainer');
+  const featuredGrid = document.getElementById('shelfFeaturedGrid');
+  const regularDivider = document.getElementById('shelfRegularDivider');
+  const cardHtml = (f, isFeatured) => {
+    const cover=f.coverUrl?'<img class="shelf-card-cover" src="'+esc(f.coverUrl)+'" alt="" loading="lazy">':'<div class="shelf-card-cover shelf-card-cover-placeholder">'+esc(f.title)+'</div>';
+    const featBadge = isFeatured ? '<span class="shelf-badge featured">✨ featured</span>' : '';
+    const typeBadge=f.serial?'<span class="shelf-badge serial">serial</span>':f.priceMode==='paid'?'<span class="shelf-badge paid">paid</span>':'<span class="shelf-badge free">free</span>';
+    const badge = featBadge + typeBadge;
+    const genre=f.genre?'<span class="shelf-card-genre">'+esc(GENRE_LABELS[f.genre]||f.genre)+'</span>':'';
+    const blurb=f.blurb?'<p class="shelf-card-blurb">'+esc(f.blurb)+'</p>':'';
+    const href='/app.html?read='+encodeURIComponent(f.id);
+    const authorPart=f.author?'<p class="shelf-card-author">by '+(f.uid?'<a href="/imprint/?uid='+encodeURIComponent(f.uid)+'" onclick="event.stopPropagation()">'+esc(f.author)+'</a>':esc(f.author))+'</p>':'';
+    return '<div class="shelf-card'+(isFeatured?' featured':'')+'" onclick="if(!event.target.closest(\'a\'))window.location=\''+esc(href)+'\'" tabindex="0" onkeydown="if(event.key===\'Enter\')window.location=\''+esc(href)+'\'">'+
+      cover+
+      '<h2 class="shelf-card-title"><a href="'+esc(href)+'">'+esc(f.title)+'</a></h2>'+
+      authorPart+blurb+
+      '<div class="shelf-card-foot">'+badge+genre+'</div>'+
+      '</div>';
+  };
+  if (featured.length > 0) {
+    if (featuredContainer) featuredContainer.style.display = '';
+    if (featuredGrid) featuredGrid.innerHTML = featured.map(f => cardHtml(f, true)).join('');
+    if (regularDivider && regular.length > 0) regularDivider.style.display = 'flex';
+    else if (regularDivider) regularDivider.style.display = 'none';
+  } else {
+    if (featuredContainer) featuredContainer.style.display = 'none';
+    if (regularDivider) regularDivider.style.display = 'none';
+  }
+  grid.innerHTML=regular.map(f => cardHtml(f, false)).join('');
+  return; // (below is legacy render that we've replaced — kept for safety, but return here)
   grid.innerHTML=items.map(f=>{
     const cover=f.coverUrl?'<img class="shelf-card-cover" src="'+esc(f.coverUrl)+'" alt="" loading="lazy">':'<div class="shelf-card-cover shelf-card-cover-placeholder">'+esc(f.title)+'</div>';
     const badge=f.serial?'<span class="shelf-badge serial">serial</span>':f.priceMode==='paid'?'<span class="shelf-badge paid">paid</span>':'<span class="shelf-badge free">free</span>';
@@ -232,7 +277,8 @@ async function fetchShelf(){
         priceMode:String(r.priceMode||'free'),
         serial:!!r.serial,
         publishedAt:Number(r.publishedAt||0),
-        listedAt:Number(r.shelfListedAt||r.publishedAt||0)
+        listedAt:Number(r.shelfListedAt||r.publishedAt||0),
+        featuredUntil:Number(r.featuredUntil||0)
       });
     });
     _allFolios=out;window._shelfFolios=out;
