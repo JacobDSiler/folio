@@ -218,7 +218,7 @@ function renderShelf(){
     // into the release modal. Extra buttons on foes are hidden.
     const isMine = !!(window._myUid && f.uid && window._myUid === f.uid);
     const boostChip = isMine
-      ? '<button class="shelf-boost-chip" onclick="event.stopPropagation();openBoostPicker(\''+esc(f.id)+'\',\''+esc(f.title).replace(/\'/g,\"\\\\'\")+'\')" title="Boost this folio">🚀 Boost</button>'
+      ? '<button class="shelf-boost-chip" onclick="event.stopPropagation();openBoostPicker(\''+esc(f.id)+'\',\''+esc(f.title).replace(/\'/g,"\\'")+'\')" title="Boost this folio">🚀 Boost</button>'
       : '';
     return '<div class="shelf-card'+(isFeatured?' featured':'')+'" onclick="if(!event.target.closest(\'a\')&&!event.target.closest(\'button\'))window.location=\''+esc(href)+'\'" tabindex="0" onkeydown="if(event.key===\'Enter\')window.location=\''+esc(href)+'\'">'+
       cover+
