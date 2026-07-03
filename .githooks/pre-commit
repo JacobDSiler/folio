@@ -1,0 +1,68 @@
+#!/bin/sh
+# ═══════════════════════════════════════════════════════════════════
+# Folio pre-commit hook — catches worker truncation before push.
+#
+# The paywall worker has been truncated at its dispatcher tail three
+# times this week. Diagnosis is in task #57. Until root cause is
+# fixed, this hook is the last line of defense:
+#   1. Syntax check via `node --check`
+#   2. Tail-pattern check — the file MUST end with `};` (the export closure)
+#   3. Byte-count sanity — expect > 50 KB, warn if unexpectedly small
+#
+# Exits non-zero (blocking the commit) on any failure. To bypass in
+# an emergency, use `git commit --no-verify`.
+# ═══════════════════════════════════════════════════════════════════
+
+WORKER=folio-paywall-worker.js
+
+if [ ! -f "$WORKER" ]; then
+  # Not in a folio checkout — nothing to check.
+  exit 0
+fi
+
+# 1. Syntax check
+if ! node --check "$WORKER" 2>/dev/null; then
+  echo ""
+  echo "❌ COMMIT BLOCKED — $WORKER has a syntax error."
+  echo ""
+  echo "   Most common cause: end-of-file truncation."
+  echo "   Check the tail with:  tail -12 $WORKER"
+  echo "   Expected tail:        ends with '};' after the export block."
+  echo ""
+  echo "   If you truly need to commit anyway: git commit --no-verify"
+  echo ""
+  exit 1
+fi
+
+# 2. Tail-pattern check — file must end with `};` or `}` (both valid JS)
+# AND the last 500 bytes must contain `export default` so we know the
+# dispatcher block is present.
+LAST_STRIPPED=$(tail -c 10 "$WORKER" | tr -d '[:space:]')
+# Accept `};` or `}` — both are valid ways to end an export default block.
+case "$LAST_STRIPPED" in
+  *"};"|*"}") ;;
+  *)
+    echo ""
+    echo "❌ COMMIT BLOCKED — $WORKER doesn't end with a closing brace."
+    echo ""
+    echo "   Last non-space chars: [$LAST_STRIPPED]"
+    echo "   File is likely truncated mid-dispatcher."
+    echo "   Check the tail with:  tail -15 $WORKER"
+    echo ""
+    exit 1
+    ;;
+esac
+
+# The dispatcher must be near the tail. If `export default` isn't in the
+# last 4000 bytes, the file has been cut off before the export block.
+if ! tail -c 4000 "$WORKER" | grep -q "export default"; then
+  echo ""
+  echo "❌ COMMIT BLOCKED — $WORKER is missing 'export default' near the tail."
+  echo ""
+  echo "   Dispatcher block is likely truncated."
+  echo "   Check the tail with:  tail -30 $WORKER"
+  echo ""
+  exit 1
+fi
+
+# 3. Byte-count sanity — 

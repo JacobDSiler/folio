@@ -683,6 +683,72 @@ async function handleVerifyCode(request, env) {
   }
 }
 
+/* Query Firestore for a count of currently-featured folios that are
+   still live (release.featuredUntil > now && published && listOnShelf).
+   Used by /boost-checkout to enforce FEATURED_SLOT_CAP and by
+   /boost-slots to expose scarcity to the client for UI decisions.
+   Returns { count, nextOpeningMs } — nextOpeningMs is the earliest
+   featuredUntil among currently-featured folios (or 0 if none). */
+async function fsCountActiveBoosts(env) {
+  const acc = await getAccessToken(env);
+  const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+  // Firestore REST doesn't support the same rich filter API as the client
+  // SDK for nested fields, so we use runQuery with a structured query
+  // that filters on release.published == true, then filter the rest in
+  // memory (small collection, fine for MVP).
+  const url = 'https://firestore.googleapis.com/v1/projects/' + pid +
+              '/databases/(default)/documents:runQuery';
+  const body = {
+    structuredQuery: {
+      from: [{ collectionId: 'folio_projects' }],
+      where: {
+        fieldFilter: {
+          field: { fieldPath: 'release.published' },
+          op: 'EQUAL',
+          value: { booleanValue: true }
+        }
+      },
+      limit: 500
+    }
+  };
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + acc.token,
+      'Content-Type':  'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const data = await r.json().catch(() => ({}));
+    throw new Error('Firestore runQuery failed: ' +
+      ((data.error && data.error.message) || r.status));
+  }
+  const results = await r.json();
+  const now = Date.now();
+  let count = 0;
+  let earliestExpiry = 0;
+  for (const item of (results || [])) {
+    if (!item.document) continue;
+    const fields = fsDecodeFields(item.document.fields || {});
+    const release = fields.release || {};
+    if (!release.listOnShelf) continue;
+    // featuredUntil comes back as timestampValue string; parse safely.
+    let untilMs = 0;
+    const raw = release.featuredUntil;
+    if (raw) {
+      if (typeof raw === 'number') untilMs = raw;
+      else if (typeof raw === 'string') { const d = new Date(raw); if (!isNaN(d)) untilMs = d.getTime(); }
+      else if (raw && typeof raw.seconds === 'number') untilMs = raw.seconds * 1000;
+    }
+    if (untilMs > now) {
+      count++;
+      if (!earliestExpiry || untilMs < earliestExpiry) earliestExpiry = untilMs;
+    }
+  }
+  return { count: count, nextOpeningMs: earliestExpiry };
+}
+
 /* ══════════════════════════════════════════════════════════════════
    BOOST — PayPal-backed featured-boost fulfilment
    ────────────────────────────────────────────────────────────────────
@@ -841,13 +907,38 @@ async function handleBoostCheckout(request, env) {
   }
   const folioTitle = String(release.title || 'this folio').slice(0, 60);
 
-  // custom_id must be ≤ 127 chars. Compact tag: v1|folioId|tier|uid|ts
+  // Slot-cap check — Phase 3 task #51. Cap concurrent featured slots
+  // so "featured" retains scarcity value. When full, refuse the purchase
+  // and tell the buyer the earliest opening time so they can retry.
+  // Cap defaults to 4; override with FEATURED_SLOT_CAP env var (int).
+  const slotCap = Math.max(1, parseInt(env.FEATURED_SLOT_CAP || '4', 10) || 4);
+  try {
+    const slots = await fsCountActiveBoosts(env);
+    if (slots.count >= slotCap) {
+      const openingIn = Math.max(0, slots.nextOpeningMs - Date.now());
+      const hours = Math.round(openingIn / 3600000 * 10) / 10;
+      return json({
+        ok: false,
+        error: 'Featured slots full',
+        detail: 'All ' + slotCap + ' featured slots are currently in use. Next opening in ~' + hours + 'h. Try again then, or check /shelf to see who\'s currently featured.',
+        slots_occupied: slots.count,
+        slot_cap: slotCap,
+        next_opening_ms: slots.nextOpeningMs,
+      }, 429, request, env);
+    }
+  } catch (e) {
+    // If the slot count query itself fails, be conservative and allow
+    // the purchase — better to over-feature by one than block revenue
+    // on a transient Firestore hiccup. Log for observability.
+    console.warn('[boost] slot-count query failed, allowing purchase:', e.message);
+  }
+
+  // custom_id must be <= 127 chars. Compact tag: v1|folioId|tier|uid|ts
   const stamp = Date.now();
   const customId = ['v1', folioId, tier, uid || '-', stamp].join('|').slice(0, 127);
 
   // Return URL — where PayPal redirects the buyer after they approve.
-  // We handle capture on that landing (see handleBoostReturn below).
-  // Cancel URL — back to whatever page they came from, with cancelled flag.
+  // Cancel URL — back to shelf with cancelled flag.
   const site   = siteOrigin(request, env);
   const self   = boostSelfBase(request);
   const returnUrl = self + '/boost-return?site=' + encodeURIComponent(site);
@@ -892,7 +983,6 @@ async function handleBoostCheckout(request, env) {
     return errorJson('PayPal request failed: ' + (e.message || 'unknown'), 502, request, env);
   }
 
-  // The 'approve' link is what the browser redirects to.
   const links = orderResp.links || [];
   const approve = links.find(function (l) { return l.rel === 'approve' || l.rel === 'payer-action'; });
   if (!approve) {
@@ -907,11 +997,45 @@ async function handleBoostCheckout(request, env) {
   }, 200, request, env);
 }
 
-/* GET /boost-return?token=<orderId>&PayerID=…&site=<origin>
-   Landing after PayPal approval. Captures the order via PayPal API,
-   pulls custom_id, writes release.featuredUntil, then 302s the
-   browser back to <site>/shelf?boosted=1&title=… (success) or
-   /shelf?boost=failed (failure). */
+/* Firestore idempotency check — has this PayPal capture been applied?
+   Stashes a doc at boost_receipts/{captureId} the first time we apply
+   a boost. Both /boost-return and /boost-webhook consult this. */
+async function fsBoostReceiptExists(env, captureId) {
+  const acc = await getAccessToken(env);
+  const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+  const doc = await fsGet(pid, acc.token, 'boost_receipts/' + encodeURIComponent(captureId));
+  return doc != null;
+}
+async function fsBoostReceiptWrite(env, captureId, meta) {
+  const acc = await getAccessToken(env);
+  const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+  const url = 'https://firestore.googleapis.com/v1/projects/' + pid +
+              '/databases/(default)/documents/boost_receipts/' + encodeURIComponent(captureId);
+  const fields = {
+    folioId: { stringValue: String(meta.folioId || '') },
+    tier:    { stringValue: String(meta.tier || '') },
+    source:  { stringValue: String(meta.source || 'unknown') },
+    untilMs: { integerValue: String(meta.untilMs || 0) },
+    appliedAt: { timestampValue: new Date().toISOString() },
+  };
+  const r = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': 'Bearer ' + acc.token,
+      'Content-Type':  'application/json',
+    },
+    body: JSON.stringify({ fields }),
+  });
+  if (!r.ok) {
+    const data = await r.json().catch(() => ({}));
+    throw new Error('Firestore receipt write failed: ' +
+      ((data.error && data.error.message) || r.status));
+  }
+  return true;
+}
+
+/* GET /boost-return — landing after PayPal approval. Captures the order,
+   reads custom_id, writes featuredUntil idempotently, redirects to shelf. */
 async function handleBoostReturn(request, env) {
   const url = new URL(request.url);
   const orderId = url.searchParams.get('token') || url.searchParams.get('orderId') || '';
@@ -930,7 +1054,6 @@ async function handleBoostReturn(request, env) {
   try { ppAccess = await ppAccessToken(env); }
   catch (e) { return back('boost=failed&reason=auth'); }
 
-  // Capture the order — this is the money-taking moment.
   let cap;
   try {
     const r = await fetch(ppBase(env) + '/v2/checkout/orders/' + encodeURIComponent(orderId) + '/capture', {
@@ -948,10 +1071,28 @@ async function handleBoostReturn(request, env) {
     return back('boost=failed&reason=network');
   }
 
-  // Read custom_id back off the captured order to know what to boost.
+  // custom_id lives at purchase_units[0].payments.captures[0].custom_id
+  // in the capture response (moved from where we set it at order-create).
   const pu = (cap.purchase_units && cap.purchase_units[0]) || {};
-  const customId = pu.custom_id || pu.customId || '';
-  if (!customId) return back('boost=failed&reason=no-metadata');
+  const captures = (pu.payments && pu.payments.captures) || [];
+  const cap0 = captures[0] || {};
+  const customId =
+    cap0.custom_id  || cap0.customId  ||
+    pu.custom_id    || pu.customId    ||
+    cap.custom_id   || cap.customId   || '';
+  if (!customId) {
+    try {
+      console.log('[boost] no-metadata; captured order shape:',
+        JSON.stringify({
+          orderId: cap.id, status: cap.status,
+          pu_keys: Object.keys(pu),
+          payments_keys: Object.keys(pu.payments || {}),
+          captures_len: captures.length,
+          cap0_keys: Object.keys(cap0),
+        }));
+    } catch (_) {}
+    return back('boost=failed&reason=no-metadata');
+  }
   const parts = customId.split('|');
   if (parts[0] !== 'v1' || parts.length < 4) return back('boost=failed&reason=bad-metadata');
   const folioId = parts[1];
@@ -959,27 +1100,282 @@ async function handleBoostReturn(request, env) {
   const spec    = BOOST_TIERS[tier];
   if (!folioId || !spec) return back('boost=failed&reason=bad-tier');
 
+  // Idempotency check — did the webhook already apply for this capture?
+  const captureId = cap0.id || cap.id || '';
+  if (captureId) {
+    try {
+      if (await fsBoostReceiptExists(env, captureId)) {
+        const _titleDup = ((pu.description || cap0.description || '').split('—').pop() || '').trim();
+        return back('boosted=1&tier=' + encodeURIComponent(tier) +
+                    '&title=' + encodeURIComponent(_titleDup) + '&dup=1');
+      }
+    } catch (e) {
+      console.warn('[return] receipt check failed, proceeding anyway:', e.message);
+    }
+  }
+
   const untilMs = Date.now() + spec.ms;
   try {
     await fsSetFeaturedUntil(env, folioId, untilMs);
+    if (captureId) {
+      try {
+        await fsBoostReceiptWrite(env, captureId, {
+          folioId: folioId, tier: tier, untilMs: untilMs, source: 'return'
+        });
+      } catch (e) {
+        console.warn('[return] receipt write failed (non-fatal):', e.message);
+      }
+    }
   } catch (e) {
     return back('boost=failed&reason=firestore&msg=' + encodeURIComponent(e.message || 'unknown'));
   }
-  const title = ((pu.description || '').split('—').pop() || '').trim();
+  const title = ((pu.description || cap0.description || '').split('—').pop() || '').trim();
   return back('boosted=1&tier=' + encodeURIComponent(tier) +
               '&title=' + encodeURIComponent(title));
 }
 
-/* POST /boost-webhook — Phase 2C scaffold.
-   Real implementation will verify PayPal signature headers (transmission-id,
-   transmission-time, cert-url, auth-algo, transmission-sig, plus WEBHOOK_ID)
-   before writing. For now, refuse anonymous writes so no one can spoof
-   fulfilment by POSTing straight here. */
+/* POST /boost-webhook — Phase 2C safety net. Verifies PayPal signature
+   via PayPal's own verify-webhook-signature endpoint, then applies
+   featuredUntil idempotently via boost_receipts. */
 async function handleBoostWebhook(request, env) {
-  return errorJson('Webhook signature verification not implemented yet (Phase 2C)', 501, request, env);
+  if (!env.PAYPAL_WEBHOOK_ID) {
+    return errorJson('PAYPAL_WEBHOOK_ID not configured', 500, request, env);
+  }
+  if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
+    return errorJson('PayPal creds not configured', 500, request, env);
+  }
+  if (!env.GCP_SERVICE_ACCOUNT) {
+    return errorJson('Firestore service account not configured', 500, request, env);
+  }
+
+  const rawBody = await request.text();
+  let webhookEvent;
+  try { webhookEvent = JSON.parse(rawBody); }
+  catch (e) { return errorJson('Bad webhook body', 400, request, env); }
+
+  const transmissionId   = request.headers.get('paypal-transmission-id');
+  const transmissionTime = request.headers.get('paypal-transmission-time');
+  const certUrl          = request.headers.get('paypal-cert-url');
+  const authAlgo         = request.headers.get('paypal-auth-algo');
+  const transmissionSig  = request.headers.get('paypal-transmission-sig');
+  if (!transmissionId || !transmissionTime || !certUrl || !transmissionSig) {
+    return errorJson('Missing PayPal transmission headers', 400, request, env);
+  }
+
+  let ppAccess;
+  try { ppAccess = await ppAccessToken(env); }
+  catch (e) { return errorJson('PayPal auth failed: ' + (e.message || 'unknown'), 502, request, env); }
+
+  try {
+    const verifyResp = await fetch(ppBase(env) + '/v1/notifications/verify-webhook-signature', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + ppAccess,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify({
+        transmission_id:   transmissionId,
+        transmission_time: transmissionTime,
+        cert_url:          certUrl,
+        auth_algo:         authAlgo,
+        transmission_sig:  transmissionSig,
+        webhook_id:        env.PAYPAL_WEBHOOK_ID,
+        webhook_event:     webhookEvent,
+      }),
+    });
+    const verifyData = await verifyResp.json().catch(() => ({}));
+    if (verifyData.verification_status !== 'SUCCESS') {
+      console.log('[webhook] signature verify failed:',
+        JSON.stringify({ status: verifyData.verification_status, event_id: webhookEvent.id }));
+      return errorJson('Signature verification failed', 401, request, env);
+    }
+  } catch (e) {
+    return errorJson('Signature verify network error: ' + (e.message || 'unknown'), 502, request, env);
+  }
+
+  const eventType = webhookEvent.event_type || '';
+  const resource  = webhookEvent.resource || {};
+
+  if (eventType !== 'PAYMENT.CAPTURE.COMPLETED') {
+    console.log('[webhook] noop event:', eventType);
+    return json({ ok: true, action: 'noop', eventType: eventType }, 200, request, env);
+  }
+
+  const captureId = resource.id || '';
+  const customId  = resource.custom_id || resource.customId || '';
+  if (!captureId) {
+    return json({ ok: true, action: 'ignored', reason: 'no capture id' }, 200, request, env);
+  }
+  if (!customId) {
+    console.log('[webhook] capture without custom_id:', captureId);
+    return json({ ok: true, action: 'ignored', reason: 'no custom_id' }, 200, request, env);
+  }
+  const parts = customId.split('|');
+  if (parts[0] !== 'v1' || parts.length < 4) {
+    return json({ ok: true, action: 'ignored', reason: 'bad custom_id format' }, 200, request, env);
+  }
+  const folioId = parts[1];
+  const tier    = parts[2];
+  const spec    = BOOST_TIERS[tier];
+  if (!folioId || !spec) {
+    return json({ ok: true, action: 'ignored', reason: 'bad folio/tier' }, 200, request, env);
+  }
+
+  try {
+    if (await fsBoostReceiptExists(env, captureId)) {
+      console.log('[webhook] duplicate delivery, receipt exists for', captureId);
+      return json({ ok: true, action: 'duplicate', captureId: captureId }, 200, request, env);
+    }
+  } catch (e) {
+    return errorJson('Receipt check failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+
+  const untilMs = Date.now() + spec.ms;
+  try {
+    await fsSetFeaturedUntil(env, folioId, untilMs);
+    await fsBoostReceiptWrite(env, captureId, {
+      folioId: folioId, tier: tier, untilMs: untilMs, source: 'webhook'
+    });
+    console.log('[webhook] applied boost:', folioId, tier, 'until', new Date(untilMs).toISOString());
+    return json({ ok: true, action: 'applied', folioId: folioId, tier: tier, untilMs: untilMs }, 200, request, env);
+  } catch (e) {
+    console.error('[webhook] apply failed:', e);
+    return errorJson('Firestore write failed: ' + (e.message || 'unknown'), 500, request, env);
+  }
 }
 
-/* ── Dispatcher ───────────────────────────────────────────────────────────────────── */
+/* GET /boost-slots — public scarcity signal for the client UI. */
+async function handleBoostSlots(request, env) {
+  if (!env.GCP_SERVICE_ACCOUNT) {
+    return errorJson('Firestore service account not configured', 500, request, env);
+  }
+  const cap = Math.max(1, parseInt(env.FEATURED_SLOT_CAP || '4', 10) || 4);
+  try {
+    const slots = await fsCountActiveBoosts(env);
+    return json({
+      ok: true,
+      count: slots.count,
+      cap: cap,
+      next_opening_ms: slots.nextOpeningMs,
+      full: slots.count >= cap,
+    }, 200, request, env);
+  } catch (e) {
+    return errorJson('Slot query failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+}
+
+/* POST /view-record — increments folio.viewCount by 1. */
+async function handleViewRecord(request, env) {
+  if (!env.GCP_SERVICE_ACCOUNT) {
+    return errorJson('Firestore service account not configured', 500, request, env);
+  }
+  let body;
+  try { body = await request.json(); }
+  catch (e) { return errorJson('Bad JSON body', 400, request, env); }
+  const folioId = String((body && body.folioId) || '').trim();
+  if (!folioId) return errorJson('Missing folioId', 400, request, env);
+  try {
+    const acc = await getAccessToken(env);
+    const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+    const url = 'https://firestore.googleapis.com/v1/projects/' + pid +
+                '/databases/(default)/documents:commit';
+    const payload = {
+      writes: [{
+        transform: {
+          document: 'projects/' + pid + '/databases/(default)/documents/folio_projects/' + folioId,
+          fieldTransforms: [{
+            fieldPath: 'viewCount',
+            increment: { integerValue: '1' }
+          }]
+        }
+      }]
+    };
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + acc.token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      return errorJson('Firestore commit failed: ' + ((data.error && data.error.message) || r.status), 502, request, env);
+    }
+    return json({ ok: true }, 200, request, env);
+  } catch (e) {
+    return errorJson('View record failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+}
+
+/* GET /boost-debug — admin-gated diagnostic. */
+async function handleBoostDebug(request, env) {
+  const url = new URL(request.url);
+  const tokenParam = url.searchParams.get('token') || '';
+  const expected = env.ADMIN_DEBUG_TOKEN || '';
+  if (!expected) {
+    return errorJson('Debug endpoint disabled — ADMIN_DEBUG_TOKEN not set', 403, request, env);
+  }
+  if (tokenParam !== expected) {
+    return errorJson('Forbidden', 403, request, env);
+  }
+  const cid = env.PAYPAL_CLIENT_ID || '';
+  const sec = env.PAYPAL_CLIENT_SECRET || '';
+  const mode = env.PAYPAL_MODE || '(unset — defaults to sandbox)';
+  const effectiveMode = env.PAYPAL_MODE === 'live' ? 'live' : 'sandbox';
+  const base = ppBase(env);
+  const info = {
+    mode_env: mode,
+    effective_mode: effectiveMode,
+    base_url: base,
+    client_id: {
+      present: !!cid,
+      length: cid.length,
+      first_4: cid.slice(0, 4),
+      last_4:  cid.slice(-4),
+      has_whitespace: /\s/.test(cid),
+      has_leading_space:  cid !== cid.replace(/^\s+/, ''),
+      has_trailing_space: cid !== cid.replace(/\s+$/, ''),
+    },
+    client_secret: {
+      present: !!sec,
+      length: sec.length,
+      has_whitespace: /\s/.test(sec),
+      has_leading_space:  sec !== sec.replace(/^\s+/, ''),
+      has_trailing_space: sec !== sec.replace(/\s+$/, ''),
+    },
+    paypal_auth_attempt: null,
+  };
+  if (cid && sec) {
+    try {
+      const basic = btoa(cid + ':' + sec);
+      const r = await fetch(base + '/v1/oauth2/token', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Basic ' + basic,
+          'Content-Type':  'application/x-www-form-urlencoded',
+        },
+        body: 'grant_type=client_credentials',
+      });
+      const data = await r.json().catch(() => ({ _parse_error: true }));
+      info.paypal_auth_attempt = {
+        http_status: r.status,
+        ok: r.ok,
+        error: data.error || null,
+        error_description: data.error_description || null,
+        got_access_token: !!data.access_token,
+        expires_in: data.expires_in || null,
+      };
+    } catch (e) {
+      info.paypal_auth_attempt = { error: 'network', message: e.message || 'unknown' };
+    }
+  } else {
+    info.paypal_auth_attempt = { skipped: 'missing creds' };
+  }
+  return json(info, 200, request, env);
+}
+
+/* ── Dispatcher ─────────────────────────────────────────────────────── */
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
@@ -996,14 +1392,17 @@ export default {
         endpoints: [
           'POST /verify         { releaseId, product, licenseKey, days? }',
           'POST /check          { token }',
-          'GET  /check?token=…',
-          'GET  /paid-content?folio=…    (Authorization: Bearer <jwt>)',
+          'GET  /check?token=...',
+          'GET  /paid-content?folio=...    (Authorization: Bearer <jwt>)',
           'POST /verify-code   { folioId, code }  (custom-provider unlock)',
-          'GET  /teaser-content?folio=…  (anonymous; serves chapters flagged in release.teasers)',
-          'GET  /signed-teaser-content?folio=&ch=&tt=  (anonymous; URL is the credential)',
-          'POST /boost-checkout  { folioId, tier, uid? }   creates a PayPal order for a Featured Boost',
-          'GET  /boost-return    ?token=&PayerID=&site=    PayPal redirect landing (captures + writes featuredUntil)',
-          'POST /boost-webhook   (Phase 2C — not yet)',
+          'GET  /teaser-content?folio=...  (anonymous)',
+          'GET  /signed-teaser-content?folio=&ch=&tt=  (anonymous)',
+          'POST /view-record    { folioId }',
+          'POST /boost-checkout  { folioId, tier, uid? }',
+          'GET  /boost-return    ?token=&PayerID=&site=',
+          'GET  /boost-slots      scarcity signal',
+          'POST /boost-webhook   PayPal-signed safety net',
+          'GET  /boost-debug?token=...   admin diagnostic',
         ],
       }, 200, request, env);
     }
@@ -1017,6 +1416,9 @@ export default {
     if (path === '/boost-checkout' && request.method === 'POST') return handleBoostCheckout(request, env);
     if (path === '/boost-return'   && request.method === 'GET')  return handleBoostReturn(request, env);
     if (path === '/boost-webhook'  && request.method === 'POST') return handleBoostWebhook(request, env);
+    if (path === '/boost-slots'    && request.method === 'GET')  return handleBoostSlots(request, env);
+    if (path === '/view-record'    && request.method === 'POST') return handleViewRecord(request, env);
+    if (path === '/boost-debug'    && request.method === 'GET')  return handleBoostDebug(request, env);
 
     return errorJson('Not found: ' + path, 404, request, env);
   },

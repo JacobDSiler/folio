@@ -1,3 +1,29 @@
+// Combined rules for Boxes app + Folio Projects app
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    /* ---------------------------------------------------------
+     * BOXES APP
+     * --------------------------------------------------------- */
+    match /boxes/{boxId} {
+      allow read, write: if true;
+      match /items/{itemId} {
+        allow read, write: if true;
+      }
+      match /vault/{vaultId} {
+        allow read, write: if true;
+      }
+      match /signaling/{sigId} {
+        allow read, write: if true;
+        match /{subCol}/{subDoc} {
+          allow read, write: if true;
+        }
+      }
+    }
+    match /_ping/{doc} {
+      allow read, write: if true;
+    }
+
 // ───────────────────────────────────────────────────────────────────
 // Folio — Firestore security rules
 // ───────────────────────────────────────────────────────────────────
@@ -13,13 +39,18 @@
 // which uses a service account (IAM) rather than browser auth.
 // ───────────────────────────────────────────────────────────────────
 
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-
     // request.auth.uid == uid, with the null-auth guard built in.
     function isUser(uid) {
       return request.auth != null && uid != null && request.auth.uid == uid;
+    }
+    // Admin check — Folio platform operators who can fulfil boost
+    // orders (write release.featuredUntil on other authors' folios).
+    // Hardcoded uid allowlist — small, auditable, exactly the people
+    // who can run /admin/boost. To add/remove: edit this list and redeploy.
+    function isAdmin() {
+      return request.auth != null && request.auth.uid in [
+        'x9AgFZ7O8WVz2UVtyO4ggWKNfc73'  // Jacob (folio@jacobsiler.com)
+      ];
     }
     // The parent folio_projects doc for a subcollection rule.
     function parentDoc(id) {
@@ -58,7 +89,13 @@ service cloud.firestore {
       // EXISTING doc — partial merge-updates (publishing a release,
       // setting shelfId) legitimately omit `uid` from the payload, so
       // the incoming data can't be relied on here.
-      allow update, delete: if isUser(resource.data.uid);
+      //
+      // Admin update — Folio operators can update ANY folio doc so
+      // /admin/boost can write release.featuredUntil on paying authors'
+      // listings. Delete stays owner-only (safer default; admins can
+      // demote by writing featuredUntil to null instead).
+      allow update: if isUser(resource.data.uid) || isAdmin();
+      allow delete: if isUser(resource.data.uid);
 
       // Manuscript body subdocs.
       //   body/main — free preview / non-paid content. Same visibility
