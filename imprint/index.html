@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- FOLIO BUILD v2026.07.01.5 imprint -->
+<!-- FOLIO BUILD v2026.07.03.3 imprint -->
 <html lang="en">
 <head>
 <script>
@@ -66,15 +66,15 @@ a:hover{text-decoration:underline}
 /* 3D book render layout override — cards become book pedestals with
    centred text below. Transparent bg lets the book cast its own shadow
    without a competing card background. */
-.imprint-card{background:transparent!important;border:none!important;padding:16px 12px 20px!important;transition:transform .3s ease}
-.imprint-card:hover{transform:translateY(-3px)}
-.imprint-card-title,.imprint-card-blurb{text-align:center}
-.imprint-card-foot{justify-content:center;gap:6px}
 .imprint-card{background:transparent;border:none;padding:20px 12px 16px;transition:transform .3s ease}
 .imprint-card:hover{transform:translateY(-2px)}
 .imprint-card-title,.imprint-card-blurb,.imprint-card-foot{text-align:center}
 .imprint-card-foot{justify-content:center;gap:6px}
-.imprint-card-legacy-anchor{.imprint-card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;text-decoration:none;color:var(--text);transition:transform .12s,box-shadow .12s;box-shadow:var(--shadow);cursor:pointer;overflow:hidden}
+.imprint-card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;text-decoration:none;color:var(--text);transition:transform .12s,box-shadow .12s;box-shadow:var(--shadow);cursor:pointer;overflow:hidden}
+/* 3D book render override — transparent card so the propped book
+   casts its own shadow without competing card chrome. */
+.imprint-card{background:transparent;border:none;box-shadow:none;padding:20px 12px 16px}
+.imprint-card:hover{transform:translateY(-3px);box-shadow:none}
 .imprint-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-h);text-decoration:none}
 .imprint-card-cover{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:6px;background:linear-gradient(135deg,var(--bg),var(--surface));border:.5px solid var(--border);margin-bottom:12px}
 .imprint-card-cover-placeholder{display:flex;align-items:center;justify-content:center;color:var(--hint);font-family:'Playfair Display',Georgia,serif;font-size:14px;text-align:center;padding:12px;font-style:italic;line-height:1.3}
