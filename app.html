@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- FOLIO BUILD v2026.07.01.13 — _rlBoostBuy top-level scope + state-aware boost card -->
+<!-- FOLIO BUILD v2026.07.02.3 — Fixes: shelf chip capture + unpublished boost state + private-link hides shelf (name + book number) + boost placements complete -->
 <html lang="en">
 
 <head>
@@ -18853,6 +18853,22 @@
               ? 'Anyone with the link can read. Good for public releases, newsletter giveaways, and posting on social.'
               : 'Only people you share the exact link with can open the book. Use this for editors or beta readers.';
       }
+      // Private-link mode makes Shelf listing incoherent — hide those
+      // sections entirely. Also uncheck rlListOnShelf so a folio that
+      // switches from free-listed to private-hidden doesn't stay stuck
+      // in "listed but ungated" limbo.
+      const shelfSec = document.getElementById('rlShelfSection');
+      const featSec  = document.getElementById('rlFeaturedSection');
+      const shelfCb  = document.getElementById('rlListOnShelf');
+      const isPriv = (mode === 'private');
+      if (shelfSec) shelfSec.style.display = isPriv ? 'none' : '';
+      if (featSec)  featSec.style.display  = isPriv ? 'none' : '';
+      if (isPriv && shelfCb && shelfCb.checked) {
+        shelfCb.checked = false;
+        if (typeof _rlToggleShelfFields === 'function') _rlToggleShelfFields();
+      }
+      // Boost state may have changed (published/shelved gate flipped).
+      try { if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState(); } catch (_) {}
     }
 
     /* ── Funnel: teaser-chapter checklist for paid releases ─────────
@@ -19187,6 +19203,11 @@
           if (_shelfGenre)   _shelfGenre.value     = _rlCurrent.shelfGenre || '';
           if (_shelfBlurb)   _shelfBlurb.value     = _rlCurrent.shelfBlurb || '';
           if (_shelfUseDesc) _shelfUseDesc.checked = !!_rlCurrent.shelfUseDescription;
+          // Series fields (Phase 3 task #53).
+          const _seriesNameEl  = document.getElementById('rlSeriesName');
+          const _seriesOrderEl = document.getElementById('rlSeriesOrder');
+          if (_seriesNameEl)  _seriesNameEl.value  = _rlCurrent.series || '';
+          if (_seriesOrderEl) _seriesOrderEl.value = (_rlCurrent.seriesOrder != null) ? String(_rlCurrent.seriesOrder) : '';
           if (typeof _rlToggleShelfFields === 'function')  _rlToggleShelfFields();
           if (typeof _rlToggleShelfDescField === 'function') _rlToggleShelfDescField();
           // Featured Boost status display
@@ -19222,6 +19243,10 @@
           const _tipEl = document.getElementById('rlTipUrl');
           if (_tipEl) _tipEl.value = _rlCurrent.tipUrl || '';
           try { _rlSetProvider(_rlCurrent.provider === 'custom' ? 'custom' : 'gumroad'); } catch (e) { }
+          // Post-populate state syncs — call unconditionally (even the
+          // _rlCurrent branch benefits, and the no-_rlCurrent branch
+          // needs it too so tier buttons hide until publish + shelf).
+          try { if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState(); } catch (_) {}
           if (priceField1) priceField1.value = (_rlCurrent.price != null ? String(_rlCurrent.price) : '');
           if (currField1) currField1.value = _rlCurrent.currency || 'USD';
           if (audioChk1) audioChk1.checked = !!_rlCurrent.audioBundle;
@@ -19255,6 +19280,9 @@
           if (authorField) authorField.value = bookAuthor || '';
           if (descField) descField.value = '';
           _rlSetMode('free');
+          // Fresh folio (no _rlCurrent yet) — still needs the boost card
+          // state applied so tier buttons hide until publish + shelf.
+          try { if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState(); } catch (_) {}
           const prodField2 = document.getElementById('rlProductId');
           const priceField2 = document.getElementById('rlPrice');
           const currField2 = document.getElementById('rlCurrency');
@@ -19438,6 +19466,15 @@
         listOnShelf: !!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked),
         shelfGenre: ((document.getElementById('rlShelfGenre') && document.getElementById('rlShelfGenre').value) || '').trim().slice(0, 40) || null,
         shelfBlurb: ((document.getElementById('rlShelfBlurb') && document.getElementById('rlShelfBlurb').value) || '').trim().slice(0, 280) || null,
+        // Series / collection linking (Phase 3 task #53). Both nullable —
+        // empty means standalone folio. Number is clamped 0-999 for sanity.
+        series: ((document.getElementById('rlSeriesName') && document.getElementById('rlSeriesName').value) || '').trim().slice(0, 80) || null,
+        seriesOrder: (function(){
+          const raw = (document.getElementById('rlSeriesOrder') && document.getElementById('rlSeriesOrder').value) || '';
+          const n = parseInt(raw, 10);
+          if (!isFinite(n) || n < 0) return null;
+          return Math.min(999, n);
+        })(),
         shelfUseDescription: !!(document.getElementById('rlShelfUseDesc') && document.getElementById('rlShelfUseDesc').checked),
         // Preserve featuredUntil across republishes so the author doesn't
         // lose their boost by editing + updating the release. Jacob sets
@@ -28127,9 +28164,9 @@
            Opt-in: when ticked, the folio appears on the public Shelf
            where readers can browse / search / filter / discover. Free
            or paid both list — Shelf is the discovery surface, not a
-           paywall. Customisation of the listing card itself is the
-           Pro feature (Folio Press), shipped later. -->
-      <div style="margin:14px 0 10px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
+           paywall. Hidden entirely when Access = Private link, since
+           "private" and "public listing" are contradictory. -->
+      <div id="rlShelfSection" style="margin:14px 0 10px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
         <label
           style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:0 0 4px;cursor:pointer">
           <input type="checkbox" id="rlListOnShelf" onchange="_rlToggleShelfFields(); if(typeof _rlUpdateBoostCardState==='function')_rlUpdateBoostCardState()" style="margin:0">
@@ -28194,6 +28231,33 @@
             Customising the card visuals (colours, fonts, background) is a <strong>Folio Press</strong> Pro feature — coming soon.
           </div>
         </div>
+      </div>
+
+      <!-- ═══ SERIES / COLLECTIONS ═══════════════════════════════════════
+           Optional tags that group multi-book releases (trilogies, ongoing
+           serials, boxed sets). When two folios by the same author share a
+           series name, they cluster together on the imprint page sorted by
+           book number. Simple free-text; author matches spelling across
+           their own books. Wrong-spelling = no grouping; fix by editing. -->
+      <div style="margin:14px 0;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
+        <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:0 0 8px">
+          📚 <strong>Series</strong> <span style="opacity:.7;font-weight:400">(optional — group this folio with its siblings)</span>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-left:24px">
+          <div style="flex:2;min-width:200px">
+            <label for="rlSeriesName" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Series name</label>
+            <input type="text" id="rlSeriesName" maxlength="80" placeholder="e.g., Sky Bridge Saga"
+              style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit">
+          </div>
+          <div style="flex:1;min-width:100px;max-width:140px">
+            <label for="rlSeriesOrder" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Book #</label>
+            <input type="number" id="rlSeriesOrder" min="0" max="999" step="1" placeholder="1"
+              style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit">
+          </div>
+        </div>
+        <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:8px 0 0 24px">
+          Type the same series name on each book (spelling matters). Folios sharing a series show up together on your Imprint page, sorted by book number. Leave both blank for standalone books.
+        </p>
       </div>
 
       <!-- ═══ FEATURED BOOST — v2: PayPal-backed automated fulfilment ═══
