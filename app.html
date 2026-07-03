@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- FOLIO BUILD v2026.07.02.3 — Fixes: shelf chip capture + unpublished boost state + private-link hides shelf (name + book number) + boost placements complete -->
+<!-- FOLIO BUILD v2026.07.02.4 — Marketplace loop: Shelf portals in sidebar + reader + end-of-book panel + unpublished boost state + private-link hides shelf (name + book number) + boost placements complete -->
 <html lang="en">
 
 <head>
@@ -5556,6 +5556,18 @@
         <button id="darkModeBtn" onclick="toggleDarkMode()" title="Toggle dark mode"
           style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 5px;color:var(--hint);border-radius:4px;transition:color .15s"
           onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--hint)'">☽</button>
+        <!-- Shelf portal — every author is also a reader. Prominent link
+             keeps the marketplace one click away every session: browse
+             other authors' work, spot-check where their own listing sits,
+             research the competition. Marketplace flywheel starts here. -->
+        <a href="/shelf" title="Browse The Folio Shelf — the public marketplace"
+          style="display:flex;align-items:center;gap:6px;margin-top:10px;padding:7px 10px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:6px;color:var(--text);text-decoration:none;font-size:12px;font-weight:500;transition:background .15s ease,border-color .15s ease"
+          onmouseover="this.style.background='var(--surface)';this.style.borderColor='var(--accent)'"
+          onmouseout="this.style.background='var(--bg)';this.style.borderColor='var(--border-mid)'">
+          <span style="font-size:14px">📚</span>
+          <span style="flex:1">The Folio Shelf</span>
+          <span style="color:var(--hint);font-size:10px">→</span>
+        </a>
       </div>
 
       <div class="tabs">
@@ -6515,6 +6527,42 @@
       </div>
       <div class="preview-scroller" id="previewScroller">
         <div class="preview-wrap" id="bookPreview"></div>
+        <!-- End-of-book panel — highest-conversion moment in the app.
+             Reader just finished a folio; peak "give me more" intent.
+             Shown only in reader mode by _rdHydrate. Three actions:
+             tip the author (money to author), more by this author
+             (imprint page — keeps them in their favorite author's
+             catalog), browse the shelf (marketplace-wide discovery).
+             All three feed the flywheel. -->
+        <div id="rdEndOfBook" style="display:none;max-width:640px;margin:60px auto 40px;padding:32px 28px;border:.5px solid var(--border);border-radius:14px;background:linear-gradient(180deg,var(--surface) 0%,var(--bg) 100%);text-align:center">
+          <div style="font-size:32px;margin-bottom:6px">📖</div>
+          <h3 style="font-family:'Playfair Display',Georgia,serif;font-size:22px;font-weight:600;margin:0 0 6px;color:var(--text);line-height:1.25">
+            Finished reading?
+          </h3>
+          <p id="rdEndOfBookSub" style="font-size:13px;color:var(--muted);margin:0 0 22px;line-height:1.55">
+            If you enjoyed this, the author would love to hear from you — and there are hundreds more folios waiting on the Shelf.
+          </p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:center">
+            <a id="rdEndTipLink" href="#" target="_blank" rel="noopener"
+              style="display:none;padding:10px 18px;border:.5px solid var(--accent);border-radius:8px;background:var(--accent);color:#fff;font-size:13px;font-weight:500;text-decoration:none;transition:filter .15s ease"
+              onmouseover="this.style.filter='brightness(.94)'" onmouseout="this.style.filter=''">
+              🎁 Tip the author
+            </a>
+            <a id="rdEndImprintLink" href="/shelf"
+              style="padding:10px 18px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px;font-weight:500;text-decoration:none;transition:border-color .15s ease"
+              onmouseover="this.style.borderColor='var(--accent-ui)'" onmouseout="this.style.borderColor='var(--border-mid)'">
+              📖 More by <span id="rdEndAuthorName">this author</span>
+            </a>
+            <a href="/shelf"
+              style="padding:10px 18px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px;font-weight:500;text-decoration:none;transition:border-color .15s ease"
+              onmouseover="this.style.borderColor='var(--accent-ui)'" onmouseout="this.style.borderColor='var(--border-mid)'">
+              📚 Browse The Shelf
+            </a>
+          </div>
+          <p style="font-size:10.5px;color:var(--hint);margin:20px 0 0;line-height:1.5">
+            Folio takes 0% of tips — every cent goes to the author. Support keeps the platform ad-free.
+          </p>
+        </div>
       </div>
       <div class="preview-edit-mode-hint" id="editModeHint">✏ Click any paragraph to edit · Enter to finish</div>
       <button id="scrollTopBtn" onclick="scrollPreviewToTop()" title="Back to top (Home)">↑</button>
@@ -19852,6 +19900,8 @@
       // the 🔒 prefix + disabled state in sync with the new released
       // count. _rdHydrate is idempotent.
       try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) { }
+      // Show end-of-book panel (reader mode only; helper self-guards)
+      try { if (typeof _rdShowEndOfBookPanel === 'function') _rdShowEndOfBookPanel(); } catch (_) {}
 
       // Record the lock key so the idempotency guard at the top of this
       // function can skip a redundant rebuild next time.
@@ -21266,6 +21316,8 @@
         document.documentElement.setAttribute('data-paid-unlocked', '1');
         try { _lockApplyTocRows(release); } catch (e) { }
         try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) { }
+      // Show end-of-book panel (reader mode only; helper self-guards)
+      try { if (typeof _rdShowEndOfBookPanel === 'function') _rdShowEndOfBookPanel(); } catch (_) {}
         return;
       }
       const previewN = Number((release && release.previewSections) || 0) || 0;
@@ -21299,6 +21351,8 @@
       }
       // Chapter dropdown needs its own refresh so locked rows get the lock.
       try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) { }
+      // Show end-of-book panel (reader mode only; helper self-guards)
+      try { if (typeof _rdShowEndOfBookPanel === 'function') _rdShowEndOfBookPanel(); } catch (_) {}
     }
     window._pwReapply = _pwReapply;
 
@@ -22552,6 +22606,44 @@
       }
     }
     window._rdMenuToggle = _rdMenuToggle;
+
+    // Populate + reveal the end-of-book "Finished reading?" panel.
+    // Reads author name, tipUrl, ownerUid from the currently loaded folio
+    // (populated by loadFolioById into _loadedFolio* globals + _rlCurrent).
+    // Only runs in reader mode — editor mode keeps the panel hidden.
+    window._rdShowEndOfBookPanel = function _rdShowEndOfBookPanel() {
+      const panel = document.getElementById('rdEndOfBook');
+      if (!panel) return;
+      // Only in reader mode. If the app is in editor mode, hide.
+      if (typeof _readerMode !== 'undefined' && !_readerMode) {
+        panel.style.display = 'none';
+        return;
+      }
+      // Populate personalisation from _rlCurrent (release data)
+      const rc = (typeof _rlCurrent !== 'undefined') ? _rlCurrent : null;
+      const authorName = (rc && rc.author) || 'this author';
+      const tipUrl = (rc && rc.tipUrl) || '';
+      const ownerUid = (typeof _loadedFolioOwnerUid !== 'undefined' && _loadedFolioOwnerUid) || '';
+      // Author name in the "More by ..." button
+      const nameEl = document.getElementById('rdEndAuthorName');
+      if (nameEl) nameEl.textContent = authorName;
+      // Imprint link — falls back to /shelf if no owner uid is known
+      const imprintEl = document.getElementById('rdEndImprintLink');
+      if (imprintEl) {
+        imprintEl.href = ownerUid ? ('/imprint/?uid=' + encodeURIComponent(ownerUid)) : '/shelf';
+      }
+      // Tip link — only visible when the author set a tipUrl
+      const tipEl = document.getElementById('rdEndTipLink');
+      if (tipEl) {
+        if (tipUrl && /^https?:\/\//i.test(tipUrl)) {
+          tipEl.href = tipUrl;
+          tipEl.style.display = '';
+        } else {
+          tipEl.style.display = 'none';
+        }
+      }
+      panel.style.display = 'block';
+    };
 
     // Reader menu owner-only Boost section — show iff the current signed-in
     // user is the folio's owner. Watched by an event listener that fires
@@ -27653,6 +27745,10 @@
   <div id="annNoteBox" role="dialog" aria-label="Edit note"></div>
   <div id="readerBar" role="toolbar" aria-label="Reader toolbar">
     <button id="rdBack" title="Back to editor" onclick="_rdExit()">← Editor</button>
+    <a id="rdShelfLink" href="/shelf" title="Browse The Folio Shelf"
+      style="display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);text-decoration:none;font-size:12px;margin-left:4px;font-weight:500">
+      <span style="font-size:13px">📚</span><span>Shelf</span>
+    </a>
     <div class="rd-titleWrap">
       <span class="rd-title" id="rdTitle">Loading…</span>
       <span class="rd-sub" id="rdSub"></span><span id="pwUnlockedBadge" title="License key accepted — book unlocked">✓
