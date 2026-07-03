@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- FOLIO BUILD v2026.07.01.7 -->
+<!-- FOLIO BUILD v2026.07.02.1 -->
 <html lang="en">
 <head>
 <script>
@@ -60,6 +60,24 @@ a:hover{text-decoration:underline}
 .shelf-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-h);border-color:var(--border-mid)}
 .shelf-card-cover{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:6px;background:linear-gradient(135deg,var(--bg),var(--surface));border:.5px solid var(--border);margin-bottom:12px}
 .shelf-card-cover-placeholder{display:flex;align-items:center;justify-content:center;color:var(--hint);font-family:'Playfair Display',Georgia,serif;font-size:14px;text-align:center;padding:12px;font-style:italic;line-height:1.3}
+.shelf-boost-chip{margin-left:auto;padding:3px 9px;border:.5px solid var(--accent);border-radius:12px;background:var(--surface);color:var(--accent);font-size:10.5px;font-weight:500;cursor:pointer;font-family:inherit;transition:background .12s ease,color .12s ease}
+.shelf-boost-chip:hover{background:var(--accent);color:#fff}
+.shelf-boost-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+.shelf-boost-overlay.open{display:flex}
+.shelf-boost-modal{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:22px 24px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.25)}
+.shelf-boost-modal h3{font-family:'Playfair Display',Georgia,serif;font-size:19px;margin:0 0 4px;color:var(--text)}
+.shelf-boost-modal p{font-size:12px;color:var(--hint);margin:0 0 14px;line-height:1.55}
+.shelf-boost-tiers{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.shelf-boost-tier-btn{flex:1;min-width:100px;padding:10px 12px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg);color:var(--text);font-size:12.5px;cursor:pointer;font-family:inherit;text-align:center;line-height:1.35}
+.shelf-boost-tier-btn:hover{border-color:var(--accent)}
+.shelf-boost-tier-btn.popular{border-color:var(--accent);position:relative}
+.shelf-boost-tier-btn .price{font-weight:600;font-size:14px}
+.shelf-boost-tier-btn .dur{font-size:10.5px;color:var(--hint);margin-top:2px}
+.shelf-boost-tier-btn .pop-tag{position:absolute;top:-8px;right:6px;font-size:9px;background:var(--accent);color:#fff;padding:1px 6px;border-radius:8px;font-weight:600;letter-spacing:.02em}
+.shelf-boost-modal-foot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:11px;color:var(--hint)}
+.shelf-boost-close{background:none;border:none;color:var(--hint);cursor:pointer;font-size:12px;font-family:inherit;padding:4px 8px}
+.shelf-boost-close:hover{color:var(--text)}
+#shelfBoostStatus{font-size:11px;color:var(--hint);min-height:14px;margin-top:8px}
 .shelf-card-title{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:600;line-height:1.25;color:var(--text);margin:0 0 4px}
 .shelf-card-title a{color:inherit;text-decoration:none}
 .shelf-card-author{font-size:12px;color:var(--muted);margin:0 0 8px;font-style:italic}
@@ -129,7 +147,7 @@ a:hover{text-decoration:underline}
   <a href="/">Home</a> · <a href="/app.html">Write a folio</a> ·
   <a id="shelfSupportLink" href="https://ko-fi.com/jacobsiler" target="_blank" rel="noopener">☕ Support Folio</a> ·
   <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a>
-  <div style="margin-top:6px;font-size:9.5px;color:var(--hint);opacity:.6">build v2026.07.01.7</div>
+  <div style="margin-top:6px;font-size:9.5px;color:var(--hint);opacity:.6">build v2026.07.02.1</div>
 </footer>
 <script>
 const GENRE_LABELS = {literary:'Literary',general:'Fiction',mystery:'Mystery',thriller:'Thriller',romance:'Romance',fantasy:'Fantasy',scifi:'Sci-fi',horror:'Horror',historical:'Historical',ya:'Young adult',children:'Children’s',memoir:'Memoir',selfhelp:'Self-help',business:'Business',health:'Health',poetry:'Poetry',essays:'Essays',educational:'Educational',other:'Other'};
@@ -177,6 +195,9 @@ function renderShelf(){
   // Split featured vs regular. Featured = featuredUntil > now.
   // Rendered in a separate grid at the top with a ✨ badge.
   const now = Date.now();
+  // Cache items globally so auth-state-change re-render finds them —
+  // internal callers (fetchShelf) skip the window.renderShelf wrapper.
+  window._allFolios = items || [];
   const featured = items.filter(f => f.featuredUntil > now);
   const regular  = items.filter(f => !(f.featuredUntil > now));
   const featuredContainer = document.getElementById('shelfFeaturedContainer');
@@ -191,11 +212,19 @@ function renderShelf(){
     const blurb=f.blurb?'<p class="shelf-card-blurb">'+esc(f.blurb)+'</p>':'';
     const href='/app.html?read='+encodeURIComponent(f.id);
     const authorPart=f.author?'<p class="shelf-card-author">by '+(f.uid?'<a href="/imprint/?uid='+encodeURIComponent(f.uid)+'" onclick="event.stopPropagation()">'+esc(f.author)+'</a>':esc(f.author))+'</p>':'';
-    return '<div class="shelf-card'+(isFeatured?' featured':'')+'" onclick="if(!event.target.closest(\'a\'))window.location=\''+esc(href)+'\'" tabindex="0" onkeydown="if(event.key===\'Enter\')window.location=\''+esc(href)+'\'">'+
+    // Owner-only boost chip — shows a small "🚀 Boost" pill when this
+    // card belongs to the currently signed-in author, letting them
+    // start a Featured Boost from the shelf itself instead of digging
+    // into the release modal. Extra buttons on foes are hidden.
+    const isMine = !!(window._myUid && f.uid && window._myUid === f.uid);
+    const boostChip = isMine
+      ? '<button class="shelf-boost-chip" onclick="event.stopPropagation();openBoostPicker(\''+esc(f.id)+'\',\''+esc(f.title).replace(/\'/g,\"\\\\'\")+'\')" title="Boost this folio">🚀 Boost</button>'
+      : '';
+    return '<div class="shelf-card'+(isFeatured?' featured':'')+'" onclick="if(!event.target.closest(\'a\')&&!event.target.closest(\'button\'))window.location=\''+esc(href)+'\'" tabindex="0" onkeydown="if(event.key===\'Enter\')window.location=\''+esc(href)+'\'">'+
       cover+
       '<h2 class="shelf-card-title"><a href="'+esc(href)+'">'+esc(f.title)+'</a></h2>'+
       authorPart+blurb+
-      '<div class="shelf-card-foot">'+badge+genre+'</div>'+
+      '<div class="shelf-card-foot">'+badge+genre+boostChip+'</div>'+
       '</div>';
   };
   if (featured.length > 0) {
@@ -229,6 +258,10 @@ function renderShelf(){
   }).join('');
 }
 window.renderShelf=renderShelf;
+// Track the last-rendered folios so auth-state-change can re-render
+// to reveal owner boost chips without a full page reload.
+const _origRender = renderShelf;
+window.renderShelf = function(items){ window._allFolios = items || []; return _origRender(items); };
 
 async function boot(){
   try{
@@ -237,14 +270,30 @@ async function boot(){
     console.log('[shelf] ✅ firebase-app.js imported');
     const fsMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
     console.log('[shelf] ✅ firebase-firestore.js imported');
+    const authMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+    console.log('[shelf] ✅ firebase-auth.js imported');
     const {initializeApp}=appMod;
     const {getFirestore,collection,query,where,getDocs,limit}=fsMod;
+    const {getAuth,onAuthStateChanged}=authMod;
     _fbCollection=collection;_fbQuery=query;_fbWhere=where;_fbGetDocs=getDocs;_fbLimit=limit;
     const firebaseConfig={apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",authDomain:"auth.jacobsiler.com",projectId:"miscellaneous-117e9",storageBucket:"miscellaneous-117e9.firebasestorage.app",messagingSenderId:"514858431339",appId:"1:514858431339:web:8b3acbe89966b45fe3922e"};
     console.log('[shelf] initializing Firebase app…');
     const app=initializeApp(firebaseConfig);
     _fbDb=getFirestore(app);
-    console.log('[shelf] ✅ Firestore instance ready, project:',firebaseConfig.projectId);
+    // Auth — silent restore only. Same Firebase project as /app.html,
+    // so if the user is signed in there they auto-sign-in here too
+    // (Firebase persists auth state in IndexedDB per-project).
+    const auth=getAuth(app);
+    onAuthStateChanged(auth, function(u){
+      window._myUid = (u && u.uid) || '';
+      console.log('[shelf] auth state:', window._myUid ? ('signed in as '+u.email) : 'signed out');
+      // Re-render if the user came in after cards were painted so their
+      // own cards gain the boost chip without a page reload.
+      if (typeof window.renderShelf === 'function' && Array.isArray(window._allFolios) && window._allFolios.length) {
+        try { window.renderShelf(window._allFolios); } catch (_) {}
+      }
+    });
+    console.log('[shelf] ✅ Firestore + Auth instances ready, project:',firebaseConfig.projectId);
     await fetchShelf();
   }catch(e){
     console.error('[shelf] boot FAILED:',e);
@@ -316,6 +365,71 @@ async function fetchShelf(){
 }
 
 boot();
+</script>
+<div class="shelf-boost-overlay" id="shelfBoostOverlay" onclick="if(event.target.id==='shelfBoostOverlay')closeBoostPicker()">
+  <div class="shelf-boost-modal">
+    <h3>🚀 Boost <span id="shelfBoostFolioTitle">this folio</span></h3>
+    <p>Featured listings sit at the top of the Shelf with an ✨ badge and a gold border for the duration you choose. Pay via PayPal — your listing goes live the moment payment clears.</p>
+    <div class="shelf-boost-tiers">
+      <button class="shelf-boost-tier-btn" onclick="startShelfBoost('24h')">
+        <div class="price">$3</div><div class="dur">24 hours</div>
+      </button>
+      <button class="shelf-boost-tier-btn popular" onclick="startShelfBoost('72h')">
+        <div class="pop-tag">POPULAR</div><div class="price">$9</div><div class="dur">72 hours</div>
+      </button>
+      <button class="shelf-boost-tier-btn" onclick="startShelfBoost('7d')">
+        <div class="price">$19</div><div class="dur">7 days</div>
+      </button>
+    </div>
+    <div id="shelfBoostStatus"></div>
+    <div class="shelf-boost-modal-foot">
+      <span>0% platform commission — every dollar over PayPal's fees keeps Folio ad-free</span>
+      <button class="shelf-boost-close" onclick="closeBoostPicker()">Cancel</button>
+    </div>
+  </div>
+</div>
+<script>
+  const PAYWALL_WORKER_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
+  let _boostTargetFolioId = '';
+  window.openBoostPicker = function(folioId, title) {
+    _boostTargetFolioId = folioId;
+    document.getElementById('shelfBoostFolioTitle').textContent = title || 'this folio';
+    document.getElementById('shelfBoostStatus').textContent = '';
+    document.getElementById('shelfBoostOverlay').classList.add('open');
+  };
+  window.closeBoostPicker = function() {
+    document.getElementById('shelfBoostOverlay').classList.remove('open');
+    document.querySelectorAll('.shelf-boost-tier-btn').forEach(function(b){b.disabled=false;b.style.opacity='1';});
+  };
+  window.startShelfBoost = async function(tier) {
+    const status = document.getElementById('shelfBoostStatus');
+    const buttons = document.querySelectorAll('.shelf-boost-tier-btn');
+    if (!_boostTargetFolioId) { status.textContent='No folio selected.'; status.style.color='var(--danger,#c04040)'; return; }
+    buttons.forEach(function(b){b.disabled=true;b.style.opacity='.6';});
+    status.textContent = 'Preparing your order…';
+    status.style.color = 'var(--hint)';
+    try {
+      const r = await fetch(PAYWALL_WORKER_URL + '/boost-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folioId: _boostTargetFolioId, tier: tier, uid: (window._myUid || '') }),
+      });
+      const data = await r.json().catch(function(){ return {}; });
+      if (!r.ok || !data.approvalUrl) {
+        status.textContent = 'Checkout failed: ' + (data.error || r.status);
+        status.style.color = 'var(--danger,#c04040)';
+        buttons.forEach(function(b){b.disabled=false;b.style.opacity='1';});
+        return;
+      }
+      status.textContent = '✅ Redirecting to PayPal…';
+      status.style.color = 'var(--accent-ui,#065f46)';
+      window.location.href = data.approvalUrl;
+    } catch (e) {
+      status.textContent = 'Network error: ' + (e.message || 'unknown');
+      status.style.color = 'var(--danger,#c04040)';
+      buttons.forEach(function(b){b.disabled=false;b.style.opacity='1';});
+    }
+  };
 </script>
 </body>
 </html>
