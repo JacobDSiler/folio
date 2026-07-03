@@ -61,10 +61,95 @@ a:hover{text-decoration:underline}
 .imprint-grid-wrap{max-width:1100px;margin:0 auto;padding:32px 20px 60px}
 .imprint-status{font-size:12px;color:var(--hint);margin:8px 0 14px;min-height:16px}
 .imprint-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px}
-.imprint-card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;text-decoration:none;color:var(--text);transition:transform .12s,box-shadow .12s;box-shadow:var(--shadow);cursor:pointer;overflow:hidden}
+/* Card layout adjusted for 3D book renders — extra top padding gives
+   the book breathing room; content stays center-aligned. */
+/* 3D book render layout override — cards become book pedestals with
+   centred text below. Transparent bg lets the book cast its own shadow
+   without a competing card background. */
+.imprint-card{background:transparent!important;border:none!important;padding:16px 12px 20px!important;transition:transform .3s ease}
+.imprint-card:hover{transform:translateY(-3px)}
+.imprint-card-title,.imprint-card-blurb{text-align:center}
+.imprint-card-foot{justify-content:center;gap:6px}
+.imprint-card{background:transparent;border:none;padding:20px 12px 16px;transition:transform .3s ease}
+.imprint-card:hover{transform:translateY(-2px)}
+.imprint-card-title,.imprint-card-blurb,.imprint-card-foot{text-align:center}
+.imprint-card-foot{justify-content:center;gap:6px}
+.imprint-card-legacy-anchor{.imprint-card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;text-decoration:none;color:var(--text);transition:transform .12s,box-shadow .12s;box-shadow:var(--shadow);cursor:pointer;overflow:hidden}
 .imprint-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-h);text-decoration:none}
 .imprint-card-cover{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:6px;background:linear-gradient(135deg,var(--bg),var(--surface));border:.5px solid var(--border);margin-bottom:12px}
 .imprint-card-cover-placeholder{display:flex;align-items:center;justify-content:center;color:var(--hint);font-family:'Playfair Display',Georgia,serif;font-size:14px;text-align:center;padding:12px;font-style:italic;line-height:1.3}
+.imprint-series-section{margin-bottom:32px}
+.imprint-series-title{font-family:'Playfair Display',Georgia,serif;font-size:20px;font-weight:600;color:var(--text);margin:0 0 12px;padding:0 0 6px;border-bottom:.5px solid var(--border);display:flex;align-items:baseline;gap:10px}
+.imprint-series-count{font-size:11.5px;color:var(--hint);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;font-weight:400;letter-spacing:.02em}
+.imprint-standalone-title{margin-top:20px}
+.imprint-series-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:20px}
+.imprint-badge.series-badge{background:rgba(201,140,42,0.12);color:var(--accent);border:.5px solid var(--accent);font-weight:500}
+/* ═══════════════════════════════════════════════════════════════════
+   CSS 3D BOOK RENDERER — Folio Press tentpole feature (task #54).
+   Turns author cover images into perspective-rendered books using
+   pure CSS transforms + backface culling. No external service, no
+   image processing pipeline — just the cover URL and a small amount
+   of geometry.
+   
+   Anatomy: 5 faces on a preserve-3d parent.
+     Front cover  — the actual cover art
+     Back cover   — same art, darkened + saturated
+     Spine        — same art blurred (extends cover's palette) + text
+     Top          — thin paper-color strip with page lines
+     Bottom       — same as top
+   Variants set the initial rotation:
+     .book-3d-propped     angled on shelf, most flattering default
+     .book-3d-shelf-angle mostly spine, for series clusters
+     .book-3d-flat        top-down flat lay
+   ═══════════════════════════════════════════════════════════════════ */
+.book-3d-scene{--book-w:220px;--book-h:320px;--book-d:26px;width:var(--book-w);height:var(--book-h);perspective:1400px;perspective-origin:50% 42%;position:relative;margin:0 auto 20px;pointer-events:none}
+.book-3d{width:100%;height:100%;position:relative;transform-style:preserve-3d;transition:transform .7s cubic-bezier(.2,.7,.2,1);transform-origin:center;pointer-events:auto}
+.book-3d-propped{transform:rotateY(-28deg) rotateX(-3deg)}
+.book-3d-shelf-angle{transform:rotateY(-72deg)}
+.book-3d-flat{transform:rotateX(-88deg)}
+.book-3d-scene:hover .book-3d-propped{transform:rotateY(-38deg) rotateX(-5deg) translateY(-4px)}
+.book-3d-face{position:absolute;width:100%;height:100%;backface-visibility:hidden;overflow:hidden}
+.book-3d-front{background-size:cover;background-position:center;background-color:#2a1810;transform:translateZ(calc(var(--book-d) / 2));box-shadow:inset -6px 0 12px rgba(0,0,0,.22),inset 3px 0 6px rgba(255,255,255,.05),inset 0 -2px 6px rgba(0,0,0,.15);border-radius:2px 5px 5px 2px}
+.book-3d-front-text{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:16px;text-align:center;color:rgba(255,240,220,.9);font-family:'Playfair Display',Georgia,serif;text-shadow:0 2px 6px rgba(0,0,0,.5)}
+.book-3d-front-title{font-size:20px;font-weight:600;line-height:1.15;margin-bottom:8px;letter-spacing:.01em}
+.book-3d-front-author{font-size:11px;opacity:.75;font-style:italic;letter-spacing:.05em;text-transform:uppercase}
+.book-3d-back{background-color:#2a1810;background-size:cover;background-position:center;transform:translateZ(calc(var(--book-d) / -2)) rotateY(180deg);filter:brightness(.35) saturate(.7);border-radius:5px 2px 2px 5px}
+.book-3d-spine{width:var(--book-d);height:100%;background-size:cover;background-position:center;transform:rotateY(-90deg) translateZ(calc(var(--book-d) / 2));transform-origin:right center;display:flex;align-items:center;justify-content:center;border-radius:2px 0 0 2px;position:relative;overflow:hidden}
+.book-3d-spine::before{content:'';position:absolute;inset:0;background:inherit;background-size:cover;background-position:center;filter:blur(3px) brightness(.55) saturate(.75);z-index:0}
+.book-3d-spine::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,rgba(0,0,0,.25) 0%,transparent 30%,transparent 70%,rgba(0,0,0,.2) 100%);z-index:1}
+.book-3d-spine-text{position:relative;z-index:2;color:rgba(255,240,220,.9);font-family:'Playfair Display',Georgia,serif;text-align:center;writing-mode:vertical-rl;transform:rotate(180deg);padding:14px 0;text-shadow:0 1px 3px rgba(0,0,0,.6);display:flex;align-items:center;gap:10px;white-space:nowrap;max-height:calc(var(--book-h) - 20px);overflow:hidden}
+.book-3d-spine-title{font-size:11px;font-weight:600;letter-spacing:.02em}
+.book-3d-spine-author{font-size:9px;opacity:.72;font-style:italic}
+.book-3d-top,.book-3d-bottom{width:100%;height:var(--book-d);background:linear-gradient(90deg,#d8ceb4 0%,#f0e6cf 15%,#f5edd5 50%,#f0e6cf 85%,#d8ceb4 100%);background-image:linear-gradient(90deg,rgba(0,0,0,.08) 0%,transparent 15%,transparent 85%,rgba(0,0,0,.08) 100%),repeating-linear-gradient(90deg,transparent 0px,rgba(0,0,0,.02) 1px,transparent 2px)}
+.book-3d-top{transform:rotateX(90deg) translateZ(calc(var(--book-d) / 2));transform-origin:top center}
+.book-3d-bottom{bottom:0;top:auto;transform:rotateX(-90deg) translateZ(calc(var(--book-d) / 2));transform-origin:bottom center}
+.book-3d-scene::after{content:'';position:absolute;bottom:-14px;left:8%;right:8%;height:24px;background:radial-gradient(ellipse at center,rgba(0,0,0,.35) 0%,transparent 65%);filter:blur(6px);pointer-events:none;z-index:-1}
+/* Slightly larger book for featured/series cards */
+.imprint-series-section .book-3d-scene{--book-w:180px;--book-h:270px;--book-d:22px}
+/* Standalone grid uses default 220x320 */
+/* Fold the flat-cover styles gracefully — legacy .imprint-card-cover still
+   exists in the DOM chain but the book-3d replaces its visual role. */
+.imprint-card-cover{display:none}
+.imprint-boost-chip{margin-left:auto;padding:3px 9px;border:.5px solid var(--accent);border-radius:12px;background:var(--surface);color:var(--accent);font-size:10.5px;font-weight:500;cursor:pointer;font-family:inherit;transition:background .12s ease,color .12s ease}
+.imprint-boost-chip:hover{background:var(--accent);color:#fff}
+.imprint-boost-chip.recommended{background:rgba(201,140,42,.14);color:var(--accent);border-color:var(--accent);font-weight:600}
+.imprint-boost-chip.recommended:hover{background:var(--accent);color:#fff}
+.imprint-boost-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:100;padding:20px}
+.imprint-boost-overlay.open{display:flex}
+.imprint-boost-modal{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:22px 24px;max-width:420px;width:100%;box-shadow:0 10px 40px rgba(0,0,0,.25)}
+.imprint-boost-modal h3{font-family:'Playfair Display',Georgia,serif;font-size:19px;margin:0 0 4px;color:var(--text)}
+.imprint-boost-modal p{font-size:12px;color:var(--hint);margin:0 0 14px;line-height:1.55}
+.imprint-boost-tiers{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.imprint-boost-tier-btn{flex:1;min-width:100px;padding:10px 12px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg);color:var(--text);font-size:12.5px;cursor:pointer;font-family:inherit;text-align:center;line-height:1.35}
+.imprint-boost-tier-btn:hover{border-color:var(--accent)}
+.imprint-boost-tier-btn.popular{border-color:var(--accent);position:relative}
+.imprint-boost-tier-btn .price{font-weight:600;font-size:14px}
+.imprint-boost-tier-btn .dur{font-size:10.5px;color:var(--hint);margin-top:2px}
+.imprint-boost-tier-btn .pop-tag{position:absolute;top:-8px;right:6px;font-size:9px;background:var(--accent);color:#fff;padding:1px 6px;border-radius:8px;font-weight:600;letter-spacing:.02em}
+.imprint-boost-modal-foot{display:flex;justify-content:space-between;align-items:center;margin-top:12px;font-size:11px;color:var(--hint)}
+.imprint-boost-close{background:none;border:none;color:var(--hint);cursor:pointer;font-size:12px;font-family:inherit;padding:4px 8px}
+.imprint-boost-close:hover{color:var(--text)}
+#imprintBoostStatus{font-size:11px;color:var(--hint);min-height:14px;margin-top:8px}
 .imprint-card-title{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:600;line-height:1.25;color:var(--text);margin:0 0 4px}
 .imprint-card-blurb{font-size:12.5px;color:var(--muted);line-height:1.45;margin:0 0 10px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
 .imprint-card-foot{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:auto;padding-top:8px;border-top:.5px dotted var(--border-mid)}
@@ -140,22 +225,136 @@ function renderEmpty(msg){
   }
 }
 
+// Escape HTML for safe insertion into innerHTML.
+function esc3d(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);}
+// Escape a URL for safe use in a CSS url() context — bans quote breakouts
+// and non-http(s) schemes so a malicious coverUrl can't inject JS.
+function escUrl3d(u){
+  const s=String(u||'').trim();
+  if(!/^https?:\/\//i.test(s)) return '';
+  return s.replace(/[\'"\\)]/g,'');
+}
+// Render a 3D book from a folio's release data. Returns an HTML string.
+// Fallback: if no cover image, generates a colored spine + title-only front.
+function renderBook3D(f){
+  const cover=escUrl3d(f.coverUrl);
+  const title=esc3d(f.title||'Untitled');
+  const author=esc3d(f.author||'');
+  const hasImage=!!cover;
+  const frontBg=hasImage
+    ? "background-image:url('"+cover+"');background-size:cover;background-position:center"
+    : 'background:linear-gradient(135deg,#4a3728 0%,#2a1810 45%,#1a0f08 100%)';
+  const spineBg=hasImage
+    ? "background-image:url('"+cover+"');background-size:cover;background-position:center"
+    : 'background:linear-gradient(180deg,#3a2a1c 0%,#2a1810 100%)';
+  const backBg=hasImage
+    ? "background-image:url('"+cover+"');background-size:cover;background-position:center"
+    : 'background:linear-gradient(180deg,#3a2a1c 0%,#2a1810 100%)';
+  const frontOverlay=hasImage?'':(
+    '<div class="book-3d-front-text">'+
+      '<div class="book-3d-front-title">'+title+'</div>'+
+      '<div class="book-3d-front-author">'+author+'</div>'+
+    '</div>');
+  return '<div class="book-3d-scene" aria-label="'+title+' by '+author+'">'+
+    '<div class="book-3d book-3d-propped">'+
+      '<div class="book-3d-face book-3d-front" style="'+frontBg+'">'+frontOverlay+'</div>'+
+      '<div class="book-3d-face book-3d-back" style="'+backBg+'"></div>'+
+      '<div class="book-3d-face book-3d-spine" style="'+spineBg+'"><div class="book-3d-spine-text"><span class="book-3d-spine-title">'+title+'</span><span class="book-3d-spine-author">'+author+'</span></div></div>'+
+      '<div class="book-3d-face book-3d-top"></div>'+
+      '<div class="book-3d-face book-3d-bottom"></div>'+
+    '</div>'+
+  '</div>';
+}
 function renderCards(folios){
   const grid=document.getElementById('imprintGrid');
   const status=document.getElementById('imprintStatus');
   if(!grid)return;
+  window._lastFolios = folios;  // cache for auth-state re-render
   const existing=document.getElementById('imprintEmptyState');
   if(existing)existing.remove();
   grid.style.display='';
   if(status)status.textContent=folios.length+' folio'+(folios.length===1?'':'s')+' by this author';
-  folios.sort((a,b)=>b.listedAt-a.listedAt);
-  grid.innerHTML=folios.map(f=>{
-    const cover=f.coverUrl?'<img class="imprint-card-cover" src="'+esc(f.coverUrl)+'" alt="" loading="lazy">':'<div class="imprint-card-cover imprint-card-cover-placeholder">'+esc(f.title)+'</div>';
+  // Owner detection — the imprint page URL carries ?uid=<authorUid>,
+  // and if the current signed-in user's uid matches, we render each
+  // card with a small "🚀 Boost" pill that opens the tier picker.
+  const urlUid = (typeof getUidParam==='function') ? getUidParam() : '';
+  const isOwnImprint = !!(window._myUid && urlUid && window._myUid === urlUid);
+  // Series grouping (Phase 3 task #53). Folios with the same series
+  // string cluster together, sorted by seriesOrder ascending. Folios
+  // without a series render below in a "Standalone" grid sorted by
+  // listedAt descending. Series with just ONE book don't get a header
+  // — they just fall into standalone.
+  const seriesMap = {};
+  const standalone = [];
+  folios.forEach(function(f){
+    const key = (f.series || '').trim();
+    if (key) {
+      if (!seriesMap[key]) seriesMap[key] = [];
+      seriesMap[key].push(f);
+    } else {
+      standalone.push(f);
+    }
+  });
+  // Sort within each series by seriesOrder (0 = unspecified sorts last)
+  Object.keys(seriesMap).forEach(function(k){
+    seriesMap[k].sort(function(a,b){
+      const ao = a.seriesOrder || 999;
+      const bo = b.seriesOrder || 999;
+      if (ao !== bo) return ao - bo;
+      return b.listedAt - a.listedAt;
+    });
+  });
+  standalone.sort(function(a,b){ return b.listedAt - a.listedAt; });
+  // Multi-book series get a header; single-book "series" folios drop
+  // to standalone so we don't display lonely section headers.
+  const multiSeriesKeys = Object.keys(seriesMap).filter(function(k){ return seriesMap[k].length >= 2; });
+  Object.keys(seriesMap).forEach(function(k){
+    if (seriesMap[k].length < 2) standalone.push.apply(standalone, seriesMap[k]);
+  });
+  standalone.sort(function(a,b){ return b.listedAt - a.listedAt; });
+
+  const renderCardHtml = function(f){
+    const cover=renderBook3D(f);
     const badge=f.serial?'<span class="imprint-badge serial">serial</span>':f.priceMode==='paid'?'<span class="imprint-badge paid">paid</span>':'<span class="imprint-badge free">free</span>';
     const genre=f.genre?'<span class="imprint-card-genre">'+esc(GENRE_LABELS[f.genre]||f.genre)+'</span>':'';
     const blurb=f.blurb?'<p class="imprint-card-blurb">'+esc(f.blurb)+'</p>':'';
-    return '<a class="imprint-card" href="/app.html?read='+encodeURIComponent(f.id)+'">'+cover+'<h2 class="imprint-card-title">'+esc(f.title)+'</h2>'+blurb+'<div class="imprint-card-foot">'+badge+genre+'</div></a>';
-  }).join('');
+    // Boost chip: only shown when this is the author's OWN imprint AND
+    // the folio is on the Shelf (imprint queries include unshelved
+    // folios, so we guard on listOnShelf). Wraps in a nested button
+    // that stops event propagation so it doesn't trigger the card's
+    // outer <a href> navigation.
+    const shelfEligible = !!f.listOnShelf;
+    const _daysOld = f.publishedAt ? Math.floor((Date.now() - f.publishedAt) / 86400000) : 0;
+    const isQuiet = isOwnImprint && _daysOld >= 7 && (f.viewCount || 0) < 10 && shelfEligible;
+    const boostChip = (isOwnImprint && shelfEligible)
+      ? '<button class="imprint-boost-chip'+(isQuiet?' recommended':'')+'" onclick="event.preventDefault();event.stopPropagation();openBoostPicker(\''+esc(f.id)+'\',\''+esc(f.title).replace(/\'/g,"\\'")+'\')" title="'+(isQuiet?'This folio is quiet — a boost could 10× your reach':'Boost this folio')+'">'+(isQuiet?'📉 Boost →':'🚀 Boost')+'</button>'
+      : '';
+    // Series badge — "Sky Bridge Saga #2" when both fields set;
+    // "Sky Bridge Saga" alone when just the name is there. Only shows
+    // when this folio isn't already rendered under a series header
+    // (otherwise it's redundant).
+    const seriesBadge = (f.series && f.series.trim()) && !multiSeriesKeys.includes(f.series.trim())
+      ? '<span class="imprint-badge series-badge">'+esc(f.series)+(f.seriesOrder?(' #'+f.seriesOrder):'')+'</span>'
+      : '';
+    return '<a class="imprint-card" href="/app.html?read='+encodeURIComponent(f.id)+'">'+cover+'<h2 class="imprint-card-title">'+esc(f.title)+'</h2>'+blurb+'<div class="imprint-card-foot">'+seriesBadge+badge+genre+boostChip+'</div></a>';
+  };
+  // Assemble output: multi-book series first (each with a header),
+  // then standalone folios.
+  let html = '';
+  multiSeriesKeys.sort();  // alphabetical series ordering — reasonable default
+  multiSeriesKeys.forEach(function(k){
+    html += '<div class="imprint-series-section">';
+    html += '<h3 class="imprint-series-title">📚 '+esc(k)+' <span class="imprint-series-count">'+seriesMap[k].length+' books</span></h3>';
+    html += '<div class="imprint-series-grid">' + seriesMap[k].map(renderCardHtml).join('') + '</div>';
+    html += '</div>';
+  });
+  if (standalone.length) {
+    if (multiSeriesKeys.length) {
+      html += '<h3 class="imprint-series-title imprint-standalone-title">Standalone titles</h3>';
+    }
+    html += '<div class="imprint-series-grid">' + standalone.map(renderCardHtml).join('') + '</div>';
+  }
+  grid.innerHTML = html;
 }
 
 function renderHeader(authorName, tipUrl, count){
@@ -188,13 +387,27 @@ async function boot(){
   try{
     const appMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
     const fsMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    const authMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
     const {initializeApp}=appMod;
     const {getFirestore,collection,query,where,getDocs,limit}=fsMod;
+    const {getAuth,onAuthStateChanged}=authMod;
     _fbCollection=collection;_fbQuery=query;_fbWhere=where;_fbGetDocs=getDocs;_fbLimit=limit;
     const firebaseConfig={apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",authDomain:"auth.jacobsiler.com",projectId:"miscellaneous-117e9",storageBucket:"miscellaneous-117e9.firebasestorage.app",messagingSenderId:"514858431339",appId:"1:514858431339:web:8b3acbe89966b45fe3922e"};
     const app=initializeApp(firebaseConfig);
     _fbDb=getFirestore(app);
-    console.log('[imprint] ✅ Firestore ready');
+    // Silent auth restore — shared Firebase project with /app.html
+    // means signed-in state carries over automatically. On the imprint
+    // page, ownership matters when window._myUid === URL ?uid= — that's
+    // when we're viewing OUR OWN imprint and should see boost chips.
+    const auth=getAuth(app);
+    onAuthStateChanged(auth, function(u){
+      window._myUid = (u && u.uid) || '';
+      console.log('[imprint] auth state:', window._myUid ? ('signed in as '+u.email) : 'signed out');
+      if (window._lastFolios && window._lastFolios.length) {
+        try { renderCards(window._lastFolios); } catch (_) {}
+      }
+    });
+    console.log('[imprint] ✅ Firestore + Auth ready');
 
     const q=_fbQuery(_fbCollection(_fbDb,'folio_projects'),_fbWhere('uid','==',uid),_fbWhere('release.published','==',true),_fbLimit(200));
     const snap=await _fbGetDocs(q);
@@ -220,7 +433,9 @@ async function boot(){
         coverUrl:(typeof r.coverUrl==='string'&&/^https:\/\//i.test(r.coverUrl))?r.coverUrl:'',
         priceMode:String(r.priceMode||'free'),
         serial:!!r.serial,
-        listedAt:Number(r.shelfListedAt||r.publishedAt||0)
+        listedAt:Number(r.shelfListedAt||r.publishedAt||0),
+        series:String(r.series||'').trim(),
+        seriesOrder:(function(){const n=Number(r.seriesOrder);return isFinite(n)?n:0;})()
       });
     });
 
@@ -234,5 +449,76 @@ async function boot(){
 
 boot();
 </script>
+<div class="imprint-boost-overlay" id="imprintBoostOverlay" onclick="if(event.target.id==='imprintBoostOverlay')closeBoostPicker()">
+  <div class="imprint-boost-modal">
+    <h3>🚀 Boost <span id="imprintBoostFolioTitle">this folio</span></h3>
+    <p>Featured listings sit at the top of the Shelf with an ✨ badge and a gold border for the duration you choose. Pay via PayPal — your listing goes live the moment payment clears.</p>
+    <div class="imprint-boost-tiers">
+      <button class="imprint-boost-tier-btn" onclick="startImprintBoost('24h')">
+        <div class="price">$3</div><div class="dur">24 hours</div>
+      </button>
+      <button class="imprint-boost-tier-btn popular" onclick="startImprintBoost('72h')">
+        <div class="pop-tag">POPULAR</div><div class="price">$9</div><div class="dur">72 hours</div>
+      </button>
+      <button class="imprint-boost-tier-btn" onclick="startImprintBoost('7d')">
+        <div class="price">$19</div><div class="dur">7 days</div>
+      </button>
+    </div>
+    <div id="imprintBoostStatus"></div>
+    <div class="imprint-boost-modal-foot">
+      <span>0% platform commission — every dollar over PayPal's fees keeps Folio ad-free</span>
+      <button class="imprint-boost-close" onclick="closeBoostPicker()">Cancel</button>
+    </div>
+  </div>
+</div>
+<script>
+  const PAYWALL_WORKER_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
+  let _boostTargetFolioId = '';
+  window.openBoostPicker = function(folioId, title) {
+    _boostTargetFolioId = folioId;
+    document.getElementById('imprintBoostFolioTitle').textContent = title || 'this folio';
+    document.getElementById('imprintBoostStatus').textContent = '';
+    document.getElementById('imprintBoostOverlay').classList.add('open');
+  };
+  window.closeBoostPicker = function() {
+    document.getElementById('imprintBoostOverlay').classList.remove('open');
+    document.querySelectorAll('.imprint-boost-tier-btn').forEach(function(b){b.disabled=false;b.style.opacity='1';});
+  };
+  window.startImprintBoost = async function(tier) {
+    const status = document.getElementById('imprintBoostStatus');
+    const buttons = document.querySelectorAll('.imprint-boost-tier-btn');
+    if (!_boostTargetFolioId) { status.textContent='No folio selected.'; status.style.color='var(--danger,#c04040)'; return; }
+    buttons.forEach(function(b){b.disabled=true;b.style.opacity='.6';});
+    status.textContent = 'Preparing your order…';
+    status.style.color = 'var(--hint)';
+    try {
+      const r = await fetch(PAYWALL_WORKER_URL + '/boost-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folioId: _boostTargetFolioId, tier: tier, uid: (window._myUid || '') }),
+      });
+      const data = await r.json().catch(function(){ return {}; });
+      if (!r.ok || !data.approvalUrl) {
+        status.textContent = 'Checkout failed: ' + (data.error || r.status);
+        status.style.color = 'var(--danger,#c04040)';
+        buttons.forEach(function(b){b.disabled=false;b.style.opacity='1';});
+        return;
+      }
+      status.textContent = '✅ Redirecting to PayPal…';
+      status.style.color = 'var(--accent-ui,#065f46)';
+      window.location.href = data.approvalUrl;
+    } catch (e) {
+      status.textContent = 'Network error: ' + (e.message || 'unknown');
+      status.style.color = 'var(--danger,#c04040)';
+      buttons.forEach(function(b){b.disabled=false;b.style.opacity='1';});
+    }
+  };
+</script>
+<div style="max-width:1200px;margin:40px auto 20px;padding:20px 24px;text-align:center;border-top:.5px solid var(--border);font-size:11.5px;color:var(--hint);line-height:1.6">
+  <div style="display:inline-flex;align-items:center;gap:8px;background:var(--surface);padding:8px 16px;border:.5px solid var(--border);border-radius:20px">
+    <span style="font-size:14px">📖</span>
+    <span>3D bookshelf renders powered by <strong style="color:var(--accent)">Folio Press</strong> — the pro tier for authors who want their imprint to look like a real bookstore. Free during early access.</span>
+  </div>
+</div>
 </body>
 </html>

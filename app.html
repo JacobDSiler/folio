@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- FOLIO BUILD v2026.07.02.4 — Marketplace loop: Shelf portals in sidebar + reader + end-of-book panel + unpublished boost state + private-link hides shelf (name + book number) + boost placements complete -->
+<!-- FOLIO BUILD v2026.07.03.2 — Task #49 analytics-triggered boost nudge + view tracking slot cap + real-time indicator: Shelf portals in sidebar + reader + end-of-book panel + unpublished boost state + private-link hides shelf (name + book number) + boost placements complete -->
 <html lang="en">
 
 <head>
@@ -19902,6 +19902,21 @@
       try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) { }
       // Show end-of-book panel (reader mode only; helper self-guards)
       try { if (typeof _rdShowEndOfBookPanel === 'function') _rdShowEndOfBookPanel(); } catch (_) {}
+      // One-time view record — anonymous fire-and-forget, no auth needed
+      // (worker uses its service account). Session flag prevents double-counting
+      // on re-hydrations. Only fires in reader mode on public folios.
+      try {
+        if (typeof _readerMode !== 'undefined' && _readerMode &&
+            typeof _loadedFolioId !== 'undefined' && _loadedFolioId &&
+            !window._viewRecorded) {
+          window._viewRecorded = true;
+          fetch(PAYWALL_WORKER_URL + '/view-record', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folioId: _loadedFolioId }),
+          }).catch(function(){ /* silent — view counting shouldn't affect UX */ });
+        }
+      } catch (_) {}
 
       // Record the lock key so the idempotency guard at the top of this
       // function can skip a redundant rebuild next time.
@@ -20818,7 +20833,12 @@
         });
         const data = await r.json().catch(function () { return {}; });
         if (!r.ok || !data.approvalUrl) {
-          setStatus('Checkout failed: ' + (data.error || r.status), 'err');
+          // Slot-cap rejection gets a nicer message with the detail field
+          if (data.error === 'Featured slots full' && data.detail) {
+            setStatus(data.detail, 'err');
+          } else {
+            setStatus('Checkout failed: ' + (data.error || r.status), 'err');
+          }
           onEnable();
           return;
         }
@@ -20885,6 +20905,39 @@
       if (pitch)  pitch.style.display  = canBoost ? '' : 'none';
       if (status) status.style.display = canBoost ? '' : 'none';
       notReady.style.display = canBoost ? 'none' : '';
+      // Fetch scarcity info when we're in canBoost state — authors see
+      // slot occupancy before clicking a tier. Fire-and-forget; if the
+      // fetch fails we just don't show the indicator.
+      const scarcityEl = document.getElementById('rlBoostScarcity');
+      if (canBoost && scarcityEl) {
+        scarcityEl.style.display = 'none';  // hide until we have data
+        fetch(PAYWALL_WORKER_URL + '/boost-slots')
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if (!d || !d.ok) return;
+            const occupied = d.count | 0;
+            const cap = d.cap | 0;
+            const full = !!d.full;
+            let msg;
+            if (full) {
+              const openingIn = Math.max(0, d.next_opening_ms - Date.now());
+              const hours = Math.round(openingIn / 3600000 * 10) / 10;
+              msg = '⚠️ <strong>All ' + cap + ' featured slots are full</strong> — next opening in ~' + hours + 'h. You can still buy a boost, but note the timing.';
+              scarcityEl.style.borderColor = 'var(--accent)';
+            } else if (occupied >= cap - 1) {
+              msg = '📊 <strong>' + occupied + ' of ' + cap + '</strong> featured slots in use — grab yours before the last opens fills.';
+              scarcityEl.style.borderColor = 'var(--border-mid)';
+            } else {
+              msg = '📊 <strong>' + occupied + ' of ' + cap + '</strong> featured slots in use — plenty of room to boost right now.';
+              scarcityEl.style.borderColor = 'var(--border-mid)';
+            }
+            scarcityEl.innerHTML = msg;
+            scarcityEl.style.display = 'block';
+          })
+          .catch(function(){ /* silent */ });
+      } else if (scarcityEl) {
+        scarcityEl.style.display = 'none';
+      }
       if (!canBoost) {
         const msgEl = document.getElementById('rlBoostNotReadyMsg');
         if (msgEl) {
@@ -21318,6 +21371,21 @@
         try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) { }
       // Show end-of-book panel (reader mode only; helper self-guards)
       try { if (typeof _rdShowEndOfBookPanel === 'function') _rdShowEndOfBookPanel(); } catch (_) {}
+      // One-time view record — anonymous fire-and-forget, no auth needed
+      // (worker uses its service account). Session flag prevents double-counting
+      // on re-hydrations. Only fires in reader mode on public folios.
+      try {
+        if (typeof _readerMode !== 'undefined' && _readerMode &&
+            typeof _loadedFolioId !== 'undefined' && _loadedFolioId &&
+            !window._viewRecorded) {
+          window._viewRecorded = true;
+          fetch(PAYWALL_WORKER_URL + '/view-record', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folioId: _loadedFolioId }),
+          }).catch(function(){ /* silent — view counting shouldn't affect UX */ });
+        }
+      } catch (_) {}
         return;
       }
       const previewN = Number((release && release.previewSections) || 0) || 0;
@@ -21353,6 +21421,21 @@
       try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) { }
       // Show end-of-book panel (reader mode only; helper self-guards)
       try { if (typeof _rdShowEndOfBookPanel === 'function') _rdShowEndOfBookPanel(); } catch (_) {}
+      // One-time view record — anonymous fire-and-forget, no auth needed
+      // (worker uses its service account). Session flag prevents double-counting
+      // on re-hydrations. Only fires in reader mode on public folios.
+      try {
+        if (typeof _readerMode !== 'undefined' && _readerMode &&
+            typeof _loadedFolioId !== 'undefined' && _loadedFolioId &&
+            !window._viewRecorded) {
+          window._viewRecorded = true;
+          fetch(PAYWALL_WORKER_URL + '/view-record', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folioId: _loadedFolioId }),
+          }).catch(function(){ /* silent — view counting shouldn't affect UX */ });
+        }
+      } catch (_) {}
     }
     window._pwReapply = _pwReapply;
 
@@ -28391,6 +28474,7 @@
           </button>
         </div>
         <div id="rlBoostStatus" style="font-size:10.5px;color:var(--hint);margin:8px 0 0 24px;min-height:14px;line-height:1.5"></div>
+        <div id="rlBoostScarcity" style="display:none;font-size:10.5px;color:var(--hint);margin:6px 0 0 24px;line-height:1.5;padding:6px 10px;background:var(--surface);border:.5px dotted var(--border-mid);border-radius:5px"></div>
         <!-- Fallback state — shown when the folio isn't yet Published + Shelved.
              Boosting is only useful once the folio is discoverable on the Shelf,
              so we replace the tier buttons with a state-specific hint + a warm
