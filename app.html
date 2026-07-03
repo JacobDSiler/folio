@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- FOLIO BUILD v2026.07.03.4 — pageCount field for 3D book thickness gauge + view tracking slot cap + real-time indicator: Shelf portals in sidebar + reader + end-of-book panel + unpublished boost state + private-link hides shelf (name + book number) + boost placements complete -->
+<!-- FOLIO BUILD v2026.07.03.5 — pageCount auto-computed from manuscript wordCount (275 words/page) + view tracking slot cap + real-time indicator: Shelf portals in sidebar + reader + end-of-book panel + unpublished boost state + private-link hides shelf (name + book number) + boost placements complete -->
 <html lang="en">
 
 <head>
@@ -19256,8 +19256,7 @@
           const _seriesOrderEl = document.getElementById('rlSeriesOrder');
           if (_seriesNameEl)  _seriesNameEl.value  = _rlCurrent.series || '';
           if (_seriesOrderEl) _seriesOrderEl.value = (_rlCurrent.seriesOrder != null) ? String(_rlCurrent.seriesOrder) : '';
-          const _pageCountEl = document.getElementById('rlPageCount');
-          if (_pageCountEl) _pageCountEl.value = (_rlCurrent.pageCount != null && _rlCurrent.pageCount > 0) ? String(_rlCurrent.pageCount) : '';
+
           if (typeof _rlToggleShelfFields === 'function')  _rlToggleShelfFields();
           if (typeof _rlToggleShelfDescField === 'function') _rlToggleShelfDescField();
           // Featured Boost status display
@@ -19525,11 +19524,28 @@
           if (!isFinite(n) || n < 0) return null;
           return Math.min(999, n);
         })(),
+        // Auto-computed page count — derived from the manuscript's word
+        // count at publish time. 275 words/page is the standard paperback
+        // fiction density (Mavens of publishing agree this is close to
+        // Trade Paperback typography). Unmanipulable by the author; the
+        // 3D book spine width on the imprint page derives from this,
+        // giving readers an honest at-a-glance length signal.
         pageCount: (function(){
-          const raw = (document.getElementById('rlPageCount') && document.getElementById('rlPageCount').value) || '';
-          const n = parseInt(raw, 10);
-          if (!isFinite(n) || n <= 0) return null;
-          return Math.min(10000, n);
+          try {
+            const _stripHtml = function(s){ return String(s||'').replace(/<[^>]*>/g,' '); };
+            let _words = 0;
+            for (const _ch of chapters) {
+              if (_ch.type === 'toc') continue;  // TOCs don't count as content
+              const _clean = _stripHtml(_ch.content || '');
+              const _arr = _clean.split(/\s+/).filter(function(w){ return w.length > 0; });
+              _words += _arr.length;
+            }
+            if (_words === 0) return null;
+            return Math.max(1, Math.ceil(_words / 275));
+          } catch (e) {
+            console.warn('[pageCount] compute failed:', e);
+            return null;
+          }
         })(),
         shelfUseDescription: !!(document.getElementById('rlShelfUseDesc') && document.getElementById('rlShelfUseDesc').checked),
         // Preserve featuredUntil across republishes so the author doesn't
@@ -28447,23 +28463,7 @@
         </p>
       </div>
 
-      <!-- ═══ PAGE COUNT — drives 3D book thickness on the imprint page ═══
-           Optional metadata. When set, the imprint page renders this
-           folio's 3D book with a spine width proportional to page count,
-           giving readers an at-a-glance sense of length. Leave blank for
-           unknown or work-in-progress. -->
-      <div style="margin:14px 0;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
-        <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:0 0 6px">
-          📏 <strong>Page count</strong> <span style="opacity:.7;font-weight:400">(optional — drives 3D book thickness on your imprint)</span>
-        </div>
-        <div style="margin-left:24px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-          <input type="number" id="rlPageCount" min="0" max="10000" step="1" placeholder="e.g., 260"
-            style="width:120px;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit">
-          <span style="font-size:10.5px;color:var(--hint);line-height:1.5">
-            50 pages = thin novella spine · 200 = typical novel · 400+ = chunky hardcover
-          </span>
-        </div>
-      </div>
+
 
       <!-- ═══ FEATURED BOOST — v2: PayPal-backed automated fulfilment ═══
            Author clicks a tier button, worker mints a PayPal order with
