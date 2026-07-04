@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Warm cream background — Folio's brand palette -->
+  <rect width="512" height="512" fill="#faf7f1"/>
+  
+  <!-- Subtle top wave for visual interest -->
+  <path d="M0 0 L512 0 L512 40 Q256 60 0 40 Z" fill="#f0e6cf" opacity="0.5"/>
+  
+  <!-- Books arranged on a shelf, more detailed than the favicon -->
+  <!-- Book 1: burgundy leather, tallest -->
+  <rect x="80" y="130" width="60" height="220" rx="4" fill="#4a1e18"/>
+  <rect x="80" y="165" width="60" height="4" fill="#c98c2a" opacity="0.85"/>
+  <rect x="80" y="315" width="60" height="4" fill="#c98c2a" opacity="0.85"/>
+  <rect x="80" y="230" width="60" height="2" fill="#e8c374" opacity="0.5"/>
+  <rect x="80" y="240" width="60" height="2" fill="#e8c374" opacity="0.5"/>
+  <text x="110" y="260" text-anchor="middle" fill="#e8c374" opacity="0.75" font-family="Georgia,serif" font-size="14" writing-mode="tb" style="letter-spacing:2px">FOLIO</text>
+  
+  <!-- Book 2: forest green -->
+  <rect x="150" y="155" width="60" height="195" rx="4" fill="#1e3a2a"/>
+  <rect x="150" y="188" width="60" height="4" fill="#c98c2a" opacity="0.8"/>
+  <rect x="150" y="315" width="60" height="4" fill="#c98c2a" opacity="0.8"/>
+  <rect x="150" y="240" width="60" height="2" fill="#e8c374" opacity="0.4"/>
+  
+  <!-- Book 3: Folio brand amber (most prominent) -->
+  <rect x="220" y="140" width="60" height="210" rx="4" fill="#c98c2a"/>
+  <rect x="220" y="175" width="60" height="4" fill="#4a2810" opacity="0.9"/>
+  <rect x="220" y="315" width="60" height="4" fill="#4a2810" opacity="0.9"/>
+  <rect x="220" y="230" width="60" height="2" fill="#4a2810" opacity="0.6"/>
+  <rect x="220" y="240" width="60" height="2" fill="#4a2810" opacity="0.6"/>
+  <text x="250" y="265" text-anchor="middle" fill="#4a2810" opacity="0.9" font-family="Georgia,serif" font-size="15" writing-mode="tb" style="letter-spacing:2px">PRESS</text>
+  
+  <!-- Book 4: deep navy -->
+  <rect x="290" y="160" width="60" height="190" rx="4" fill="#1e2a4a"/>
+  <rect x="290" y="192" width="60" height="4" fill="#c98c2a" opacity="0.75"/>
+  <rect x="290" y="315" width="60" height="4" fill="#c98c2a" opacity="0.75"/>
+  
+  <!-- Book 5: warm brown, leaning -->
+  <rect x="360" y="180" width="55" height="170" rx="3" fill="#6b4222" transform="rotate(4, 388, 265)"/>
+  
+  <!-- Wooden shelf plank -->
+  <rect x="40" y="350" width="432" height="18" rx="3" fill="#6b4222"/>
+  <rect x="40" y="350" width="432" height="3" fill="#c98c2a" opacity="0.55"/>
+  <rect x="40" y="364" width="432" height="3" fill="#3a2415" opacity="0.7"/>
+  <!-- Wood grain -->
+  <line x1="60" y1="360" x2="450" y2="360" stroke="#3a2415" stroke-width="0.5" opacity="0.3"/>
+  <line x1="80" y1="357" x2="440" y2="358" stroke="#3a2415" stroke-width="0.5" opacity="0.25"/>
+  
+  <!-- Title text below -->
+  <text x="256" y="415" text-anchor="middle" fill="#1a1611" font-family="Georgia,serif" font-weight="600" font-size="42" style="letter-spacing:-0.5px">Folio Press</text>
+  
+  <!-- Tagline -->
+  <text x="256" y="450" text-anchor="middle" fill="#5a5347" font-family="Georgia,serif" font-style="italic" font-size="18">Tools for authors who want to be read</text>
+  
+  <!-- Bottom warm accent line -->
+  <rect x="180" y="470" width="152" height="2" fill="#c98c2a" opacity="0.6"/>
+</svg>
