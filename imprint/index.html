@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- FOLIO BUILD v2026.07.03.6 imprint -->
+<!-- FOLIO BUILD v2026.07.03.7 — no fore-edge; cleaner 5-face book imprint -->
 <html lang="en">
 <head>
 <script>
@@ -109,7 +109,7 @@ a:hover{text-decoration:underline}
 .book-3d-flat{transform:rotateX(-88deg)}
 .book-3d-scene:hover .book-3d-propped{transform:rotateY(-54deg) rotateX(-11deg) translateY(-8px)}
 .book-3d-face{position:absolute;width:100%;height:100%;backface-visibility:hidden;overflow:hidden}
-.book-3d-front{background-size:cover;background-position:center;background-color:#2a1810;transform:translateZ(calc(var(--book-d) / 2));box-shadow:inset -6px 0 12px rgba(0,0,0,.22),inset 3px 0 6px rgba(255,255,255,.05),inset 0 -2px 6px rgba(0,0,0,.15);border-radius:2px 5px 5px 2px}
+.book-3d-front{background-size:cover;background-position:center;background-color:#2a1810;transform:translateZ(calc(var(--book-d) / 2));box-shadow:inset -10px 0 16px rgba(0,0,0,.3),inset 3px 0 6px rgba(255,255,255,.05),inset 0 -2px 6px rgba(0,0,0,.15),8px 6px 20px rgba(0,0,0,.4);border-radius:2px 5px 5px 2px}
 .book-3d-front-text{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:16px;text-align:center;color:rgba(255,240,220,.9);font-family:'Playfair Display',Georgia,serif;text-shadow:0 2px 6px rgba(0,0,0,.5)}
 .book-3d-front-title{font-size:20px;font-weight:600;line-height:1.15;margin-bottom:8px;letter-spacing:.01em}
 .book-3d-front-author{font-size:11px;opacity:.75;font-style:italic;letter-spacing:.05em;text-transform:uppercase}
@@ -123,10 +123,8 @@ a:hover{text-decoration:underline}
 .book-3d-top,.book-3d-bottom{width:100%;height:var(--book-d);background:linear-gradient(90deg,#c4b898 0%,#eee0c2 15%,#faf3dd 50%,#eee0c2 85%,#c4b898 100%);background-image:linear-gradient(90deg,rgba(0,0,0,.12) 0%,transparent 15%,transparent 85%,rgba(0,0,0,.12) 100%),repeating-linear-gradient(90deg,transparent 0px,rgba(90,60,30,.06) 1px,transparent 2px)}
 .book-3d-top{transform:rotateX(90deg) translateZ(calc(var(--book-d) / 2));transform-origin:top center}
 .book-3d-bottom{bottom:0;top:auto;transform:rotateX(-90deg) translateZ(calc(var(--book-d) / 2));transform-origin:bottom center}
-/* Fore-edge — the pages visible on the right side when propped.
-   Cream color with fine vertical striping to hint at page compression. */
-.book-3d-fore-edge{width:var(--book-d);height:100%;right:0;left:auto;top:0;background:linear-gradient(180deg,#c4b898 0%,#eee0c2 8%,#faf3dd 50%,#eee0c2 92%,#c4b898 100%);background-image:repeating-linear-gradient(0deg,transparent 0px,rgba(90,60,30,.10) 1px,transparent 2.5px);transform:rotateY(90deg) translateZ(calc(var(--book-d) / 2));transform-origin:left center;box-shadow:inset 1px 0 2px rgba(0,0,0,.15),inset -1px 0 2px rgba(0,0,0,.15)}
-.book-3d-scene::after{content:'';position:absolute;bottom:-22px;left:-2%;right:-2%;height:42px;background:radial-gradient(ellipse at 45% center,rgba(0,0,0,.6) 0%,rgba(0,0,0,.3) 30%,transparent 70%);filter:blur(10px);pointer-events:none;z-index:-1}
+
+.book-3d-scene::after{content:'';position:absolute;bottom:-16px;left:6%;right:6%;height:24px;background:radial-gradient(ellipse at 50% center,rgba(0,0,0,.45) 0%,rgba(0,0,0,.2) 30%,transparent 65%);filter:blur(8px);pointer-events:none;z-index:-1}
 /* Slightly larger book for featured/series cards */
 .imprint-series-section .book-3d-scene{--book-w:180px;--book-h:270px;--book-d:52px}
 /* Standalone grid uses default 220x320 */
@@ -278,7 +276,6 @@ function renderBook3D(f){
       '<div class="book-3d-face book-3d-front" style="'+frontBg+'">'+frontOverlay+'</div>'+
       '<div class="book-3d-face book-3d-back" style="'+backBg+'"></div>'+
       '<div class="book-3d-face book-3d-spine" style="'+spineBg+'"><div class="book-3d-spine-text"><span class="book-3d-spine-title">'+title+'</span><span class="book-3d-spine-author">'+author+'</span></div></div>'+
-      '<div class="book-3d-face book-3d-fore-edge"></div>'+
       '<div class="book-3d-face book-3d-top"></div>'+
       '<div class="book-3d-face book-3d-bottom"></div>'+
     '</div>'+
