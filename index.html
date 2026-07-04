@@ -951,31 +951,22 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
     <p class="lede">Every cover, page, and audiobook below was made entirely in Folio. Hover to slow the carousel; click a spine to read.</p>
   </div>
 
+  <!-- Live shelf feed — populated by JavaScript on page load from Firestore.
+       Falls back to placeholder covers if the query returns empty or errors.
+       See the <script> block near end-of-body 
   <div class="showcase" id="showcaseRow">
-    <div class="showcase-track">
-      <!-- 10 covers, duplicated for seamless marquee -->
-      <a class="cover cover-1"><div class="cflour">A Novel</div><div class="crule"></div><div class="ct">The Cartographer's Last Map</div><div class="ca">Mira Ashe</div></a>
-      <a class="cover cover-2"><div class="cflour">Stories</div><div class="crule"></div><div class="ct">Night Birds, Counting</div><div class="ca">Hadley Quinn</div></a>
-      <a class="cover cover-3"><div class="cflour">A Memoir</div><div class="crule"></div><div class="ct">The Ferry Wakes</div><div class="ca">Otto Bauer</div></a>
-      <a class="cover cover-4"><div class="cflour">Poems</div><div class="crule"></div><div class="ct">Small Weathers</div><div class="ca">Lena Park</div></a>
-      <a class="cover cover-5"><div class="cflour">Field Notes</div><div class="crule"></div><div class="ct">Cloud Atlas of Iowa</div><div class="ca">D. Harriman</div></a>
-      <a class="cover cover-6"><div class="cflour">A Thriller</div><div class="crule"></div><div class="ct">Eight Bells for the Drowned</div><div class="ca">R. Castellanos</div></a>
-      <a class="cover cover-7"><div class="cflour">Cookbook</div><div class="crule"></div><div class="ct">Salt, Smoke &amp; Sunday</div><div class="ca">June Whitlock</div></a>
-      <a class="cover cover-8"><div class="cflour">Essays</div><div class="crule"></div><div class="ct">Against the Quiet</div><div class="ca">Tom Yi</div></a>
-      <a class="cover cover-9"><div class="cflour">SF</div><div class="crule"></div><div class="ct">Procedural for an Empty Star</div><div class="ca">Anya Petrov</div></a>
-      <a class="cover cover-10"><div class="cflour">A Romance</div><div class="crule"></div><div class="ct">Late August, Still Yours</div><div class="ca">Cass Imani</div></a>
-      <!-- duplicate -->
-      <a class="cover cover-1"><div class="cflour">A Novel</div><div class="crule"></div><div class="ct">The Cartographer's Last Map</div><div class="ca">Mira Ashe</div></a>
-      <a class="cover cover-2"><div class="cflour">Stories</div><div class="crule"></div><div class="ct">Night Birds, Counting</div><div class="ca">Hadley Quinn</div></a>
-      <a class="cover cover-3"><div class="cflour">A Memoir</div><div class="crule"></div><div class="ct">The Ferry Wakes</div><div class="ca">Otto Bauer</div></a>
-      <a class="cover cover-4"><div class="cflour">Poems</div><div class="crule"></div><div class="ct">Small Weathers</div><div class="ca">Lena Park</div></a>
-      <a class="cover cover-5"><div class="cflour">Field Notes</div><div class="crule"></div><div class="ct">Cloud Atlas of Iowa</div><div class="ca">D. Harriman</div></a>
-      <a class="cover cover-6"><div class="cflour">A Thriller</div><div class="crule"></div><div class="ct">Eight Bells for the Drowned</div><div class="ca">R. Castellanos</div></a>
-      <a class="cover cover-7"><div class="cflour">Cookbook</div><div class="crule"></div><div class="ct">Salt, Smoke &amp; Sunday</div><div class="ca">June Whitlock</div></a>
-      <a class="cover cover-8"><div class="cflour">Essays</div><div class="crule"></div><div class="ct">Against the Quiet</div><div class="ca">Tom Yi</div></a>
-      <a class="cover cover-9"><div class="cflour">SF</div><div class="crule"></div><div class="ct">Procedural for an Empty Star</div><div class="ca">Anya Petrov</div></a>
-      <a class="cover cover-10"><div class="cflour">A Romance</div><div class="crule"></div><div class="ct">Late August, Still Yours</div><div class="ca">Cass Imani</div></a>
+    <div class="showcase-track" id="showcaseTrack">
+      <!-- Placeholder covers shown while Firestore loads; replaced on success -->
+      <a class="cover cover-1"><div class="cflour">Loading…</div><div class="crule"></div><div class="ct">The Folio Shelf</div><div class="ca">is being fetched</div></a>
+      <a class="cover cover-2"><div class="cflour">Loading…</div><div class="crule"></div><div class="ct">Real books</div><div class="ca">by real authors</div></a>
+      <a class="cover cover-3"><div class="cflour">Loading…</div><div class="crule"></div><div class="ct">Published in Folio</div><div class="ca">just now</div></a>
+      <a class="cover cover-4"><div class="cflour">Loading…</div><div class="crule"></div><div class="ct">The Folio Shelf</div><div class="ca">is being fetched</div></a>
+      <a class="cover cover-5"><div class="cflour">Loading…</div><div class="crule"></div><div class="ct">Real books</div><div class="ca">by real authors</div></a>
+      <a class="cover cover-6"><div class="cflour">Loading…</div><div class="crule"></div><div class="ct">Published in Folio</div><div class="ca">just now</div></a>
     </div>
+  </div>
+  <div style="text-align:center;margin-top:16px">
+    <a href="/shelf" style="font-size:13px;color:var(--muted)">Browse the full Shelf →</a>
   </div>
 </section>
 
@@ -1054,58 +1045,59 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   <div class="tiers">
     <div class="tier">
       <div class="tier-head">
-        <div class="name">Writer</div>
-        <div class="desc">Everything you need to write and finish a book.</div>
+        <div class="name">Free</div>
+        <div class="desc">Write, publish, share. Your work reaches whoever you share it with.</div>
       </div>
-      <div class="tier-price"><span class="amt">Free</span><span class="per">forever</span></div>
+      <div class="tier-price"><span class="amt">$0</span><span class="per">forever</span></div>
       <ul class="tier-list">
-        <li>Unlimited books, chapters, and words</li>
-        <li>Galley-grade EPUB &amp; PDF export</li>
-        <li>Free reader links — share anywhere</li>
-        <li>Free serials with email subscribers</li>
-        <li>Audiobook export (bring your own TTS key)</li>
-        <li class="dim">"Made in Folio" badge on free releases</li>
+        <li>Unlimited folios, chapters, and words</li>
+        <li>Publish to The Shelf — discoverable by readers</li>
+        <li>Receive tips (0% commission, always)</li>
+        <li>Featured Boosts at standard price</li>
+        <li>Basic imprint page</li>
+        <li>Basic analytics — view count</li>
       </ul>
       <a class="btn ghost" href="app.html">Start writing →</a>
       <div class="tier-foot">No card. No trial countdown. Your manuscript is yours.</div>
     </div>
 
     <div class="tier feature">
-      <span class="pop">Most authors</span>
+      <span class="pop">Most flexible</span>
       <div class="tier-head">
-        <div class="name">Author</div>
-        <div class="desc">For publishing your first paid book or serial.</div>
+        <div class="name">Indie</div>
+        <div class="desc">For authors who want to look like themselves and know their audience.</div>
       </div>
-      <div class="tier-price"><span class="amt">$9</span><span class="per">/ month — or $79/yr</span></div>
+      <div class="tier-price"><span class="amt">$5</span><span class="per">/ month — or $50/yr (2 mos free)</span></div>
       <ul class="tier-list">
-        <li>Everything in Writer</li>
-        <li>Paid serials &amp; one-time books via Gumroad</li>
-        <li>Custom author URL — <span style="color:var(--accent)">folio.com/yourname</span></li>
-        <li>Hide the "Made in Folio" badge</li>
-        <li>Priority TTS queue &amp; voice cloning</li>
-        <li>Reader analytics — opens, finishes, drop-offs</li>
+        <li>Everything in Free</li>
+        <li>Custom imprint styling — accent color, hero, layout</li>
+        <li>Advanced analytics — charts, geo, referrers</li>
+        <li><b style="color:var(--accent)">20% off</b> Featured Boosts</li>
+        <li>Priority support</li>
       </ul>
-      <a class="btn primary" href="app.html?tier=author">Go Author →</a>
-      <div class="tier-foot">Cancel anytime. Folio takes <b style="color:var(--accent)">0%</b> of your Gumroad revenue — only Gumroad does.</div>
+      <a class="btn primary" href="/press/">Try Indie →</a>
+      <div class="tier-foot">Cancel anytime. All base Folio features remain free forever.</div>
     </div>
 
     <div class="tier">
       <div class="tier-head">
-        <div class="name">Publisher</div>
-        <div class="desc">For multi-author imprints &amp; small presses.</div>
+        <div class="name">Imprint</div>
+        <div class="desc">For authors running it as an operation. Marketing tools, budget savings.</div>
       </div>
-      <div class="tier-price"><span class="amt">$29</span><span class="per">/ month</span></div>
+      <div class="tier-price"><span class="amt">$12</span><span class="per">/ month — or $120/yr (2 mos free)</span></div>
       <ul class="tier-list">
-        <li>Everything in Author</li>
-        <li>Up to 12 author seats per imprint</li>
-        <li>Imprint-branded reader &amp; paywall</li>
-        <li>Bulk audiobook generation</li>
-        <li>API access &amp; webhook releases</li>
-        <li>Priority email support</li>
+        <li>Everything in Indie</li>
+        <li>Downloadable social product photos</li>
+        <li><b style="color:var(--accent)">50% off</b> Featured Boosts</li>
+        <li>Custom subdomain <span style="opacity:.6">(coming soon)</span></li>
+        <li>Early access to new features</li>
       </ul>
-      <a class="btn ghost" href="app.html?tier=publisher">Talk to us →</a>
-      <div class="tier-foot">Annual billing available. Custom seats &amp; SSO on request.</div>
+      <a class="btn ghost" href="/press/">Start Imprint →</a>
+      <div class="tier-foot">Same 0% commission on tips + author sales — those stay free forever.</div>
     </div>
+  </div>
+  <div style="text-align:center;margin-top:24px;font-size:13px;color:var(--muted)">
+    <a href="/press/" style="color:var(--muted)">See the full comparison →</a>
   </div>
 </section>
 
@@ -1576,3 +1568,79 @@ paintViral();
   if (p.has('title')){ tIn.value = p.get('title') || tIn.value; }
   if (p.has('author')){ aIn.value = p.get('author') || aIn.value; }
   paintViral();
+
+<!-- Live shelf feed script — pulls featured + recent folios from Firestore
+     into the showcase carousel, replacing placeholder covers on success. -->
+<script id="liveShelfBoot">
+  (async function () {
+    try {
+      const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      const { initializeApp } = appMod;
+      const { getFirestore, collection, query, where, getDocs, limit } = fsMod;
+      const firebaseConfig = {
+        apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",
+        authDomain: "auth.jacobsiler.com",
+        projectId: "miscellaneous-117e9",
+        storageBucket: "miscellaneous-117e9.firebasestorage.app",
+        messagingSenderId: "514858431339",
+        appId: "1:514858431339:web:8b3acbe89966b45fe3922e"
+      };
+      const app = initializeApp(firebaseConfig);
+      const db = getFirestore(app);
+      const q = query(
+        collection(db, 'folio_projects'),
+        where('release.listOnShelf', '==', true),
+        where('release.published', '==', true),
+        limit(24)
+      );
+      const snap = await getDocs(q);
+      if (snap.size < 3) { console.log('[welcome] fewer than 3 folios; keeping placeholders'); return; }
+      const folios = [];
+      snap.forEach(function(d) {
+        const data = d.data() || {};
+        const r = data.release || {};
+        folios.push({
+          id: d.id,
+          title: String(r.title || 'Untitled'),
+          author: String(r.author || ''),
+          coverUrl: (typeof r.coverUrl === 'string' && /^https:\/\//i.test(r.coverUrl)) ? r.coverUrl : '',
+          genre: String(r.shelfGenre || ''),
+          featuredUntil: (function () {
+            const raw = r.featuredUntil;
+            if (!raw) return 0;
+            if (typeof raw === 'number') return raw;
+            if (raw.toMillis) return raw.toMillis();
+            if (raw.seconds) return raw.seconds * 1000;
+            return 0;
+          })()
+        });
+      });
+      const now = Date.now();
+      folios.sort(function (a, b) { return (b.featuredUntil > now ? 1 : 0) - (a.featuredUntil > now ? 1 : 0); });
+      const top = folios.slice(0, 10);
+      const track = document.getElementById('showcaseTrack');
+      if (!track || !top.length) return;
+      const esc = function(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); };
+      const genreLabel = function(g) {
+        const map = { literary:'Literary', general:'Fiction', mystery:'Mystery', thriller:'Thriller', romance:'Romance', fantasy:'Fantasy', scifi:'Sci-Fi', horror:'Horror', historical:'Historical', ya:'YA', children:"Children's", memoir:'Memoir', selfhelp:'Self-help', business:'Business', health:'Wellness', poetry:'Poetry', essays:'Essays', educational:'How-to', other:'A Book' };
+        return map[g] || 'A Book';
+      };
+      const html = top.concat(top).map(function (f, i) {
+        const idx = (i % 10) + 1;
+        const href = '/app.html?read=' + encodeURIComponent(f.id);
+        const coverStyle = f.coverUrl ? ('background-image:url(\'' + esc(f.coverUrl) + '\');background-size:cover;background-position:center') : '';
+        return '<a class="cover cover-' + idx + '" href="' + esc(href) + '" style="' + coverStyle + '">' +
+          (f.coverUrl ? '' : ('<div class="cflour">' + esc(genreLabel(f.genre)) + '</div><div class="crule"></div>' +
+            '<div class="ct">' + esc(f.title) + '</div><div class="ca">' + esc(f.author) + '</div>')) +
+          '</a>';
+      }).join('');
+      track.innerHTML = html;
+      console.log('[welcome] live feed loaded with', top.length, 'folios');
+    } catch (e) {
+      console.warn('[welcome] live feed error, keeping placeholders:', e.message);
+    }
+  })();
+</script>
+</body>
+</html>
