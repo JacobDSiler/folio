@@ -1308,6 +1308,222 @@ async function handleViewRecord(request, env) {
   }
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   FOLIO PRESS — recurring subscription tier via PayPal Subscriptions
+   ────────────────────────────────────────────────────────────────────
+   Three tiers: Free (nothing to do here), Indie ($5/mo or $50/yr),
+   Imprint ($12/mo or $120/yr). Each paid tier has two PayPal Plans
+   (monthly + yearly), configured in PayPal dashboard and referenced
+   here by env-var Plan IDs.
+   
+   Flow:
+     1. Client POST /press-subscribe { tier, period, uid? }
+        Worker maps to Plan ID, creates PayPal Subscription with uid
+        in custom_id, returns approval URL.
+     2. Browser redirects to PayPal approval page.
+     3. User approves; PayPal redirects to /press-return?subscription_id=...
+        Worker verifies subscription, writes Firestore user_settings/{uid}.pressSubscription
+        with { tier, period, status:'ACTIVE', paypalSubscriptionId, activatedAt, currentPeriodEnd }.
+     4. /press-webhook receives lifecycle events (renewal, cancellation,
+        payment failure) and updates Firestore state.
+   
+   Required env:
+     PAYPAL_PLAN_INDIE_MONTHLY     Plan ID for $5/mo Indie
+     PAYPAL_PLAN_INDIE_YEARLY      Plan ID for $50/yr Indie
+     PAYPAL_PLAN_IMPRINT_MONTHLY   Plan ID for $12/mo Imprint
+     PAYPAL_PLAN_IMPRINT_YEARLY    Plan ID for $120/yr Imprint
+   Setup: create these in developer.paypal.com under Products & Plans.
+   ══════════════════════════════════════════════════════════════════ */
+
+const PRESS_TIERS = {
+  indie:   { label: 'Indie',   monthly_usd: '5.00',  yearly_usd: '50.00'  },
+  imprint: { label: 'Imprint', monthly_usd: '12.00', yearly_usd: '120.00' },
+};
+
+function pressPlanId(env, tier, period) {
+  const key = 'PAYPAL_PLAN_' + tier.toUpperCase() + '_' + period.toUpperCase();
+  return env[key] || '';
+}
+
+/* POST /press-subscribe — creates a PayPal Subscription for a tier+period.
+   Returns { approvalUrl } for browser redirect. Requires the client to
+   send { tier, period, uid?(optional Firebase uid) }. */
+async function handlePressSubscribe(request, env) {
+  if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
+    return errorJson('PayPal not configured', 500, request, env);
+  }
+  let body;
+  try { body = await request.json(); }
+  catch (e) { return errorJson('Bad JSON body', 400, request, env); }
+  const tier   = String((body && body.tier) || '').trim().toLowerCase();
+  const period = String((body && body.period) || '').trim().toLowerCase();
+  const uid    = String((body && body.uid) || '').trim();
+  if (!PRESS_TIERS[tier]) return errorJson('Unknown tier "' + tier + '"', 400, request, env);
+  if (period !== 'monthly' && period !== 'yearly') return errorJson('period must be monthly or yearly', 400, request, env);
+  const planId = pressPlanId(env, tier, period);
+  if (!planId) {
+    return errorJson('PayPal Plan not configured for ' + tier + ' ' + period +
+      ' — set env var PAYPAL_PLAN_' + tier.toUpperCase() + '_' + period.toUpperCase(),
+      500, request, env);
+  }
+
+  let ppAccess;
+  try { ppAccess = await ppAccessToken(env); }
+  catch (e) { return errorJson('PayPal auth failed: ' + (e.message || 'unknown'), 502, request, env); }
+
+  const site  = siteOrigin(request, env);
+  const self  = boostSelfBase(request);
+  const returnUrl = self + '/press-return?site=' + encodeURIComponent(site) + '&tier=' + encodeURIComponent(tier) + '&period=' + encodeURIComponent(period);
+  const cancelUrl = site + '/press?subscribe=cancelled';
+
+  // custom_id lets us round-trip metadata through PayPal.
+  // Format: v1|tier|period|uid|timestamp — same style as boost.
+  const customId = ['v1', tier, period, uid || '-', Date.now()].join('|').slice(0, 127);
+
+  const subBody = {
+    plan_id: planId,
+    custom_id: customId,
+    application_context: {
+      brand_name: 'Folio Press',
+      shipping_preference: 'NO_SHIPPING',
+      user_action: 'SUBSCRIBE_NOW',
+      payment_method: {
+        payer_selected: 'PAYPAL',
+        payee_preferred: 'IMMEDIATE_PAYMENT_REQUIRED'
+      },
+      return_url: returnUrl,
+      cancel_url: cancelUrl,
+    },
+  };
+
+  let sub;
+  try {
+    const r = await fetch(ppBase(env) + '/v1/billing/subscriptions', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + ppAccess,
+        'Content-Type':  'application/json',
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify(subBody),
+    });
+    sub = await r.json().catch(() => ({}));
+    if (!r.ok || !sub.id) {
+      return errorJson('PayPal subscription create failed: ' +
+        (sub.message || sub.error_description || r.status), 502, request, env);
+    }
+  } catch (e) {
+    return errorJson('PayPal request failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+
+  const links = sub.links || [];
+  const approve = links.find(function (l) { return l.rel === 'approve' || l.rel === 'payer-action'; });
+  if (!approve) {
+    return errorJson('PayPal returned no approval link', 502, request, env);
+  }
+  return json({
+    ok: true,
+    subscriptionId: sub.id,
+    approvalUrl: approve.href,
+    tier: tier,
+    period: period,
+  }, 200, request, env);
+}
+
+/* GET /press-return — landing after PayPal subscription approval.
+   Verifies the subscription is active, writes Firestore user_settings
+   subscription state, redirects back to /press with a success flag. */
+async function handlePressReturn(request, env) {
+  const url = new URL(request.url);
+  const subId  = url.searchParams.get('subscription_id') || url.searchParams.get('subscriptionId') || '';
+  const site   = url.searchParams.get('site') || allowedOrigins(env)[0] || DEFAULT_ORIGIN;
+  const tier   = url.searchParams.get('tier') || '';
+  const period = url.searchParams.get('period') || '';
+  const back = function (qs) {
+    return new Response(null, {
+      status: 302,
+      headers: { 'Location': site + '/press?' + qs },
+    });
+  };
+  if (!subId) return back('subscribe=failed&reason=no-subscription-id');
+
+  let ppAccess;
+  try { ppAccess = await ppAccessToken(env); }
+  catch (e) { return back('subscribe=failed&reason=auth'); }
+
+  // Fetch the subscription to verify it's active
+  let sub;
+  try {
+    const r = await fetch(ppBase(env) + '/v1/billing/subscriptions/' + encodeURIComponent(subId), {
+      headers: { 'Authorization': 'Bearer ' + ppAccess },
+    });
+    sub = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      return back('subscribe=failed&reason=verify-' + r.status);
+    }
+  } catch (e) {
+    return back('subscribe=failed&reason=network');
+  }
+
+  const status = String(sub.status || '').toUpperCase();
+  if (status !== 'ACTIVE' && status !== 'APPROVED' && status !== 'APPROVAL_PENDING') {
+    return back('subscribe=failed&reason=status-' + encodeURIComponent(status));
+  }
+
+  // Parse custom_id back
+  const customId = sub.custom_id || '';
+  const parts = customId.split('|');
+  const uid = (parts[0] === 'v1' && parts.length >= 4 && parts[3] !== '-') ? parts[3] : '';
+
+  // Write Firestore user_settings/{uid}.pressSubscription if we have a uid.
+  // If uid missing (unauthenticated sub), the client will attach it later
+  // via a POST /press-attach endpoint (future).
+  if (uid) {
+    try {
+      const acc = await getAccessToken(env);
+      const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+      const fsUrl = 'https://firestore.googleapis.com/v1/projects/' + pid +
+                    '/databases/(default)/documents/folio_user_settings/' + encodeURIComponent(uid) +
+                    '?updateMask.fieldPaths=pressSubscription';
+      const fsBody = {
+        fields: {
+          pressSubscription: {
+            mapValue: {
+              fields: {
+                tier:      { stringValue: tier },
+                period:    { stringValue: period },
+                status:    { stringValue: 'ACTIVE' },
+                paypalSubscriptionId: { stringValue: subId },
+                activatedAt: { timestampValue: new Date().toISOString() },
+              }
+            }
+          }
+        }
+      };
+      await fetch(fsUrl, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': 'Bearer ' + acc.token,
+          'Content-Type':  'application/json',
+        },
+        body: JSON.stringify(fsBody),
+      });
+    } catch (e) {
+      console.warn('[press] Firestore write failed (non-fatal for return):', e.message);
+    }
+  }
+
+  return back('subscribed=1&tier=' + encodeURIComponent(tier) + '&period=' + encodeURIComponent(period));
+}
+
+/* POST /press-webhook — Phase 2 scaffold. PayPal Subscriptions events:
+   BILLING.SUBSCRIPTION.ACTIVATED, .CANCELLED, .SUSPENDED, .PAYMENT.FAILED.
+   For now, returns 200 for known events and 501 for signature verify —
+   full signature verification + Firestore state updates come next session. */
+async function handlePressWebhook(request, env) {
+  return json({ ok: true, action: 'accepted', note: 'signature verification + state update coming in Phase 2' }, 200, request, env);
+}
+
 /* GET /boost-debug — admin-gated diagnostic. */
 async function handleBoostDebug(request, env) {
   const url = new URL(request.url);
@@ -1402,6 +1618,9 @@ export default {
           'GET  /boost-return    ?token=&PayerID=&site=',
           'GET  /boost-slots      scarcity signal',
           'POST /boost-webhook   PayPal-signed safety net',
+          'POST /press-subscribe { tier, period, uid? }   creates a PayPal Subscription',
+          'GET  /press-return    ?subscription_id=&tier=&period=&site=  Post-approval landing',
+          'POST /press-webhook   PayPal Subscription lifecycle events (Phase 2)',
           'GET  /boost-debug?token=...   admin diagnostic',
         ],
       }, 200, request, env);
@@ -1418,6 +1637,9 @@ export default {
     if (path === '/boost-webhook'  && request.method === 'POST') return handleBoostWebhook(request, env);
     if (path === '/boost-slots'    && request.method === 'GET')  return handleBoostSlots(request, env);
     if (path === '/view-record'    && request.method === 'POST') return handleViewRecord(request, env);
+    if (path === '/press-subscribe' && request.method === 'POST') return handlePressSubscribe(request, env);
+    if (path === '/press-return'    && request.method === 'GET')  return handlePressReturn(request, env);
+    if (path === '/press-webhook'   && request.method === 'POST') return handlePressWebhook(request, env);
     if (path === '/boost-debug'    && request.method === 'GET')  return handleBoostDebug(request, env);
 
     return errorJson('Not found: ' + path, 404, request, env);

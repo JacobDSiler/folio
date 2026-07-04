@@ -1,0 +1,283 @@
+<!doctype html>
+<!-- FOLIO PRESS BUILD v2026.07.04.1 — three tiers, PayPal Subscriptions -->
+<html lang="en">
+<head>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3QgeD0iNiIgeT0iMTAiIHdpZHRoPSIxNSIgaGVpZ2h0PSI0NCIgcng9IjEuNSIgZmlsbD0iIzRhMWUxOCIvPjxyZWN0IHg9IjIzIiB5PSIxNiIgd2lkdGg9IjE1IiBoZWlnaHQ9IjM4IiByeD0iMS41IiBmaWxsPSIjMWUzYTJhIi8+PHJlY3QgeD0iNDAiIHk9IjEyIiB3aWR0aD0iMTUiIGhlaWdodD0iNDIiIHJ4PSIxLjUiIGZpbGw9IiNjOThjMmEiLz48cmVjdCB4PSIyIiB5PSI1NCIgd2lkdGg9IjYwIiBoZWlnaHQ9IjQiIHJ4PSIxIiBmaWxsPSIjNmI0MjIyIi8+PC9zdmc+">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Folio Press — pro tools for authors on Folio</title>
+<meta name="description" content="Folio Press unlocks marketing tools, custom styling, and boost discounts. Three tiers: Free, Indie, Imprint. Monthly or yearly.">
+<style>
+:root {
+  --bg:#faf7f1; --surface:#fff; --text:#1a1611; --muted:#5a5347; --hint:#8a8174;
+  --border:rgba(0,0,0,0.10); --border-mid:rgba(0,0,0,0.14);
+  --accent:#c98c2a; --accent-ui:#065f46; --accent-warm:#8b5a2b;
+  --shadow:0 1px 3px rgba(0,0,0,0.06),0 4px 14px rgba(0,0,0,0.04);
+  --shadow-lg:0 8px 32px rgba(0,0,0,0.10);
+}
+html[data-theme="dark"] {
+  --bg:#14110d; --surface:#1f1a14; --text:#e8dece; --muted:#a89e8b; --hint:#79705f;
+  --border:rgba(232,222,206,0.10); --border-mid:rgba(232,222,206,0.16);
+  --accent:#d4a44f; --accent-ui:#34d399;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh}
+a{color:var(--accent-ui);text-decoration:none}
+a:hover{text-decoration:underline}
+
+.press-hdr{background:var(--surface);border-bottom:.5px solid var(--border);padding:14px 20px}
+.press-hdr-row{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.press-brand{font-family:'Playfair Display',Georgia,serif;font-size:20px;font-weight:600;letter-spacing:-.01em;color:var(--text)}
+.press-brand a{color:inherit;text-decoration:none}
+.press-brand .accent{color:var(--accent)}
+.press-hdr-actions{display:flex;gap:12px;font-size:13px;color:var(--muted)}
+.press-hdr-actions a{color:inherit}
+
+.press-hero{max-width:820px;margin:0 auto;padding:70px 24px 30px;text-align:center}
+.press-hero h1{font-family:'Playfair Display',Georgia,serif;font-size:48px;font-weight:600;letter-spacing:-.02em;color:var(--text);margin:0 0 12px;line-height:1.1}
+.press-hero .press-hero-accent{color:var(--accent)}
+.press-hero p{font-size:16px;color:var(--muted);line-height:1.65;margin:0 0 6px;max-width:640px;margin-left:auto;margin-right:auto}
+.press-hero .press-hero-tagline{font-style:italic;color:var(--hint);font-size:14px;margin-top:14px}
+
+.press-philosophy{max-width:720px;margin:20px auto 40px;padding:22px 26px;background:var(--surface);border:.5px solid var(--border);border-radius:12px;font-size:14px;line-height:1.7;color:var(--muted)}
+.press-philosophy strong{color:var(--text)}
+
+.press-tiers{max-width:1100px;margin:0 auto;padding:20px 20px 50px;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+.press-tier{background:var(--surface);border:.5px solid var(--border);border-radius:14px;padding:28px 26px;display:flex;flex-direction:column;transition:transform .15s ease,box-shadow .15s ease;position:relative}
+.press-tier:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg)}
+.press-tier.featured{border:1px solid var(--accent);box-shadow:0 0 0 3px rgba(201,140,42,0.08)}
+.press-tier.featured::before{content:'Most flexible';position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;font-size:11px;font-weight:500;padding:3px 12px;border-radius:11px;letter-spacing:.02em}
+
+.press-tier-name{font-family:'Playfair Display',Georgia,serif;font-size:26px;font-weight:600;color:var(--text);margin:0 0 4px;letter-spacing:-.01em}
+.press-tier-tagline{font-size:12.5px;color:var(--hint);margin:0 0 20px;font-style:italic;line-height:1.5;min-height:34px}
+.press-tier-price{display:flex;align-items:baseline;gap:6px;margin:0 0 4px}
+.press-tier-price .amount{font-family:'Playfair Display',Georgia,serif;font-size:38px;font-weight:600;color:var(--text);letter-spacing:-.01em;line-height:1}
+.press-tier-price .period{font-size:14px;color:var(--muted)}
+.press-tier-yearly{font-size:11.5px;color:var(--hint);margin:0 0 24px;min-height:16px}
+.press-tier-yearly strong{color:var(--accent-ui);font-weight:600}
+
+.press-tier-features{list-style:none;padding:0;margin:0 0 26px;font-size:13.5px;color:var(--text);line-height:1.75;flex:1}
+.press-tier-features li{padding-left:24px;position:relative;margin-bottom:6px}
+.press-tier-features li::before{content:'✓';position:absolute;left:0;color:var(--accent-ui);font-weight:600;font-size:14px}
+.press-tier-features li.press-feature-muted{color:var(--hint)}
+.press-tier-features li.press-feature-muted::before{content:'—';color:var(--hint);font-weight:400}
+
+.press-tier-cta{display:block;text-align:center;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:500;text-decoration:none;transition:filter .15s ease,background .15s ease,border-color .15s ease;font-family:inherit;cursor:pointer;border:none;width:100%}
+.press-tier-cta.primary{background:var(--accent);color:#fff}
+.press-tier-cta.primary:hover{filter:brightness(.94);text-decoration:none}
+.press-tier-cta.secondary{background:var(--surface);color:var(--text);border:.5px solid var(--border-mid)}
+.press-tier-cta.secondary:hover{border-color:var(--accent);text-decoration:none}
+.press-tier-cta.current{background:var(--bg);color:var(--muted);cursor:default}
+
+.press-billing-toggle{display:flex;justify-content:center;gap:0;margin:0 auto 24px;background:var(--surface);border:.5px solid var(--border);border-radius:24px;padding:3px;width:fit-content}
+.press-billing-toggle button{background:none;border:none;padding:8px 18px;font-size:13px;color:var(--muted);cursor:pointer;border-radius:20px;font-family:inherit;transition:background .15s ease,color .15s ease}
+.press-billing-toggle button.active{background:var(--accent);color:#fff}
+.press-savings-chip{font-size:10.5px;background:rgba(6,95,70,0.12);color:var(--accent-ui);padding:1px 7px;border-radius:9px;margin-left:6px;font-weight:600;letter-spacing:.02em;vertical-align:1px}
+
+.press-faq{max-width:720px;margin:20px auto 60px;padding:0 24px}
+.press-faq h2{font-family:'Playfair Display',Georgia,serif;font-size:28px;font-weight:600;margin:40px 0 20px;color:var(--text)}
+.press-faq details{border-bottom:.5px solid var(--border);padding:14px 0}
+.press-faq summary{font-weight:500;font-size:15px;cursor:pointer;color:var(--text);padding:4px 0;list-style:none}
+.press-faq summary::-webkit-details-marker{display:none}
+.press-faq summary::before{content:'+ ';color:var(--accent);font-weight:600;margin-right:6px}
+.press-faq details[open] summary::before{content:'− '}
+.press-faq details p{color:var(--muted);font-size:14px;line-height:1.65;margin:8px 0 0}
+
+.press-footer{background:var(--surface);border-top:.5px solid var(--border);padding:30px 24px;margin-top:40px}
+.press-footer-row{max-width:1100px;margin:0 auto;text-align:center;font-size:12px;color:var(--hint);line-height:1.7}
+.press-footer-row a{color:var(--muted)}
+
+#pressStatus{max-width:600px;margin:14px auto 0;padding:8px 14px;text-align:center;font-size:13px;color:var(--muted);min-height:20px}
+#pressStatus.err{color:#c04040}
+#pressStatus.ok{color:var(--accent-ui)}
+</style>
+</head>
+<body>
+
+<header class="press-hdr">
+  <div class="press-hdr-row">
+    <div class="press-brand">
+      <a href="/"><span class="accent">📖</span> Folio Press</a>
+    </div>
+    <div class="press-hdr-actions">
+      <a href="/shelf">📚 The Shelf</a>
+      <a href="/app.html">Write</a>
+    </div>
+  </div>
+</header>
+
+<section class="press-hero">
+  <h1>Tools for authors who want <span class="press-hero-accent">to be read</span></h1>
+  <p>Folio Press is optional. Free Folio always includes writing, publishing, and 0% commission on tips.</p>
+  <p>What Press adds: marketing tools, custom styling, boost discounts.</p>
+  <div class="press-hero-tagline">Pick the tier that matches how much visibility you want — not how good you are.</div>
+</section>
+
+<div class="press-philosophy">
+  <strong>A note on tiers.</strong> Some of the best writers on Folio will stay on Free forever. That's a legitimate creative posture, not a limitation. Folio Press is for authors who <em>want</em> to invest in their reach — the marketing side of the craft. Everything essential — writing, publishing, sharing, receiving tips — stays free forever. That's the promise.
+</div>
+
+<div class="press-billing-toggle" role="tablist">
+  <button id="billMonthly" class="active" onclick="setBilling('monthly')">Monthly</button>
+  <button id="billYearly" onclick="setBilling('yearly')">Yearly <span class="press-savings-chip">2 mos free</span></button>
+</div>
+
+<div class="press-tiers">
+
+  <div class="press-tier">
+    <div class="press-tier-name">Free</div>
+    <div class="press-tier-tagline">Write, publish, share. Your work reaches whoever you share it with.</div>
+    <div class="press-tier-price"><span class="amount">$0</span><span class="period">forever</span></div>
+    <div class="press-tier-yearly">&nbsp;</div>
+    <ul class="press-tier-features">
+      <li>Unlimited folios, unlimited chapters</li>
+      <li>Publish to the Shelf</li>
+      <li>Receive tips (0% commission)</li>
+      <li>Featured Boosts at standard price</li>
+      <li>Basic imprint page</li>
+      <li>Basic analytics (view count)</li>
+      <li class="press-feature-muted">Custom imprint styling</li>
+      <li class="press-feature-muted">Advanced analytics</li>
+      <li class="press-feature-muted">Downloadable product photos</li>
+    </ul>
+    <button class="press-tier-cta current" disabled>You're here</button>
+  </div>
+
+  <div class="press-tier featured">
+    <div class="press-tier-name">Indie</div>
+    <div class="press-tier-tagline">For authors who want their bookshelf to look like theirs, and want to know their audience.</div>
+    <div class="press-tier-price">
+      <span class="amount" data-monthly="5" data-yearly="4.17">$5</span>
+      <span class="period" data-monthly="/ month" data-yearly="/ month, billed yearly">/ month</span>
+    </div>
+    <div class="press-tier-yearly" data-yearly="Billed <strong>$50</strong> yearly (2 months free)" data-monthly="Or $50/year — save 2 months">Or $50/year — save 2 months</div>
+    <ul class="press-tier-features">
+      <li>Everything in Free</li>
+      <li><strong>Custom imprint styling</strong> — accent color, hero, layout</li>
+      <li><strong>Advanced analytics</strong> — charts, geo, referrers</li>
+      <li><strong>20% off Featured Boosts</strong></li>
+      <li>Priority support</li>
+      <li class="press-feature-muted">Downloadable product photos</li>
+      <li class="press-feature-muted">Custom subdomain</li>
+    </ul>
+    <button class="press-tier-cta primary" onclick="subscribe('indie')">Try Indie →</button>
+  </div>
+
+  <div class="press-tier">
+    <div class="press-tier-name">Imprint</div>
+    <div class="press-tier-tagline">For authors running it as an operation. Marketing tools, real budget savings, room to scale.</div>
+    <div class="press-tier-price">
+      <span class="amount" data-monthly="12" data-yearly="10">$12</span>
+      <span class="period" data-monthly="/ month" data-yearly="/ month, billed yearly">/ month</span>
+    </div>
+    <div class="press-tier-yearly" data-yearly="Billed <strong>$120</strong> yearly (2 months free)" data-monthly="Or $120/year — save 2 months">Or $120/year — save 2 months</div>
+    <ul class="press-tier-features">
+      <li>Everything in Indie</li>
+      <li><strong>Downloadable social product photos</strong> — Instagram, Twitter, Pinterest ready</li>
+      <li><strong>50% off Featured Boosts</strong></li>
+      <li>Custom subdomain <span style="color:var(--hint);font-size:12px">(coming soon)</span></li>
+      <li>Early access to new features</li>
+    </ul>
+    <button class="press-tier-cta secondary" onclick="subscribe('imprint')">Start Imprint →</button>
+  </div>
+
+</div>
+
+<div id="pressStatus"></div>
+
+<section class="press-faq">
+  <h2>Common questions</h2>
+
+  <details>
+    <summary>Is Folio itself changing? Will Free stay free?</summary>
+    <p>Yes. Free stays free — writing, publishing, sharing, and receiving tips at 0% commission are commitments, not tricks. Press only adds optional marketing tools. If you never subscribe, nothing you use today changes.</p>
+  </details>
+
+  <details>
+    <summary>Why "Indie" and "Imprint" instead of "Pro"?</summary>
+    <p>Because talent isn't the gate. Some incredibly gifted writers stay on Free forever — that's a legitimate creative choice. Press tiers are about how much of your work you want to spend on being visible, not who you are as a writer.</p>
+  </details>
+
+  <details>
+    <summary>Can I cancel any time?</summary>
+    <p>Yes. Cancel from your account settings; you keep Press features until the end of the paid period. No prorated refunds, no cancellation fees. If you're on the yearly plan, we can look at a refund case-by-case within the first 14 days.</p>
+  </details>
+
+  <details>
+    <summary>Do boost discounts stack across purchases?</summary>
+    <p>Yes. Indie subscribers get 20% off every Featured Boost as long as their subscription is active. Imprint gets 50% off. Discounts apply at checkout automatically.</p>
+  </details>
+
+  <details>
+    <summary>What if I already bought Boosts and now subscribe?</summary>
+    <p>Currently active boosts continue at their purchased duration. New boosts you buy after subscribing get the discount immediately.</p>
+  </details>
+
+  <details>
+    <summary>Payment security</summary>
+    <p>All subscriptions are managed via PayPal — Folio never sees or stores your card details. Manage payment methods and cancellations from your PayPal account.</p>
+  </details>
+</section>
+
+<footer class="press-footer">
+  <div class="press-footer-row">
+    Folio takes 0% of tips and 0% commission on author sales, always.<br>
+    <a href="/">Home</a> · <a href="/shelf">The Shelf</a> · <a href="/app.html">Write</a> · <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a>
+  </div>
+</footer>
+
+<script>
+  const PAYWALL_WORKER_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
+  let _billing = 'monthly';
+
+  function setBilling(period) {
+    _billing = period;
+    document.getElementById('billMonthly').classList.toggle('active', period === 'monthly');
+    document.getElementById('billYearly').classList.toggle('active', period === 'yearly');
+    // Update all prices + period labels
+    document.querySelectorAll('.press-tier-price .amount').forEach(function(el){
+      const val = el.getAttribute('data-' + period);
+      if (val) el.textContent = '$' + val;
+    });
+    document.querySelectorAll('.press-tier-price .period').forEach(function(el){
+      const val = el.getAttribute('data-' + period);
+      if (val) el.textContent = val;
+    });
+    document.querySelectorAll('.press-tier-yearly').forEach(function(el){
+      const val = el.getAttribute('data-' + period);
+      if (val) el.innerHTML = val;
+    });
+  }
+
+  async function subscribe(tier) {
+    const status = document.getElementById('pressStatus');
+    status.textContent = 'Preparing your subscription…';
+    status.className = '';
+    // For MVP the UID is unknown until we add auth — worker will
+    // create a subscription tied to whichever PayPal account signs in.
+    // Later we'll pass Firebase uid so subscription attaches to Folio account.
+    try {
+      const r = await fetch(PAYWALL_WORKER_URL + '/press-subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tier: tier, period: _billing }),
+      });
+      const data = await r.json().catch(function(){ return {}; });
+      if (!r.ok || !data.approvalUrl) {
+        status.textContent = 'Subscription setup failed: ' + (data.error || r.status);
+        status.className = 'err';
+        return;
+      }
+      status.textContent = 'Redirecting to PayPal…';
+      status.className = 'ok';
+      window.location.href = data.approvalUrl;
+    } catch (e) {
+      status.textContent = 'Network error: ' + (e.message || 'unknown');
+      status.className = 'err';
+    }
+  }
+</script>
+
+</body>
+</html>
