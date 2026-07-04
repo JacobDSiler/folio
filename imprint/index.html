@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- FOLIO BUILD v2026.07.03.7 — no fore-edge; cleaner 5-face book imprint -->
+<!-- FOLIO BUILD v2026.07.03.8 — revert to flat cards; 3D deferred imprint -->
 <html lang="en">
 <head>
 <script>
@@ -71,10 +71,7 @@ a:hover{text-decoration:underline}
 .imprint-card-title,.imprint-card-blurb,.imprint-card-foot{text-align:center}
 .imprint-card-foot{justify-content:center;gap:6px}
 .imprint-card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:16px;display:flex;flex-direction:column;text-decoration:none;color:var(--text);transition:transform .12s,box-shadow .12s;box-shadow:var(--shadow);cursor:pointer;overflow:hidden}
-/* 3D book render override — transparent card so the propped book
-   casts its own shadow without competing card chrome. */
-.imprint-card{background:transparent;border:none;box-shadow:none;padding:20px 12px 16px}
-.imprint-card:hover{transform:translateY(-3px);box-shadow:none}
+
 .imprint-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-h);text-decoration:none}
 .imprint-card-cover{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:6px;background:linear-gradient(135deg,var(--bg),var(--surface));border:.5px solid var(--border);margin-bottom:12px}
 .imprint-card-cover-placeholder{display:flex;align-items:center;justify-content:center;color:var(--hint);font-family:'Playfair Display',Georgia,serif;font-size:14px;text-align:center;padding:12px;font-style:italic;line-height:1.3}
@@ -130,7 +127,7 @@ a:hover{text-decoration:underline}
 /* Standalone grid uses default 220x320 */
 /* Fold the flat-cover styles gracefully — legacy .imprint-card-cover still
    exists in the DOM chain but the book-3d replaces its visual role. */
-.imprint-card-cover{display:none}
+
 .imprint-card-pages{font-size:10.5px;color:var(--hint);text-align:center;margin:0 0 8px;letter-spacing:.03em;text-transform:uppercase;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif}
 .imprint-boost-chip{margin-left:auto;padding:3px 9px;border:.5px solid var(--accent);border-radius:12px;background:var(--surface);color:var(--accent);font-size:10.5px;font-weight:500;cursor:pointer;font-family:inherit;transition:background .12s ease,color .12s ease}
 .imprint-boost-chip:hover{background:var(--accent);color:#fff}
@@ -330,7 +327,7 @@ function renderCards(folios){
   standalone.sort(function(a,b){ return b.listedAt - a.listedAt; });
 
   const renderCardHtml = function(f){
-    const cover=renderBook3D(f);
+    const cover=f.coverUrl?'<img class="imprint-card-cover" src="'+esc(f.coverUrl)+'" alt="" loading="lazy">':'<div class="imprint-card-cover imprint-card-cover-placeholder">'+esc(f.title)+'</div>';
     const badge=f.serial?'<span class="imprint-badge serial">serial</span>':f.priceMode==='paid'?'<span class="imprint-badge paid">paid</span>':'<span class="imprint-badge free">free</span>';
     const genre=f.genre?'<span class="imprint-card-genre">'+esc(GENRE_LABELS[f.genre]||f.genre)+'</span>':'';
     const blurb=f.blurb?'<p class="imprint-card-blurb">'+esc(f.blurb)+'</p>':'';
@@ -536,7 +533,7 @@ boot();
 <div style="max-width:1200px;margin:40px auto 20px;padding:20px 24px;text-align:center;border-top:.5px solid var(--border);font-size:11.5px;color:var(--hint);line-height:1.6">
   <div style="display:inline-flex;align-items:center;gap:8px;background:var(--surface);padding:8px 16px;border:.5px solid var(--border);border-radius:20px">
     <span style="font-size:14px">📖</span>
-    <span>3D bookshelf renders powered by <strong style="color:var(--accent)">Folio Press</strong> — the pro tier for authors who want their imprint to look like a real bookstore. Free during early access.</span>
+    <span><strong style="color:var(--accent)">Folio Press</strong> is coming — the pro tier that unlocks downloadable social-media product photos, custom imprint styling, and priority featured slots. <a href="/press" style="color:var(--accent);text-decoration:underline">Learn more →</a></span>
   </div>
 </div>
 </body>
