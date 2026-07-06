@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- FOLIO BUILD v2026.07.03.8 — revert to flat cards; 3D deferred imprint -->
+<!-- FOLIO BUILD v2026.07.04.2 — custom imprint styling (Indie+) imprint -->
 <html lang="en">
 <head>
 <script>
@@ -390,6 +390,63 @@ function renderHeader(authorName, tipUrl, count){
   try{document.title=(authorName||'Author')+' on Folio';}catch(e){}
 }
 
+// ═══ Apply Indie+ subscriber custom theme (accent color, font, hero image) ═══
+// Fetched from folio_imprint_themes/{uid} — publicly readable. Gates on whether
+// the AUTHOR (not the viewer) has an active Indie or Imprint subscription
+// via /press-status endpoint on the paywall worker.
+async function applyImprintTheme(uid) {
+  if (!uid) return;
+  try {
+    // Check subscription status of the author whose imprint we're viewing
+    const PAYWALL_WORKER_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
+    const statusResp = await fetch(PAYWALL_WORKER_URL + '/press-status?uid=' + encodeURIComponent(uid));
+    const status = await statusResp.json().catch(function(){ return { active: false }; });
+    if (!status || !status.active) return;  // Free tier author — default styling
+    if (status.tier !== 'indie' && status.tier !== 'imprint') return;
+
+    // Fetch the theme doc from Firestore
+    const { doc, getDoc } = window._fb;
+    const themeRef = doc(window._db, 'folio_imprint_themes', uid);
+    const themeSnap = await getDoc(themeRef);
+    if (!themeSnap.exists()) return;
+    const theme = themeSnap.data() || {};
+    const root = document.documentElement.style;
+
+    // Apply accent color to CSS variable
+    if (theme.accent && /^#[0-9a-f]{3,8}$/i.test(theme.accent)) {
+      root.setProperty('--accent', theme.accent);
+      // Also refresh accent-related bits — dark mode uses accent for many things
+    }
+
+    // Apply header font — swap out Playfair Display for the selected font
+    const fontMap = {
+      playfair:  "'Playfair Display', Georgia, serif",
+      crimson:   "'Crimson Pro', Georgia, serif",
+      inter:     "'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif",
+      jetbrains: "'JetBrains Mono', ui-monospace, Menlo, monospace",
+    };
+    if (theme.font && fontMap[theme.font]) {
+      const styleEl = document.createElement('style');
+      styleEl.textContent = ".imprint-author,.imprint-card-title,.imprint-series-title{font-family:" + fontMap[theme.font] + " !important}";
+      document.head.appendChild(styleEl);
+    }
+
+    // Apply hero banner image if provided
+    if (theme.hero && /^https:\/\//i.test(theme.hero)) {
+      const hdr = document.querySelector('.imprint-hdr');
+      if (hdr) {
+        hdr.style.backgroundImage = 'linear-gradient(180deg, rgba(20,17,13,0.5) 0%, rgba(20,17,13,0.9) 100%), url(\'' + theme.hero.replace(/[\'"]/g, '') + '\')';
+        hdr.style.backgroundSize = 'cover';
+        hdr.style.backgroundPosition = 'center';
+        hdr.style.minHeight = '260px';
+      }
+    }
+    console.log('[imprint] Indie+ custom theme applied for uid', uid.slice(0, 8));
+  } catch (e) {
+    console.warn('[imprint] custom theme fetch/apply failed:', e && e.message);
+  }
+}
+
 async function boot(){
   const uid=getUidParam();
   const status=document.getElementById('imprintStatus');
@@ -456,6 +513,8 @@ async function boot(){
     });
 
     renderHeader(authorName, tipUrl, folios.length);
+    // Apply Indie+ custom theme (accent color, font, hero image) if the author subscribes
+    try { await applyImprintTheme(uid); } catch (_) {}
     renderCards(folios);
   }catch(e){
     console.error('[imprint] boot failed:',e);
