@@ -239,6 +239,42 @@ service cloud.firestore {
       allow read, write: if isUser(uid);
     }
 
+    // Reviews / testimonials — authors submit reviews from the app + reader.
+    // Each submission earns a free 24h Featured Boost on one of their folios
+    // (the boost is applied server-side via the paywall worker's
+    // /review-submit endpoint using its service account, which bypasses
+    // these client-facing rules).
+    //
+    // Public display is admin-curated: approvedForDisplay is only set to
+    // true by isAdmin() from /admin/reviews/. Anonymous readers can then
+    // read those approved docs for the welcome-page testimonials scroll.
+    match /reviews/{reviewId} {
+      // Read: (a) publicly displayed reviews are readable by anyone;
+      //       (b) authors can always see their own submissions.
+      allow read: if (resource.data.approvedForDisplay == true
+                     && resource.data.allowMarketing == true)
+                  || isUser(resource.data.uid);
+      // Create: must be signed in + submitting under your own uid.
+      // Shape-lock keeps a rogue client from sneaking unexpected fields
+      // (like pre-approving your own review).
+      allow create: if isUser(request.resource.data.uid)
+                    && request.resource.data.rating is number
+                    && request.resource.data.rating >= 1
+                    && request.resource.data.rating <= 5
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() >= 10
+                    && request.resource.data.text.size() <= 500
+                    && request.resource.data.approvedForDisplay == false;
+      // Update: authors can edit their own text/rating/allowMarketing but
+      //         cannot self-approve for display; admins can approve.
+      allow update: if (isUser(resource.data.uid)
+                        && request.resource.data.uid == resource.data.uid
+                        && request.resource.data.approvedForDisplay == resource.data.approvedForDisplay)
+                    || isAdmin();
+      // Delete: author or admin.
+      allow delete: if isUser(resource.data.uid) || isAdmin();
+    }
+
     // Public imprint themes — Indie+ subscribers customize their /imprint/
     // page (accent color, hero image, header font). Anyone can READ (needed
     // to render another author's customized imprint to visitors), but only

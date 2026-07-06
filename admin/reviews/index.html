@@ -1,0 +1,300 @@
+<!doctype html>
+<!-- FOLIO ADMIN REVIEWS v2026.07.04.1 -->
+<html lang="en">
+<head>
+<script>
+  console.log('[admin-reviews] boot at', new Date().toISOString());
+  window.addEventListener('error', e => console.error('[admin-reviews] error:', e.message, e.filename, e.lineno));
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Folio Admin — Review moderation</title>
+<meta name="robots" content="noindex,nofollow">
+<style>
+:root {
+  --bg:#faf7f1; --surface:#fff; --text:#1a1611; --muted:#5a5347; --hint:#8a8174;
+  --border:rgba(0,0,0,0.10); --border-mid:rgba(0,0,0,0.14);
+  --accent:#c98c2a; --accent-ui:#065f46; --danger:#c04040;
+  --shadow:0 1px 3px rgba(0,0,0,0.06),0 4px 14px rgba(0,0,0,0.04);
+}
+html[data-theme="dark"]{--bg:#14110d;--surface:#1f1a14;--text:#e8dece;--muted:#a89e8b;--hint:#79705f;--border:rgba(232,222,206,0.10);--border-mid:rgba(232,222,206,0.16);--accent:#d4a44f;--accent-ui:#34d399;--danger:#f87171}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
+a{color:var(--accent-ui);text-decoration:none}
+a:hover{text-decoration:underline}
+.admin-hdr{background:var(--surface);border-bottom:.5px solid var(--border);padding:14px 20px;position:sticky;top:0;z-index:10}
+.admin-hdr-row{max-width:900px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.admin-brand{font-family:'Playfair Display',Georgia,serif;font-size:18px;font-weight:600;margin:0;color:var(--text)}
+.admin-brand .accent{color:var(--accent)}
+.admin-hdr-actions{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted)}
+.admin-hdr-actions a{color:var(--muted)}
+.admin-wrap{max-width:900px;margin:0 auto;padding:22px 20px 60px}
+.admin-h1{font-family:'Playfair Display',Georgia,serif;font-size:26px;font-weight:600;margin:6px 0 4px}
+.admin-lead{font-size:13px;color:var(--muted);margin:0 0 22px;line-height:1.6}
+.card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:16px;box-shadow:var(--shadow)}
+.card h2{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:600;margin:0 0 6px}
+.card .sub{font-size:12px;color:var(--hint);margin:0 0 14px;line-height:1.5}
+button.primary{background:var(--accent-ui);color:#fff;border:none;padding:8px 16px;border-radius:7px;font-size:12.5px;font-weight:500;cursor:pointer;font-family:inherit}
+button.primary:hover{filter:brightness(.94)}
+button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--text);padding:6px 12px;border-radius:6px;font-size:11.5px;cursor:pointer;font-family:inherit;transition:border-color .12s}
+button.ghost:hover{border-color:var(--accent)}
+button.danger{background:none;border:.5px solid var(--danger);color:var(--danger);padding:6px 12px;border-radius:6px;font-size:11.5px;cursor:pointer;font-family:inherit}
+button.danger:hover{background:var(--danger);color:#fff}
+.review{padding:14px;margin:8px 0;border:.5px solid var(--border-mid);border-radius:8px;background:var(--surface)}
+.review.approved{border-color:var(--accent-ui);background:rgba(6,95,70,0.04)}
+.review-hd{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:8px;flex-wrap:wrap}
+.review-name{font-weight:600;font-size:13.5px}
+.review-name .role{font-size:10.5px;color:var(--hint);font-weight:400;text-transform:uppercase;letter-spacing:.05em;margin-left:6px}
+.review-meta{font-size:11px;color:var(--hint);text-align:right}
+.review-stars{font-size:14px;letter-spacing:2px;color:var(--accent);margin:4px 0}
+.review-text{font-size:13px;line-height:1.55;color:var(--text);white-space:pre-wrap;padding:8px 12px;background:var(--bg);border-radius:6px;margin:8px 0;border-left:2px solid var(--accent)}
+.review-feature{display:inline-block;font-size:10.5px;padding:2px 8px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:11px;color:var(--muted);margin-right:6px}
+.review-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.review-actions-left{display:flex;gap:8px;flex-wrap:wrap}
+.review-consent{font-size:10.5px;color:var(--hint);font-style:italic}
+.review-consent.on{color:var(--accent-ui)}
+.status{font-size:12px;margin-top:8px;min-height:16px}
+.status.ok{color:var(--accent-ui);font-weight:500}
+.status.err{color:var(--danger)}
+.list-empty{padding:20px 10px;color:var(--hint);text-align:center;font-size:12.5px;font-style:italic}
+.auth-gate{text-align:center;padding:60px 20px}
+.auth-gate h2{font-family:'Playfair Display',Georgia,serif;font-size:22px;margin:0 0 10px}
+.auth-gate p{color:var(--muted);font-size:13px;margin:0 0 20px}
+.hidden{display:none !important}
+.filter-tabs{display:flex;gap:4px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;padding:3px;margin-bottom:14px;width:fit-content}
+.filter-tabs button{background:none;border:none;padding:6px 14px;font-size:11.5px;color:var(--muted);cursor:pointer;border-radius:6px;font-family:inherit}
+.filter-tabs button.active{background:var(--surface);color:var(--text);font-weight:500}
+</style>
+</head>
+<body>
+<header class="admin-hdr">
+  <div class="admin-hdr-row">
+    <h1 class="admin-brand"><span class="accent">💬</span> Folio Admin — Reviews</h1>
+    <div class="admin-hdr-actions">
+      <a href="/admin/boost/">Boost fulfillment</a>
+      <a href="/shelf">← Shelf</a>
+      <span id="signedInAs"></span>
+      <button class="ghost hidden" id="signOutBtn" onclick="doSignOut()">Sign out</button>
+    </div>
+  </div>
+</header>
+
+<div class="admin-wrap">
+  <div id="authGate" class="auth-gate">
+    <h2>Sign in required</h2>
+    <p>Owner-locked to admin uids in <code>firestore.rules</code>.</p>
+    <button class="primary" onclick="doSignIn()">Sign in with Google</button>
+    <div class="status err" id="authStatus"></div>
+  </div>
+
+  <div id="adminBody" class="hidden">
+    <h1 class="admin-h1">Review moderation</h1>
+    <p class="admin-lead">Reviews are automatically stored + a 24h boost is granted on submission. You control which reviews appear publicly on the welcome page. <strong>Marketing display</strong> only shows reviews that (1) you approve here AND (2) the author consented to marketing use.</p>
+
+    <div class="filter-tabs">
+      <button id="tabPending" class="active" onclick="setFilter('pending')">Pending</button>
+      <button id="tabApproved" onclick="setFilter('approved')">Approved</button>
+      <button id="tabAll" onclick="setFilter('all')">All</button>
+    </div>
+
+    <div class="card">
+      <h2 id="listTitle">Pending reviews</h2>
+      <div class="sub" id="listSub">Reviews awaiting your decision.</div>
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+        <button class="ghost" onclick="loadReviews()">↻ Refresh</button>
+        <span class="status" id="listStatus" style="margin-top:0"></span>
+      </div>
+      <div id="reviewList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const ADMIN_UIDS = ['x9AgFZ7O8WVz2UVtyO4ggWKNfc73']; // must match firestore.rules isAdmin()
+  let _fb = {};
+  let _user = null;
+  let _reviews = [];
+  let _filter = 'pending';
+
+  async function boot() {
+    try {
+      const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const authMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+      const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      _fb.initializeApp = appMod.initializeApp;
+      _fb.getAuth = authMod.getAuth;
+      _fb.GoogleAuthProvider = authMod.GoogleAuthProvider;
+      _fb.signInWithPopup = authMod.signInWithPopup;
+      _fb.signOut = authMod.signOut;
+      _fb.onAuthStateChanged = authMod.onAuthStateChanged;
+      _fb.getFirestore = fsMod.getFirestore;
+      _fb.doc = fsMod.doc;
+      _fb.updateDoc = fsMod.updateDoc;
+      _fb.deleteDoc = fsMod.deleteDoc;
+      _fb.collection = fsMod.collection;
+      _fb.query = fsMod.query;
+      _fb.where = fsMod.where;
+      _fb.orderBy = fsMod.orderBy;
+      _fb.getDocs = fsMod.getDocs;
+      _fb.limit = fsMod.limit;
+      const cfg = {
+        apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",
+        authDomain: "auth.jacobsiler.com",
+        projectId: "miscellaneous-117e9",
+        storageBucket: "miscellaneous-117e9.firebasestorage.app",
+        messagingSenderId: "514858431339",
+        appId: "1:514858431339:web:8b3acbe89966b45fe3922e"
+      };
+      const app = _fb.initializeApp(cfg);
+      _fb.auth = _fb.getAuth(app);
+      _fb.db = _fb.getFirestore(app);
+      _fb.onAuthStateChanged(_fb.auth, onAuthChange);
+    } catch (e) {
+      document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown');
+    }
+  }
+
+  function onAuthChange(u) {
+    _user = u;
+    if (!u) {
+      document.getElementById('authGate').classList.remove('hidden');
+      document.getElementById('adminBody').classList.add('hidden');
+      document.getElementById('signOutBtn').classList.add('hidden');
+      document.getElementById('signedInAs').textContent = '';
+      return;
+    }
+    document.getElementById('signedInAs').textContent = u.email || u.uid;
+    document.getElementById('signOutBtn').classList.remove('hidden');
+    if (!ADMIN_UIDS.includes(u.uid)) {
+      document.getElementById('authGate').classList.remove('hidden');
+      document.getElementById('adminBody').classList.add('hidden');
+      document.getElementById('authStatus').textContent = 'Signed in as ' + (u.email || u.uid) + ' but this uid is NOT in the admin allowlist.';
+      return;
+    }
+    document.getElementById('authGate').classList.add('hidden');
+    document.getElementById('adminBody').classList.remove('hidden');
+    loadReviews();
+  }
+
+  async function doSignIn() {
+    try {
+      const p = new _fb.GoogleAuthProvider();
+      await _fb.signInWithPopup(_fb.auth, p);
+    } catch (e) {
+      document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown');
+    }
+  }
+  window.doSignIn = doSignIn;
+  async function doSignOut() { try { await _fb.signOut(_fb.auth); } catch (_) {} }
+  window.doSignOut = doSignOut;
+
+  window.setFilter = function(f) {
+    _filter = f;
+    document.getElementById('tabPending').classList.toggle('active', f === 'pending');
+    document.getElementById('tabApproved').classList.toggle('active', f === 'approved');
+    document.getElementById('tabAll').classList.toggle('active', f === 'all');
+    document.getElementById('listTitle').textContent = f === 'pending' ? 'Pending reviews' : f === 'approved' ? 'Approved for display' : 'All reviews';
+    renderReviews();
+  };
+
+  async function loadReviews() {
+    const status = document.getElementById('listStatus');
+    status.textContent = 'Loading…';
+    try {
+      const q = _fb.query(
+        _fb.collection(_fb.db, 'reviews'),
+        _fb.limit(200)
+      );
+      const snap = await _fb.getDocs(q);
+      _reviews = [];
+      snap.forEach(function(d){
+        const data = d.data() || {};
+        _reviews.push({
+          id: d.id,
+          uid: data.uid || '',
+          displayName: data.displayName || 'Anonymous',
+          role: data.role || 'author',
+          feature: data.feature || 'overall',
+          rating: data.rating || 0,
+          text: data.text || '',
+          allowMarketing: !!data.allowMarketing,
+          boostFolioId: data.boostFolioId || '',
+          approvedForDisplay: !!data.approvedForDisplay,
+          createdAt: data.createdAt ? (data.createdAt.toMillis ? data.createdAt.toMillis() : Date.parse(data.createdAt)) : 0,
+        });
+      });
+      _reviews.sort(function(a,b){ return b.createdAt - a.createdAt; });
+      status.textContent = _reviews.length + ' total';
+      renderReviews();
+    } catch (e) {
+      status.textContent = 'Load failed: ' + (e.message || 'unknown');
+      status.className = 'status err';
+    }
+  }
+  window.loadReviews = loadReviews;
+
+  function renderReviews() {
+    const list = document.getElementById('reviewList');
+    let filtered = _reviews;
+    if (_filter === 'pending') filtered = _reviews.filter(function(r){ return !r.approvedForDisplay; });
+    if (_filter === 'approved') filtered = _reviews.filter(function(r){ return r.approvedForDisplay; });
+    if (!filtered.length) {
+      list.innerHTML = '<div class="list-empty">No reviews in this filter.</div>';
+      return;
+    }
+    list.innerHTML = filtered.map(function(r){
+      const stars = '★'.repeat(r.rating) + '☆'.repeat(5 - r.rating);
+      const featurePretty = r.feature.charAt(0).toUpperCase() + r.feature.slice(1);
+      const date = r.createdAt ? new Date(r.createdAt).toLocaleString() : '';
+      const approveBtn = r.approvedForDisplay
+        ? '<button class="ghost" onclick="unapprove(\\'' + r.id + '\\')">↩ Un-approve</button>'
+        : '<button class="primary" onclick="approve(\\'' + r.id + '\\')">✓ Approve for display</button>';
+      const consentTxt = r.allowMarketing
+        ? '<span class="review-consent on">✓ Author consented to marketing use</span>'
+        : '<span class="review-consent">Author did NOT consent to marketing use — approve is display-safe internally only</span>';
+      return '<div class="review' + (r.approvedForDisplay ? ' approved' : '') + '">' +
+        '<div class="review-hd">' +
+          '<div><div class="review-name">' + esc(r.displayName) + '<span class="role">' + r.role + '</span></div>' +
+            '<span class="review-feature">' + featurePretty + '</span></div>' +
+          '<div class="review-meta">' + esc(date) + '</div>' +
+        '</div>' +
+        '<div class="review-stars">' + stars + '</div>' +
+        '<div class="review-text">' + esc(r.text) + '</div>' +
+        '<div class="review-actions">' +
+          '<div class="review-actions-left">' + approveBtn +
+            '<button class="danger" onclick="deleteReview(\\'' + r.id + '\\')">Delete</button></div>' +
+          consentTxt +
+        '</div></div>';
+    }).join('');
+  }
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+
+  window.approve = async function(id) {
+    try {
+      const ref = _fb.doc(_fb.db, 'reviews', id);
+      await _fb.updateDoc(ref, { approvedForDisplay: true, moderatedAt: new Date().toISOString() });
+      await loadReviews();
+    } catch (e) { alert('Approve failed: ' + (e.message || 'unknown')); }
+  };
+  window.unapprove = async function(id) {
+    try {
+      const ref = _fb.doc(_fb.db, 'reviews', id);
+      await _fb.updateDoc(ref, { approvedForDisplay: false });
+      await loadReviews();
+    } catch (e) { alert('Un-approve failed: ' + (e.message || 'unknown')); }
+  };
+  window.deleteReview = async function(id) {
+    if (!confirm('Delete this review permanently?')) return;
+    try {
+      const ref = _fb.doc(_fb.db, 'reviews', id);
+      await _fb.deleteDoc(ref);
+      await loadReviews();
+    } catch (e) { alert('Delete failed: ' + (e.message || 'unknown')); }
+  };
+
+  boot();
+</script>
+</body>
+</html>
