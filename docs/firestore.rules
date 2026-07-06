@@ -239,6 +239,18 @@ service cloud.firestore {
       allow read, write: if isUser(uid);
     }
 
+    // Public imprint themes — Indie+ subscribers customize their /imprint/
+    // page (accent color, hero image, header font). Anyone can READ (needed
+    // to render another author's customized imprint to visitors), but only
+    // the owner can WRITE their own theme. The client + worker separately
+    // gate whether to APPLY the theme based on subscription status —
+    // reading a theme doc without a valid Press subscription is safe
+    // because it just returns styling values, not sensitive data.
+    match /folio_imprint_themes/{uid} {
+      allow read: if true;
+      allow write: if isUser(uid);
+    }
+
     // Lulu print-on-demand job records. Doc id is "<uid>_<jobId>" and
     // the payload carries `uid`. create checks the incoming payload;
     // read / update / delete check the EXISTING doc (no payload on a
