@@ -1,0 +1,269 @@
+<!doctype html>
+<!-- FOLIO ADMIN PRESS v2026.07.04.1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Folio Admin — Press subscriptions</title>
+<meta name="robots" content="noindex,nofollow">
+<style>
+:root {
+  --bg:#faf7f1; --surface:#fff; --text:#1a1611; --muted:#5a5347; --hint:#8a8174;
+  --border:rgba(0,0,0,0.10); --border-mid:rgba(0,0,0,0.14);
+  --accent:#c98c2a; --accent-ui:#065f46; --danger:#c04040;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
+a{color:var(--accent-ui);text-decoration:none}
+a:hover{text-decoration:underline}
+.admin-hdr{background:var(--surface);border-bottom:.5px solid var(--border);padding:14px 20px;position:sticky;top:0;z-index:10}
+.admin-hdr-row{max-width:900px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.admin-brand{font-family:'Playfair Display',Georgia,serif;font-size:18px;font-weight:600;margin:0;color:var(--text)}
+.admin-brand .accent{color:var(--accent)}
+.admin-hdr-actions{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted)}
+.admin-hdr-actions a{color:var(--muted)}
+.admin-wrap{max-width:820px;margin:0 auto;padding:22px 20px 60px}
+.admin-h1{font-family:'Playfair Display',Georgia,serif;font-size:26px;font-weight:600;margin:6px 0 4px}
+.admin-lead{font-size:13px;color:var(--muted);margin:0 0 22px;line-height:1.6}
+.card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
+.card h2{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:600;margin:0 0 6px}
+.card .sub{font-size:12px;color:var(--hint);margin:0 0 14px;line-height:1.6}
+label{display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:10px 0 4px}
+input,select{width:100%;font-size:13px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit}
+input:focus,select:focus{border-color:var(--accent-ui)}
+input[type="text"]{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row > *{flex:1;min-width:150px}
+button.primary{background:var(--accent-ui);color:#fff;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit}
+button.primary:hover{filter:brightness(.94)}
+button.danger{background:var(--danger);color:#fff;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit}
+button.danger:hover{filter:brightness(.94)}
+button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--text);padding:6px 12px;border-radius:6px;font-size:11.5px;cursor:pointer;font-family:inherit}
+.status{font-size:12px;margin-top:10px;min-height:16px}
+.status.ok{color:var(--accent-ui);font-weight:500}
+.status.err{color:var(--danger)}
+.auth-gate{text-align:center;padding:60px 20px}
+.auth-gate h2{font-family:'Playfair Display',Georgia,serif;font-size:22px;margin:0 0 10px}
+.hidden{display:none !important}
+.current-sub{padding:10px 12px;background:var(--bg);border-radius:6px;margin-top:8px;font-size:12.5px;font-family:ui-monospace,Menlo,monospace;white-space:pre-wrap;color:var(--text)}
+</style>
+</head>
+<body>
+<header class="admin-hdr">
+  <div class="admin-hdr-row">
+    <h1 class="admin-brand"><span class="accent">✨</span> Folio Admin — Press</h1>
+    <div class="admin-hdr-actions">
+      <a href="/admin/boost/">Boost</a>
+      <a href="/admin/reviews/">Reviews</a>
+      <a href="/shelf">← Shelf</a>
+      <span id="signedInAs"></span>
+      <button class="ghost hidden" id="signOutBtn" onclick="doSignOut()">Sign out</button>
+    </div>
+  </div>
+</header>
+
+<div class="admin-wrap">
+  <div id="authGate" class="auth-gate">
+    <h2>Sign in required</h2>
+    <p style="color:var(--muted);font-size:13px;margin:0 0 20px">Owner-locked to admin uids in <code>firestore.rules</code>.</p>
+    <button class="primary" onclick="doSignIn()">Sign in with Google</button>
+    <div class="status err" id="authStatus"></div>
+  </div>
+
+  <div id="adminBody" class="hidden">
+    <h1 class="admin-h1">Press subscription comp</h1>
+    <p class="admin-lead">Grant or revoke a Folio Press subscription without payment. Use for testing your own account, or comping edge cases (accessibility discounts, beta testers, etc.). Writes to <code>folio_user_settings/&lt;uid&gt;.pressSubscription</code>.</p>
+
+    <div class="card">
+      <h2>Grant comp subscription</h2>
+      <div class="sub">Sets the user's <code>pressSubscription.status</code> to ACTIVE with the tier + period you pick. Client sees it on next auth check or hard refresh.</div>
+
+      <label for="targetUid">Target user UID</label>
+      <input type="text" id="targetUid" placeholder="x9AgFZ7O8WVz2UVtyO4ggWKNfc73" autocomplete="off">
+
+      <div class="row">
+        <div>
+          <label for="grantTier">Tier</label>
+          <select id="grantTier">
+            <option value="indie">Indie</option>
+            <option value="imprint" selected>Imprint</option>
+          </select>
+        </div>
+        <div>
+          <label for="grantPeriod">Period</label>
+          <select id="grantPeriod">
+            <option value="monthly" selected>Monthly</option>
+            <option value="yearly">Yearly</option>
+          </select>
+        </div>
+      </div>
+
+      <label for="grantNote">Note (stored on the doc, not used by the app)</label>
+      <input type="text" id="grantNote" placeholder="e.g., 'Founder comp' or 'Beta tester Q3'" autocomplete="off">
+
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="primary" onclick="grantComp()">✨ Grant comp</button>
+        <button class="ghost" onclick="fillMyUid()">Use my UID</button>
+        <button class="ghost" onclick="lookupCurrentSub()">↻ Check current status</button>
+      </div>
+      <div id="grantStatus" class="status"></div>
+      <pre id="currentSubDump" class="current-sub hidden"></pre>
+    </div>
+
+    <div class="card">
+      <h2>Revoke subscription</h2>
+      <div class="sub">Sets <code>pressSubscription.status</code> to CANCELLED. User immediately loses Press features on next check. Use for cleanup or when someone's paid subscription lapses. Does not touch PayPal — for real subscribers, cancel via PayPal instead.</div>
+      <div style="margin-top:8px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="danger" onclick="revokeSub()">Revoke (paste UID above)</button>
+      </div>
+      <div id="revokeStatus" class="status"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const ADMIN_UIDS = ['x9AgFZ7O8WVz2UVtyO4ggWKNfc73'];
+  let _fb = {};
+  let _user = null;
+
+  async function boot() {
+    try {
+      const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const authMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+      const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      _fb.initializeApp = appMod.initializeApp;
+      _fb.getAuth = authMod.getAuth;
+      _fb.GoogleAuthProvider = authMod.GoogleAuthProvider;
+      _fb.signInWithPopup = authMod.signInWithPopup;
+      _fb.signOut = authMod.signOut;
+      _fb.onAuthStateChanged = authMod.onAuthStateChanged;
+      _fb.getFirestore = fsMod.getFirestore;
+      _fb.doc = fsMod.doc;
+      _fb.getDoc = fsMod.getDoc;
+      _fb.setDoc = fsMod.setDoc;
+      _fb.updateDoc = fsMod.updateDoc;
+      const cfg = {
+        apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",
+        authDomain: "auth.jacobsiler.com",
+        projectId: "miscellaneous-117e9",
+        storageBucket: "miscellaneous-117e9.firebasestorage.app",
+        messagingSenderId: "514858431339",
+        appId: "1:514858431339:web:8b3acbe89966b45fe3922e"
+      };
+      const app = _fb.initializeApp(cfg);
+      _fb.auth = _fb.getAuth(app);
+      _fb.db = _fb.getFirestore(app);
+      _fb.onAuthStateChanged(_fb.auth, onAuthChange);
+    } catch (e) {
+      document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown');
+    }
+  }
+
+  function onAuthChange(u) {
+    _user = u;
+    if (!u) {
+      document.getElementById('authGate').classList.remove('hidden');
+      document.getElementById('adminBody').classList.add('hidden');
+      document.getElementById('signOutBtn').classList.add('hidden');
+      document.getElementById('signedInAs').textContent = '';
+      return;
+    }
+    document.getElementById('signedInAs').textContent = u.email || u.uid;
+    document.getElementById('signOutBtn').classList.remove('hidden');
+    if (!ADMIN_UIDS.includes(u.uid)) {
+      document.getElementById('authGate').classList.remove('hidden');
+      document.getElementById('adminBody').classList.add('hidden');
+      document.getElementById('authStatus').textContent = 'Signed in as ' + (u.email || u.uid) + ' — not on admin allowlist.';
+      return;
+    }
+    document.getElementById('authGate').classList.add('hidden');
+    document.getElementById('adminBody').classList.remove('hidden');
+  }
+
+  window.doSignIn = async function() {
+    try { await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider()); }
+    catch (e) { document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown'); }
+  };
+  window.doSignOut = async function() { try { await _fb.signOut(_fb.auth); } catch (_) {} };
+  window.fillMyUid = function() {
+    document.getElementById('targetUid').value = _user ? _user.uid : '';
+    lookupCurrentSub();
+  };
+
+  function setStatus(id, msg, kind) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = 'status' + (kind === 'ok' ? ' ok' : kind === 'err' ? ' err' : '');
+  }
+
+  window.lookupCurrentSub = async function() {
+    const uid = (document.getElementById('targetUid').value || '').trim();
+    const dump = document.getElementById('currentSubDump');
+    if (!uid) { setStatus('grantStatus', 'Enter a UID first.', 'err'); dump.classList.add('hidden'); return; }
+    try {
+      const ref = _fb.doc(_fb.db, 'folio_user_settings', uid);
+      const snap = await _fb.getDoc(ref);
+      if (!snap.exists()) { dump.textContent = '(no user_settings doc yet — grant will create one)'; dump.classList.remove('hidden'); return; }
+      const d = snap.data() || {};
+      const sub = d.pressSubscription;
+      if (!sub) { dump.textContent = '(user_settings exists but no pressSubscription — grant will add one)'; dump.classList.remove('hidden'); return; }
+      dump.textContent = JSON.stringify(sub, null, 2);
+      dump.classList.remove('hidden');
+    } catch (e) {
+      setStatus('grantStatus', 'Lookup failed: ' + (e.message || 'unknown'), 'err');
+    }
+  };
+
+  window.grantComp = async function() {
+    const uid = (document.getElementById('targetUid').value || '').trim();
+    const tier = document.getElementById('grantTier').value;
+    const period = document.getElementById('grantPeriod').value;
+    const note = (document.getElementById('grantNote').value || '').trim();
+    if (!uid) { setStatus('grantStatus', 'Enter a UID first.', 'err'); return; }
+    if (!confirm('Grant ' + tier + ' ' + period + ' comp to ' + uid.slice(0, 12) + '…?')) return;
+    setStatus('grantStatus', 'Granting…');
+    try {
+      const ref = _fb.doc(_fb.db, 'folio_user_settings', uid);
+      const nowIso = new Date().toISOString();
+      const payload = {
+        pressSubscription: {
+          status: 'ACTIVE',
+          tier: tier,
+          period: period,
+          paypalSubscriptionId: 'COMP-' + Date.now(),
+          activatedAt: nowIso,
+          compedBy: _user ? _user.uid : 'unknown',
+          compNote: note || '',
+        }
+      };
+      await _fb.setDoc(ref, payload, { merge: true });
+      setStatus('grantStatus', '✅ ' + tier.toUpperCase() + ' granted. User sees it on next auth check / hard refresh.', 'ok');
+      lookupCurrentSub();
+    } catch (e) {
+      setStatus('grantStatus', 'Grant failed: ' + (e.message || 'unknown'), 'err');
+    }
+  };
+
+  window.revokeSub = async function() {
+    const uid = (document.getElementById('targetUid').value || '').trim();
+    if (!uid) { setStatus('revokeStatus', 'Paste the UID in the box above.', 'err'); return; }
+    if (!confirm('Revoke Press subscription for ' + uid.slice(0, 12) + '…? User loses features immediately.')) return;
+    setStatus('revokeStatus', 'Revoking…');
+    try {
+      const ref = _fb.doc(_fb.db, 'folio_user_settings', uid);
+      await _fb.updateDoc(ref, {
+        'pressSubscription.status': 'CANCELLED',
+        'pressSubscription.cancelledAt': new Date().toISOString()
+      });
+      setStatus('revokeStatus', '✅ Subscription revoked.', 'ok');
+      lookupCurrentSub();
+    } catch (e) {
+      setStatus('revokeStatus', 'Revoke failed: ' + (e.message || 'unknown'), 'err');
+    }
+  };
+
+  boot();
+</script>
+</body>
+</html>

@@ -6373,6 +6373,73 @@
       </div>
 
       <div class="status-bar" id="statusBar">Ready — import files or paste your manuscript</div>
+
+      <!-- ═══ Sidebar CTAs — funnel to Press subscribe + support links.
+           Renders one of two states based on window.pressSub():
+             (a) Subscriber: small "Folio Press [Tier] · Manage" badge
+             (b) Non-subscriber: Support Folio (Ko-fi) + Try Folio Press
+           Updated on 'press-sub-updated' custom event. ═══ -->
+      <div id="sidebarCtaBar" style="padding:8px 1.25rem;background:var(--surface);border-top:.5px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0">
+        <!-- Support Folio (Ko-fi) — always visible, small + subtle -->
+        <a href="https://ko-fi.com/jacobsiler" target="_blank" rel="noopener"
+          title="Tip Jacob to keep Folio 0% commission + ad-free"
+          style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;background:none;border:.5px solid var(--border-mid);border-radius:20px;color:var(--muted);text-decoration:none;font-size:11px;font-family:inherit;transition:border-color .15s,color .15s"
+          onmouseover="this.style.borderColor='var(--accent)';this.style.color='var(--accent)'"
+          onmouseout="this.style.borderColor='var(--border-mid)';this.style.color='var(--muted)'">
+          <span>💛</span><span>Support Folio</span>
+        </a>
+        <!-- Try Folio Press CTA — visible only for non-subscribers -->
+        <a id="sidebarPressCta" href="/press" title="Marketing tools, boost discounts, custom styling"
+          style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;background:rgba(201,140,42,0.10);border:.5px solid var(--accent);border-radius:20px;color:var(--accent);text-decoration:none;font-size:11px;font-weight:500;font-family:inherit;transition:background .15s,color .15s"
+          onmouseover="this.style.background='var(--accent)';this.style.color='#fff'"
+          onmouseout="this.style.background='rgba(201,140,42,0.10)';this.style.color='var(--accent)'">
+          <span>✨</span><span>Try Folio Press</span>
+        </a>
+        <!-- Tier badge — visible only for active subscribers -->
+        <a id="sidebarTierBadge" href="/press" style="display:none;align-items:center;gap:5px;padding:5px 10px;background:rgba(6,95,70,0.10);border:.5px solid var(--accent-ui);border-radius:20px;color:var(--accent-ui);text-decoration:none;font-size:11px;font-weight:500;font-family:inherit">
+          <span>✓</span><span id="sidebarTierName">Press</span>
+        </a>
+      </div>
+      <script>
+        // Toggle sidebar CTA state based on subscription
+        window._updateSidebarPressCta = function _updateSidebarPressCta() {
+          const sub = (typeof window.pressSub === 'function') ? window.pressSub() : { active: false };
+          const isActive = !!(sub && sub.active);
+          const pressCta = document.getElementById('sidebarPressCta');
+          const badge = document.getElementById('sidebarTierBadge');
+          const name = document.getElementById('sidebarTierName');
+          if (!pressCta || !badge) return;
+          if (isActive) {
+            pressCta.style.display = 'none';
+            badge.style.display = 'inline-flex';
+            if (name) name.textContent = 'Folio Press ' + (sub.tier === 'imprint' ? 'Imprint' : 'Indie');
+          } else {
+            pressCta.style.display = 'inline-flex';
+            badge.style.display = 'none';
+          }
+        };
+        window.addEventListener('press-sub-updated', function(){ try { window._updateSidebarPressCta(); } catch(_){} });
+        document.addEventListener('DOMContentLoaded', function(){ setTimeout(function(){ try { window._updateSidebarPressCta(); } catch(_){} }, 500); });
+
+        // ?customize=1 → auto-open the customize imprint modal so we can
+        // deep-link into it from the imprint page's owner-only button.
+        (function autoOpenCustomize(){
+          try {
+            const p = new URLSearchParams(location.search);
+            if (p.get('customize') === '1') {
+              const tryOpen = function() {
+                if (typeof window._openImprintCustomize === 'function') {
+                  window._openImprintCustomize();
+                } else {
+                  setTimeout(tryOpen, 300);
+                }
+              };
+              setTimeout(tryOpen, 800);
+            }
+          } catch (_) {}
+        })();
+      </script>
+
       <div class="sidebar-footer"
         style="padding:6px 1.25rem 8px;font-size:10.5px;color:var(--hint);background:#faf9f7;border-top:0.5px solid var(--border);display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex-shrink:0">
         <a href="/serials-guide.html"
@@ -29908,7 +29975,7 @@
       snap.forEach(function(d){
         const data = d.data() || {};
         const r = data.release || {};
-        if (r.reviewBoostClaimedAt) return; // already claimed — skip
+        if (r.reviewBoostClaimedAt) return;
         eligible.push({ id: d.id, title: String(r.title || 'Untitled') });
       });
       if (!eligible.length) {

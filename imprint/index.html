@@ -387,6 +387,19 @@ function renderHeader(authorName, tipUrl, count){
   const shelfLink=document.createElement('a');
   shelfLink.href='/shelf';shelfLink.textContent='📚 Browse the Shelf';
   actions.appendChild(shelfLink);
+  // Owner-only Customize button — links to the editor with ?customize=1
+  // which auto-opens the imprint theme modal. Indie+ subscribers get the
+  // real editor; free-tier authors get the upgrade pitch inside the modal.
+  const urlUid = (typeof getUidParam === 'function') ? getUidParam() : '';
+  const isOwner = !!(window._myUid && urlUid && window._myUid === urlUid);
+  if (isOwner) {
+    const customizeLink = document.createElement('a');
+    customizeLink.href = '/app.html?customize=1';
+    customizeLink.className = 'customize';
+    customizeLink.style.cssText = 'background:var(--accent);color:#fff;border:1px solid var(--accent);padding:8px 14px;border-radius:8px;font-size:13px;font-weight:500;text-decoration:none';
+    customizeLink.textContent = '🎨 Customize my imprint';
+    actions.appendChild(customizeLink);
+  }
   try{document.title=(authorName||'Author')+' on Folio';}catch(e){}
 }
 
