@@ -234,9 +234,10 @@ service cloud.firestore {
       }
     }
 
-    // Per-user app settings — strictly your own.
+    // Per-user app settings — your own OR admin (needed for comping Press
+    // subscriptions from /admin/press/ for testing + edge cases).
     match /folio_user_settings/{uid} {
-      allow read, write: if isUser(uid);
+      allow read, write: if isUser(uid) || isAdmin();
     }
 
     // Reviews / testimonials — authors submit reviews from the app + reader.
