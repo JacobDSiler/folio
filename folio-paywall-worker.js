@@ -689,6 +689,36 @@ async function handleVerifyCode(request, env) {
    /boost-slots to expose scarcity to the client for UI decisions.
    Returns { count, nextOpeningMs } — nextOpeningMs is the earliest
    featuredUntil among currently-featured folios (or 0 if none). */
+/* Read a user's current Press subscription state from Firestore.
+   Returns { tier, period, subscriptionId, status } if active, else null.
+   Used by boost-checkout to apply the subscriber discount. */
+async function fsGetUserSubscription(env, uid) {
+  if (!uid) return null;
+  try {
+    const acc = await getAccessToken(env);
+    const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+    const doc = await fsGet(pid, acc.token, 'folio_user_settings/' + encodeURIComponent(uid));
+    if (!doc) return null;
+    const sub = doc.pressSubscription;
+    if (!sub || sub.status !== 'ACTIVE') return null;
+    return {
+      tier: String(sub.tier || ''),
+      period: String(sub.period || ''),
+      subscriptionId: String(sub.paypalSubscriptionId || ''),
+      status: 'ACTIVE',
+    };
+  } catch (e) {
+    console.warn('[press] subscription lookup failed:', e.message);
+    return null;
+  }
+}
+
+/* Subscriber discount table — % off boost purchases. */
+const PRESS_BOOST_DISCOUNTS = {
+  indie:   { pct: 20, label: 'Folio Press Indie — 20% off' },
+  imprint: { pct: 50, label: 'Folio Press Imprint — 50% off' },
+};
+
 async function fsCountActiveBoosts(env) {
   const acc = await getAccessToken(env);
   const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
@@ -933,6 +963,27 @@ async function handleBoostCheckout(request, env) {
     console.warn('[boost] slot-count query failed, allowing purchase:', e.message);
   }
 
+  // ═══ Subscriber discount — Priority 1 feature-gate framework ═══
+  // Read the user's Press subscription. If active + tier has a discount,
+  // apply it to the boost price. This is the concrete recurring value
+  // moment for subscribers — every boost purchase saves them $.
+  let priceUsd = spec.usd;
+  let originalUsd = spec.usd;
+  let discountPct = 0;
+  let discountLabel = '';
+  if (uid) {
+    const sub = await fsGetUserSubscription(env, uid);
+    if (sub && PRESS_BOOST_DISCOUNTS[sub.tier]) {
+      const disc = PRESS_BOOST_DISCOUNTS[sub.tier];
+      discountPct = disc.pct;
+      discountLabel = disc.label;
+      const orig = parseFloat(spec.usd);
+      const discounted = orig * (1 - disc.pct / 100);
+      priceUsd = discounted.toFixed(2);
+      console.log('[boost] applied', disc.label, 'for', uid.slice(0, 12), '- price', spec.usd, '->', priceUsd);
+    }
+  }
+
   // custom_id must be <= 127 chars. Compact tag: v1|folioId|tier|uid|ts
   const stamp = Date.now();
   const customId = ['v1', folioId, tier, uid || '-', stamp].join('|').slice(0, 127);
@@ -948,13 +999,15 @@ async function handleBoostCheckout(request, env) {
   try { ppAccess = await ppAccessToken(env); }
   catch (e) { return errorJson('PayPal auth failed: ' + (e.message || 'unknown'), 502, request, env); }
 
+  const boostDescription = 'Folio Featured Boost — ' + spec.label + ' — ' + folioTitle +
+    (discountLabel ? ' (' + discountLabel + ')' : '');
   const orderBody = {
     intent: 'CAPTURE',
     purchase_units: [{
       reference_id: 'boost-' + folioId.slice(0, 30),
-      description: 'Folio Featured Boost — ' + spec.label + ' — ' + folioTitle,
+      description: boostDescription,
       custom_id: customId,
-      amount: { currency_code: 'USD', value: spec.usd },
+      amount: { currency_code: 'USD', value: priceUsd },
     }],
     application_context: {
       brand_name: 'Folio',
@@ -993,7 +1046,10 @@ async function handleBoostCheckout(request, env) {
     orderId:  orderResp.id,
     approvalUrl: approve.href,
     tier:     tier,
-    priceUsd: spec.usd,
+    priceUsd: priceUsd,
+    originalUsd: originalUsd,
+    discountPct: discountPct,
+    discountLabel: discountLabel,
   }, 200, request, env);
 }
 
@@ -1242,6 +1298,32 @@ async function handleBoostWebhook(request, env) {
     console.error('[webhook] apply failed:', e);
     return errorJson('Firestore write failed: ' + (e.message || 'unknown'), 500, request, env);
   }
+}
+
+/* GET /press-status?uid=X — client-facing lookup for subscription state.
+   Used by client to render tier badges + discount indicators. The state
+   is display-only; actual pricing enforcement happens server-side in
+   boost-checkout after re-fetching the user's live subscription record.
+   Returns { active, tier, period, boostDiscountPct } or { active: false }. */
+async function handlePressStatus(request, env) {
+  const url = new URL(request.url);
+  const uid = url.searchParams.get('uid') || '';
+  if (!uid) {
+    return json({ ok: true, active: false }, 200, request, env);
+  }
+  const sub = await fsGetUserSubscription(env, uid);
+  if (!sub) {
+    return json({ ok: true, active: false }, 200, request, env);
+  }
+  const disc = PRESS_BOOST_DISCOUNTS[sub.tier] || null;
+  return json({
+    ok: true,
+    active: true,
+    tier: sub.tier,
+    period: sub.period,
+    boostDiscountPct: disc ? disc.pct : 0,
+    boostDiscountLabel: disc ? disc.label : null,
+  }, 200, request, env);
 }
 
 /* GET /boost-slots — public scarcity signal for the client UI. */
@@ -1621,6 +1703,7 @@ export default {
           'POST /press-subscribe { tier, period, uid? }   creates a PayPal Subscription',
           'GET  /press-return    ?subscription_id=&tier=&period=&site=  Post-approval landing',
           'POST /press-webhook   PayPal Subscription lifecycle events (Phase 2)',
+          'GET  /press-status?uid=X   subscription state + boost discount for the client UI',
           'GET  /boost-debug?token=...   admin diagnostic',
         ],
       }, 200, request, env);
@@ -1640,6 +1723,7 @@ export default {
     if (path === '/press-subscribe' && request.method === 'POST') return handlePressSubscribe(request, env);
     if (path === '/press-return'    && request.method === 'GET')  return handlePressReturn(request, env);
     if (path === '/press-webhook'   && request.method === 'POST') return handlePressWebhook(request, env);
+    if (path === '/press-status'    && request.method === 'GET')  return handlePressStatus(request, env);
     if (path === '/boost-debug'    && request.method === 'GET')  return handleBoostDebug(request, env);
 
     return errorJson('Not found: ' + path, 404, request, env);

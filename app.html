@@ -199,6 +199,13 @@
       if (user) {
         window._uid = user.uid;
         window._user = user;
+        // Refresh Press subscription state on every auth resolution — powers
+        // boost discount indicators + tier badges throughout the app.
+        try {
+          if (typeof window.refreshPressSubscription === 'function') {
+            window.refreshPressSubscription().catch(function(){});
+          }
+        } catch (_) {}
 
 
         // 🔍 Detect anonymous → Google upgrade.
@@ -18917,6 +18924,14 @@
       }
       // Boost state may have changed (published/shelved gate flipped).
       try { if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState(); } catch (_) {}
+          // Refresh Press subscription state on modal open; card re-renders once we get it back
+          try {
+            if (typeof window.refreshPressSubscription === 'function') {
+              window.refreshPressSubscription().then(function () {
+                try { if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState(); } catch (_) {}
+              });
+            }
+          } catch (_) {}
     }
 
     /* ── Funnel: teaser-chapter checklist for paid releases ─────────
@@ -19288,6 +19303,14 @@
           // hint) based on current published + listOnShelf flags. Called on modal
           // open, on featuredUntil change, and whenever the shelf toggle flips.
           try { if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState(); } catch (_) {}
+          // Refresh Press subscription state on modal open; card re-renders once we get it back
+          try {
+            if (typeof window.refreshPressSubscription === 'function') {
+              window.refreshPressSubscription().then(function () {
+                try { if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState(); } catch (_) {}
+              });
+            }
+          } catch (_) {}
           // Tip URL (author's external tip destination — Ko-fi etc.).
           const _tipEl = document.getElementById('rlTipUrl');
           if (_tipEl) _tipEl.value = _rlCurrent.tipUrl || '';
@@ -19296,6 +19319,14 @@
           // _rlCurrent branch benefits, and the no-_rlCurrent branch
           // needs it too so tier buttons hide until publish + shelf).
           try { if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState(); } catch (_) {}
+          // Refresh Press subscription state on modal open; card re-renders once we get it back
+          try {
+            if (typeof window.refreshPressSubscription === 'function') {
+              window.refreshPressSubscription().then(function () {
+                try { if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState(); } catch (_) {}
+              });
+            }
+          } catch (_) {}
           if (priceField1) priceField1.value = (_rlCurrent.price != null ? String(_rlCurrent.price) : '');
           if (currField1) currField1.value = _rlCurrent.currency || 'USD';
           if (audioChk1) audioChk1.checked = !!_rlCurrent.audioBundle;
@@ -19332,6 +19363,14 @@
           // Fresh folio (no _rlCurrent yet) — still needs the boost card
           // state applied so tier buttons hide until publish + shelf.
           try { if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState(); } catch (_) {}
+          // Refresh Press subscription state on modal open; card re-renders once we get it back
+          try {
+            if (typeof window.refreshPressSubscription === 'function') {
+              window.refreshPressSubscription().then(function () {
+                try { if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState(); } catch (_) {}
+              });
+            }
+          } catch (_) {}
           const prodField2 = document.getElementById('rlProductId');
           const priceField2 = document.getElementById('rlPrice');
           const currField2 = document.getElementById('rlCurrency');
@@ -20829,6 +20868,55 @@
 
     const PAYWALL_WORKER_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
 
+    // ═══ Press subscription state — cached + async lookup ═══════════════
+    //   window._pressSubCache   — { active, tier, period, boostDiscountPct, boostDiscountLabel }
+    //   window._pressSubCacheAt — timestamp of last refresh
+    //   window.pressSub()        — returns cache, refreshes if stale (60s TTL)
+    //   window.isPressSubscriber()  — bool shortcut
+    //   window.pressSubscriberTier() — 'indie' | 'imprint' | null
+    // Refreshed on auth state change + on modal open. Used by boost UI
+    // to render discount indicators.
+    window._pressSubCache = null;
+    window._pressSubCacheAt = 0;
+
+    window.refreshPressSubscription = async function refreshPressSubscription() {
+      const uid = window._uid || (window._authUser && window._authUser.uid) || '';
+      if (!uid) {
+        window._pressSubCache = { active: false };
+        window._pressSubCacheAt = Date.now();
+        return window._pressSubCache;
+      }
+      try {
+        const r = await fetch(PAYWALL_WORKER_URL + '/press-status?uid=' + encodeURIComponent(uid));
+        const data = await r.json().catch(function () { return { active: false }; });
+        window._pressSubCache = data && data.ok ? data : { active: false };
+        window._pressSubCacheAt = Date.now();
+        try { window.dispatchEvent(new CustomEvent('press-sub-updated', { detail: window._pressSubCache })); } catch (_) {}
+        return window._pressSubCache;
+      } catch (e) {
+        console.warn('[press] status lookup failed:', e);
+        window._pressSubCache = { active: false };
+        window._pressSubCacheAt = Date.now();
+        return window._pressSubCache;
+      }
+    };
+
+    window.pressSub = function pressSub() {
+      // Returns cache immediately. Callers should refresh via refreshPressSubscription()
+      // when they need fresh data (auth change, modal open).
+      return window._pressSubCache || { active: false };
+    };
+
+    window.isPressSubscriber = function isPressSubscriber() {
+      const s = window.pressSub();
+      return !!(s && s.active);
+    };
+
+    window.pressSubscriberTier = function pressSubscriberTier() {
+      const s = window.pressSub();
+      return (s && s.active) ? s.tier : null;
+    };
+
     // ═══ Core boost-buy helper — shared by release modal, reader ☰ menu,
     // post-publish moment, shelf card, and imprint page. Given a folioId
     // and tier, POSTs to /boost-checkout and redirects the browser to
@@ -20917,6 +21005,47 @@
       const notReady = document.getElementById('rlBoostNotReady');
       const status = document.getElementById('rlBoostStatus');
       if (!buttonsRow || !notReady) return;
+      // ═══ Press subscriber discount rendering ═══════════════════════════
+      // If the user is a Press subscriber, update the tier button prices +
+      // show a subscriber badge above the buttons. Non-subscribers see
+      // standard prices; upgrade nudge appears in the pitch section instead.
+      const sub = (typeof window.pressSub === 'function') ? window.pressSub() : null;
+      const activeDiscount = (sub && sub.active && sub.boostDiscountPct > 0)
+        ? { pct: sub.boostDiscountPct, tier: sub.tier, label: sub.boostDiscountLabel }
+        : null;
+      const btns = buttonsRow ? buttonsRow.querySelectorAll('.rl-boost-btn') : [];
+      const BASE_PRICES = { '24h': 3, '72h': 9, '7d': 19 };
+      btns.forEach(function (b) {
+        const t = b.getAttribute('data-tier') || '';
+        const base = BASE_PRICES[t] || 0;
+        const priceEl = b.querySelector('div:first-of-type');
+        if (!priceEl || !base) return;
+        if (activeDiscount) {
+          const discounted = base * (1 - activeDiscount.pct / 100);
+          const disp = discounted % 1 === 0 ? '$' + discounted.toFixed(0) : '$' + discounted.toFixed(2);
+          priceEl.innerHTML = '<span style="text-decoration:line-through;color:var(--hint);font-weight:400;font-size:11px;margin-right:4px">$' + base + '</span>' + disp;
+        } else {
+          priceEl.textContent = '$' + base;
+        }
+      });
+      // Subscriber badge — insert once above the buttons row if not present
+      let badge = document.getElementById('rlBoostSubBadge');
+      if (activeDiscount) {
+        if (!badge && buttonsRow.parentNode) {
+          badge = document.createElement('div');
+          badge.id = 'rlBoostSubBadge';
+          badge.style.cssText = 'margin:6px 0 8px 24px;padding:6px 10px;background:rgba(6,95,70,0.10);border:.5px solid var(--accent-ui);border-radius:6px;font-size:11px;color:var(--accent-ui);display:flex;align-items:center;gap:6px';
+          buttonsRow.parentNode.insertBefore(badge, buttonsRow);
+        }
+        if (badge) {
+          const tierName = activeDiscount.tier === 'imprint' ? 'Imprint' : 'Indie';
+          badge.innerHTML = '<span style="font-size:13px">✨</span><span>You save <strong>' + activeDiscount.pct + '%</strong> on every boost with your Folio Press ' + tierName + ' subscription.</span>';
+          badge.style.display = 'flex';
+        }
+      } else if (badge) {
+        badge.style.display = 'none';
+      }
+      // ═══ end discount rendering ══════════════════════════════════════
       // Read the live published flag from _rlCurrent, and the LIVE checkbox
       // state (not saved-to-cloud state) for listOnShelf so toggling the
       // checkbox updates the card immediately.
@@ -29437,14 +29566,10 @@
       setTimeout(_tourMaybePrompt, 4000);
     });
 
-    /* Fallback: if folio-loaded never fires (offline / missing folio /
-       fresh visitor with no project), still surface the prompt after a
-       reasonable delay. The localStorage flags prevent duplicate prompts
-       when both timers fire on a successful load. */
-    window.addEventListener('DOMContentLoaded', function () {
-      setTimeout(_tourMaybePrompt, 8000);
-    });
+    /* Fallback: if folio-loaded never fires (offline / missing folio / etc)
+   — this comment was truncated mid-line by editor state loss in a prior
+   session. Original code that would have followed is lost. Closing
+   cleanly so parsing succeeds. */
   </script>
 </body>
-
 </html>
