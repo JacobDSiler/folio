@@ -1,0 +1,576 @@
+<!doctype html>
+<!-- FOLIO PRESS PHOTOS v2026.07.04.1 — Imprint subscriber tentpole feature -->
+<html lang="en">
+<head>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+PHJlY3QgeD0iNiIgeT0iMTAiIHdpZHRoPSIxNSIgaGVpZ2h0PSI0NCIgcng9IjEuNSIgZmlsbD0iIzRhMWUxOCIvPjxyZWN0IHg9IjIzIiB5PSIxNiIgd2lkdGg9IjE1IiBoZWlnaHQ9IjM4IiByeD0iMS41IiBmaWxsPSIjMWUzYTJhIi8+PHJlY3QgeD0iNDAiIHk9IjEyIiB3aWR0aD0iMTUiIGhlaWdodD0iNDIiIHJ4PSIxLjUiIGZpbGw9IiNjOThjMmEiLz48cmVjdCB4PSIyIiB5PSI1NCIgd2lkdGg9IjYwIiBoZWlnaHQ9IjQiIHJ4PSIxIiBmaWxsPSIjNmI0MjIyIi8+PC9zdmc+">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Product Photos · Folio Press Imprint</title>
+<meta name="description" content="Generate Instagram, Twitter, and Pinterest-ready product photos of your book. Folio Press Imprint feature.">
+<style>
+:root {
+  --bg:#faf7f1; --surface:#fff; --text:#1a1611; --muted:#5a5347; --hint:#8a8174;
+  --border:rgba(0,0,0,0.10); --border-mid:rgba(0,0,0,0.14);
+  --accent:#c98c2a; --accent-ui:#065f46;
+  --shadow:0 1px 3px rgba(0,0,0,0.06),0 4px 14px rgba(0,0,0,0.04);
+  --shadow-lg:0 8px 32px rgba(0,0,0,0.10);
+}
+html[data-theme="dark"]{--bg:#14110d;--surface:#1f1a14;--text:#e8dece;--muted:#a89e8b;--hint:#79705f;--border:rgba(232,222,206,0.10);--border-mid:rgba(232,222,206,0.16);--accent:#d4a44f;--accent-ui:#34d399}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
+a{color:var(--accent-ui);text-decoration:none}
+a:hover{text-decoration:underline}
+
+.pp-hdr{background:var(--surface);border-bottom:.5px solid var(--border);padding:14px 20px;position:sticky;top:0;z-index:10}
+.pp-hdr-row{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.pp-brand{font-family:'Playfair Display',Georgia,serif;font-size:18px;font-weight:600;color:var(--text)}
+.pp-brand a{color:inherit}
+.pp-brand .accent{color:var(--accent)}
+.pp-nav{display:flex;gap:14px;font-size:12.5px;color:var(--muted)}
+.pp-nav a{color:inherit}
+
+.pp-hero{max-width:820px;margin:0 auto;padding:44px 20px 20px;text-align:center}
+.pp-hero h1{font-family:'Playfair Display',Georgia,serif;font-size:36px;font-weight:600;letter-spacing:-.01em;margin:0 0 8px}
+.pp-hero p{font-size:14.5px;color:var(--muted);margin:0}
+
+.pp-wrap{max-width:1100px;margin:0 auto;padding:24px 20px 60px}
+.pp-card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:24px 26px;margin-bottom:18px;box-shadow:var(--shadow)}
+.pp-card h2{font-family:'Playfair Display',Georgia,serif;font-size:20px;font-weight:600;margin:0 0 6px}
+.pp-card .sub{font-size:12.5px;color:var(--hint);margin:0 0 14px;line-height:1.6}
+
+.pp-gate{text-align:center;padding:60px 20px}
+.pp-gate h1{font-family:'Playfair Display',Georgia,serif;font-size:28px;font-weight:600;margin:14px 0 8px}
+.pp-gate p{color:var(--muted);font-size:14px;margin:0 0 22px;line-height:1.6;max-width:520px;margin-left:auto;margin-right:auto}
+.pp-btn{display:inline-block;padding:11px 22px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;text-decoration:none;font-family:inherit}
+.pp-btn:hover{filter:brightness(.94);text-decoration:none}
+.pp-btn.ghost{background:var(--surface);color:var(--text);border:.5px solid var(--border-mid)}
+
+.pp-picker{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-top:12px}
+.pp-folio{background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;padding:10px;cursor:pointer;text-align:left;transition:transform .12s,border-color .12s;font-family:inherit;color:var(--text);display:flex;flex-direction:column;gap:8px}
+.pp-folio:hover{transform:translateY(-2px);border-color:var(--accent)}
+.pp-folio.active{border-color:var(--accent);border-width:1px;box-shadow:0 0 0 3px rgba(201,140,42,0.08)}
+.pp-folio img{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:4px;background:#333}
+.pp-folio-title{font-size:12.5px;font-weight:500;color:var(--text);line-height:1.3;font-family:'Playfair Display',Georgia,serif}
+.pp-folio-author{font-size:11px;color:var(--muted);font-style:italic}
+
+.pp-templates{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.pp-template{flex:1;min-width:160px;padding:12px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;cursor:pointer;text-align:center;font-family:inherit;color:var(--text);transition:border-color .12s}
+.pp-template:hover{border-color:var(--accent)}
+.pp-template.active{border-color:var(--accent);border-width:1px;box-shadow:0 0 0 3px rgba(201,140,42,0.08)}
+.pp-template-name{font-size:13px;font-weight:500;margin-bottom:2px}
+.pp-template-dim{font-size:10.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.05em}
+
+.pp-preview-wrap{margin-top:14px;text-align:center;padding:16px;background:var(--bg);border-radius:10px;min-height:200px;display:flex;flex-direction:column;align-items:center;gap:14px}
+#previewCanvas{max-width:100%;max-height:60vh;border-radius:6px;box-shadow:0 8px 32px rgba(0,0,0,.14);background:#f4ebd8}
+.pp-download-row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+
+.pp-status{font-size:12px;color:var(--hint);text-align:center;margin-top:8px;min-height:16px}
+.pp-status.err{color:#c04040}
+.pp-status.ok{color:var(--accent-ui)}
+
+.pp-hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<header class="pp-hdr">
+  <div class="pp-hdr-row">
+    <div class="pp-brand"><a href="/"><span class="accent">📖</span> Folio Press</a> · Product Photos</div>
+    <div class="pp-nav">
+      <a href="/press">← Back to Press</a>
+      <a href="/shelf">The Shelf</a>
+      <a href="/app.html">Write</a>
+    </div>
+  </div>
+</header>
+
+<!-- Sign-in gate — shown when no auth -->
+<div id="signInGate" class="pp-gate">
+  <div style="font-size:48px">🖼</div>
+  <h1>Product photos for your books</h1>
+  <p>Sign in to generate Instagram, Twitter, and Pinterest-ready product photos of your published folios.</p>
+  <button class="pp-btn" onclick="doSignIn()">Sign in with Google</button>
+  <div id="signInStatus" class="pp-status"></div>
+</div>
+
+<!-- Upgrade gate — shown when signed in but not Imprint tier -->
+<div id="upgradeGate" class="pp-gate pp-hidden">
+  <div style="font-size:48px">✨</div>
+  <h1>Product Photos is a Folio Press Imprint feature</h1>
+  <p>Generate polished, brand-consistent product images of your books ready to post on Instagram, Twitter, and Pinterest. Available with a Folio Press Imprint subscription — $12/mo or $120/yr.</p>
+  <a class="pp-btn" href="/press">See Folio Press Imprint →</a>
+</div>
+
+<!-- Main view — shown when Imprint tier active -->
+<div id="mainView" class="pp-wrap pp-hidden">
+  <div class="pp-hero">
+    <h1>Product photos for your books</h1>
+    <p>Pick a folio, pick a template, download the PNG.</p>
+  </div>
+
+  <div class="pp-card">
+    <h2>1 · Pick a folio</h2>
+    <div class="sub">Only your published folios appear here. To add more, publish them first at the Shelf.</div>
+    <div id="folioPicker" class="pp-picker"><div style="grid-column:1/-1;text-align:center;color:var(--hint);padding:20px">Loading your folios…</div></div>
+  </div>
+
+  <div class="pp-card">
+    <h2>2 · Choose a template</h2>
+    <div class="sub">Each template produces a high-resolution PNG at the pixel dimensions shown.</div>
+    <div class="pp-templates">
+      <button class="pp-template active" data-template="ig-square" onclick="_pickTemplate('ig-square')">
+        <div class="pp-template-name">Instagram Square</div>
+        <div class="pp-template-dim">1080 × 1080</div>
+      </button>
+      <button class="pp-template" data-template="tw-banner" onclick="_pickTemplate('tw-banner')">
+        <div class="pp-template-name">Twitter / X Banner</div>
+        <div class="pp-template-dim">1500 × 500</div>
+      </button>
+      <button class="pp-template" data-template="pin-vertical" onclick="_pickTemplate('pin-vertical')">
+        <div class="pp-template-name">Pinterest Vertical</div>
+        <div class="pp-template-dim">1000 × 1500</div>
+      </button>
+    </div>
+  </div>
+
+  <div class="pp-card">
+    <h2>3 · Preview & download</h2>
+    <div class="sub">The preview is 50% scale for speed. Download button generates the full-resolution PNG.</div>
+    <div class="pp-preview-wrap">
+      <canvas id="previewCanvas" width="540" height="540"></canvas>
+      <div class="pp-download-row">
+        <button class="pp-btn" onclick="downloadPNG()" id="downloadBtn" disabled>Download PNG</button>
+        <button class="pp-btn ghost" onclick="regeneratePreview()">Regenerate preview</button>
+      </div>
+      <div id="ppStatus" class="pp-status">Pick a folio to generate your first photo.</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const PAYWALL_WORKER_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
+  let _fb = {};
+  let _user = null;
+  let _folios = [];
+  let _selectedFolio = null;
+  let _selectedTemplate = 'ig-square';
+
+  async function boot() {
+    try {
+      const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const authMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+      const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      _fb.initializeApp = appMod.initializeApp;
+      _fb.getAuth = authMod.getAuth;
+      _fb.GoogleAuthProvider = authMod.GoogleAuthProvider;
+      _fb.signInWithPopup = authMod.signInWithPopup;
+      _fb.signOut = authMod.signOut;
+      _fb.onAuthStateChanged = authMod.onAuthStateChanged;
+      _fb.getFirestore = fsMod.getFirestore;
+      _fb.collection = fsMod.collection;
+      _fb.query = fsMod.query;
+      _fb.where = fsMod.where;
+      _fb.getDocs = fsMod.getDocs;
+      _fb.limit = fsMod.limit;
+      const cfg = {
+        apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",
+        authDomain: "auth.jacobsiler.com",
+        projectId: "miscellaneous-117e9",
+        storageBucket: "miscellaneous-117e9.firebasestorage.app",
+        messagingSenderId: "514858431339",
+        appId: "1:514858431339:web:8b3acbe89966b45fe3922e"
+      };
+      const app = _fb.initializeApp(cfg);
+      _fb.auth = _fb.getAuth(app);
+      _fb.db = _fb.getFirestore(app);
+      _fb.onAuthStateChanged(_fb.auth, onAuthChange);
+    } catch (e) {
+      console.error('[photos] boot failed:', e);
+      document.getElementById('signInStatus').textContent = 'Boot failed: ' + (e.message || 'unknown');
+    }
+  }
+
+  async function onAuthChange(user) {
+    _user = user;
+    if (!user) {
+      document.getElementById('signInGate').classList.remove('pp-hidden');
+      document.getElementById('upgradeGate').classList.add('pp-hidden');
+      document.getElementById('mainView').classList.add('pp-hidden');
+      return;
+    }
+    // Signed in — check subscription tier via worker
+    document.getElementById('signInGate').classList.add('pp-hidden');
+    try {
+      const r = await fetch(PAYWALL_WORKER_URL + '/press-status?uid=' + encodeURIComponent(user.uid));
+      const status = await r.json().catch(function(){ return { active: false }; });
+      if (!status.active || status.tier !== 'imprint') {
+        // Free or Indie — show upgrade prompt
+        document.getElementById('upgradeGate').classList.remove('pp-hidden');
+        document.getElementById('mainView').classList.add('pp-hidden');
+        return;
+      }
+      // Imprint tier confirmed — load folios
+      document.getElementById('mainView').classList.remove('pp-hidden');
+      document.getElementById('upgradeGate').classList.add('pp-hidden');
+      await loadFolios(user.uid);
+    } catch (e) {
+      console.error('[photos] tier check failed:', e);
+    }
+  }
+
+  async function doSignIn() {
+    document.getElementById('signInStatus').textContent = '';
+    try {
+      const provider = new _fb.GoogleAuthProvider();
+      await _fb.signInWithPopup(_fb.auth, provider);
+    } catch (e) {
+      document.getElementById('signInStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown');
+      document.getElementById('signInStatus').className = 'pp-status err';
+    }
+  }
+  window.doSignIn = doSignIn;
+
+  async function loadFolios(uid) {
+    try {
+      const q = _fb.query(
+        _fb.collection(_fb.db, 'folio_projects'),
+        _fb.where('uid', '==', uid),
+        _fb.where('release.published', '==', true),
+        _fb.limit(100)
+      );
+      const snap = await _fb.getDocs(q);
+      _folios = [];
+      snap.forEach(function(d){
+        const data = d.data() || {};
+        const r = data.release || {};
+        _folios.push({
+          id: d.id,
+          title: String(r.title || 'Untitled'),
+          author: String(r.author || ''),
+          coverUrl: (typeof r.coverUrl === 'string' && /^https:\/\//i.test(r.coverUrl)) ? r.coverUrl : ''
+        });
+      });
+      renderFolioPicker();
+    } catch (e) {
+      console.error('[photos] folio load failed:', e);
+      document.getElementById('folioPicker').innerHTML = '<div style="grid-column:1/-1;text-align:center;color:#c04040;padding:20px">Could not load your folios: ' + (e.message || 'unknown') + '</div>';
+    }
+  }
+
+  function renderFolioPicker() {
+    const el = document.getElementById('folioPicker');
+    if (!_folios.length) {
+      el.innerHTML = '<div style="grid-column:1/-1;text-align:center;color:var(--hint);padding:20px">No published folios yet. <a href="/app.html">Publish one</a> and come back.</div>';
+      return;
+    }
+    el.innerHTML = _folios.map(function(f){
+      const cover = f.coverUrl ? '<img src="'+esc(f.coverUrl)+'" alt="" loading="lazy" crossorigin="anonymous">' : '<div style="width:100%;aspect-ratio:2/3;background:#3a2a1c;border-radius:4px;display:flex;align-items:center;justify-content:center;color:#e8c374;font-family:\'Playfair Display\',Georgia,serif;font-size:11px;text-align:center;padding:10px">'+esc(f.title)+'</div>';
+      return '<button type="button" class="pp-folio" data-id="'+esc(f.id)+'" onclick="_pickFolio(\''+esc(f.id).replace(/\'/g,"\\'")+'\')">'+cover+'<div class="pp-folio-title">'+esc(f.title)+'</div><div class="pp-folio-author">by '+esc(f.author)+'</div></button>';
+    }).join('');
+  }
+
+  window._pickFolio = function(id) {
+    _selectedFolio = _folios.find(function(f){ return f.id === id; }) || null;
+    document.querySelectorAll('.pp-folio').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-id') === id); });
+    if (_selectedFolio) generatePreview();
+  };
+  window._pickTemplate = function(t) {
+    _selectedTemplate = t;
+    document.querySelectorAll('.pp-template').forEach(function(b){ b.classList.toggle('active', b.getAttribute('data-template') === t); });
+    if (_selectedFolio) generatePreview();
+  };
+  window.regeneratePreview = function() { if (_selectedFolio) generatePreview(); };
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+
+  // ═══ CANVAS TEMPLATES ═══════════════════════════════════════════════════
+  // Each returns a Promise<Canvas> at the given output pixel dimensions.
+  // Cover image is loaded via crossorigin=anonymous. If the image host doesn't
+  // send CORS headers, canvas becomes tainted and downloads fail — we catch
+  // that and show a helpful error.
+
+  const TEMPLATES = {
+    'ig-square': { w: 1080, h: 1080, render: renderIgSquare },
+    'tw-banner': { w: 1500, h: 500, render: renderTwBanner },
+    'pin-vertical': { w: 1000, h: 1500, render: renderPinVertical }
+  };
+
+  async function loadImage(url) {
+    return new Promise(function(resolve, reject) {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = function() { resolve(img); };
+      img.onerror = function() { reject(new Error('image load failed')); };
+      img.src = url;
+    });
+  }
+
+  function drawBookShadow(ctx, x, y, w, h) {
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.35)';
+    ctx.shadowBlur = 30;
+    ctx.shadowOffsetX = 8;
+    ctx.shadowOffsetY = 14;
+    ctx.fillStyle = '#222';
+    ctx.fillRect(x, y, w, h);
+    ctx.restore();
+  }
+
+  // Instagram Square — warm wooden background with book cover centered + subtle vignette
+  async function renderIgSquare(folio, ctx, W, H) {
+    // Warm gradient background — wooden desk
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#6b4222');
+    bg.addColorStop(0.5, '#8b5a2b');
+    bg.addColorStop(1, '#4a2810');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    // Wood grain lines
+    ctx.strokeStyle = 'rgba(0,0,0,0.10)';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 12; i++) {
+      const y = (H / 12) * i + Math.sin(i * 1.7) * 8;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.bezierCurveTo(W/3, y - 6, W*2/3, y + 8, W, y - 4);
+      ctx.stroke();
+    }
+    // Vignette
+    const vig = ctx.createRadialGradient(W/2, H/2, W*0.3, W/2, H/2, W*0.7);
+    vig.addColorStop(0, 'rgba(0,0,0,0)');
+    vig.addColorStop(1, 'rgba(0,0,0,0.5)');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, H);
+    // Book cover — centered, slight tilt, drop shadow
+    const bookW = W * 0.42;
+    const bookH = bookW * 1.5;
+    const bookX = (W - bookW) / 2;
+    const bookY = (H - bookH) / 2 - 20;
+    ctx.save();
+    ctx.translate(bookX + bookW/2, bookY + bookH/2);
+    ctx.rotate(-2 * Math.PI / 180);
+    ctx.translate(-bookW/2, -bookH/2);
+    drawBookShadow(ctx, 0, 0, bookW, bookH);
+    if (folio.coverUrl) {
+      try {
+        const img = await loadImage(folio.coverUrl);
+        ctx.drawImage(img, 0, 0, bookW, bookH);
+      } catch (e) {
+        ctx.fillStyle = '#3a2a1c';
+        ctx.fillRect(0, 0, bookW, bookH);
+        ctx.fillStyle = '#e8c374';
+        ctx.font = '600 40px "Playfair Display", Georgia, serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(folio.title, bookW/2, bookH/2);
+      }
+    }
+    ctx.restore();
+    // Text overlay at bottom
+    ctx.fillStyle = 'rgba(250,247,241,0.95)';
+    ctx.font = '500 22px -apple-system, "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Read at onfolio.press', W/2, H - 70);
+    ctx.font = 'italic 14px "Playfair Display", Georgia, serif';
+    ctx.fillStyle = 'rgba(250,247,241,0.7)';
+    ctx.fillText('by ' + folio.author, W/2, H - 42);
+  }
+
+  // Twitter Banner — cover on left, title/author on right, cream background
+  async function renderTwBanner(folio, ctx, W, H) {
+    // Cream background
+    const bg = ctx.createLinearGradient(0, 0, W, 0);
+    bg.addColorStop(0, '#faf7f1');
+    bg.addColorStop(1, '#efe6d0');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    // Subtle amber left panel
+    ctx.fillStyle = 'rgba(201,140,42,0.06)';
+    ctx.fillRect(0, 0, W * 0.42, H);
+    // Book cover on the left
+    const bookH = H * 0.72;
+    const bookW = bookH * (2/3);
+    const bookX = 80;
+    const bookY = (H - bookH) / 2;
+    drawBookShadow(ctx, bookX, bookY, bookW, bookH);
+    if (folio.coverUrl) {
+      try {
+        const img = await loadImage(folio.coverUrl);
+        ctx.drawImage(img, bookX, bookY, bookW, bookH);
+      } catch (e) {
+        ctx.fillStyle = '#3a2a1c';
+        ctx.fillRect(bookX, bookY, bookW, bookH);
+      }
+    }
+    // Text on the right
+    const textX = bookX + bookW + 50;
+    let textY = H * 0.28;
+    ctx.fillStyle = '#1a1611';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = '600 44px "Playfair Display", Georgia, serif';
+    // Wrap title if too long
+    const maxTextW = W - textX - 60;
+    const words = folio.title.split(' ');
+    const lines = [];
+    let line = '';
+    words.forEach(function(w){
+      const trial = line ? line + ' ' + w : w;
+      if (ctx.measureText(trial).width > maxTextW && line) { lines.push(line); line = w; }
+      else line = trial;
+    });
+    if (line) lines.push(line);
+    lines.slice(0, 2).forEach(function(l){ ctx.fillText(l, textX, textY); textY += 52; });
+    // Author
+    ctx.fillStyle = '#5a5347';
+    ctx.font = 'italic 24px "Playfair Display", Georgia, serif';
+    ctx.fillText('by ' + folio.author, textX, textY + 4);
+    // Bottom accent + tag
+    textY = H - 66;
+    ctx.fillStyle = '#c98c2a';
+    ctx.fillRect(textX, textY, 40, 3);
+    ctx.fillStyle = '#5a5347';
+    ctx.font = '500 18px -apple-system, "Segoe UI", system-ui, sans-serif';
+    ctx.fillText('Read at onfolio.press', textX, textY + 16);
+  }
+
+  // Pinterest Vertical — sunset gradient with cover top, title + CTA bottom
+  async function renderPinVertical(folio, ctx, W, H) {
+    // Warm sunset gradient
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#8b3a1e');
+    bg.addColorStop(0.4, '#c96522');
+    bg.addColorStop(0.75, '#e0a34d');
+    bg.addColorStop(1, '#f4dfaf');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    // Soft radial glow
+    const glow = ctx.createRadialGradient(W/2, H*0.35, 20, W/2, H*0.35, W*0.7);
+    glow.addColorStop(0, 'rgba(255,220,150,0.35)');
+    glow.addColorStop(1, 'rgba(255,220,150,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+    // Book cover — large, upper half
+    const bookH = H * 0.44;
+    const bookW = bookH * (2/3);
+    const bookX = (W - bookW) / 2;
+    const bookY = H * 0.09;
+    drawBookShadow(ctx, bookX, bookY, bookW, bookH);
+    if (folio.coverUrl) {
+      try {
+        const img = await loadImage(folio.coverUrl);
+        ctx.drawImage(img, bookX, bookY, bookW, bookH);
+      } catch (e) {
+        ctx.fillStyle = '#3a2a1c';
+        ctx.fillRect(bookX, bookY, bookW, bookH);
+      }
+    }
+    // Title text — bottom section, dark background for contrast
+    ctx.fillStyle = 'rgba(30,15,8,0.85)';
+    ctx.fillRect(0, H * 0.62, W, H * 0.38);
+    // Title
+    ctx.fillStyle = 'rgba(250,247,241,0.98)';
+    ctx.font = '600 56px "Playfair Display", Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    // Wrap title
+    const maxTextW = W - 100;
+    const words = folio.title.split(' ');
+    const lines = [];
+    let line = '';
+    words.forEach(function(w){
+      const trial = line ? line + ' ' + w : w;
+      if (ctx.measureText(trial).width > maxTextW && line) { lines.push(line); line = w; }
+      else line = trial;
+    });
+    if (line) lines.push(line);
+    let y = H * 0.66;
+    lines.slice(0, 3).forEach(function(l){ ctx.fillText(l, W/2, y); y += 64; });
+    // Divider
+    ctx.fillStyle = '#c98c2a';
+    ctx.fillRect(W/2 - 40, y + 12, 80, 3);
+    // Author
+    ctx.fillStyle = 'rgba(232,195,116,0.85)';
+    ctx.font = 'italic 30px "Playfair Display", Georgia, serif';
+    ctx.fillText('by ' + folio.author, W/2, y + 32);
+    // CTA
+    ctx.fillStyle = 'rgba(250,247,241,0.9)';
+    ctx.font = '500 24px -apple-system, "Segoe UI", system-ui, sans-serif';
+    ctx.fillText('Read on Folio', W/2, H - 90);
+    ctx.fillStyle = 'rgba(250,247,241,0.6)';
+    ctx.font = '18px -apple-system, "Segoe UI", system-ui, sans-serif';
+    ctx.fillText('onfolio.press', W/2, H - 56);
+  }
+
+  async function generatePreview() {
+    if (!_selectedFolio) return;
+    const status = document.getElementById('ppStatus');
+    const dlBtn = document.getElementById('downloadBtn');
+    dlBtn.disabled = true;
+    status.textContent = 'Rendering preview…';
+    status.className = 'pp-status';
+    const tpl = TEMPLATES[_selectedTemplate];
+    if (!tpl) return;
+    const canvas = document.getElementById('previewCanvas');
+    // Preview at 50% scale for speed
+    const previewScale = 0.5;
+    canvas.width = tpl.w * previewScale;
+    canvas.height = tpl.h * previewScale;
+    const ctx = canvas.getContext('2d');
+    ctx.save();
+    ctx.scale(previewScale, previewScale);
+    try {
+      await tpl.render(_selectedFolio, ctx, tpl.w, tpl.h);
+      ctx.restore();
+      status.textContent = 'Ready. Click Download for the full-resolution PNG.';
+      status.className = 'pp-status ok';
+      dlBtn.disabled = false;
+    } catch (e) {
+      ctx.restore();
+      console.error('[photos] render failed:', e);
+      status.textContent = 'Render failed: ' + (e.message || 'unknown');
+      status.className = 'pp-status err';
+    }
+  }
+
+  window.downloadPNG = async function downloadPNG() {
+    if (!_selectedFolio) return;
+    const status = document.getElementById('ppStatus');
+    status.textContent = 'Generating full-resolution PNG…';
+    status.className = 'pp-status';
+    const tpl = TEMPLATES[_selectedTemplate];
+    // Full-resolution off-screen canvas
+    const off = document.createElement('canvas');
+    off.width = tpl.w;
+    off.height = tpl.h;
+    const ctx = off.getContext('2d');
+    try {
+      await tpl.render(_selectedFolio, ctx, tpl.w, tpl.h);
+      // Trigger download
+      const blob = await new Promise(function(resolve){ off.toBlob(resolve, 'image/png', 0.98); });
+      if (!blob) throw new Error('canvas.toBlob returned null (likely tainted by cross-origin image without CORS)');
+      const filename = _selectedFolio.title.replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '-' + _selectedTemplate + '.png';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function(){ URL.revokeObjectURL(url); }, 4000);
+      status.textContent = '✅ Downloaded ' + filename;
+      status.className = 'pp-status ok';
+    } catch (e) {
+      console.error('[photos] download failed:', e);
+      status.textContent = 'Download failed: ' + (e.message || 'unknown') + '. If this says "tainted" your cover image host needs CORS headers.';
+      status.className = 'pp-status err';
+    }
+  };
+
+  boot();
+</script>
+
+</body>
+</html>
