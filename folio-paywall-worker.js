@@ -1606,6 +1606,138 @@ async function handlePressWebhook(request, env) {
   return json({ ok: true, action: 'accepted', note: 'signature verification + state update coming in Phase 2' }, 200, request, env);
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   /review-submit — author submits a review, gets a 24h Featured Boost
+   ────────────────────────────────────────────────────────────────────
+   Ungated incentive: every review submission earns the boost as long
+   as (a) the folio belongs to the submitter, and (b) the folio hasn't
+   claimed a review-boost before (per-folio-lifetime lock).
+   
+   Idempotency: reviewBoostClaimedAt on the folio_projects doc. Prevents
+   grinding via delete-and-resubmit. One-shot per folio, ever.
+   
+   Public display is separate — reviews start with approvedForDisplay:false.
+   Admin manually curates via /admin/reviews/.
+   ══════════════════════════════════════════════════════════════════ */
+async function handleReviewSubmit(request, env) {
+  if (!env.GCP_SERVICE_ACCOUNT) {
+    return errorJson('Firestore service account not configured', 500, request, env);
+  }
+  let body;
+  try { body = await request.json(); }
+  catch (e) { return errorJson('Bad JSON body', 400, request, env); }
+  const uid          = String((body && body.uid) || '').trim();
+  const folioId      = String((body && body.folioId) || '').trim();
+  const rating       = parseInt((body && body.rating), 10);
+  const text         = String((body && body.text) || '').trim().slice(0, 500);
+  const role         = String((body && body.role) || 'author').slice(0, 20);
+  const feature      = String((body && body.feature) || 'overall').slice(0, 30);
+  const allowMarketing = !!(body && body.allowMarketing);
+  const displayName  = String((body && body.displayName) || 'Folio user').trim().slice(0, 60);
+
+  if (!uid) return errorJson('Missing uid', 400, request, env);
+  if (!folioId) return errorJson('Missing folioId', 400, request, env);
+  if (!isFinite(rating) || rating < 1 || rating > 5) return errorJson('Rating must be 1-5', 400, request, env);
+  if (!text || text.length < 10) return errorJson('Please write at least 10 characters', 400, request, env);
+
+  // Verify the folio exists + belongs to this user.
+  let folio;
+  try {
+    const acc = await getAccessToken(env);
+    const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+    folio = await fsGet(pid, acc.token, 'folio_projects/' + folioId);
+  } catch (e) {
+    return errorJson('Folio lookup failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+  if (!folio) return errorJson('No folio at that id', 404, request, env);
+  if (folio.uid !== uid) return errorJson('That folio is not yours', 403, request, env);
+
+  // Idempotency lock — reviewBoostClaimedAt lives on release map.
+  const release = folio.release || {};
+  if (release.reviewBoostClaimedAt) {
+    return errorJson('This folio already claimed its one-time review boost. Pick a different folio.', 400, request, env);
+  }
+
+  // Write the review doc + apply boost + set claim lock.
+  // Not perfectly atomic — Firestore doesn't offer client-side multi-doc
+  // transactions via REST easily — but we do best-effort with rollback logging.
+  const reviewId = 'r_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  const nowIso = new Date().toISOString();
+  const untilMs = Date.now() + 24 * 60 * 60 * 1000;
+
+  try {
+    const acc = await getAccessToken(env);
+    const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+
+    // 1. Write review
+    const reviewUrl = 'https://firestore.googleapis.com/v1/projects/' + pid +
+                      '/databases/(default)/documents/reviews/' + encodeURIComponent(reviewId);
+    const reviewBody = {
+      fields: {
+        uid:                { stringValue: uid },
+        displayName:        { stringValue: displayName },
+        role:               { stringValue: role },
+        feature:            { stringValue: feature },
+        rating:             { integerValue: String(rating) },
+        text:               { stringValue: text },
+        allowMarketing:     { booleanValue: allowMarketing },
+        boostFolioId:       { stringValue: folioId },
+        approvedForDisplay: { booleanValue: false },
+        createdAt:          { timestampValue: nowIso },
+      }
+    };
+    const reviewResp = await fetch(reviewUrl, {
+      method: 'PATCH',
+      headers: { 'Authorization': 'Bearer ' + acc.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(reviewBody),
+    });
+    if (!reviewResp.ok) {
+      const data = await reviewResp.json().catch(() => ({}));
+      throw new Error('Review write failed: ' + ((data.error && data.error.message) || reviewResp.status));
+    }
+
+    // 2. Apply boost + set claim lock in a single Firestore PATCH using updateMask
+    const folioUrl = 'https://firestore.googleapis.com/v1/projects/' + pid +
+                     '/databases/(default)/documents/folio_projects/' + encodeURIComponent(folioId) +
+                     '?updateMask.fieldPaths=' + encodeURIComponent('release.featuredUntil') +
+                     '&updateMask.fieldPaths=' + encodeURIComponent('release.reviewBoostClaimedAt');
+    const folioBody = {
+      fields: {
+        release: {
+          mapValue: {
+            fields: {
+              featuredUntil:          { timestampValue: new Date(untilMs).toISOString() },
+              reviewBoostClaimedAt:   { timestampValue: nowIso },
+            }
+          }
+        }
+      }
+    };
+    const boostResp = await fetch(folioUrl, {
+      method: 'PATCH',
+      headers: { 'Authorization': 'Bearer ' + acc.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(folioBody),
+    });
+    if (!boostResp.ok) {
+      const data = await boostResp.json().catch(() => ({}));
+      // Review was written but boost failed — log for reconciliation
+      console.error('[review] boost apply failed for reviewId=' + reviewId + ' folioId=' + folioId,
+        (data.error && data.error.message) || boostResp.status);
+      throw new Error('Boost apply failed: ' + ((data.error && data.error.message) || boostResp.status));
+    }
+
+    console.log('[review] submitted reviewId=' + reviewId + ' folioId=' + folioId + ' untilMs=' + untilMs);
+    return json({
+      ok: true,
+      reviewId: reviewId,
+      boostUntilMs: untilMs,
+      message: 'Thank you! Your folio is now featured for 24 hours.'
+    }, 200, request, env);
+  } catch (e) {
+    return errorJson('Review submit failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+}
+
 /* GET /boost-debug — admin-gated diagnostic. */
 async function handleBoostDebug(request, env) {
   const url = new URL(request.url);
@@ -1704,6 +1836,7 @@ export default {
           'GET  /press-return    ?subscription_id=&tier=&period=&site=  Post-approval landing',
           'POST /press-webhook   PayPal Subscription lifecycle events (Phase 2)',
           'GET  /press-status?uid=X   subscription state + boost discount for the client UI',
+          'POST /review-submit  { uid, folioId, rating, text, ... }   review + 24h free boost',
           'GET  /boost-debug?token=...   admin diagnostic',
         ],
       }, 200, request, env);
@@ -1724,6 +1857,7 @@ export default {
     if (path === '/press-return'    && request.method === 'GET')  return handlePressReturn(request, env);
     if (path === '/press-webhook'   && request.method === 'POST') return handlePressWebhook(request, env);
     if (path === '/press-status'    && request.method === 'GET')  return handlePressStatus(request, env);
+    if (path === '/review-submit'  && request.method === 'POST') return handleReviewSubmit(request, env);
     if (path === '/boost-debug'    && request.method === 'GET')  return handleBoostDebug(request, env);
 
     return errorJson('Not found: ' + path, 404, request, env);

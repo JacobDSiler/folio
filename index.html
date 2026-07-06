@@ -996,6 +996,34 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   </div>
 </section>
 
+<!-- ═══════════════════════════════════════════════════════ TESTIMONIALS ══
+     Testimonials scroll — populated from Firestore reviews collection where
+     approvedForDisplay==true AND allowMarketing==true. Every displayed
+     review carries an "Early access user" badge for FTC-compliant disclosure
+     (reviews are incentivized by a free 24h boost on submission — this must
+     be disclosed when displaying). Section hides entirely if no approved
+     reviews exist yet, so it doesn't render as a lonely placeholder.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<section class="sec" id="testimonials-sec" style="padding-top:0;display:none">
+  <div class="sec-head">
+    <div>
+      <span class="sec-tag">Testimonials</span>
+      <h2>Real words from real authors.</h2>
+    </div>
+    <p class="lede">Reviews from Folio users who agreed to be quoted. Every reviewer received a free 24h Featured Boost when they submitted — a small thanks for the feedback.</p>
+  </div>
+  <div id="testimonialsGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-top:20px"></div>
+</section>
+<style>
+  .testimonial{background:var(--surface,#fff);border:.5px solid var(--border-mid,rgba(0,0,0,0.14));border-radius:12px;padding:20px 22px;display:flex;flex-direction:column;gap:10px;box-shadow:0 1px 3px rgba(0,0,0,0.05);position:relative}
+  .testimonial-quote{font-family:var(--serif,'Playfair Display',Georgia,serif);font-size:15px;line-height:1.55;color:var(--ink,#1a1611);font-style:italic;position:relative;padding-left:14px;border-left:2px solid var(--accent,#c98c2a)}
+  .testimonial-attrib{display:flex;justify-content:space-between;align-items:baseline;gap:12px;font-family:var(--ui,-apple-system,'Segoe UI',system-ui,sans-serif);font-size:12px;color:var(--muted,#5a5347);margin-top:6px}
+  .testimonial-name{font-weight:500;color:var(--ink,#1a1611)}
+  .testimonial-role{font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted,#5a5347)}
+  .testimonial-stars{font-size:12px;color:var(--accent,#c98c2a);letter-spacing:1.5px}
+  .testimonial-badge{position:absolute;top:14px;right:14px;font-size:9.5px;color:var(--accent,#c98c2a);background:rgba(201,140,42,0.08);padding:2px 8px;border-radius:11px;letter-spacing:.04em;text-transform:uppercase}
+</style>
+
 <!-- ═══════════════════════════════════════════════════════════ VIRAL ═══ -->
 <section class="sec" id="viral-sec" style="padding-top:0">
   <div class="viral">
@@ -1568,6 +1596,8 @@ paintViral();
   if (p.has('title')){ tIn.value = p.get('title') || tIn.value; }
   if (p.has('author')){ aIn.value = p.get('author') || aIn.value; }
   paintViral();
+})();
+</script>
 
 <!-- Live shelf feed script — pulls featured + recent folios from Firestore
      into the showcase carousel, replacing placeholder covers on success. -->
@@ -1642,5 +1672,67 @@ paintViral();
     }
   })();
 </script>
+
+<!-- Testimonials live population — queries approved reviews from Firestore -->
+<script id="testimonialsBoot">
+  (async function () {
+    try {
+      const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      const { initializeApp, getApps } = appMod;
+      const { getFirestore, collection, query, where, getDocs, limit } = fsMod;
+      const cfg = {
+        apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",
+        authDomain: "auth.jacobsiler.com",
+        projectId: "miscellaneous-117e9",
+        storageBucket: "miscellaneous-117e9.firebasestorage.app",
+        messagingSenderId: "514858431339",
+        appId: "1:514858431339:web:8b3acbe89966b45fe3922e"
+      };
+      let app;
+      try { app = initializeApp(cfg); } catch (_) { app = initializeApp(cfg, 'testimonials'); }
+      const db = getFirestore(app);
+      const q = query(
+        collection(db, 'reviews'),
+        where('approvedForDisplay', '==', true),
+        where('allowMarketing', '==', true),
+        limit(6)
+      );
+      const snap = await getDocs(q);
+      if (snap.size < 1) { console.log('[welcome] no approved testimonials — hiding section'); return; }
+      const reviews = [];
+      snap.forEach(function(d){
+        const r = d.data() || {};
+        reviews.push({
+          name: String(r.displayName || 'Folio user'),
+          role: String(r.role || 'author'),
+          text: String(r.text || ''),
+          rating: Number(r.rating || 0),
+          createdAt: r.createdAt ? (r.createdAt.toMillis ? r.createdAt.toMillis() : Date.parse(r.createdAt)) : 0
+        });
+      });
+      reviews.sort(function(a,b){ return b.createdAt - a.createdAt; });
+      const esc2 = function(s){ return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); };
+      const grid = document.getElementById('testimonialsGrid');
+      if (!grid) return;
+      grid.innerHTML = reviews.map(function(r){
+        const stars = '★'.repeat(Math.max(0, Math.min(5, r.rating)));
+        return '<div class="testimonial">' +
+          '<span class="testimonial-badge">Early access user</span>' +
+          '<div class="testimonial-quote">' + esc2(r.text) + '</div>' +
+          '<div class="testimonial-attrib">' +
+            '<div><span class="testimonial-name">' + esc2(r.name) + '</span> · <span class="testimonial-role">' + esc2(r.role) + '</span></div>' +
+            '<div class="testimonial-stars">' + stars + '</div>' +
+          '</div></div>';
+      }).join('');
+      const sec = document.getElementById('testimonials-sec');
+      if (sec) sec.style.display = '';
+      console.log('[welcome] testimonials loaded:', reviews.length);
+    } catch (e) {
+      console.warn('[welcome] testimonials error (silent):', e.message);
+    }
+  })();
+</script>
+
 </body>
 </html>
