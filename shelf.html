@@ -296,10 +296,15 @@ async function boot(){
     const auth=getAuth(app);
     onAuthStateChanged(auth, function(u){
       window._myUid = (u && u.uid) || '';
+      // Also expose to the moderation-gate check in fetchShelf().
+      window._shelfViewerUid = window._myUid;
       console.log('[shelf] auth state:', window._myUid ? ('signed in as '+u.email) : 'signed out');
-      // Re-render if the user came in after cards were painted so their
-      // own cards gain the boost chip without a page reload.
-      if (typeof window.renderShelf === 'function' && Array.isArray(window._allFolios) && window._allFolios.length) {
+      // Re-fetch if auth resolved AFTER the first shelf load so a
+      // signed-in owner sees their own pending listing that was
+      // filtered out on the anonymous first pass.
+      if (Array.isArray(window._allFolios) && window._allFolios.length) {
+        try { fetchShelf(); } catch (_) {}
+      } else if (typeof window.renderShelf === 'function' && Array.isArray(window._allFolios) && window._allFolios.length) {
         try { window.renderShelf(window._allFolios); } catch (_) {}
       }
     });
@@ -320,10 +325,18 @@ async function fetchShelf(){
     console.log('[shelf] query built, calling getDocs…');
     const snap=await _fbGetDocs(q);
     console.log('[shelf] ✅ getDocs returned',snap.size,'docs (listOnShelf==true AND published==true)');
+    // Viewer uid for owner-only visibility of pending listings.
+    // Populated by boot() from the auth state; can be null (signed-out).
+    const _viewerUid = (window._shelfViewerUid || null);
     const out=[];
     snap.forEach(d=>{
       const data=d.data()||{};
       const r=data.release||{};
+      // Moderation gate: pending listings are hidden from the public
+      // Shelf. The owner still sees their own so they aren't confused
+      // by "where's my folio?". Moderators (folio_roles doc) don't get
+      // the private preview here — they moderate via /admin/shelf/.
+      if (r.shelfPendingModeration === true && data.uid !== _viewerUid) return;
       out.push({
         id:d.id,
         uid:String(data.uid||''),
@@ -332,6 +345,8 @@ async function fetchShelf(){
         description:String(r.description||''),
         blurb:String(r.shelfBlurb||(r.shelfUseDescription?r.description:'')||r.description||''),
         genre:String(r.shelfGenre||''),
+        hasAdultContent:!!r.hasAdultContent,
+        shelfPendingModeration:!!r.shelfPendingModeration,
         coverUrl:(typeof r.coverUrl==='string'&&/^https:\/\//i.test(r.coverUrl))?r.coverUrl:'',
         priceMode:String(r.priceMode||'free'),
         serial:!!r.serial,
@@ -421,27 +436,4 @@ boot();
     status.style.color = 'var(--hint)';
     try {
       const r = await fetch(PAYWALL_WORKER_URL + '/boost-checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ folioId: _boostTargetFolioId, tier: tier, uid: (window._myUid || '') }),
-      });
-      const data = await r.json().catch(function(){ return {}; });
-      if (!r.ok || !data.approvalUrl) {
-        status.textContent = 'Checkout failed: ' + (data.error || r.status);
-        status.style.color = 'var(--danger,#c04040)';
-        buttons.forEach(function(b){b.disabled=false;b.style.opacity='1';});
-        return;
-      }
-      status.textContent = '✅ Redirecting to PayPal…';
-      status.style.color = 'var(--accent-ui,#065f46)';
-      window.location.href = data.approvalUrl;
-    } catch (e) {
-      status.textContent = 'Network error: ' + (e.message || 'unknown');
-      status.style.color = 'var(--danger,#c04040)';
-      buttons.forEach(function(b){b.disabled=false;b.style.opacity='1';});
-    }
-  };
-</script>
-</body>
-</html>
-    
+     

@@ -1,0 +1,185 @@
+<!doctype html>
+<!-- FOLIO ADMIN CONSOLE v2026.07.07.1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Folio Admin Console</title>
+<meta name="robots" content="noindex,nofollow">
+<style>
+:root {
+  --bg:#faf7f1; --surface:#fff; --text:#1a1611; --muted:#5a5347; --hint:#8a8174;
+  --border:rgba(0,0,0,0.10); --border-mid:rgba(0,0,0,0.14);
+  --accent:#c98c2a; --accent-ui:#065f46; --danger:#c04040;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
+a{color:var(--accent-ui);text-decoration:none}
+.admin-hdr{background:var(--surface);border-bottom:.5px solid var(--border);padding:14px 20px}
+.admin-hdr-row{max-width:900px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.admin-brand{font-family:'Playfair Display',Georgia,serif;font-size:18px;font-weight:600;margin:0;color:var(--text)}
+.admin-brand .accent{color:var(--accent)}
+.admin-hdr-actions{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted)}
+.admin-hdr-actions a{color:var(--muted)}
+.wrap{max-width:900px;margin:0 auto;padding:34px 20px 60px}
+h1{font-family:'Playfair Display',Georgia,serif;font-size:32px;font-weight:600;margin:0 0 8px}
+.lead{font-size:14px;color:var(--muted);margin:0 0 30px;line-height:1.6}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:16px}
+.tile{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:22px 22px 18px;display:flex;flex-direction:column;gap:8px;text-decoration:none;color:var(--text);transition:transform .12s,box-shadow .12s,border-color .12s;cursor:pointer}
+.tile:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,.08);border-color:var(--accent);text-decoration:none}
+.tile-icon{font-size:28px;margin-bottom:6px}
+.tile-title{font-family:'Playfair Display',Georgia,serif;font-size:18px;font-weight:600;margin:0}
+.tile-sub{font-size:12.5px;color:var(--muted);line-height:1.5}
+.tile-cta{font-size:12px;color:var(--accent-ui);margin-top:6px;font-weight:500}
+.tile.coming-soon{opacity:.6;cursor:default}
+.tile.coming-soon .tile-cta{color:var(--hint);font-style:italic}
+.auth-gate{text-align:center;padding:60px 20px}
+.auth-gate h2{font-family:'Playfair Display',Georgia,serif;font-size:22px;margin:0 0 10px}
+.auth-gate p{color:var(--muted);font-size:13px;margin:0 0 20px}
+button.primary{background:var(--accent-ui);color:#fff;border:none;padding:11px 22px;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;font-family:inherit}
+button.primary:hover{filter:brightness(.94)}
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+<header class="admin-hdr">
+  <div class="admin-hdr-row">
+    <h1 class="admin-brand"><span class="accent">⚙</span> Folio Admin Console</h1>
+    <div class="admin-hdr-actions">
+      <a href="/shelf">← Shelf</a>
+      <a href="/app.html">Editor</a>
+      <span id="signedInAs"></span>
+      <button id="signOutBtn" class="hidden" onclick="doSignOut()" style="background:none;border:.5px solid var(--border-mid);padding:6px 12px;border-radius:6px;font-size:11.5px;color:var(--text);cursor:pointer;font-family:inherit">Sign out</button>
+    </div>
+  </div>
+</header>
+
+<div id="authGate" class="auth-gate">
+  <h2>Sign in required</h2>
+  <p>The console is owner-locked to admin uids.</p>
+  <button class="primary" onclick="doSignIn()">Sign in with Google</button>
+  <div id="authStatus" style="color:var(--danger);font-size:13px;margin-top:14px"></div>
+</div>
+
+<div id="adminBody" class="hidden">
+  <div class="wrap">
+    <h1>Admin console</h1>
+    <p class="lead">Everything owner-only in one place. Each surface has a "Back to console" link so you can navigate freely.</p>
+
+    <div class="tiles">
+      <a href="/admin/boost/" class="tile">
+        <span class="tile-icon">🚀</span>
+        <h3 class="tile-title">Boost fulfillment</h3>
+        <div class="tile-sub">Manually grant Featured Boosts to folios — for comps, PayPal fallbacks, or promotional pushes.</div>
+        <span class="tile-cta">Open →</span>
+      </a>
+
+      <a href="/admin/reviews/" class="tile">
+        <span class="tile-icon">💬</span>
+        <h3 class="tile-title">Review moderation</h3>
+        <div class="tile-sub">Approve reviews for public display on the welcome page. The 24h boost incentive is auto-granted; you curate what's featured.</div>
+        <span class="tile-cta">Open →</span>
+      </a>
+
+      <a href="/admin/press/" class="tile">
+        <span class="tile-icon">✨</span>
+        <h3 class="tile-title">Press subscriptions</h3>
+        <div class="tile-sub">Grant or revoke comp Press subscriptions. Useful for testing your own account, founder comps, and beta testers.</div>
+        <span class="tile-cta">Open →</span>
+      </a>
+
+      <a href="/admin/admins/" class="tile">
+        <span class="tile-icon">👤</span>
+        <h3 class="tile-title">Admins &amp; moderators</h3>
+        <div class="tile-sub">Grant or revoke admin + moderator roles by uid. Your own uid is always admin as a bootstrap safeguard.</div>
+        <span class="tile-cta">Open →</span>
+      </a>
+
+      <div class="tile coming-soon">
+        <span class="tile-icon">🛡</span>
+        <h3 class="tile-title">Shelf moderation</h3>
+        <div class="tile-sub">Approve folios before they appear on the public Shelf. Adult-content gate, image safety review, republish re-queue.</div>
+        <span class="tile-cta">Coming soon</span>
+      </div>
+
+      <div class="tile coming-soon">
+        <span class="tile-icon">📊</span>
+        <h3 class="tile-title">Platform metrics</h3>
+        <div class="tile-sub">Total subscribers, boost revenue, active folios, view counts. Aggregate dashboard.</div>
+        <span class="tile-cta">Coming soon</span>
+      </div>
+    </div>
+
+    <div style="margin-top:38px;padding:16px 20px;background:var(--surface);border:.5px solid var(--border);border-radius:10px;font-size:12.5px;color:var(--muted);line-height:1.65">
+      <strong>Signed in as:</strong> <span id="userEmail" style="font-family:ui-monospace,Menlo,monospace"></span> · uid <span id="userUid" style="font-family:ui-monospace,Menlo,monospace;font-size:11px"></span>
+    </div>
+  </div>
+</div>
+
+<script>
+  const ADMIN_UIDS_BOOTSTRAP = ['x9AgFZ7O8WVz2UVtyO4ggWKNfc73'];
+  let _fb = {};
+  let _user = null;
+
+  async function boot() {
+    try {
+      const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const authMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+      const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      _fb.initializeApp = appMod.initializeApp;
+      _fb.getAuth = authMod.getAuth;
+      _fb.GoogleAuthProvider = authMod.GoogleAuthProvider;
+      _fb.signInWithPopup = authMod.signInWithPopup;
+      _fb.signOut = authMod.signOut;
+      _fb.onAuthStateChanged = authMod.onAuthStateChanged;
+      _fb.getFirestore = fsMod.getFirestore;
+      _fb.doc = fsMod.doc;
+      _fb.getDoc = fsMod.getDoc;
+      const cfg = { apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0", authDomain: "auth.jacobsiler.com", projectId: "miscellaneous-117e9", storageBucket: "miscellaneous-117e9.firebasestorage.app", messagingSenderId: "514858431339", appId: "1:514858431339:web:8b3acbe89966b45fe3922e" };
+      const app = _fb.initializeApp(cfg);
+      _fb.auth = _fb.getAuth(app);
+      _fb.db = _fb.getFirestore(app);
+      _fb.onAuthStateChanged(_fb.auth, onAuthChange);
+    } catch (e) { document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown'); }
+  }
+  async function isAdmin(uid) {
+    if (!uid) return false;
+    if (ADMIN_UIDS_BOOTSTRAP.includes(uid)) return true;
+    try {
+      const roleDoc = await _fb.getDoc(_fb.doc(_fb.db, 'folio_roles', uid));
+      if (!roleDoc.exists()) return false;
+      const d = roleDoc.data() || {};
+      const roles = Array.isArray(d.roles) ? d.roles : [];
+      return roles.includes('admin');
+    } catch (_) { return false; }
+  }
+  async function onAuthChange(u) {
+    _user = u;
+    if (!u) {
+      document.getElementById('authGate').classList.remove('hidden');
+      document.getElementById('adminBody').classList.add('hidden');
+      document.getElementById('signOutBtn').classList.add('hidden');
+      document.getElementById('signedInAs').textContent = '';
+      return;
+    }
+    document.getElementById('signedInAs').textContent = u.email || u.uid.slice(0, 12) + '…';
+    document.getElementById('signOutBtn').classList.remove('hidden');
+    const isAdminUser = await isAdmin(u.uid);
+    if (!isAdminUser) {
+      document.getElementById('authGate').classList.remove('hidden');
+      document.getElementById('adminBody').classList.add('hidden');
+      document.getElementById('authStatus').textContent = 'Signed in as ' + (u.email || u.uid) + ' — not on admin allowlist.';
+      return;
+    }
+    document.getElementById('authGate').classList.add('hidden');
+    document.getElementById('adminBody').classList.remove('hidden');
+    document.getElementById('userEmail').textContent = u.email || '';
+    document.getElementById('userUid').textContent = u.uid;
+  }
+  window.doSignIn = async function() { try { await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider()); } catch (e) { document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown'); } };
+  window.doSignOut = async function() { try { await _fb.signOut(_fb.auth); } catch (_) {} };
+  boot();
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+name = "folio-paywall"
+main = "folio-paywall-worker.js"
+compatibility_date = "2025-01-01"
+
+# Secrets (PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_MODE,
+# PAYPAL_WEBHOOK_ID, PAYPAL_PLAN_INDIE_MONTHLY, PAYPAL_PLAN_INDIE_YEARLY,
+# PAYPAL_PLAN_IMPRINT_MONTHLY, PAYPAL_PLAN_IMPRINT_YEARLY,
+# GCP_SERVICE_ACCOUNT, PAYWALL_JWT_SECRET, ADMIN_DEBUG_TOKEN) are set via
+#     wrangler secret put NAME
+# They live on Cloudflare's side, not in this file. Never commit values.
+
+# Public env vars (currently none — everything sensitive is a secret).
+# [vars]
+# EXAMPLE_PUBLIC_VAR = "value"

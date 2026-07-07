@@ -1,0 +1,257 @@
+<!doctype html>
+<!-- FOLIO ADMIN ROLES v2026.07.07.1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Folio Admin — Roles</title>
+<meta name="robots" content="noindex,nofollow">
+<style>
+:root {
+  --bg:#faf7f1; --surface:#fff; --text:#1a1611; --muted:#5a5347; --hint:#8a8174;
+  --border:rgba(0,0,0,0.10); --border-mid:rgba(0,0,0,0.14);
+  --accent:#c98c2a; --accent-ui:#065f46; --danger:#c04040;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
+a{color:var(--accent-ui);text-decoration:none}
+.admin-hdr{background:var(--surface);border-bottom:.5px solid var(--border);padding:14px 20px;position:sticky;top:0;z-index:10}
+.admin-hdr-row{max-width:900px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.admin-brand{font-family:'Playfair Display',Georgia,serif;font-size:18px;font-weight:600;margin:0;color:var(--text)}
+.admin-brand .accent{color:var(--accent)}
+.admin-hdr-actions{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted)}
+.admin-hdr-actions a{color:var(--muted)}
+.admin-wrap{max-width:900px;margin:0 auto;padding:22px 20px 60px}
+.admin-h1{font-family:'Playfair Display',Georgia,serif;font-size:26px;font-weight:600;margin:6px 0 4px}
+.admin-lead{font-size:13px;color:var(--muted);margin:0 0 22px;line-height:1.6}
+.card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
+.card h2{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:600;margin:0 0 6px}
+.card .sub{font-size:12px;color:var(--hint);margin:0 0 14px;line-height:1.6}
+label{display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:10px 0 4px}
+input,select{width:100%;font-size:13px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit}
+input[type="text"]{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+input:focus,select:focus{border-color:var(--accent-ui)}
+button.primary{background:var(--accent-ui);color:#fff;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit}
+button.primary:hover{filter:brightness(.94)}
+button.danger{background:var(--danger);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:11.5px;cursor:pointer;font-family:inherit}
+button.danger:hover{filter:brightness(.94)}
+button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--text);padding:6px 12px;border-radius:6px;font-size:11.5px;cursor:pointer;font-family:inherit}
+.status{font-size:12px;margin-top:10px;min-height:16px}
+.status.ok{color:var(--accent-ui);font-weight:500}
+.status.err{color:var(--danger)}
+.role-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-bottom:.5px dotted var(--border-mid);font-size:12.5px}
+.role-row:last-child{border-bottom:none}
+.role-row .uid{flex:1;font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.role-row .name{font-weight:500;color:var(--text)}
+.role-row .badges{display:flex;gap:4px}
+.badge{font-size:9.5px;padding:2px 8px;border-radius:11px;font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+.badge.admin{background:rgba(6,95,70,0.15);color:var(--accent-ui)}
+.badge.moderator{background:rgba(201,140,42,0.15);color:var(--accent)}
+.badge.bootstrap{background:rgba(0,0,0,0.06);color:var(--muted)}
+.empty{padding:16px;color:var(--hint);text-align:center;font-style:italic;font-size:12px}
+.auth-gate{text-align:center;padding:60px 20px}
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+<header class="admin-hdr">
+  <div class="admin-hdr-row">
+    <h1 class="admin-brand"><span class="accent">👤</span> Folio Admin — Roles</h1>
+    <div class="admin-hdr-actions">
+      <a href="/admin/">← Console</a>
+      <span id="signedInAs"></span>
+      <button id="signOutBtn" class="hidden ghost" onclick="doSignOut()">Sign out</button>
+    </div>
+  </div>
+</header>
+
+<div id="authGate" class="auth-gate hidden">
+  <h2 style="font-family:'Playfair Display',Georgia,serif;font-size:22px;margin:0 0 10px">Sign in required</h2>
+  <p style="color:var(--muted);font-size:13px;margin:0 0 20px">Only admins can manage roles.</p>
+  <button class="primary" onclick="doSignIn()">Sign in with Google</button>
+  <div id="authStatus" class="status err"></div>
+</div>
+
+<div id="adminBody" class="hidden">
+  <div class="admin-wrap">
+    <h1 class="admin-h1">Role management</h1>
+    <p class="admin-lead">Grant or revoke <strong>admin</strong> and <strong>moderator</strong> roles by uid. Admins get full console access; moderators get shelf-content moderation only. Your uid is always admin as a bootstrap safeguard — even if this list is empty, you can never lock yourself out.</p>
+
+    <div class="card">
+      <h2>Grant role</h2>
+      <div class="sub">Paste a uid from Firebase Auth (or ask the person for theirs — visible in the editor sidebar footer's "signed in as").</div>
+      <label for="grantUid">Target user UID</label>
+      <input type="text" id="grantUid" placeholder="e.g., abc123def456ghi789..." autocomplete="off">
+      <label for="grantDisplayName">Display name (optional — helps identify them in the list)</label>
+      <input type="text" id="grantDisplayName" placeholder="e.g., 'Alex M. (co-editor)'" autocomplete="off" style="font-family:inherit">
+      <label for="grantRole">Role</label>
+      <select id="grantRole">
+        <option value="moderator">Moderator (shelf content approval)</option>
+        <option value="admin">Admin (full console access)</option>
+      </select>
+      <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+        <button class="primary" onclick="grantRole()">👤 Grant role</button>
+      </div>
+      <div id="grantStatus" class="status"></div>
+    </div>
+
+    <div class="card">
+      <h2>Current roles</h2>
+      <div class="sub">People with any admin or moderator role. Your bootstrap uids always appear at the top with a "bootstrap" badge — those can't be revoked from here.</div>
+      <div style="display:flex;gap:8px;margin-bottom:6px">
+        <button class="ghost" onclick="loadRoles()">↻ Refresh</button>
+        <span class="status" id="loadStatus"></span>
+      </div>
+      <div id="roleList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const ADMIN_UIDS_BOOTSTRAP = ['x9AgFZ7O8WVz2UVtyO4ggWKNfc73'];
+  let _fb = {};
+  let _user = null;
+  let _roles = [];
+
+  async function boot() {
+    try {
+      const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const authMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+      const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      _fb.initializeApp = appMod.initializeApp;
+      _fb.getAuth = authMod.getAuth;
+      _fb.GoogleAuthProvider = authMod.GoogleAuthProvider;
+      _fb.signInWithPopup = authMod.signInWithPopup;
+      _fb.signOut = authMod.signOut;
+      _fb.onAuthStateChanged = authMod.onAuthStateChanged;
+      _fb.getFirestore = fsMod.getFirestore;
+      _fb.doc = fsMod.doc;
+      _fb.getDoc = fsMod.getDoc;
+      _fb.setDoc = fsMod.setDoc;
+      _fb.deleteDoc = fsMod.deleteDoc;
+      _fb.collection = fsMod.collection;
+      _fb.getDocs = fsMod.getDocs;
+      const cfg = { apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0", authDomain: "auth.jacobsiler.com", projectId: "miscellaneous-117e9", storageBucket: "miscellaneous-117e9.firebasestorage.app", messagingSenderId: "514858431339", appId: "1:514858431339:web:8b3acbe89966b45fe3922e" };
+      const app = _fb.initializeApp(cfg);
+      _fb.auth = _fb.getAuth(app);
+      _fb.db = _fb.getFirestore(app);
+      _fb.onAuthStateChanged(_fb.auth, onAuthChange);
+    } catch (e) { document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown'); }
+  }
+  async function isAdmin(uid) {
+    if (!uid) return false;
+    if (ADMIN_UIDS_BOOTSTRAP.includes(uid)) return true;
+    try {
+      const roleDoc = await _fb.getDoc(_fb.doc(_fb.db, 'folio_roles', uid));
+      if (!roleDoc.exists()) return false;
+      const d = roleDoc.data() || {};
+      return Array.isArray(d.roles) && d.roles.includes('admin');
+    } catch (_) { return false; }
+  }
+  async function onAuthChange(u) {
+    _user = u;
+    const gate = document.getElementById('authGate');
+    const body = document.getElementById('adminBody');
+    if (!u) { gate.classList.remove('hidden'); body.classList.add('hidden'); document.getElementById('signOutBtn').classList.add('hidden'); document.getElementById('signedInAs').textContent = ''; return; }
+    document.getElementById('signedInAs').textContent = u.email || u.uid.slice(0, 12) + '…';
+    document.getElementById('signOutBtn').classList.remove('hidden');
+    if (!(await isAdmin(u.uid))) {
+      gate.classList.remove('hidden'); body.classList.add('hidden');
+      document.getElementById('authStatus').textContent = 'Signed in as ' + (u.email || u.uid) + ' — not admin.';
+      return;
+    }
+    gate.classList.add('hidden'); body.classList.remove('hidden');
+    loadRoles();
+  }
+  window.doSignIn = async function() { try { await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider()); } catch (e) { document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown'); } };
+  window.doSignOut = async function() { try { await _fb.signOut(_fb.auth); } catch (_) {} };
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+  function setStatus(id, msg, kind) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = 'status' + (kind === 'ok' ? ' ok' : kind === 'err' ? ' err' : '');
+  }
+
+  window.loadRoles = async function() {
+    setStatus('loadStatus', 'Loading…');
+    try {
+      const snap = await _fb.getDocs(_fb.collection(_fb.db, 'folio_roles'));
+      _roles = [];
+      snap.forEach(function(d){
+        const data = d.data() || {};
+        _roles.push({
+          uid: d.id,
+          displayName: String(data.displayName || ''),
+          roles: Array.isArray(data.roles) ? data.roles : [],
+          grantedBy: String(data.grantedBy || ''),
+          grantedAt: String(data.grantedAt || ''),
+        });
+      });
+      setStatus('loadStatus', _roles.length + ' role docs');
+      renderRoles();
+    } catch (e) {
+      setStatus('loadStatus', 'Load failed: ' + (e.message || 'unknown'), 'err');
+    }
+  };
+
+  function renderRoles() {
+    const list = document.getElementById('roleList');
+    const bootstrap = ADMIN_UIDS_BOOTSTRAP.map(function(uid){
+      return { uid: uid, displayName: 'Bootstrap admin (from source)', roles: ['admin'], bootstrap: true };
+    });
+    const all = bootstrap.concat(_roles.filter(function(r){ return !ADMIN_UIDS_BOOTSTRAP.includes(r.uid); }));
+    if (!all.length) { list.innerHTML = '<div class="empty">No role docs yet — grant one above.</div>'; return; }
+    list.innerHTML = all.map(function(r){
+      const badges = (r.roles || []).map(function(role){ return '<span class="badge ' + role + '">' + role + '</span>'; }).join('');
+      const bootBadge = r.bootstrap ? '<span class="badge bootstrap">bootstrap</span>' : '';
+      const revokeBtn = r.bootstrap ? '<button class="ghost" disabled title="Bootstrap admins can\\'t be revoked from here — edit ADMIN_UIDS_BOOTSTRAP in source.">Locked</button>' : '<button class="danger" onclick="revokeRole(\\'' + r.uid + '\\')">Revoke</button>';
+      return '<div class="role-row">' +
+        '<div style="flex:1">' +
+          '<div class="name">' + esc(r.displayName || '(no display name)') + '</div>' +
+          '<div class="uid">' + esc(r.uid) + '</div>' +
+        '</div>' +
+        '<div class="badges">' + bootBadge + badges + '</div>' +
+        revokeBtn +
+      '</div>';
+    }).join('');
+  }
+
+  window.grantRole = async function() {
+    const uid = (document.getElementById('grantUid').value || '').trim();
+    const displayName = (document.getElementById('grantDisplayName').value || '').trim().slice(0, 80);
+    const role = document.getElementById('grantRole').value;
+    if (!uid) { setStatus('grantStatus', 'Paste the target uid first.', 'err'); return; }
+    if (!confirm('Grant "' + role + '" to ' + uid.slice(0, 12) + '…?')) return;
+    setStatus('grantStatus', 'Granting…');
+    try {
+      const ref = _fb.doc(_fb.db, 'folio_roles', uid);
+      const existing = await _fb.getDoc(ref);
+      const currentRoles = existing.exists() ? (existing.data().roles || []) : [];
+      if (!currentRoles.includes(role)) currentRoles.push(role);
+      await _fb.setDoc(ref, {
+        roles: currentRoles,
+        displayName: displayName || (existing.exists() ? existing.data().displayName : ''),
+        grantedBy: _user ? _user.uid : '',
+        grantedAt: new Date().toISOString(),
+      }, { merge: true });
+      setStatus('grantStatus', '✅ ' + role + ' granted.', 'ok');
+      document.getElementById('grantUid').value = '';
+      document.getElementById('grantDisplayName').value = '';
+      loadRoles();
+    } catch (e) { setStatus('grantStatus', 'Grant failed: ' + (e.message || 'unknown'), 'err'); }
+  };
+
+  window.revokeRole = async function(uid) {
+    if (!confirm('Revoke ALL roles from ' + uid.slice(0, 12) + '…? They lose access immediately.')) return;
+    try {
+      await _fb.deleteDoc(_fb.doc(_fb.db, 'folio_roles', uid));
+      loadRoles();
+    } catch (e) { alert('Revoke failed: ' + (e.message || 'unknown')); }
+  };
+
+  boot();
+</script>
+</body>
+</html>
