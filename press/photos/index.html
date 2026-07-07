@@ -306,6 +306,221 @@ a:hover{text-decoration:underline}
     });
   }
 
+  // ─── 3D BOOK RENDER ─────────────────────────────────────────────────
+  // Reusable across all three templates. Draws a photorealistic book:
+  //   • soft elliptical ground shadow (grounded, not floating)
+  //   • spine parallelogram on the LEFT with the imprint / cover accent
+  //     colour and the book title running vertically
+  //   • top page-edge parallelogram (cream slivers hint at pages)
+  //   • the front cover as the main visible face
+  //   • subtle inset gradient near the spine for depth
+  //   • fore-edge shadow at the right for extra realism
+  // Callers pass the cover center point + width; height = w * 1.5.
+
+  // Sample the loaded cover image at a few points and average to a
+  // dominant colour we can darken for the spine. Keeps the book
+  // visually cohesive with its own art without needing a design pass.
+  function _sampleCoverColor(img, w, h) {
+    try {
+      const s = document.createElement('canvas');
+      s.width = 32; s.height = 48;
+      const sctx = s.getContext('2d');
+      sctx.drawImage(img, 0, 0, 32, 48);
+      const pts = [[4,4],[28,4],[16,24],[4,44],[28,44]];
+      let r=0,g=0,b=0,n=0;
+      for (const [x,y] of pts) {
+        const d = sctx.getImageData(x,y,1,1).data;
+        r += d[0]; g += d[1]; b += d[2]; n++;
+      }
+      return { r: Math.round(r/n), g: Math.round(g/n), b: Math.round(b/n) };
+    } catch (e) {
+      return { r: 58, g: 42, b: 28 };  // default rich brown
+    }
+  }
+  function _darken(rgb, amt) {
+    return 'rgb(' +
+      Math.max(0, Math.round(rgb.r * (1 - amt))) + ',' +
+      Math.max(0, Math.round(rgb.g * (1 - amt))) + ',' +
+      Math.max(0, Math.round(rgb.b * (1 - amt))) + ')';
+  }
+  function _rgb(rgb) { return 'rgb(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ')'; }
+
+  // Truncate spine text to fit the available vertical run.
+  function _fitSpineText(ctx, text, maxWidth) {
+    let t = String(text || '').trim();
+    if (!t) return '';
+    if (ctx.measureText(t).width <= maxWidth) return t;
+    while (t.length > 3 && ctx.measureText(t + '…').width > maxWidth) t = t.slice(0, -1);
+    return t + '…';
+  }
+
+  async function drawBook3D(ctx, folio, cx, cy, coverW, opts) {
+    opts = opts || {};
+    const w = coverW;
+    const h = Math.round(w * 1.5);        // standard book aspect
+    const x = Math.round(cx - w / 2);
+    const y = Math.round(cy - h / 2);
+    const s = Math.max(8, Math.round(w * 0.085));  // spine depth
+    const dx = s;                          // horizontal offset of the "far" edge
+    const dy = Math.max(4, Math.round(s * 0.55));  // vertical offset
+
+    // Load cover (or fall back to a solid tile). Tainted-canvas errors
+    // bubble to the caller via loadImage's rejection.
+    let img = null;
+    let accent = { r: 58, g: 42, b: 28 };
+    if (folio.coverUrl) {
+      try {
+        img = await loadImage(folio.coverUrl);
+        accent = _sampleCoverColor(img);
+      } catch (_) { img = null; }
+    }
+    const spineDark = _darken(accent, 0.55);
+    const spineMid  = _darken(accent, 0.35);
+    const spineLite = _darken(accent, 0.15);
+
+    // ── Ground shadow (soft ellipse) ─────────────────────────────
+    ctx.save();
+    const shadowCy = y + h + Math.round(h * 0.02);
+    const shadowRx = w * 0.62;
+    const shadowRy = Math.max(6, Math.round(w * 0.06));
+    const shGrad = ctx.createRadialGradient(x + w/2, shadowCy, 0, x + w/2, shadowCy, shadowRx);
+    shGrad.addColorStop(0, 'rgba(0,0,0,0.55)');
+    shGrad.addColorStop(0.55, 'rgba(0,0,0,0.22)');
+    shGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = shGrad;
+    ctx.beginPath();
+    ctx.ellipse(x + w/2, shadowCy, shadowRx, shadowRy, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // ── Spine (left face parallelogram) ──────────────────────────
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, y);                     // near top of spine
+    ctx.lineTo(x - dx, y - dy);           // far top of spine
+    ctx.lineTo(x - dx, y + h - dy);       // far bottom of spine
+    ctx.lineTo(x, y + h);                 // near bottom of spine
+    ctx.closePath();
+    const spineGrad = ctx.createLinearGradient(x - dx, 0, x, 0);
+    spineGrad.addColorStop(0, spineDark);
+    spineGrad.addColorStop(0.6, spineMid);
+    spineGrad.addColorStop(1, spineLite);
+    ctx.fillStyle = spineGrad;
+    ctx.fill();
+    // Subtle inner rim highlight along the spine's inner edge
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x - 0.5, y);
+    ctx.lineTo(x - 0.5, y + h);
+    ctx.stroke();
+    ctx.restore();
+
+    // ── Spine title text (rotated 90° CCW, runs bottom→top) ──────
+    if (folio.title && s >= 14) {
+      ctx.save();
+      // Anchor: middle of the spine face
+      const spineCx = x - dx / 2;
+      const spineCy = y + h / 2 - dy / 2;
+      ctx.translate(spineCx, spineCy);
+      // Match the parallelogram's shear (the spine face is skewed by
+      // (dy / h) horizontally, so text should follow that same line).
+      ctx.transform(1, 0, dy / h, 1, 0, 0);
+      ctx.rotate(-Math.PI / 2);
+      const spineFontPx = Math.max(9, Math.round(s * 0.52));
+      ctx.font = '600 ' + spineFontPx + 'px "Playfair Display", Georgia, serif';
+      ctx.fillStyle = 'rgba(244,230,192,0.92)';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const fitted = _fitSpineText(ctx, folio.title, h - dy * 2 - 20);
+      ctx.fillText(fitted, 0, 0);
+      ctx.restore();
+    }
+
+    // ── Top page edge parallelogram ──────────────────────────────
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(x, y);                     // near-left
+    ctx.lineTo(x + w, y);                 // near-right
+    ctx.lineTo(x + w - dx, y - dy);       // far-right
+    ctx.lineTo(x - dx, y - dy);           // far-left
+    ctx.closePath();
+    const pageGrad = ctx.createLinearGradient(0, y - dy, 0, y);
+    pageGrad.addColorStop(0, '#f6ecd1');
+    pageGrad.addColorStop(0.6, '#e6d3a1');
+    pageGrad.addColorStop(1, '#b39e6a');
+    ctx.fillStyle = pageGrad;
+    ctx.fill();
+    // Fine page lines
+    ctx.strokeStyle = 'rgba(100,72,32,0.14)';
+    ctx.lineWidth = 0.6;
+    for (let i = 1; i < 5; i++) {
+      const t = i / 5;
+      const offY = y - dy + dy * t;
+      const offXL = x - dx + dx * t;
+      const offXR = x + w - dx + dx * t;
+      ctx.beginPath();
+      ctx.moveTo(offXL, offY);
+      ctx.lineTo(offXR, offY);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // ── Front cover (the main face) ──────────────────────────────
+    ctx.save();
+    if (img) {
+      try {
+        ctx.drawImage(img, x, y, w, h);
+      } catch (e) {
+        ctx.fillStyle = _rgb(accent);
+        ctx.fillRect(x, y, w, h);
+        ctx.fillStyle = '#e8c374';
+        ctx.font = '600 ' + Math.round(w * 0.08) + 'px "Playfair Display", Georgia, serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(folio.title || 'Folio', x + w/2, y + h/2);
+      }
+    } else {
+      ctx.fillStyle = _rgb(accent);
+      ctx.fillRect(x, y, w, h);
+      ctx.fillStyle = '#e8c374';
+      ctx.font = '600 ' + Math.round(w * 0.08) + 'px "Playfair Display", Georgia, serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(folio.title || 'Folio', x + w/2, y + h/2);
+    }
+    ctx.restore();
+
+    // ── Inset shadow near the spine (cover-hinge dark line) ──────
+    ctx.save();
+    const hinge = ctx.createLinearGradient(x, 0, x + Math.round(w * 0.05), 0);
+    hinge.addColorStop(0, 'rgba(0,0,0,0.28)');
+    hinge.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = hinge;
+    ctx.fillRect(x, y, Math.round(w * 0.05), h);
+    ctx.restore();
+
+    // ── Fore-edge shadow (right side, subtle) ────────────────────
+    ctx.save();
+    const fore = ctx.createLinearGradient(x + w - Math.round(w * 0.04), 0, x + w, 0);
+    fore.addColorStop(0, 'rgba(0,0,0,0)');
+    fore.addColorStop(1, 'rgba(0,0,0,0.14)');
+    ctx.fillStyle = fore;
+    ctx.fillRect(x + w - Math.round(w * 0.04), y, Math.round(w * 0.04), h);
+    ctx.restore();
+
+    // ── Thin border to define the cover edge ─────────────────────
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    ctx.restore();
+
+    return { x: x, y: y, w: w, h: h };
+  }
+
+  // Back-compat wrapper for anything still calling the flat helper.
+  // Kept so re-renders during template dev don't crash if I miss a call site.
   function drawBookShadow(ctx, x, y, w, h) {
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0.35)';
@@ -317,103 +532,97 @@ a:hover{text-decoration:underline}
     ctx.restore();
   }
 
-  // Instagram Square — warm wooden background with book cover centered + subtle vignette
+  // Instagram Square — book resting on a warm wooden desk with a
+  // subtle vignette. Uses drawBook3D so the cover sits like a real
+  // object instead of a floating rectangle.
   async function renderIgSquare(folio, ctx, W, H) {
-    // Warm gradient background — wooden desk
+    // Warm wood-grain gradient background
     const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, '#6b4222');
-    bg.addColorStop(0.5, '#8b5a2b');
-    bg.addColorStop(1, '#4a2810');
+    bg.addColorStop(0, '#5a3418');
+    bg.addColorStop(0.5, '#7b4a24');
+    bg.addColorStop(1, '#3d2110');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
-    // Wood grain lines
-    ctx.strokeStyle = 'rgba(0,0,0,0.10)';
+    // Wood grain planks — subtle horizontal lines with mild variation
+    ctx.strokeStyle = 'rgba(0,0,0,0.14)';
     ctx.lineWidth = 1.5;
-    for (let i = 0; i < 12; i++) {
-      const y = (H / 12) * i + Math.sin(i * 1.7) * 8;
+    for (let i = 0; i < 18; i++) {
+      const y = (H / 18) * i + Math.sin(i * 1.7) * 5;
       ctx.beginPath();
       ctx.moveTo(0, y);
-      ctx.bezierCurveTo(W/3, y - 6, W*2/3, y + 8, W, y - 4);
+      ctx.bezierCurveTo(W/3, y - 3, W*2/3, y + 5, W, y - 2);
       ctx.stroke();
     }
+    // Warm inner glow from the upper-left (natural light source)
+    const glow = ctx.createRadialGradient(W * 0.35, H * 0.28, 20, W * 0.35, H * 0.28, W * 0.7);
+    glow.addColorStop(0, 'rgba(255,215,155,0.16)');
+    glow.addColorStop(1, 'rgba(255,215,155,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
     // Vignette
-    const vig = ctx.createRadialGradient(W/2, H/2, W*0.3, W/2, H/2, W*0.7);
+    const vig = ctx.createRadialGradient(W/2, H/2, W*0.32, W/2, H/2, W*0.72);
     vig.addColorStop(0, 'rgba(0,0,0,0)');
-    vig.addColorStop(1, 'rgba(0,0,0,0.5)');
+    vig.addColorStop(1, 'rgba(0,0,0,0.55)');
     ctx.fillStyle = vig;
     ctx.fillRect(0, 0, W, H);
-    // Book cover — centered, slight tilt, drop shadow
+    // Book — centered, slightly above middle so the ground shadow
+    // + bottom text have room to breathe.
     const bookW = W * 0.42;
-    const bookH = bookW * 1.5;
-    const bookX = (W - bookW) / 2;
-    const bookY = (H - bookH) / 2 - 20;
-    ctx.save();
-    ctx.translate(bookX + bookW/2, bookY + bookH/2);
-    ctx.rotate(-2 * Math.PI / 180);
-    ctx.translate(-bookW/2, -bookH/2);
-    drawBookShadow(ctx, 0, 0, bookW, bookH);
-    if (folio.coverUrl) {
-      try {
-        const img = await loadImage(folio.coverUrl);
-        ctx.drawImage(img, 0, 0, bookW, bookH);
-      } catch (e) {
-        ctx.fillStyle = '#3a2a1c';
-        ctx.fillRect(0, 0, bookW, bookH);
-        ctx.fillStyle = '#e8c374';
-        ctx.font = '600 40px "Playfair Display", Georgia, serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(folio.title, bookW/2, bookH/2);
-      }
-    }
-    ctx.restore();
+    const cx = W / 2;
+    const cy = H / 2 - H * 0.04;
+    await drawBook3D(ctx, folio, cx, cy, bookW);
     // Text overlay at bottom
     ctx.fillStyle = 'rgba(250,247,241,0.95)';
-    ctx.font = '500 22px -apple-system, "Segoe UI", system-ui, sans-serif';
+    ctx.font = '500 24px -apple-system, "Segoe UI", system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText('Read at onfolio.press', W/2, H - 70);
-    ctx.font = 'italic 14px "Playfair Display", Georgia, serif';
-    ctx.fillStyle = 'rgba(250,247,241,0.7)';
-    ctx.fillText('by ' + folio.author, W/2, H - 42);
+    ctx.fillText('Read at onfolio.press', W/2, H - 78);
+    ctx.font = 'italic 16px "Playfair Display", Georgia, serif';
+    ctx.fillStyle = 'rgba(250,247,241,0.72)';
+    ctx.fillText('by ' + folio.author, W/2, H - 46);
   }
 
-  // Twitter Banner — cover on left, title/author on right, cream background
+  // Twitter / X banner — 3D book on the left with a subtle paper-
+  // texture cream background. Text stack on the right.
   async function renderTwBanner(folio, ctx, W, H) {
-    // Cream background
+    // Cream gradient with a subtle paper feel
     const bg = ctx.createLinearGradient(0, 0, W, 0);
-    bg.addColorStop(0, '#faf7f1');
-    bg.addColorStop(1, '#efe6d0');
+    bg.addColorStop(0, '#f3ead2');
+    bg.addColorStop(0.55, '#f8f1de');
+    bg.addColorStop(1, '#e6dbb8');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
-    // Subtle amber left panel
-    ctx.fillStyle = 'rgba(201,140,42,0.06)';
-    ctx.fillRect(0, 0, W * 0.42, H);
-    // Book cover on the left
-    const bookH = H * 0.72;
-    const bookW = bookH * (2/3);
-    const bookX = 80;
-    const bookY = (H - bookH) / 2;
-    drawBookShadow(ctx, bookX, bookY, bookW, bookH);
-    if (folio.coverUrl) {
-      try {
-        const img = await loadImage(folio.coverUrl);
-        ctx.drawImage(img, bookX, bookY, bookW, bookH);
-      } catch (e) {
-        ctx.fillStyle = '#3a2a1c';
-        ctx.fillRect(bookX, bookY, bookW, bookH);
-      }
+    // Paper noise — sparse tiny specks for texture
+    ctx.fillStyle = 'rgba(120,90,40,0.045)';
+    for (let i = 0; i < 220; i++) {
+      const rx = Math.random() * W;
+      const ry = Math.random() * H;
+      const rr = Math.random() * 1.4;
+      ctx.beginPath();
+      ctx.arc(rx, ry, rr, 0, Math.PI * 2);
+      ctx.fill();
     }
+    // Warm accent stripe on the far left
+    const stripe = ctx.createLinearGradient(0, 0, W * 0.5, 0);
+    stripe.addColorStop(0, 'rgba(201,140,42,0.10)');
+    stripe.addColorStop(1, 'rgba(201,140,42,0)');
+    ctx.fillStyle = stripe;
+    ctx.fillRect(0, 0, W * 0.5, H);
+    // 3D book on the left. Center placement + fixed width.
+    const bookW = H * 0.48;
+    const cx = 80 + bookW / 2;
+    const cy = H / 2;
+    await drawBook3D(ctx, folio, cx, cy, bookW);
     // Text on the right
-    const textX = bookX + bookW + 50;
+    const textX = 80 + bookW + 80;
     let textY = H * 0.28;
     ctx.fillStyle = '#1a1611';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    ctx.font = '600 44px "Playfair Display", Georgia, serif';
+    ctx.font = '600 48px "Playfair Display", Georgia, serif';
     // Wrap title if too long
     const maxTextW = W - textX - 60;
-    const words = folio.title.split(' ');
+    const words = (folio.title || '').split(' ');
     const lines = [];
     let line = '';
     words.forEach(function(w){
@@ -422,51 +631,55 @@ a:hover{text-decoration:underline}
       else line = trial;
     });
     if (line) lines.push(line);
-    lines.slice(0, 2).forEach(function(l){ ctx.fillText(l, textX, textY); textY += 52; });
+    lines.slice(0, 2).forEach(function(l){ ctx.fillText(l, textX, textY); textY += 56; });
     // Author
     ctx.fillStyle = '#5a5347';
-    ctx.font = 'italic 24px "Playfair Display", Georgia, serif';
-    ctx.fillText('by ' + folio.author, textX, textY + 4);
+    ctx.font = 'italic 26px "Playfair Display", Georgia, serif';
+    ctx.fillText('by ' + folio.author, textX, textY + 6);
     // Bottom accent + tag
-    textY = H - 66;
+    textY = H - 72;
     ctx.fillStyle = '#c98c2a';
-    ctx.fillRect(textX, textY, 40, 3);
+    ctx.fillRect(textX, textY, 44, 3);
     ctx.fillStyle = '#5a5347';
-    ctx.font = '500 18px -apple-system, "Segoe UI", system-ui, sans-serif';
-    ctx.fillText('Read at onfolio.press', textX, textY + 16);
+    ctx.font = '500 19px -apple-system, "Segoe UI", system-ui, sans-serif';
+    ctx.fillText('Read at onfolio.press', textX, textY + 18);
   }
 
-  // Pinterest Vertical — sunset gradient with cover top, title + CTA bottom
+  // Pinterest Vertical — big 3D book at top on a sunset gradient, dark
+  // title/CTA panel at bottom. Aggressive scroll-stopper by design.
   async function renderPinVertical(folio, ctx, W, H) {
     // Warm sunset gradient
     const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, '#8b3a1e');
-    bg.addColorStop(0.4, '#c96522');
-    bg.addColorStop(0.75, '#e0a34d');
-    bg.addColorStop(1, '#f4dfaf');
+    bg.addColorStop(0, '#7a2f16');
+    bg.addColorStop(0.35, '#c26120');
+    bg.addColorStop(0.72, '#dea044');
+    bg.addColorStop(1, '#efd7a0');
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
-    // Soft radial glow
-    const glow = ctx.createRadialGradient(W/2, H*0.35, 20, W/2, H*0.35, W*0.7);
-    glow.addColorStop(0, 'rgba(255,220,150,0.35)');
-    glow.addColorStop(1, 'rgba(255,220,150,0)');
+    // Radiant sun glow behind the book
+    const glow = ctx.createRadialGradient(W/2, H*0.34, 20, W/2, H*0.34, W*0.75);
+    glow.addColorStop(0, 'rgba(255,225,155,0.42)');
+    glow.addColorStop(0.6, 'rgba(255,225,155,0.08)');
+    glow.addColorStop(1, 'rgba(255,225,155,0)');
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, W, H);
-    // Book cover — large, upper half
-    const bookH = H * 0.44;
-    const bookW = bookH * (2/3);
-    const bookX = (W - bookW) / 2;
-    const bookY = H * 0.09;
-    drawBookShadow(ctx, bookX, bookY, bookW, bookH);
-    if (folio.coverUrl) {
-      try {
-        const img = await loadImage(folio.coverUrl);
-        ctx.drawImage(img, bookX, bookY, bookW, bookH);
-      } catch (e) {
-        ctx.fillStyle = '#3a2a1c';
-        ctx.fillRect(bookX, bookY, bookW, bookH);
-      }
+    // Subtle diagonal light rays for a warmer scene
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 6; i++) {
+      const angle = (Math.PI / 8) + (i * 0.03);
+      const rayGrad = ctx.createLinearGradient(W/2, H*0.34, W/2 + Math.cos(angle) * W, H*0.34 + Math.sin(angle) * W);
+      rayGrad.addColorStop(0, 'rgba(255,235,170,0.05)');
+      rayGrad.addColorStop(1, 'rgba(255,235,170,0)');
+      ctx.fillStyle = rayGrad;
+      ctx.fillRect(0, 0, W, H * 0.62);
     }
+    ctx.restore();
+    // 3D book — large, centered in the upper 55% of the canvas
+    const bookW = W * 0.45;
+    const cx = W / 2;
+    const cy = H * 0.32;
+    await drawBook3D(ctx, folio, cx, cy, bookW);
     // Title text — bottom section, dark background for contrast
     ctx.fillStyle = 'rgba(30,15,8,0.85)';
     ctx.fillRect(0, H * 0.62, W, H * 0.38);
