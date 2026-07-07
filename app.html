@@ -19375,6 +19375,11 @@
           const _seriesOrderEl = document.getElementById('rlSeriesOrder');
           if (_seriesNameEl)  _seriesNameEl.value  = _rlCurrent.series || '';
           if (_seriesOrderEl) _seriesOrderEl.value = (_rlCurrent.seriesOrder != null) ? String(_rlCurrent.seriesOrder) : '';
+          // Adult content self-declaration (Phase 3 shelf moderation).
+          // Author-set flag; moderators can override on review. Default
+          // false — most releases are age-neutral literary fiction.
+          const _adultEl = document.getElementById('rlHasAdultContent');
+          if (_adultEl) _adultEl.checked = !!_rlCurrent.hasAdultContent;
 
           if (typeof _rlToggleShelfFields === 'function')  _rlToggleShelfFields();
           if (typeof _rlToggleShelfDescField === 'function') _rlToggleShelfDescField();
@@ -19658,6 +19663,22 @@
         listOnShelf: !!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked),
         shelfGenre: ((document.getElementById('rlShelfGenre') && document.getElementById('rlShelfGenre').value) || '').trim().slice(0, 40) || null,
         shelfBlurb: ((document.getElementById('rlShelfBlurb') && document.getElementById('rlShelfBlurb').value) || '').trim().slice(0, 280) || null,
+        // Content rating self-declaration + moderation queue flag.
+        //   hasAdultContent — author says "18+ content" (mature themes,
+        //   strong sexuality, graphic violence in literary context).
+        //   Shelf UI shows a 🔞 badge and hides these from signed-out
+        //   preview surfaces. Moderator can override on review.
+        //
+        //   shelfPendingModeration — every new / edited listing enters
+        //   this queue. Moderators approve or reject via /admin/shelf/
+        //   (built in the next session). Preserves the "you can still
+        //   see your own pending listing" UX by pairing with an owner
+        //   check on the Shelf render side. On a fresh publish OR a
+        //   re-publish that touches shelf-visible fields, we flip it
+        //   back to true so re-edits re-enter moderation ("republish
+        //   air-gap" from the summary).
+        hasAdultContent: !!(document.getElementById('rlHasAdultContent') && document.getElementById('rlHasAdultContent').checked),
+        shelfPendingModeration: !!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked),
         // Series / collection linking (Phase 3 task #53). Both nullable —
         // empty means standalone folio. Number is clamped 0-999 for sanity.
         series: ((document.getElementById('rlSeriesName') && document.getElementById('rlSeriesName').value) || '').trim().slice(0, 80) || null,
@@ -28667,6 +28688,36 @@
             Customising the card visuals (colours, fonts, background) is a <strong>Folio Press</strong> Pro feature — coming soon.
           </div>
         </div>
+      </div>
+
+      <!-- ═══ CONTENT RATING & MODERATION ═════════════════════════════════
+           Author self-declares adult-oriented content (mature themes,
+           strong language, explicit-but-tasteful sexuality, graphic
+           violence in a legitimate literary context). Ticking this box
+           does NOT authorize prohibited content — Folio bans porn, real
+           gore, and filth outright. It's a signal that the release
+           should be shown behind a "18+ / not for younger readers"
+           badge on the Shelf and gated from unauthenticated preview
+           surfaces. All new / edited releases queue for moderator
+           approval before appearing on the Shelf. -->
+      <div id="rlContentRatingSection" style="margin:14px 0 10px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
+        <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--text);margin:0;cursor:pointer">
+          <input type="checkbox" id="rlHasAdultContent" style="margin:2px 0 0">
+          <span>
+            🔞 <strong>This release contains adult content</strong>
+            <div style="font-size:10.5px;color:var(--hint);font-weight:400;line-height:1.5;margin-top:4px">
+              Tick if your book has mature themes, strong language, on-page sexuality, or graphic violence
+              in a literary context. Adult-flagged folios appear on the Shelf with a 🔞 badge and are hidden
+              from previews shown to signed-out visitors.
+            </div>
+            <div style="font-size:10.5px;color:var(--hint);font-weight:400;line-height:1.5;margin-top:6px;padding:6px 8px;background:var(--surface);border-radius:5px;border:.5px dotted var(--border-mid)">
+              <strong style="color:var(--danger, #c04040)">Not allowed on Folio, period:</strong> pornographic content,
+              real-world gore, and content that exists purely to shock or degrade. Attempting to publish this will
+              get the release taken down and your account restricted. See our
+              <a href="/policy/" target="_blank" style="color:var(--accent-ui)">content policy</a>.
+            </div>
+          </span>
+        </label>
       </div>
 
       <!-- ═══ SERIES / COLLECTIONS ═══════════════════════════════════════

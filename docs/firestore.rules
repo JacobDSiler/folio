@@ -43,14 +43,31 @@ service cloud.firestore {
     function isUser(uid) {
       return request.auth != null && uid != null && request.auth.uid == uid;
     }
-    // Admin check — Folio platform operators who can fulfil boost
-    // orders (write release.featuredUntil on other authors' folios).
-    // Hardcoded uid allowlist — small, auditable, exactly the people
-    // who can run /admin/boost. To add/remove: edit this list and redeploy.
+    // Admin check — Folio platform operators. Two-layer allowlist:
+    //   (1) Bootstrap uids hardcoded in source (safety net if role docs
+    //       are ever deleted, and lets a fresh install still have an
+    //       admin without pre-seeding data).
+    //   (2) Dynamic uids in /folio_roles/{uid}.roles array = ['admin']
+    //       — grantable via /admin/admins/ page.
     function isAdmin() {
-      return request.auth != null && request.auth.uid in [
-        'x9AgFZ7O8WVz2UVtyO4ggWKNfc73'  // Jacob (folio@jacobsiler.com)
-      ];
+      return request.auth != null && (
+        request.auth.uid in [
+          'x9AgFZ7O8WVz2UVtyO4ggWKNfc73'  // Jacob — bootstrap admin
+        ]
+        || (
+          exists(/databases/$(database)/documents/folio_roles/$(request.auth.uid))
+          && 'admin' in get(/databases/$(database)/documents/folio_roles/$(request.auth.uid)).data.roles
+        )
+      );
+    }
+    // Moderator check — narrower role for shelf content approval only.
+    // Admin is a superset (admins are always moderators).
+    function isModerator() {
+      return isAdmin() || (
+        request.auth != null
+        && exists(/databases/$(database)/documents/folio_roles/$(request.auth.uid))
+        && 'moderator' in get(/databases/$(database)/documents/folio_roles/$(request.auth.uid)).data.roles
+      );
     }
     // The parent folio_projects doc for a subcollection rule.
     function parentDoc(id) {
@@ -274,6 +291,19 @@ service cloud.firestore {
                     || isAdmin();
       // Delete: author or admin.
       allow delete: if isUser(resource.data.uid) || isAdmin();
+    }
+
+    // Admin + moderator role assignments — used by isAdmin() and
+    // isModerator() functions above. Managed via /admin/admins/.
+    //   Read:  public — needed so client-side code can check role state
+    //          without special permissions. Contents (uid + role names +
+    //          display name) are not sensitive.
+    //   Write: admin only. Bootstrap admins in isAdmin() can always
+    //          write, so a fresh install can grant its first non-bootstrap
+    //          admin without hitting a chicken-and-egg lock.
+    match /folio_roles/{uid} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     // Public imprint themes — Indie+ subscribers customize their /imprint/
