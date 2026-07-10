@@ -81,6 +81,7 @@ a:hover{text-decoration:underline}
 .shelf-boost-close{background:none;border:none;color:var(--hint);cursor:pointer;font-size:12px;font-family:inherit;padding:4px 8px}
 .shelf-boost-close:hover{color:var(--text)}
 #shelfBoostStatus{font-size:11px;color:var(--hint);min-height:14px;margin-top:8px}
+.shelf-badge.adult{background:rgba(201,140,42,0.15);color:#b57a1e;border:.5px solid rgba(201,140,42,0.3)}
 .shelf-card-title{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:600;line-height:1.25;color:var(--text);margin:0 0 4px}
 .shelf-card-title a{color:inherit;text-decoration:none}
 .shelf-card-author{font-size:12px;color:var(--muted);margin:0 0 8px;font-style:italic}
@@ -212,7 +213,9 @@ function renderShelf(){
     const cover=f.coverUrl?'<img class="shelf-card-cover" src="'+esc(f.coverUrl)+'" alt="" loading="lazy">':'<div class="shelf-card-cover shelf-card-cover-placeholder">'+esc(f.title)+'</div>';
     const featBadge = isFeatured ? '<span class="shelf-badge featured">✨ featured</span>' : '';
     const typeBadge=f.serial?'<span class="shelf-badge serial">serial</span>':f.priceMode==='paid'?'<span class="shelf-badge paid">paid</span>':'<span class="shelf-badge free">free</span>';
-    const badge = featBadge + typeBadge;
+    // Adult-content badge — author self-declared this release contains mature themes.
+    const adultBadge = f.hasAdultContent ? '<span class="shelf-badge adult" title="This release contains adult content">🔞 adult</span>' : '';
+    const badge = featBadge + typeBadge + adultBadge;
     const genre=f.genre?'<span class="shelf-card-genre">'+esc(GENRE_LABELS[f.genre]||f.genre)+'</span>':'';
     const blurb=f.blurb?'<p class="shelf-card-blurb">'+esc(f.blurb)+'</p>':'';
     const href='/app.html?read='+encodeURIComponent(f.id);
@@ -294,22 +297,29 @@ async function boot(){
     // so if the user is signed in there they auto-sign-in here too
     // (Firebase persists auth state in IndexedDB per-project).
     const auth=getAuth(app);
+    // First-auth-resolution latch. The initial fetchShelf is deferred
+    // until auth state settles so signed-in owners see their own
+    // pending listings on first paint instead of racing the anonymous fetch.
+    let _authResolved = false;
     onAuthStateChanged(auth, function(u){
       window._myUid = (u && u.uid) || '';
-      // Also expose to the moderation-gate check in fetchShelf().
       window._shelfViewerUid = window._myUid;
       console.log('[shelf] auth state:', window._myUid ? ('signed in as '+u.email) : 'signed out');
-      // Re-fetch if auth resolved AFTER the first shelf load so a
-      // signed-in owner sees their own pending listing that was
-      // filtered out on the anonymous first pass.
-      if (Array.isArray(window._allFolios) && window._allFolios.length) {
-        try { fetchShelf(); } catch (_) {}
-      } else if (typeof window.renderShelf === 'function' && Array.isArray(window._allFolios) && window._allFolios.length) {
-        try { window.renderShelf(window._allFolios); } catch (_) {}
+      if (!_authResolved) {
+        _authResolved = true;
       }
+      try { fetchShelf(); } catch (_) {}
     });
     console.log('[shelf] ✅ Firestore + Auth instances ready, project:',firebaseConfig.projectId);
-    await fetchShelf();
+    // Fallback — if onAuthStateChanged doesn't fire within 2.5s (network
+    // hiccup, blocked auth), fetch anonymously so the shelf still renders.
+    setTimeout(function(){
+      if (!_authResolved) {
+        _authResolved = true;
+        console.log('[shelf] auth timed out — fetching anonymously');
+        try { fetchShelf(); } catch (_) {}
+      }
+    }, 2500);
   }catch(e){
     console.error('[shelf] boot FAILED:',e);
     const status=document.getElementById('shelfStatus');
@@ -325,17 +335,15 @@ async function fetchShelf(){
     console.log('[shelf] query built, calling getDocs…');
     const snap=await _fbGetDocs(q);
     console.log('[shelf] ✅ getDocs returned',snap.size,'docs (listOnShelf==true AND published==true)');
-    // Viewer uid for owner-only visibility of pending listings.
-    // Populated by boot() from the auth state; can be null (signed-out).
+    // Viewer uid for owner-only visibility of pending listings. Populated
+    // by onAuthStateChanged in boot(); null when signed-out or racing.
     const _viewerUid = (window._shelfViewerUid || null);
     const out=[];
     snap.forEach(d=>{
       const data=d.data()||{};
       const r=data.release||{};
-      // Moderation gate: pending listings are hidden from the public
-      // Shelf. The owner still sees their own so they aren't confused
-      // by "where's my folio?". Moderators (folio_roles doc) don't get
-      // the private preview here — they moderate via /admin/shelf/.
+      // Moderation gate: pending listings hidden from the public shelf.
+      // Owner sees their own so nothing feels broken.
       if (r.shelfPendingModeration === true && data.uid !== _viewerUid) return;
       out.push({
         id:d.id,
@@ -436,4 +444,26 @@ boot();
     status.style.color = 'var(--hint)';
     try {
       const r = await fetch(PAYWALL_WORKER_URL + '/boost-checkout', {
-     
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ folioId: _boostTargetFolioId, tier: tier, uid: (window._myUid || '') }),
+      });
+      const data = await r.json().catch(function(){ return {}; });
+      if (!r.ok || !data.approvalUrl) {
+        status.textContent = 'Checkout failed: ' + (data.error || r.status);
+        status.style.color = 'var(--danger,#c04040)';
+        buttons.forEach(function(b){b.disabled=false;b.style.opacity='1';});
+        return;
+      }
+      status.textContent = '✅ Redirecting to PayPal…';
+      status.style.color = 'var(--accent-ui,#065f46)';
+      window.location.href = data.approvalUrl;
+    } catch (e) {
+      status.textContent = 'Network error: ' + (e.message || 'unknown');
+      status.style.color = 'var(--danger,#c04040)';
+      buttons.forEach(function(b){b.disabled=false;b.style.opacity='1';});
+    }
+  };
+</script>
+</body>
+</html>

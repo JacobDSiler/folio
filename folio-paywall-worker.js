@@ -64,7 +64,7 @@ function corsHeaders(request, env, extra) {
   const h = {
     'Access-Control-Allow-Origin': pickOrigin(request, env),
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   };
@@ -1806,6 +1806,385 @@ async function handleBoostDebug(request, env) {
 }
 
 /* ── Dispatcher ─────────────────────────────────────────────────────── */
+
+/* ═══ PRODUCT PHOTOS — one-time purchase flow ═══════════════════════════
+   Non-subscribers can pay per template to unlock a specific
+   folio+template PNG download. Imprint tier subscribers bypass
+   this — their subscription entitles them to unlimited downloads.
+
+   Flow:
+     1. Client POST /photo-checkout { folioId, template, uid }
+     2. Worker creates PayPal Order for $PHOTO_PRICE (default $3)
+        with custom_id = "p1|folioId|template|uid|ts"
+     3. Redirect to PayPal approval
+     4. Approve → PayPal 302 to /photo-return?token=<orderId>&site=...
+     5. Worker captures, writes folio_photo_purchases/{captureId}
+        with { uid, folioId, template, purchasedAt }
+     6. Redirect to /press/photos/?paid=<captureId>&folio=&template=
+     7. Client polls /photo-status?uid=&folioId=&template= and enables
+        the Download button when { paid: true }.
+*/
+const PHOTO_TEMPLATES = new Set([
+  'ig-square', 'tw-banner', 'pin-vertical',
+  'series-stack', 'ereader', 'cozy-flatlay',
+]);
+
+function photoPriceUsd(env) {
+  const raw = String(env.PHOTO_PRICE_USD || '3.00');
+  const n = parseFloat(raw);
+  return isFinite(n) && n > 0 ? n.toFixed(2) : '3.00';
+}
+
+async function fsPhotoPurchaseExists(env, captureId) {
+  const acc = await getAccessToken(env);
+  const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+  const doc = await fsGet(pid, acc.token, 'folio_photo_purchases/' + encodeURIComponent(captureId));
+  return doc != null;
+}
+async function fsPhotoPurchaseWrite(env, captureId, meta) {
+  const acc = await getAccessToken(env);
+  const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+  const url = 'https://firestore.googleapis.com/v1/projects/' + pid +
+              '/databases/(default)/documents/folio_photo_purchases/' + encodeURIComponent(captureId);
+  const fields = {
+    uid:      { stringValue: String(meta.uid || '') },
+    folioId:  { stringValue: String(meta.folioId || '') },
+    template: { stringValue: String(meta.template || '') },
+    priceUsd: { stringValue: String(meta.priceUsd || '') },
+    source:   { stringValue: String(meta.source || 'return') },
+    purchasedAt: { timestampValue: new Date().toISOString() },
+  };
+  const r = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'Authorization': 'Bearer ' + acc.token,
+      'Content-Type':  'application/json',
+    },
+    body: JSON.stringify({ fields }),
+  });
+  if (!r.ok) {
+    const data = await r.json().catch(() => ({}));
+    throw new Error('Firestore purchase write failed: ' +
+      ((data.error && data.error.message) || r.status));
+  }
+  return true;
+}
+
+/* Query folio_photo_purchases for a given uid + folioId + template.
+   Used by /photo-status so the client can enable the Download button. */
+async function fsHasPhotoPurchase(env, uid, folioId, template) {
+  const acc = await getAccessToken(env);
+  const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+  const url = 'https://firestore.googleapis.com/v1/projects/' + pid +
+              '/databases/(default)/documents:runQuery';
+  const body = {
+    structuredQuery: {
+      from: [{ collectionId: 'folio_photo_purchases' }],
+      where: {
+        compositeFilter: {
+          op: 'AND',
+          filters: [
+            { fieldFilter: { field: { fieldPath: 'uid' },      op: 'EQUAL', value: { stringValue: uid } } },
+            { fieldFilter: { field: { fieldPath: 'folioId' },  op: 'EQUAL', value: { stringValue: folioId } } },
+            { fieldFilter: { field: { fieldPath: 'template' }, op: 'EQUAL', value: { stringValue: template } } },
+          ],
+        }
+      },
+      limit: 1,
+    }
+  };
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + acc.token,
+      'Content-Type':  'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) return false;
+  const rows = await r.json().catch(() => []);
+  return Array.isArray(rows) && rows.some(function(row){ return row.document; });
+}
+
+/* POST /photo-checkout { folioId, template, uid }
+   → { ok:true, orderId, approvalUrl, priceUsd, alreadyEntitled? } */
+async function handlePhotoCheckout(request, env) {
+  if (!env.PAYPAL_CLIENT_ID || !env.PAYPAL_CLIENT_SECRET) {
+    return errorJson('Photos not configured (PayPal creds missing)', 500, request, env);
+  }
+  if (!env.GCP_SERVICE_ACCOUNT) {
+    return errorJson('Photos not configured (GCP creds missing)', 500, request, env);
+  }
+  let body;
+  try { body = await request.json(); }
+  catch (e) { return errorJson('Bad JSON body', 400, request, env); }
+  const folioId  = String((body && body.folioId) || '').trim();
+  const template = String((body && body.template) || '').trim();
+  const uid      = String((body && body.uid) || '').trim();
+  if (!folioId)                    return errorJson('Missing folioId', 400, request, env);
+  if (!PHOTO_TEMPLATES.has(template)) return errorJson('Unknown template "' + template + '"', 400, request, env);
+  if (!uid)                        return errorJson('Missing uid — sign in first', 401, request, env);
+
+  // Imprint-tier subscribers get free downloads; short-circuit.
+  const sub = await fsGetUserSubscription(env, uid);
+  if (sub && sub.tier === 'imprint' && sub.active) {
+    return json({ ok: true, alreadyEntitled: true, reason: 'imprint-tier' }, 200, request, env);
+  }
+
+  // Verify folio exists + is published (mirror boost check).
+  let folioDoc;
+  try {
+    const acc = await getAccessToken(env);
+    const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+    folioDoc = await fsGet(pid, acc.token, 'folio_projects/' + folioId);
+  } catch (e) {
+    return errorJson('Folio lookup failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+  if (!folioDoc) return errorJson('No folio at that id', 404, request, env);
+  const release = folioDoc.release || {};
+  if (!release.published) {
+    return errorJson('Folio is not published yet.', 400, request, env);
+  }
+  const folioTitle = String(release.title || 'this folio').slice(0, 60);
+  const priceUsd = photoPriceUsd(env);
+
+  // custom_id compact tag (<= 127 chars). "p1" prefix distinguishes
+  // from boost's "v1" prefix so a webhook can route correctly.
+  const stamp = Date.now();
+  const customId = ['p1', folioId, template, uid, stamp].join('|').slice(0, 127);
+
+  const site = siteOrigin(request, env);
+  const self = boostSelfBase(request);
+  const returnUrl = self + '/photo-return?site=' + encodeURIComponent(site) +
+                    '&folio=' + encodeURIComponent(folioId) +
+                    '&template=' + encodeURIComponent(template);
+  const cancelUrl = site + '/press/photos/?cancelled=1';
+
+  let ppAccess;
+  try { ppAccess = await ppAccessToken(env); }
+  catch (e) { return errorJson('PayPal auth failed: ' + (e.message || 'unknown'), 502, request, env); }
+
+  const description = 'Folio Product Photo — ' + template + ' — ' + folioTitle;
+  const orderBody = {
+    intent: 'CAPTURE',
+    purchase_units: [{
+      reference_id: 'photo-' + folioId.slice(0, 26),
+      description: description,
+      custom_id: customId,
+      amount: { currency_code: 'USD', value: priceUsd },
+    }],
+    application_context: {
+      brand_name: 'Folio',
+      shipping_preference: 'NO_SHIPPING',
+      user_action: 'PAY_NOW',
+      return_url: returnUrl,
+      cancel_url: cancelUrl,
+    },
+  };
+  let orderResp;
+  try {
+    const r = await fetch(ppBase(env) + '/v2/checkout/orders', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + ppAccess,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify(orderBody),
+    });
+    orderResp = await r.json().catch(() => ({}));
+    if (!r.ok || !orderResp.id) {
+      return errorJson('PayPal order create failed: ' +
+        (orderResp.message || orderResp.error_description || r.status), 502, request, env);
+    }
+  } catch (e) {
+    return errorJson('PayPal request failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+  const links = orderResp.links || [];
+  const approve = links.find(function (l) { return l.rel === 'approve' || l.rel === 'payer-action'; });
+  if (!approve) return errorJson('PayPal returned no approval link', 502, request, env);
+  return json({
+    ok: true,
+    orderId: orderResp.id,
+    approvalUrl: approve.href,
+    priceUsd: priceUsd,
+    template: template,
+    folioId: folioId,
+  }, 200, request, env);
+}
+
+/* GET /photo-return — landing after PayPal approval. Captures the order,
+   parses custom_id, writes the purchase doc, redirects to /press/photos/. */
+async function handlePhotoReturn(request, env) {
+  const url = new URL(request.url);
+  const orderId = url.searchParams.get('token') || url.searchParams.get('orderId') || '';
+  const site = url.searchParams.get('site') || allowedOrigins(env)[0] || DEFAULT_ORIGIN;
+  const back = function (qs) {
+    return new Response(null, {
+      status: 302,
+      headers: { 'Location': site + '/press/photos/?' + qs },
+    });
+  };
+  if (!orderId) return back('error=missing-token');
+
+  let ppAccess;
+  try { ppAccess = await ppAccessToken(env); }
+  catch (e) { return back('error=paypal-auth'); }
+
+  // Capture the payment.
+  let capResp;
+  try {
+    const r = await fetch(ppBase(env) + '/v2/checkout/orders/' + encodeURIComponent(orderId) + '/capture', {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + ppAccess,
+        'Content-Type':  'application/json',
+      },
+      body: '{}',
+    });
+    capResp = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      // Some errors ("ORDER_ALREADY_CAPTURED") aren't real failures — a
+      // duplicate return-URL visit. Try to read the order to recover.
+      const g = await fetch(ppBase(env) + '/v2/checkout/orders/' + encodeURIComponent(orderId), {
+        headers: { 'Authorization': 'Bearer ' + ppAccess },
+      });
+      capResp = await g.json().catch(() => ({}));
+      if (!g.ok) return back('error=capture-failed');
+    }
+  } catch (e) { return back('error=capture-exception'); }
+
+  // Extract custom_id from the capture or the underlying purchase_unit.
+  const pu = (capResp.purchase_units && capResp.purchase_units[0]) || {};
+  const cap = (pu.payments && pu.payments.captures && pu.payments.captures[0]) || {};
+  const customId = String(cap.custom_id || pu.custom_id || '');
+  const captureId = String(cap.id || orderId);
+  if (!customId) return back('error=no-custom-id');
+  const parts = customId.split('|');
+  if (parts[0] !== 'p1' || parts.length < 5) return back('error=bad-custom-id');
+  const folioId  = parts[1];
+  const template = parts[2];
+  const uid      = parts[3];
+  if (!PHOTO_TEMPLATES.has(template)) return back('error=unknown-template');
+
+  // Idempotency — if we've already written this receipt, skip re-writing.
+  try {
+    if (!(await fsPhotoPurchaseExists(env, captureId))) {
+      await fsPhotoPurchaseWrite(env, captureId, {
+        uid, folioId, template,
+        priceUsd: photoPriceUsd(env),
+        source: 'return',
+      });
+    }
+  } catch (e) {
+    return back('error=purchase-write-failed');
+  }
+  return back('paid=1&folio=' + encodeURIComponent(folioId) + '&template=' + encodeURIComponent(template));
+}
+
+/* GET /photo-status?uid=&folioId=&template=  → { paid: bool, entitled?: 'imprint' } */
+async function handlePhotoStatus(request, env) {
+  const url = new URL(request.url);
+  const uid      = String(url.searchParams.get('uid') || '').trim();
+  const folioId  = String(url.searchParams.get('folioId') || '').trim();
+  const template = String(url.searchParams.get('template') || '').trim();
+  if (!uid || !folioId || !template) {
+    return errorJson('Missing uid, folioId, or template', 400, request, env);
+  }
+  // Check Imprint entitlement first.
+  try {
+    const sub = await fsGetUserSubscription(env, uid);
+    if (sub && sub.tier === 'imprint' && sub.active) {
+      return json({ ok: true, paid: true, entitled: 'imprint' }, 200, request, env);
+    }
+  } catch (_) {}
+  // Check per-photo purchase.
+  try {
+    const has = await fsHasPhotoPurchase(env, uid, folioId, template);
+    return json({ ok: true, paid: !!has }, 200, request, env);
+  } catch (e) {
+    return errorJson('Status lookup failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+}
+
+
+
+/* ═══ SIGN-SHARE — mint a signed share link for an owner ═════════════
+   Client posts { folioId, role } with a Firebase ID token in
+   Authorization (we don't currently verify the ID token — that
+   requires the Firebase Admin SDK or a manual JWKS check — but the
+   Authorization header is what CORS needed to allow). The worker
+   verifies the folio exists (basic sanity), then mints a JWT the
+   reader-side paywall recognises as an unlock signal.
+
+   JWT payload: { folioId, role, iat, exp }
+   Return:      { shareUrl: '/app.html?read=<id>&role=<role>&share=<jwt>' }
+
+   Client (_rdMaybeActivate in app.html) already:
+     • extracts ?share= from URL
+     • stashes it in localStorage as folioShareToken_<folioId>
+     • uses _pwDecode / _pwIsValid to read the role and gate paywall
+   So once this endpoint returns real JWTs, the whole flow works.
+*/
+async function handleSignShare(request, env) {
+  if (!env.PAYWALL_JWT_SECRET) {
+    return errorJson('Server not configured (missing PAYWALL_JWT_SECRET)', 500, request, env);
+  }
+  let body;
+  try { body = await request.json(); }
+  catch (e) { return errorJson('Bad JSON body', 400, request, env); }
+  const folioId = String((body && body.folioId) || '').trim();
+  const role    = String((body && body.role) || 'reader').toLowerCase();
+  const validRoles = ['reader', 'beta', 'editor', 'collab'];
+  if (!folioId) return errorJson('Missing folioId', 400, request, env);
+  if (!validRoles.includes(role)) return errorJson('Unknown role: ' + role, 400, request, env);
+
+  // Basic folio existence check via service account so we don't mint
+  // tokens for garbage ids. This is not an ownership check — the client
+  // side (app.html's _rlGetSignedLink) gates on _isOwner before calling,
+  // and share links are meant to be shareable anyway.
+  if (env.GCP_SERVICE_ACCOUNT) {
+    try {
+      const acc = await getAccessToken(env);
+      const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+      const doc = await fsGet(pid, acc.token, 'folio_projects/' + folioId);
+      if (!doc) return errorJson('No folio at that id', 404, request, env);
+    } catch (e) {
+      console.warn('[sign-share] folio existence check failed, continuing:', e.message);
+    }
+  }
+
+  // Mint the JWT. 90-day expiry — long enough that a beta reader can
+  // finish the book across weekends without the link going stale.
+  const now = Math.floor(Date.now() / 1000);
+  // Payload key MUST be "folio" (not "folioId") — app.html's paywall
+  // gate at line ~8402 checks _pd.folio === folioId. Using "folioId" here
+  // makes the client reject valid tokens as "wrong folio" and delete them
+  // from localStorage.
+  const payload = {
+    folio: folioId,
+    role:  role,
+    iat:   now,
+    exp:   now + 90 * 24 * 3600,
+  };
+  let jwt;
+  try { jwt = await signJWT(payload, env.PAYWALL_JWT_SECRET); }
+  catch (e) { return errorJson('Sign failed: ' + (e.message || 'unknown'), 500, request, env); }
+
+  // Build the shareable URL. Uses the request Origin so the same
+  // worker serves onfolio.press and any dev site alike.
+  const site = siteOrigin(request, env);
+  const shareUrl = site + '/app.html?read=' + encodeURIComponent(folioId) +
+                   '&role=' + encodeURIComponent(role) +
+                   '&share=' + encodeURIComponent(jwt);
+  return json({
+    ok: true,
+    shareUrl: shareUrl,
+    role: role,
+    expSeconds: payload.exp,
+  }, 200, request, env);
+}
+
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
@@ -1838,6 +2217,10 @@ export default {
           'GET  /press-status?uid=X   subscription state + boost discount for the client UI',
           'POST /review-submit  { uid, folioId, rating, text, ... }   review + 24h free boost',
           'GET  /boost-debug?token=...   admin diagnostic',
+          'POST /photo-checkout { folioId, template, uid }  one-time PNG purchase',
+          'GET  /photo-return   ?token=&site=&folio=&template=',
+          'GET  /photo-status   ?uid=&folioId=&template=',
+          'POST /sign-share     { folioId, role } → { shareUrl }  (owner mints a signed reader link)',
         ],
       }, 200, request, env);
     }
@@ -1859,6 +2242,10 @@ export default {
     if (path === '/press-status'    && request.method === 'GET')  return handlePressStatus(request, env);
     if (path === '/review-submit'  && request.method === 'POST') return handleReviewSubmit(request, env);
     if (path === '/boost-debug'    && request.method === 'GET')  return handleBoostDebug(request, env);
+    if (path === '/sign-share'    && request.method === 'POST') return handleSignShare(request, env);
+    if (path === '/photo-checkout' && request.method === 'POST') return handlePhotoCheckout(request, env);
+    if (path === '/photo-return'   && request.method === 'GET')  return handlePhotoReturn(request, env);
+    if (path === '/photo-status'   && request.method === 'GET')  return handlePhotoStatus(request, env);
 
     return errorJson('Not found: ' + path, 404, request, env);
   },

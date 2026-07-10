@@ -131,6 +131,18 @@ a:hover{text-decoration:underline}
         <div class="pp-template-name">Pinterest Vertical</div>
         <div class="pp-template-dim">1000 × 1500</div>
       </button>
+      <button class="pp-template" data-template="series-stack" onclick="_pickTemplate('series-stack')">
+        <div class="pp-template-name">Series Stack</div>
+        <div class="pp-template-dim">1080 × 1080</div>
+      </button>
+      <button class="pp-template" data-template="ereader" onclick="_pickTemplate('ereader')">
+        <div class="pp-template-name">E-reader Mockup</div>
+        <div class="pp-template-dim">1080 × 1080</div>
+      </button>
+      <button class="pp-template" data-template="cozy-flatlay" onclick="_pickTemplate('cozy-flatlay')">
+        <div class="pp-template-name">Cozy Flatlay</div>
+        <div class="pp-template-dim">1080 × 1080</div>
+      </button>
     </div>
   </div>
 
@@ -248,7 +260,12 @@ a:hover{text-decoration:underline}
           id: d.id,
           title: String(r.title || 'Untitled'),
           author: String(r.author || ''),
-          coverUrl: (typeof r.coverUrl === 'string' && /^https:\/\//i.test(r.coverUrl)) ? r.coverUrl : ''
+          coverUrl: (typeof r.coverUrl === 'string' && /^https:\/\//i.test(r.coverUrl)) ? r.coverUrl : '',
+          // Manuscript-derived page count (auto-computed at publish time
+          // in app.html — 275 words/page). Used by drawBook3D to size
+          // the spine so a 100-page novella and an 800-page epic look
+          // physically different in the product photo.
+          pageCount: Number(r.pageCount || 0)
         });
       });
       renderFolioPicker();
@@ -293,7 +310,10 @@ a:hover{text-decoration:underline}
   const TEMPLATES = {
     'ig-square': { w: 1080, h: 1080, render: renderIgSquare },
     'tw-banner': { w: 1500, h: 500, render: renderTwBanner },
-    'pin-vertical': { w: 1000, h: 1500, render: renderPinVertical }
+    'pin-vertical': { w: 1000, h: 1500, render: renderPinVertical },
+    'series-stack': { w: 1080, h: 1080, render: renderSeriesStack },
+    'ereader': { w: 1080, h: 1080, render: renderEreader },
+    'cozy-flatlay': { w: 1080, h: 1080, render: renderCozyFlatlay }
   };
 
   async function loadImage(url) {
@@ -360,7 +380,16 @@ a:hover{text-decoration:underline}
     const h = Math.round(w * 1.5);        // standard book aspect
     const x = Math.round(cx - w / 2);
     const y = Math.round(cy - h / 2);
-    const s = Math.max(8, Math.round(w * 0.085));  // spine depth
+    // Spine depth is derived from the manuscript's page count so a
+    // 100-page novella looks physically thinner than a 700-page epic.
+    // Curve: 100 pg → 5% of cover w, 300 → 8%, 600 → 12%, capped at 14%.
+    // Books without a pageCount (older releases pre-auto-compute) fall
+    // back to the previous 8.5% baseline.
+    const _pg = Math.max(0, folio.pageCount | 0);
+    const _spineRatio = _pg > 0
+      ? Math.min(0.14, 0.04 + _pg * 0.00015)
+      : 0.085;
+    const s = Math.max(8, Math.round(w * _spineRatio));  // spine depth (px)
     const dx = s;                          // horizontal offset of the "far" edge
     const dy = Math.max(4, Math.round(s * 0.55));  // vertical offset
 
@@ -717,6 +746,613 @@ a:hover{text-decoration:underline}
     ctx.fillText('onfolio.press', W/2, H - 56);
   }
 
+  // ═══ NEW TEMPLATE: SERIES STACK ═════════════════════════════════════
+  // Three books stacked at slight offsets. Top book faces the camera
+  // (cover visible), the two under it show their spines. Sells "this
+  // author has a body of work" even for a single-title author.
+  //
+  // Future enhancement: pull actual series siblings from Firestore via
+  // release.series + release.author. For now, uses the same book three
+  // times with subtle spine hue shifts (still reads as "collection").
+  async function renderSeriesStack(folio, ctx, W, H) {
+    // Warm neutral background — reading nook
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#4a3320');
+    bg.addColorStop(0.5, '#5e4128');
+    bg.addColorStop(1, '#2b1a0d');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    // Soft glow from upper-left
+    const glow = ctx.createRadialGradient(W * 0.32, H * 0.28, 20, W * 0.32, H * 0.28, W * 0.75);
+    glow.addColorStop(0, 'rgba(255,215,155,0.20)');
+    glow.addColorStop(1, 'rgba(255,215,155,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+    // Vignette
+    const vig = ctx.createRadialGradient(W/2, H/2, W*0.3, W/2, H/2, W*0.75);
+    vig.addColorStop(0, 'rgba(0,0,0,0)');
+    vig.addColorStop(1, 'rgba(0,0,0,0.55)');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, H);
+
+    // Draw stack: 3 books, top one showing cover, others showing spines.
+    // Stack direction: bottom book on the "table", each above it slightly
+    // offset left+up so we see the spine profile.
+    const stackBookW = W * 0.42;
+    const stackBookH = stackBookW * 1.5;
+    const stackCx = W / 2 + 30;
+    const stackCy = H / 2 + 30;
+
+    // Bottom two: flat spine-view rectangles (thick "book from side")
+    // We draw them as horizontal spine-thick strips of increasing offset.
+    let coverImg = null;
+    let accent = { r: 58, g: 42, b: 28 };
+    if (folio.coverUrl) {
+      try {
+        coverImg = await loadImage(folio.coverUrl);
+        accent = _sampleCoverColor(coverImg);
+      } catch (_) { coverImg = null; }
+    }
+
+    // Compute per-book spine depth from pageCount (same formula as drawBook3D)
+    const _pg = Math.max(0, folio.pageCount | 0);
+    const _spineRatio = _pg > 0 ? Math.min(0.14, 0.04 + _pg * 0.00015) : 0.085;
+    const spineDepth = Math.round(stackBookW * _spineRatio);
+
+    // Book 3 (bottommost) — visible mostly as a spine-view strip. Draw
+    // as a wide rectangle representing the top edge of a laid-flat book
+    // seen from a very shallow angle.
+    for (let i = 2; i >= 1; i--) {
+      const yOffset = i * (spineDepth + 12);
+      const xOffset = i * -18;
+      // Compute the trapezoid for a book "peeking out under" the one on top:
+      // just the spine edge + top edge peeking below the front cover of the top book.
+      const bx = stackCx - stackBookW / 2 + xOffset;
+      const by = stackCy - stackBookH / 2 + yOffset;
+      // Shadow
+      ctx.save();
+      const shGrad = ctx.createRadialGradient(bx + stackBookW/2, by + stackBookH + 8, 0, bx + stackBookW/2, by + stackBookH + 8, stackBookW * 0.55);
+      shGrad.addColorStop(0, 'rgba(0,0,0,0.4)');
+      shGrad.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = shGrad;
+      ctx.beginPath();
+      ctx.ellipse(bx + stackBookW/2, by + stackBookH + 8, stackBookW * 0.55, 12, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      // Sibling book — subtle hue shift for series feel
+      const shift = i === 2 ? -14 : -7;
+      const sibAccent = {
+        r: Math.max(0, accent.r + shift),
+        g: Math.max(0, accent.g + shift),
+        b: Math.max(0, accent.b + shift)
+      };
+      await drawBook3D(ctx, { title: folio.title, author: folio.author, coverUrl: folio.coverUrl, pageCount: folio.pageCount, _spineHueShift: shift }, bx + stackBookW/2, by + stackBookH/2, stackBookW);
+    }
+
+    // Top book — the featured cover, front-and-center
+    await drawBook3D(ctx, folio, stackCx, stackCy, stackBookW);
+
+    // Text overlay
+    ctx.fillStyle = 'rgba(250,247,241,0.95)';
+    ctx.font = '500 24px -apple-system, "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    if (folio.series) {
+      ctx.fillText('The ' + folio.series + ' series', W/2, H - 84);
+    } else {
+      ctx.fillText('Read at onfolio.press', W/2, H - 84);
+    }
+    ctx.font = 'italic 16px "Playfair Display", Georgia, serif';
+    ctx.fillStyle = 'rgba(250,247,241,0.72)';
+    ctx.fillText('by ' + folio.author, W/2, H - 50);
+  }
+
+  // ═══ NEW TEMPLATE: E-READER MOCKUP ══════════════════════════════════
+  // The cover on a rendered Kindle-style e-reader device. Sells the
+  // "read this on your phone, right now" pitch that most digital-first
+  // authors want to lead with.
+  async function renderEreader(folio, ctx, W, H) {
+    // Soft neutral background — warm cream
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#f5ecd8');
+    bg.addColorStop(1, '#e8dcbe');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    // Subtle paper noise
+    ctx.fillStyle = 'rgba(120,90,40,0.04)';
+    for (let i = 0; i < 300; i++) {
+      const rx = Math.random() * W;
+      const ry = Math.random() * H;
+      const rr = Math.random() * 1.4;
+      ctx.beginPath();
+      ctx.arc(rx, ry, rr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Device dimensions — Kindle-ish proportions
+    const dW = W * 0.52;
+    const dH = dW * 1.42;
+    const dX = (W - dW) / 2;
+    const dY = (H - dH) / 2 - 20;
+    const bezel = Math.round(dW * 0.055);
+    const radius = Math.round(dW * 0.05);
+
+    // Device shadow — soft grounded
+    ctx.save();
+    const shGrad = ctx.createRadialGradient(dX + dW/2, dY + dH + 10, 0, dX + dW/2, dY + dH + 10, dW * 0.65);
+    shGrad.addColorStop(0, 'rgba(0,0,0,0.35)');
+    shGrad.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = shGrad;
+    ctx.beginPath();
+    ctx.ellipse(dX + dW/2, dY + dH + 10, dW * 0.65, 22, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // Device body — dark charcoal with rounded corners
+    ctx.save();
+    ctx.beginPath();
+    _roundedRect(ctx, dX, dY, dW, dH, radius);
+    const devGrad = ctx.createLinearGradient(dX, dY, dX + dW, dY + dH);
+    devGrad.addColorStop(0, '#2a2620');
+    devGrad.addColorStop(1, '#161311');
+    ctx.fillStyle = devGrad;
+    ctx.fill();
+    // Subtle bezel highlight
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+
+    // Screen area — cream background with the cover
+    const sX = dX + bezel;
+    const sY = dY + bezel;
+    const sW = dW - bezel * 2;
+    const sH = dH - bezel * 2 - 20;  // 20px chin for the home indicator
+    ctx.save();
+    ctx.beginPath();
+    _roundedRect(ctx, sX, sY, sW, sH, 3);
+    ctx.clip();
+    ctx.fillStyle = '#faf7f1';
+    ctx.fillRect(sX, sY, sW, sH);
+
+    // Draw cover on the screen — cover fills the screen width, height adjusts
+    if (folio.coverUrl) {
+      try {
+        const img = await loadImage(folio.coverUrl);
+        // Fit-cover style: preserve aspect, fill screen, crop excess
+        const imgAspect = img.width / img.height;
+        const screenAspect = sW / sH;
+        let drawW, drawH, drawX, drawY;
+        if (imgAspect > screenAspect) {
+          drawH = sH;
+          drawW = drawH * imgAspect;
+          drawX = sX - (drawW - sW) / 2;
+          drawY = sY;
+        } else {
+          drawW = sW;
+          drawH = drawW / imgAspect;
+          drawX = sX;
+          drawY = sY - (drawH - sH) / 2;
+        }
+        ctx.drawImage(img, drawX, drawY, drawW, drawH);
+      } catch (e) {
+        ctx.fillStyle = '#3a2a1c';
+        ctx.fillRect(sX, sY, sW, sH);
+      }
+    }
+
+    // Screen glare — subtle diagonal light streak
+    const glare = ctx.createLinearGradient(sX, sY, sX + sW, sY + sH);
+    glare.addColorStop(0, 'rgba(255,255,255,0.08)');
+    glare.addColorStop(0.3, 'rgba(255,255,255,0.02)');
+    glare.addColorStop(0.5, 'rgba(255,255,255,0)');
+    ctx.fillStyle = glare;
+    ctx.fillRect(sX, sY, sW, sH);
+    ctx.restore();
+
+    // Home indicator dot (Kindle-style)
+    ctx.fillStyle = '#403830';
+    ctx.beginPath();
+    ctx.arc(dX + dW/2, dY + dH - 22, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Text below device
+    ctx.fillStyle = '#3d2a18';
+    ctx.font = '600 26px "Playfair Display", Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(folio.title, W/2, dY + dH + 40);
+    ctx.font = 'italic 18px "Playfair Display", Georgia, serif';
+    ctx.fillStyle = '#7a5a3a';
+    ctx.fillText('by ' + folio.author, W/2, dY + dH + 74);
+    // CTA
+    ctx.fillStyle = '#c98c2a';
+    ctx.font = '500 15px -apple-system, "Segoe UI", system-ui, sans-serif';
+    ctx.fillText('Read at onfolio.press', W/2, dY + dH + 104);
+  }
+
+  // ═══ NEW TEMPLATE: COZY FLATLAY ═════════════════════════════════════
+  // Top-down view: book flat on a wooden table with a candle + a mug
+  // of hot chocolate + subtle blanket edge. Cozy-season vibes.
+  // Peak Instagram bait for literary fiction / romance / cozy mystery.
+  async function renderCozyFlatlay(folio, ctx, W, H) {
+    // Warm wood table background
+    const bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, '#6d4322');
+    bg.addColorStop(0.5, '#7f4f28');
+    bg.addColorStop(1, '#4a2a15');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    // Vertical wood grain planks
+    ctx.strokeStyle = 'rgba(0,0,0,0.13)';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 8; i++) {
+      const x = (W / 8) * i + Math.sin(i * 1.7) * 6;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.bezierCurveTo(x - 3, H/3, x + 4, H*2/3, x - 2, H);
+      ctx.stroke();
+    }
+    // Vignette + warm ambient
+    const vig = ctx.createRadialGradient(W/2, H/2, W*0.25, W/2, H/2, W*0.72);
+    vig.addColorStop(0, 'rgba(255,220,150,0.10)');
+    vig.addColorStop(1, 'rgba(0,0,0,0.60)');
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, W, H);
+
+    // Blanket edge — draped in the upper-left corner
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(W * 0.42, 0);
+    ctx.bezierCurveTo(W * 0.30, H * 0.15, W * 0.15, H * 0.28, 0, H * 0.38);
+    ctx.closePath();
+    const blankGrad = ctx.createLinearGradient(0, 0, W * 0.35, H * 0.35);
+    blankGrad.addColorStop(0, '#c19878');
+    blankGrad.addColorStop(1, '#a17c58');
+    ctx.fillStyle = blankGrad;
+    ctx.fill();
+    // Fabric knit lines
+    ctx.strokeStyle = 'rgba(140,100,60,0.35)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 14; i++) {
+      const yy = (H * 0.38 / 14) * i;
+      ctx.beginPath();
+      ctx.moveTo(0, yy);
+      ctx.bezierCurveTo(W * 0.15, yy + 4, W * 0.28, yy - 2, W * 0.42 - yy * 0.35, yy);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Book — laid flat with cover facing up, slightly tilted
+    const bookW = W * 0.38;
+    const bookH = bookW * 1.5;
+    const bookCx = W * 0.42;
+    const bookCy = H * 0.58;
+    ctx.save();
+    ctx.translate(bookCx, bookCy);
+    ctx.rotate(-8 * Math.PI / 180);
+    // Book shadow
+    ctx.save();
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = 28;
+    ctx.shadowOffsetX = 6;
+    ctx.shadowOffsetY = 12;
+    ctx.fillStyle = '#222';
+    ctx.fillRect(-bookW/2, -bookH/2, bookW, bookH);
+    ctx.restore();
+    // Cover
+    let coverImg = null;
+    if (folio.coverUrl) {
+      try {
+        coverImg = await loadImage(folio.coverUrl);
+        ctx.drawImage(coverImg, -bookW/2, -bookH/2, bookW, bookH);
+      } catch (e) {
+        ctx.fillStyle = '#3a2a1c';
+        ctx.fillRect(-bookW/2, -bookH/2, bookW, bookH);
+        ctx.fillStyle = '#e8c374';
+        ctx.font = '600 32px "Playfair Display", Georgia, serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(folio.title, 0, 0);
+      }
+    } else {
+      ctx.fillStyle = '#3a2a1c';
+      ctx.fillRect(-bookW/2, -bookH/2, bookW, bookH);
+    }
+    // Subtle border for the cover edge
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-bookW/2 + 0.5, -bookH/2 + 0.5, bookW - 1, bookH - 1);
+    ctx.restore();
+
+    // Mug of hot chocolate — upper-right of the book
+    const mugCx = W * 0.78;
+    const mugCy = H * 0.32;
+    const mugR = W * 0.09;
+    // Mug shadow
+    ctx.save();
+    const mgShadow = ctx.createRadialGradient(mugCx, mugCy + mugR + 10, 0, mugCx, mugCy + mugR + 10, mugR * 1.5);
+    mgShadow.addColorStop(0, 'rgba(0,0,0,0.4)');
+    mgShadow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = mgShadow;
+    ctx.beginPath();
+    ctx.ellipse(mugCx, mugCy + mugR + 10, mugR * 1.3, 10, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    // Mug body — cream ceramic
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(mugCx, mugCy, mugR, mugR, 0, 0, Math.PI * 2);
+    const mgGrad = ctx.createRadialGradient(mugCx - mugR*0.3, mugCy - mugR*0.3, 0, mugCx, mugCy, mugR);
+    mgGrad.addColorStop(0, '#f5ecd8');
+    mgGrad.addColorStop(0.7, '#d9c9a3');
+    mgGrad.addColorStop(1, '#a08765');
+    ctx.fillStyle = mgGrad;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(60,40,20,0.4)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+    // Hot chocolate surface
+    ctx.save();
+    ctx.beginPath();
+    ctx.ellipse(mugCx, mugCy, mugR * 0.82, mugR * 0.82, 0, 0, Math.PI * 2);
+    const cocoaGrad = ctx.createRadialGradient(mugCx - mugR*0.2, mugCy - mugR*0.2, 0, mugCx, mugCy, mugR * 0.82);
+    cocoaGrad.addColorStop(0, '#6d3a1a');
+    cocoaGrad.addColorStop(0.7, '#4a2410');
+    cocoaGrad.addColorStop(1, '#2b1408');
+    ctx.fillStyle = cocoaGrad;
+    ctx.fill();
+    ctx.restore();
+    // Marshmallow — small cream dot on the cocoa
+    ctx.fillStyle = 'rgba(250,240,220,0.9)';
+    ctx.beginPath();
+    ctx.ellipse(mugCx + mugR * 0.15, mugCy - mugR * 0.1, mugR * 0.12, mugR * 0.09, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Steam wisps rising from the mug
+    ctx.save();
+    ctx.strokeStyle = 'rgba(240,220,180,0.35)';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    for (let i = 0; i < 3; i++) {
+      const baseX = mugCx - mugR * 0.4 + i * mugR * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(baseX, mugCy - mugR * 0.6);
+      ctx.bezierCurveTo(baseX - 15, mugCy - mugR * 1.2, baseX + 15, mugCy - mugR * 1.8, baseX - 8, mugCy - mugR * 2.4);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // Candle — lower-right, warm glow
+    const candCx = W * 0.80;
+    const candCy = H * 0.72;
+    const candW = W * 0.10;
+    const candH = candW * 1.8;
+    // Candle jar (glass) — cream with a rim
+    ctx.save();
+    // Base shadow
+    const cdShadow = ctx.createRadialGradient(candCx, candCy + candH/2 + 10, 0, candCx, candCy + candH/2 + 10, candW);
+    cdShadow.addColorStop(0, 'rgba(0,0,0,0.4)');
+    cdShadow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = cdShadow;
+    ctx.beginPath();
+    ctx.ellipse(candCx, candCy + candH/2 + 8, candW * 0.9, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // Body
+    ctx.beginPath();
+    _roundedRect(ctx, candCx - candW/2, candCy - candH/2, candW, candH, 8);
+    const cdGrad = ctx.createLinearGradient(candCx - candW/2, 0, candCx + candW/2, 0);
+    cdGrad.addColorStop(0, '#d9c288');
+    cdGrad.addColorStop(0.5, '#f5e5b0');
+    cdGrad.addColorStop(1, '#a58748');
+    ctx.fillStyle = cdGrad;
+    ctx.fill();
+    // Wax pool at top
+    ctx.beginPath();
+    ctx.ellipse(candCx, candCy - candH/2 + 8, candW * 0.4, 4, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(70,45,20,0.5)';
+    ctx.fill();
+    ctx.restore();
+    // Flame
+    ctx.save();
+    const flameCx = candCx;
+    const flameCy = candCy - candH/2 - 6;
+    ctx.beginPath();
+    ctx.moveTo(flameCx, flameCy);
+    ctx.bezierCurveTo(flameCx - 6, flameCy - 8, flameCx - 3, flameCy - 20, flameCx, flameCy - 26);
+    ctx.bezierCurveTo(flameCx + 3, flameCy - 20, flameCx + 6, flameCy - 8, flameCx, flameCy);
+    const flameGrad = ctx.createRadialGradient(flameCx, flameCy - 10, 0, flameCx, flameCy - 10, 20);
+    flameGrad.addColorStop(0, '#fff9c8');
+    flameGrad.addColorStop(0.4, '#ffcc55');
+    flameGrad.addColorStop(1, '#c96222');
+    ctx.fillStyle = flameGrad;
+    ctx.fill();
+    // Glow halo
+    const glowGrad = ctx.createRadialGradient(flameCx, flameCy - 10, 5, flameCx, flameCy - 10, 90);
+    glowGrad.addColorStop(0, 'rgba(255,200,120,0.35)');
+    glowGrad.addColorStop(1, 'rgba(255,200,120,0)');
+    ctx.fillStyle = glowGrad;
+    ctx.fillRect(flameCx - 90, flameCy - 90, 180, 180);
+    ctx.restore();
+
+    // Text overlay — bottom, subtle
+    ctx.fillStyle = 'rgba(250,247,241,0.92)';
+    ctx.font = '500 22px -apple-system, "Segoe UI", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('Read at onfolio.press', W/2, H - 60);
+    ctx.font = 'italic 15px "Playfair Display", Georgia, serif';
+    ctx.fillStyle = 'rgba(250,247,241,0.68)';
+    ctx.fillText('by ' + folio.author, W/2, H - 32);
+  }
+
+  // Helper — rounded rect path (used by e-reader and candle)
+  function _roundedRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  // ═══ TIER GATING + ONE-TIME PURCHASE ═══════════════════════════════
+  // Imprint-tier subscribers get unlimited downloads (delivered as
+  // advertised). Free / Indie users can preview freely, then buy per
+  // photo for $3 via a PayPal Order round-trip. Purchases live in
+  // Firestore under folio_photo_purchases/{captureId}; the worker
+  // writes them on the /photo-return capture.
+
+  // In-memory cache of paid combos so a session with 2 purchases keeps
+  // both unlocked without re-checking on every template switch.
+  const _paidCache = new Set();  // key = folioId + '|' + template
+
+  function _paidKey(folioId, template) { return folioId + '|' + template; }
+
+  // Consult client-side subscription state. Returns true when the
+  // signed-in user's subscription entitles them to unlimited downloads.
+  function _isImprintTier() {
+    try {
+      // Some pages surface pressSub via window; others populate
+      // window._pressSubCache directly. Handle both.
+      const sub = (typeof window.pressSub === 'function') ? window.pressSub() : window._pressSubCache;
+      return !!(sub && sub.active && sub.tier === 'imprint');
+    } catch (_) { return false; }
+  }
+
+  // Server-side truth check for a specific folio+template. Only called
+  // when the client-side cache says "not paid" and we need to double-
+  // check (e.g., just returned from PayPal).
+  async function _checkPurchased(folioId, template) {
+    if (!_user || !folioId) return false;
+    if (_paidCache.has(_paidKey(folioId, template))) return true;
+    try {
+      const r = await fetch(PAYWALL_WORKER_URL + '/photo-status' +
+        '?uid='      + encodeURIComponent(_user.uid) +
+        '&folioId='  + encodeURIComponent(folioId) +
+        '&template=' + encodeURIComponent(template));
+      const d = await r.json().catch(() => ({}));
+      if (d && d.paid) {
+        _paidCache.add(_paidKey(folioId, template));
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  // Update the Download button label + state based on tier + purchase.
+  async function _updateDownloadButton() {
+    const btn = document.getElementById('downloadBtn');
+    if (!btn || !_selectedFolio) return;
+    btn.dataset.mode = 'loading';
+    btn.disabled = true;
+    btn.textContent = 'Checking access…';
+    // Fast path: Imprint tier
+    if (_isImprintTier()) {
+      btn.dataset.mode = 'download';
+      btn.textContent = 'Download PNG';
+      btn.disabled = false;
+      return;
+    }
+    // Check server for this specific folio+template
+    const purchased = await _checkPurchased(_selectedFolio.id, _selectedTemplate);
+    if (purchased) {
+      btn.dataset.mode = 'download';
+      btn.textContent = 'Download PNG';
+      btn.disabled = false;
+      return;
+    }
+    // Not paid — offer purchase
+    btn.dataset.mode = 'buy';
+    btn.textContent = 'Buy PNG ($3)';
+    btn.disabled = false;
+  }
+
+  // Kick off PayPal Order flow for the current folio+template. Opens
+  // PayPal in the current tab (return_url comes back to /press/photos/).
+  async function _buyPhoto() {
+    if (!_user || !_selectedFolio) return;
+    const btn = document.getElementById('downloadBtn');
+    const status = document.getElementById('ppStatus');
+    btn.disabled = true;
+    btn.textContent = 'Opening PayPal…';
+    status.textContent = 'Opening PayPal…';
+    status.className = 'pp-status';
+    try {
+      const r = await fetch(PAYWALL_WORKER_URL + '/photo-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          folioId:  _selectedFolio.id,
+          template: _selectedTemplate,
+          uid:      _user.uid,
+        }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || d.detail || ('HTTP ' + r.status));
+      if (d.alreadyEntitled) {
+        // Imprint tier detected server-side — refresh + enable download
+        _paidCache.add(_paidKey(_selectedFolio.id, _selectedTemplate));
+        await _updateDownloadButton();
+        status.textContent = 'You already have Imprint access — download unlocked.';
+        status.className = 'pp-status ok';
+        return;
+      }
+      if (!d.approvalUrl) throw new Error('No approvalUrl in response');
+      window.location.href = d.approvalUrl;
+    } catch (e) {
+      status.textContent = 'Checkout failed: ' + (e.message || 'unknown');
+      status.className = 'pp-status err';
+      await _updateDownloadButton();
+    }
+  }
+
+  // On page load: if we came back from PayPal (?paid=1&folio=&template=),
+  // add that combo to the paid cache and select it so the button unlocks
+  // instantly. Also strip the query params so a page refresh doesn't
+  // repeatedly show the "Purchase confirmed" toast.
+  function _handlePaidReturn() {
+    try {
+      const u = new URL(window.location.href);
+      if (u.searchParams.get('paid') !== '1') return;
+      const folioId  = u.searchParams.get('folio') || '';
+      const template = u.searchParams.get('template') || '';
+      if (folioId && template) {
+        _paidCache.add(_paidKey(folioId, template));
+        // Preselect the folio + template so the user lands on their unlock.
+        _selectedTemplate = template;
+        document.querySelectorAll('.pp-template').forEach(function(b){
+          b.classList.toggle('active', b.getAttribute('data-template') === template);
+        });
+        // Folios load asynchronously; defer the pick until they're ready.
+        const tryPick = function() {
+          if (_folios.length) {
+            if (typeof _pickFolio === 'function') _pickFolio(folioId);
+          } else {
+            setTimeout(tryPick, 250);
+          }
+        };
+        tryPick();
+      }
+      // Clean the URL so a refresh doesn't loop.
+      u.searchParams.delete('paid');
+      u.searchParams.delete('folio');
+      u.searchParams.delete('template');
+      window.history.replaceState({}, '', u.toString());
+      const status = document.getElementById('ppStatus');
+      if (status) {
+        status.textContent = '✅ Purchase confirmed. Click Download PNG.';
+        status.className = 'pp-status ok';
+      }
+    } catch (_) {}
+  }
+
   async function generatePreview() {
     if (!_selectedFolio) return;
     const status = document.getElementById('ppStatus');
@@ -740,6 +1376,11 @@ a:hover{text-decoration:underline}
       status.textContent = 'Ready. Click Download for the full-resolution PNG.';
       status.className = 'pp-status ok';
       dlBtn.disabled = false;
+      // Re-evaluate tier + purchase state so the button reflects the
+      // current template selection. Imprint tier stays "Download PNG";
+      // non-subscribers see "Buy PNG ($3)" unless they've already
+      // bought this specific folio+template combo.
+      await _updateDownloadButton();
     } catch (e) {
       ctx.restore();
       console.error('[photos] render failed:', e);
@@ -750,6 +1391,11 @@ a:hover{text-decoration:underline}
 
   window.downloadPNG = async function downloadPNG() {
     if (!_selectedFolio) return;
+    const btn = document.getElementById('downloadBtn');
+    // Branch: buy vs download based on dataset.mode set by _updateDownloadButton
+    if (btn && btn.dataset.mode === 'buy') {
+      return _buyPhoto();
+    }
     const status = document.getElementById('ppStatus');
     status.textContent = 'Generating full-resolution PNG…';
     status.className = 'pp-status';
@@ -783,6 +1429,7 @@ a:hover{text-decoration:underline}
   };
 
   boot();
+  _handlePaidReturn();
 </script>
 
 </body>
