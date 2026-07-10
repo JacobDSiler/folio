@@ -109,6 +109,7 @@ try {
     Write-Host ""
     Write-Host "-- Firebase Storage CORS --" -ForegroundColor Cyan
     $gsutil = Get-Command gsutil -ErrorAction SilentlyContinue
+    if (-not $gsutil) { $gsutil = Get-Command gsutil.cmd -ErrorAction SilentlyContinue }
     if (-not $gsutil) {
         Write-Host "gsutil not on PATH. Install Google Cloud SDK or run this step manually:" -ForegroundColor Yellow
         Write-Host "  gsutil cors set docs\firebase-storage-cors.json gs://miscellaneous-117e9.firebasestorage.app" -ForegroundColor Yellow
@@ -117,15 +118,21 @@ try {
         if ($LASTEXITCODE -ne 0) { Write-Host "gsutil failed (exit $LASTEXITCODE)." -ForegroundColor Red; Stop-Here $LASTEXITCODE }
     }
 
-    # -- 4. Firestore rules -------------------------------------------
+    # -- 4. Firestore + Storage rules ---------------------------------
+    # Storage rules gate cover-image uploads (folio_images/{folioId}/...).
+    # If you get a 403 uploading a cover, this step probably didn't run.
     Write-Host ""
-    Write-Host "-- Firestore rules --" -ForegroundColor Cyan
+    Write-Host "-- Firestore + Storage rules --" -ForegroundColor Cyan
+    # firebase-cli on Windows ships as a .cmd shim from npm-global,
+    # which Get-Command doesn't always resolve. Try both the bare name
+    # and the .cmd suffix before giving up.
     $firebase = Get-Command firebase -ErrorAction SilentlyContinue
+    if (-not $firebase) { $firebase = Get-Command firebase.cmd -ErrorAction SilentlyContinue }
     if (-not $firebase) {
         Write-Host "firebase-cli not on PATH. Install and run:" -ForegroundColor Yellow
-        Write-Host "  firebase deploy --only firestore:rules" -ForegroundColor Yellow
+        Write-Host "  firebase deploy --only firestore:rules,storage" -ForegroundColor Yellow
     } else {
-        & firebase deploy --only firestore:rules
+        & $firebase.Source deploy --only firestore:rules,storage
         if ($LASTEXITCODE -ne 0) { Write-Host "firebase deploy failed (exit $LASTEXITCODE)." -ForegroundColor Red; Stop-Here $LASTEXITCODE }
     }
 
@@ -138,10 +145,15 @@ try {
     # review + commit those separately if desired.
     & git add .gitignore
     & git add app.html shelf.html
-    & git add docs\firestore.rules docs\firebase-storage-cors.json docs\SHELF_MODERATION_DESIGN.md
+    & git add docs\firestore.rules docs\storage.rules docs\firebase-storage-cors.json docs\SHELF_MODERATION_DESIGN.md
+    & git add firebase.json .firebaserc
     & git add admin\index.html admin\admins\index.html
     & git add admin\boost\index.html admin\reviews\index.html admin\press\index.html
     & git add wrangler.toml
+    & git add press\photos\index.html
+    & git add policy\index.html
+    & git add admin\shelf\index.html
+    & git add folio-paywall-worker.js
     & git add scripts\deploy-2026-07-07.ps1 scripts\deploy-2026-07-07.cmd
 
     # Commit message in a temp file so multi-line + non-ASCII survive

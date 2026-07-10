@@ -1,0 +1,367 @@
+<!doctype html>
+<!-- FOLIO ADMIN SHELF MODERATION v2026.07.07.1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Folio Admin — Shelf moderation</title>
+<meta name="robots" content="noindex,nofollow">
+<style>
+:root {
+  --bg:#faf7f1; --surface:#fff; --text:#1a1611; --muted:#5a5347; --hint:#8a8174;
+  --border:rgba(0,0,0,0.10); --border-mid:rgba(0,0,0,0.14);
+  --accent:#c98c2a; --accent-ui:#065f46; --danger:#c04040;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
+a{color:var(--accent-ui);text-decoration:none}
+.admin-hdr{background:var(--surface);border-bottom:.5px solid var(--border);padding:14px 20px;position:sticky;top:0;z-index:10}
+.admin-hdr-row{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.admin-brand{font-family:'Playfair Display',Georgia,serif;font-size:18px;font-weight:600;margin:0;color:var(--text)}
+.admin-brand .accent{color:var(--accent)}
+.admin-hdr-actions{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted)}
+.admin-hdr-actions a{color:var(--muted)}
+.admin-wrap{max-width:1100px;margin:0 auto;padding:22px 20px 60px}
+.admin-h1{font-family:'Playfair Display',Georgia,serif;font-size:26px;font-weight:600;margin:6px 0 4px}
+.admin-lead{font-size:13px;color:var(--muted);margin:0 0 18px;line-height:1.6}
+.tabs{display:flex;gap:4px;border-bottom:.5px solid var(--border);margin-bottom:18px}
+.tab{background:none;border:none;padding:9px 16px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer;border-radius:8px 8px 0 0;font-family:inherit;position:relative;bottom:-.5px;border-bottom:2px solid transparent}
+.tab.active{color:var(--text);border-bottom-color:var(--accent-ui)}
+.tab .count{display:inline-block;background:var(--bg);border:.5px solid var(--border);border-radius:999px;padding:1px 8px;margin-left:4px;font-size:11px}
+.tab.active .count{background:var(--accent-ui);color:#fff;border-color:transparent}
+.mod-card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:14px;display:grid;grid-template-columns:120px 1fr auto;gap:18px;align-items:flex-start;box-shadow:0 1px 3px rgba(0,0,0,0.04)}
+.mod-cover{width:120px;aspect-ratio:2/3;object-fit:cover;border-radius:6px;background:linear-gradient(135deg,var(--bg),var(--surface));border:.5px solid var(--border)}
+.mod-cover-ph{display:flex;align-items:center;justify-content:center;color:var(--hint);font-family:'Playfair Display',Georgia,serif;font-size:11px;text-align:center;padding:8px}
+.mod-body{min-width:0}
+.mod-title{font-family:'Playfair Display',Georgia,serif;font-size:16px;font-weight:600;margin:0 0 3px;line-height:1.25}
+.mod-author{font-size:12px;color:var(--muted);font-style:italic;margin:0 0 8px}
+.mod-badges{display:flex;gap:5px;flex-wrap:wrap;margin:0 0 8px}
+.mod-badge{font-size:10px;padding:2px 8px;border-radius:11px;font-weight:500;text-transform:uppercase;letter-spacing:.03em}
+.mod-badge.pending{background:rgba(201,140,42,0.15);color:#b57a1e}
+.mod-badge.approved{background:rgba(74,124,89,0.15);color:#3a6449}
+.mod-badge.rejected{background:rgba(192,64,64,0.15);color:var(--danger)}
+.mod-badge.adult{background:rgba(201,140,42,0.15);color:#b57a1e;border:.5px solid rgba(201,140,42,0.3)}
+.mod-badge.genre{background:rgba(0,0,0,0.06);color:var(--muted)}
+.mod-badge.paid{background:rgba(6,95,70,0.12);color:var(--accent-ui)}
+.mod-badge.serial{background:rgba(0,0,0,0.06);color:var(--muted)}
+.mod-blurb{font-size:12.5px;color:var(--muted);line-height:1.55;margin:0 0 10px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.mod-meta{font-size:11px;color:var(--hint);margin:0}
+.mod-meta strong{color:var(--muted);font-weight:500}
+.mod-actions{display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:130px}
+.mod-actions a{font-size:12px;color:var(--accent-ui);text-decoration:none;padding:6px 10px;border:.5px solid var(--border-mid);border-radius:6px;text-align:center;background:var(--bg)}
+.mod-actions a:hover{background:var(--surface)}
+.mod-actions button{font-size:12px;padding:6px 10px;border-radius:6px;cursor:pointer;font-family:inherit;font-weight:500}
+.mod-actions .approve{background:var(--accent-ui);color:#fff;border:none}
+.mod-actions .approve:hover{filter:brightness(.94)}
+.mod-actions .reject{background:none;color:var(--danger);border:.5px solid var(--danger)}
+.mod-actions .reject:hover{background:rgba(192,64,64,0.06)}
+.mod-actions .unapprove{background:none;color:var(--muted);border:.5px solid var(--border-mid)}
+.mod-actions .unapprove:hover{background:var(--bg)}
+.rejection-reason{font-size:12px;color:var(--danger);background:rgba(192,64,64,0.06);padding:8px 12px;border-radius:6px;margin:8px 0 0;border-left:2px solid var(--danger)}
+.empty{padding:60px 20px;text-align:center;color:var(--hint);font-style:italic}
+.loading{padding:60px 20px;text-align:center;color:var(--hint)}
+.auth-gate{text-align:center;padding:60px 20px}
+.hidden{display:none !important}
+.status{font-size:12px;margin-top:8px;min-height:14px}
+.status.ok{color:var(--accent-ui);font-weight:500}
+.status.err{color:var(--danger)}
+</style>
+</head>
+<body>
+<header class="admin-hdr">
+  <div class="admin-hdr-row">
+    <h1 class="admin-brand"><span class="accent">📚</span> Folio Admin — Shelf</h1>
+    <div class="admin-hdr-actions">
+      <a href="/admin/">← Console</a>
+      <a href="/shelf">Shelf</a>
+      <span id="signedInAs"></span>
+      <button id="signOutBtn" class="hidden" style="background:none;border:.5px solid var(--border-mid);color:var(--text);padding:6px 12px;border-radius:6px;font-size:11.5px;cursor:pointer;font-family:inherit" onclick="doSignOut()">Sign out</button>
+    </div>
+  </div>
+</header>
+
+<div id="authGate" class="auth-gate hidden">
+  <h2 style="font-family:'Playfair Display',Georgia,serif;font-size:22px;margin:0 0 10px">Sign in required</h2>
+  <p style="color:var(--muted);font-size:13px;margin:0 0 20px">Only moderators and admins can review Shelf listings.</p>
+  <button style="background:var(--accent-ui);color:#fff;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit" onclick="doSignIn()">Sign in with Google</button>
+  <div id="authStatus" class="status err"></div>
+</div>
+
+<div id="adminBody" class="hidden">
+  <div class="admin-wrap">
+    <h1 class="admin-h1">Shelf moderation queue</h1>
+    <p class="admin-lead">Every release opting into the public Shelf enters this queue before appearing. Approve to publish, reject with a short reason to remove from Shelf. Republishing a listed release automatically re-enters the queue.</p>
+
+    <div class="tabs">
+      <button class="tab active" data-filter="pending" onclick="setFilter('pending')">Pending <span class="count" id="cPending">—</span></button>
+      <button class="tab" data-filter="approved" onclick="setFilter('approved')">Approved <span class="count" id="cApproved">—</span></button>
+      <button class="tab" data-filter="rejected" onclick="setFilter('rejected')">Rejected <span class="count" id="cRejected">—</span></button>
+      <button class="tab" data-filter="all" onclick="setFilter('all')">All <span class="count" id="cAll">—</span></button>
+    </div>
+
+    <div id="loadStatus" class="loading">Loading queue…</div>
+    <div id="modList"></div>
+  </div>
+</div>
+
+<script>
+  const ADMIN_UIDS_BOOTSTRAP = ['x9AgFZ7O8WVz2UVtyO4ggWKNfc73'];
+  const GENRE_LABELS = {
+    literary:'Literary fiction', general:'Fiction', mystery:'Mystery / Crime',
+    thriller:'Thriller / Suspense', romance:'Romance', fantasy:'Fantasy',
+    scifi:'Science fiction', horror:'Horror', historical:'Historical fiction',
+    ya:'Young adult', children:"Children's", memoir:'Memoir / Biography',
+    selfhelp:'Self-help', business:'Business', health:'Health / Wellness',
+    poetry:'Poetry', essays:'Essays / Short stories',
+    educational:'Educational / How-to', other:'Other'
+  };
+  let _fb = {};
+  let _user = null;
+  let _releases = [];
+  let _filter = 'pending';
+
+  async function boot() {
+    try {
+      const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const authMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+      const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      Object.assign(_fb, {
+        initializeApp: appMod.initializeApp,
+        getAuth: authMod.getAuth,
+        GoogleAuthProvider: authMod.GoogleAuthProvider,
+        signInWithPopup: authMod.signInWithPopup,
+        signOut: authMod.signOut,
+        onAuthStateChanged: authMod.onAuthStateChanged,
+        getFirestore: fsMod.getFirestore,
+        collection: fsMod.collection,
+        query: fsMod.query,
+        where: fsMod.where,
+        getDoc: fsMod.getDoc,
+        getDocs: fsMod.getDocs,
+        doc: fsMod.doc,
+        updateDoc: fsMod.updateDoc,
+        limit: fsMod.limit
+      });
+      const cfg = { apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0", authDomain: "auth.jacobsiler.com", projectId: "miscellaneous-117e9", storageBucket: "miscellaneous-117e9.firebasestorage.app", messagingSenderId: "514858431339", appId: "1:514858431339:web:8b3acbe89966b45fe3922e" };
+      const app = _fb.initializeApp(cfg);
+      _fb.auth = _fb.getAuth(app);
+      _fb.db = _fb.getFirestore(app);
+      _fb.onAuthStateChanged(_fb.auth, onAuthChange);
+    } catch (e) { document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown'); }
+  }
+  async function isModerator(uid) {
+    if (!uid) return false;
+    if (ADMIN_UIDS_BOOTSTRAP.includes(uid)) return true;
+    try {
+      const roleDoc = await _fb.getDoc(_fb.doc(_fb.db, 'folio_roles', uid));
+      if (!roleDoc.exists()) return false;
+      const d = roleDoc.data() || {};
+      const roles = Array.isArray(d.roles) ? d.roles : [];
+      return roles.includes('admin') || roles.includes('moderator');
+    } catch (_) { return false; }
+  }
+  async function onAuthChange(u) {
+    _user = u;
+    const gate = document.getElementById('authGate');
+    const body = document.getElementById('adminBody');
+    if (!u) { gate.classList.remove('hidden'); body.classList.add('hidden'); document.getElementById('signOutBtn').classList.add('hidden'); document.getElementById('signedInAs').textContent = ''; return; }
+    document.getElementById('signedInAs').textContent = u.email || u.uid.slice(0, 12) + '…';
+    document.getElementById('signOutBtn').classList.remove('hidden');
+    if (!(await isModerator(u.uid))) {
+      gate.classList.remove('hidden'); body.classList.add('hidden');
+      document.getElementById('authStatus').textContent = 'Signed in as ' + (u.email || u.uid) + ' — not a moderator.';
+      return;
+    }
+    gate.classList.add('hidden'); body.classList.remove('hidden');
+    loadQueue();
+  }
+  window.doSignIn = async function() { try { await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider()); } catch (e) { document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown'); } };
+  window.doSignOut = async function() { try { await _fb.signOut(_fb.auth); } catch (_) {} };
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+
+  window.setFilter = function(f) {
+    _filter = f;
+    document.querySelectorAll('.tab').forEach(function(t){ t.classList.toggle('active', t.getAttribute('data-filter') === f); });
+    renderList();
+  };
+
+  async function loadQueue() {
+    const status = document.getElementById('loadStatus');
+    status.textContent = 'Loading queue…';
+    try {
+      // Query all folios where the release opts into the Shelf. We do the
+      // pending/approved/rejected split client-side because the composite
+      // index would need three separate ones otherwise.
+      const q = _fb.query(
+        _fb.collection(_fb.db, 'folio_projects'),
+        _fb.where('release.listOnShelf', '==', true),
+        _fb.limit(300)
+      );
+      const snap = await _fb.getDocs(q);
+      _releases = [];
+      snap.forEach(function(d){
+        const data = d.data() || {};
+        const r = data.release || {};
+        _releases.push({
+          id: d.id,
+          uid: String(data.uid || ''),
+          title: String(r.title || data.name || 'Untitled'),
+          author: String(r.author || ''),
+          description: String(r.description || ''),
+          blurb: String(r.shelfBlurb || (r.shelfUseDescription ? r.description : '') || r.description || ''),
+          coverUrl: (typeof r.coverUrl === 'string' && /^https:\/\//i.test(r.coverUrl)) ? r.coverUrl : '',
+          genre: String(r.shelfGenre || ''),
+          hasAdultContent: !!r.hasAdultContent,
+          priceMode: String(r.priceMode || 'free'),
+          serial: !!r.serial,
+          published: !!r.published,
+          publishedAt: Number(r.publishedAt || 0),
+          pageCount: Number(r.pageCount || 0),
+          pending: !!r.shelfPendingModeration,
+          rejectedAt: Number(r.shelfRejectedAt || 0),
+          approvedAt: Number(r.shelfApprovedAt || 0),
+          rejectionReason: String(r.shelfRejectionReason || ''),
+          reviewedBy: String(r.shelfLastReviewedBy || '')
+        });
+      });
+      status.textContent = '';
+      renderList();
+    } catch (e) {
+      status.innerHTML = '<span class="status err">Load failed: ' + esc(e.message || 'unknown') + '</span>';
+    }
+  }
+
+  function counts() {
+    let p=0, a=0, r=0;
+    for (const rel of _releases) {
+      if (rel.pending) p++;
+      else if (rel.rejectedAt) r++;
+      else a++;
+    }
+    return { pending: p, approved: a, rejected: r, all: _releases.length };
+  }
+
+  function renderList() {
+    const c = counts();
+    document.getElementById('cPending').textContent = c.pending;
+    document.getElementById('cApproved').textContent = c.approved;
+    document.getElementById('cRejected').textContent = c.rejected;
+    document.getElementById('cAll').textContent = c.all;
+    const list = document.getElementById('modList');
+    const filtered = _releases.filter(function(r){
+      if (_filter === 'all') return true;
+      if (_filter === 'pending') return r.pending;
+      if (_filter === 'rejected') return r.rejectedAt > 0;
+      if (_filter === 'approved') return !r.pending && !r.rejectedAt;
+      return false;
+    });
+    filtered.sort(function(a, b){ return (b.publishedAt || 0) - (a.publishedAt || 0); });
+    if (!filtered.length) {
+      list.innerHTML = '<div class="empty">No releases in the ' + esc(_filter) + ' queue.</div>';
+      return;
+    }
+    list.innerHTML = filtered.map(function(rel){
+      const cover = rel.coverUrl
+        ? '<img class="mod-cover" src="' + esc(rel.coverUrl) + '" alt="" loading="lazy" crossorigin="anonymous">'
+        : '<div class="mod-cover mod-cover-ph">' + esc(rel.title) + '</div>';
+      const badges = [];
+      if (rel.pending) badges.push('<span class="mod-badge pending">Pending</span>');
+      else if (rel.rejectedAt) badges.push('<span class="mod-badge rejected">Rejected</span>');
+      else badges.push('<span class="mod-badge approved">Approved</span>');
+      if (rel.hasAdultContent) badges.push('<span class="mod-badge adult">🔞 Adult</span>');
+      if (rel.priceMode === 'paid') badges.push('<span class="mod-badge paid">Paid</span>');
+      if (rel.serial) badges.push('<span class="mod-badge serial">Serial</span>');
+      if (rel.genre) badges.push('<span class="mod-badge genre">' + esc(GENRE_LABELS[rel.genre] || rel.genre) + '</span>');
+      const meta = [];
+      if (rel.publishedAt) meta.push('<strong>Published:</strong> ' + new Date(rel.publishedAt).toLocaleDateString());
+      if (rel.pageCount) meta.push('<strong>~' + rel.pageCount + ' pages</strong>');
+      if (rel.approvedAt && !rel.rejectedAt && !rel.pending) meta.push('<strong>Approved:</strong> ' + new Date(rel.approvedAt).toLocaleDateString());
+      if (rel.rejectedAt) meta.push('<strong>Rejected:</strong> ' + new Date(rel.rejectedAt).toLocaleDateString());
+      const readerUrl = '/app.html?read=' + encodeURIComponent(rel.id);
+      const imprintUrl = '/imprint/?uid=' + encodeURIComponent(rel.uid);
+      let actions = '<a href="' + esc(readerUrl) + '" target="_blank">Open reader ↗</a>';
+      actions += '<a href="' + esc(imprintUrl) + '" target="_blank">View imprint ↗</a>';
+      if (rel.pending || rel.rejectedAt) {
+        actions += '<button class="approve" onclick="approve(\'' + esc(rel.id) + '\')">✅ Approve</button>';
+      }
+      if (rel.pending || (!rel.rejectedAt && !rel.pending)) {
+        actions += '<button class="reject" onclick="reject(\'' + esc(rel.id) + '\')">❌ Reject</button>';
+      }
+      if (!rel.pending && !rel.rejectedAt) {
+        actions += '<button class="unapprove" onclick="unapprove(\'' + esc(rel.id) + '\')">↺ Un-approve</button>';
+      }
+      const rejReason = rel.rejectedAt && rel.rejectionReason
+        ? '<div class="rejection-reason"><strong>Reason:</strong> ' + esc(rel.rejectionReason) + '</div>'
+        : '';
+      return '<div class="mod-card">' +
+        cover +
+        '<div class="mod-body">' +
+          '<h3 class="mod-title">' + esc(rel.title) + '</h3>' +
+          '<p class="mod-author">by ' + esc(rel.author) + '</p>' +
+          '<div class="mod-badges">' + badges.join('') + '</div>' +
+          (rel.blurb ? '<p class="mod-blurb">' + esc(rel.blurb) + '</p>' : '') +
+          '<p class="mod-meta">' + meta.join(' · ') + '</p>' +
+          rejReason +
+        '</div>' +
+        '<div class="mod-actions">' + actions + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  async function updateRelease(id, patch) {
+    const ref = _fb.doc(_fb.db, 'folio_projects', id);
+    // Prefix all keys with "release." so we only touch the release map
+    const flat = {};
+    for (const k in patch) flat['release.' + k] = patch[k];
+    flat['release.shelfLastReviewedBy'] = _user ? _user.uid : '';
+    await _fb.updateDoc(ref, flat);
+  }
+
+  window.approve = async function(id) {
+    if (!confirm('Approve this release for the public Shelf?')) return;
+    try {
+      await updateRelease(id, {
+        shelfPendingModeration: false,
+        shelfApprovedAt: Date.now(),
+        shelfRejectedAt: 0,
+        shelfRejectionReason: ''
+      });
+      await loadQueue();
+    } catch (e) { alert('Approve failed: ' + (e.message || 'unknown')); }
+  };
+
+  window.reject = async function(id) {
+    const reason = prompt('Rejection reason (short, will be shown to the author):');
+    if (reason == null) return;
+    const short = String(reason).trim().slice(0, 240);
+    if (!short) { alert('Reason cannot be empty.'); return; }
+    try {
+      // Rejecting also un-ticks listOnShelf so the release drops out of
+      // the public feed even if shelfPendingModeration flips back.
+      await updateRelease(id, {
+        shelfPendingModeration: false,
+        shelfRejectedAt: Date.now(),
+        shelfRejectionReason: short,
+        listOnShelf: false
+      });
+      await loadQueue();
+    } catch (e) { alert('Reject failed: ' + (e.message || 'unknown')); }
+  };
+
+  window.unapprove = async function(id) {
+    if (!confirm('Move this release back to the pending queue?')) return;
+    try {
+      await updateRelease(id, {
+        shelfPendingModeration: true,
+        shelfApprovedAt: 0
+      });
+      await loadQueue();
+    } catch (e) { alert('Un-approve failed: ' + (e.message || 'unknown')); }
+  };
+
+  boot();
+</script>
+</body>
+</html>

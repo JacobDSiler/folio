@@ -8399,7 +8399,11 @@
             if (_shareTk) {
               const _pd = typeof _pwDecode === 'function' ? _pwDecode(_shareTk) : null;
               const _now = Math.floor(Date.now() / 1000);
-              if (!_pd || _pd.folio !== folioId || (_pd.exp && _pd.exp < _now)) {
+              // Accept either payload key: legacy tokens used `folioId`,
+              // newer tokens (post-2026-07-09 rename) use `folio`. Belt-and-
+              // braces against key drift on future worker refactors.
+              const _pdFolio = (_pd && (_pd.folio || _pd.folioId)) || null;
+              if (!_pd || _pdFolio !== folioId || (_pd.exp && _pd.exp < _now)) {
                 localStorage.removeItem('folioShareToken_' + folioId);
                 _shareTk = null;
               }
@@ -19678,7 +19682,20 @@
         //   back to true so re-edits re-enter moderation ("republish
         //   air-gap" from the summary).
         hasAdultContent: !!(document.getElementById('rlHasAdultContent') && document.getElementById('rlHasAdultContent').checked),
-        shelfPendingModeration: !!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked),
+        // Preserve moderation state across republishes. Only set pending=true
+        // on the FIRST publish to Shelf (when shelfListedAt is not previously
+        // set on this release). Otherwise inherit the current value so an
+        // already-approved listing doesn't silently drop off the Shelf every
+        // time the author fixes a typo. Rejected listings likewise stay
+        // rejected until the author explicitly re-ticks List on Shelf.
+        //
+        // This intentionally deviates from the original SHELF_MODERATION_DESIGN
+        // "republish air-gap" behavior — that was designed for a moderator
+        // team gated against image safety review, which we don't need at
+        // current scale with a single moderator (Jacob).
+        shelfPendingModeration: (_rlCurrent && _rlCurrent.shelfListedAt)
+          ? !!_rlCurrent.shelfPendingModeration
+          : !!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked),
         // Series / collection linking (Phase 3 task #53). Both nullable —
         // empty means standalone folio. Number is clamped 0-999 for sanity.
         series: ((document.getElementById('rlSeriesName') && document.getElementById('rlSeriesName').value) || '').trim().slice(0, 80) || null,
@@ -29731,7 +29748,7 @@
 
       <!-- Action row -->
       <div style="display:flex;gap:10px;justify-content:space-between;align-items:center;padding-top:12px;border-top:.5px solid var(--border-mid)">
-        <a href="/imprint/" target="_blank" style="font-size:12px;color:var(--muted)">Preview my imprint →</a>
+        <a href="/imprint/" id="imprintPreviewLink" target="_blank" onclick="var u=(window._uid||(window._user&&window._user.uid)||'');if(u){this.href='/imprint/?uid='+encodeURIComponent(u);}else{alert('Sign in first, then click Preview.');event.preventDefault();return false;}" style="font-size:12px;color:var(--muted)">Preview my imprint →</a>
         <div style="display:flex;gap:8px">
           <button type="button" onclick="_closeImprintCustomize()" style="padding:8px 14px;background:var(--surface);border:.5px solid var(--border-mid);border-radius:7px;color:var(--text);cursor:pointer;font-size:13px;font-family:inherit">Cancel</button>
           <button type="button" id="imprintSaveBtn" onclick="_saveImprintTheme()" style="padding:8px 18px;background:var(--accent);border:none;border-radius:7px;color:#fff;cursor:pointer;font-size:13px;font-weight:500;font-family:inherit">Save theme</button>
@@ -29760,6 +29777,18 @@
     if (active) {
       pitch.style.display = 'none';
       editor.style.display = 'block';
+      // Pre-fill the "Preview my imprint" link with the current uid so
+      // clicking it lands on the author's own imprint page instead of
+      // /imprint/ with no ?uid= (which shows "No author specified").
+      // The anchor also has a live onclick fallback but this is the
+      // primary path — no runtime work at click time.
+      try {
+        const _prevLink = document.getElementById('imprintPreviewLink');
+        const _prevUid = window._uid || (window._user && window._user.uid) || '';
+        if (_prevLink && _prevUid) {
+          _prevLink.href = '/imprint/?uid=' + encodeURIComponent(_prevUid);
+        }
+      } catch (_) {}
       // Load the current theme from Firestore
       _loadImprintTheme();
     } else {
