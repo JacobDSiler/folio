@@ -199,7 +199,7 @@ a:hover{text-decoration:underline}
 <script>
 const GENRE_LABELS = {literary:'Literary',general:'Fiction',mystery:'Mystery',thriller:'Thriller',romance:'Romance',fantasy:'Fantasy',scifi:'Sci-fi',horror:'Horror',historical:'Historical',ya:'Young adult',children:'Children’s',memoir:'Memoir',selfhelp:'Self-help',business:'Business',health:'Health',poetry:'Poetry',essays:'Essays',educational:'Educational',other:'Other'};
 
-let _fbDb=null,_fbQuery=null,_fbGetDocs=null,_fbCollection=null,_fbWhere=null,_fbLimit=null;
+let _fbDb=null,_fbQuery=null,_fbGetDocs=null,_fbCollection=null,_fbWhere=null,_fbLimit=null,_fbDoc=null,_fbGetDoc=null;
 
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 
@@ -426,10 +426,17 @@ async function applyImprintTheme(uid) {
     }
     console.log('[imprint-theme] tier ok, fetching theme doc…');
 
-    // Fetch the theme doc from Firestore
-    const { doc, getDoc } = window._fb;
-    const themeRef = doc(window._db, 'folio_imprint_themes', uid);
-    const themeSnap = await getDoc(themeRef);
+    // Fetch the theme doc from Firestore. Use the imprint page's own
+    // module-scoped bindings (_fbDb / _fbDoc / _fbGetDoc). Previously
+    // this destructured window._fb which was set on app.html but NEVER
+    // on the imprint page — so the whole theme-apply path threw silently
+    // for every request.
+    if (!_fbDb || !_fbDoc || !_fbGetDoc) {
+      console.warn('[imprint-theme] Firestore not ready — skipping theme apply');
+      return;
+    }
+    const themeRef = _fbDoc(_fbDb, 'folio_imprint_themes', uid);
+    const themeSnap = await _fbGetDoc(themeRef);
     if (!themeSnap.exists()) {
       console.log('[imprint-theme] no theme doc exists at folio_imprint_themes/' + uid + ' — hit Save in the Customize modal');
       return;
@@ -486,11 +493,12 @@ async function boot(){
   try{
     const appMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
     const fsMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    const {doc,getDoc}=fsMod;
     const authMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
     const {initializeApp}=appMod;
     const {getFirestore,collection,query,where,getDocs,limit}=fsMod;
     const {getAuth,onAuthStateChanged}=authMod;
-    _fbCollection=collection;_fbQuery=query;_fbWhere=where;_fbGetDocs=getDocs;_fbLimit=limit;
+    _fbCollection=collection;_fbQuery=query;_fbWhere=where;_fbGetDocs=getDocs;_fbLimit=limit;_fbDoc=doc;_fbGetDoc=getDoc;
     const firebaseConfig={apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",authDomain:"auth.jacobsiler.com",projectId:"miscellaneous-117e9",storageBucket:"miscellaneous-117e9.firebasestorage.app",messagingSenderId:"514858431339",appId:"1:514858431339:web:8b3acbe89966b45fe3922e"};
     const app=initializeApp(firebaseConfig);
     _fbDb=getFirestore(app);
