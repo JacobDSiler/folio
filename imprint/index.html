@@ -408,21 +408,34 @@ function renderHeader(authorName, tipUrl, count){
 // the AUTHOR (not the viewer) has an active Indie or Imprint subscription
 // via /press-status endpoint on the paywall worker.
 async function applyImprintTheme(uid) {
-  if (!uid) return;
+  if (!uid) { console.log('[imprint-theme] no uid — skipping'); return; }
   try {
     // Check subscription status of the author whose imprint we're viewing
     const PAYWALL_WORKER_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
+    console.log('[imprint-theme] checking press-status for uid', uid);
     const statusResp = await fetch(PAYWALL_WORKER_URL + '/press-status?uid=' + encodeURIComponent(uid));
     const status = await statusResp.json().catch(function(){ return { active: false }; });
-    if (!status || !status.active) return;  // Free tier author — default styling
-    if (status.tier !== 'indie' && status.tier !== 'imprint') return;
+    console.log('[imprint-theme] press-status response:', status);
+    if (!status || !status.active) {
+      console.log('[imprint-theme] author is not on an active Press subscription — default styling');
+      return;
+    }
+    if (status.tier !== 'indie' && status.tier !== 'imprint') {
+      console.log('[imprint-theme] author tier is', status.tier, '— only indie/imprint get custom styling');
+      return;
+    }
+    console.log('[imprint-theme] tier ok, fetching theme doc…');
 
     // Fetch the theme doc from Firestore
     const { doc, getDoc } = window._fb;
     const themeRef = doc(window._db, 'folio_imprint_themes', uid);
     const themeSnap = await getDoc(themeRef);
-    if (!themeSnap.exists()) return;
+    if (!themeSnap.exists()) {
+      console.log('[imprint-theme] no theme doc exists at folio_imprint_themes/' + uid + ' — hit Save in the Customize modal');
+      return;
+    }
     const theme = themeSnap.data() || {};
+    console.log('[imprint-theme] theme loaded:', theme);
     const root = document.documentElement.style;
 
     // Apply accent color to CSS variable

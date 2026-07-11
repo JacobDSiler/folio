@@ -29697,7 +29697,7 @@
       <button type="button" onclick="_closeImprintCustomize()" style="background:none;border:none;font-size:22px;color:var(--hint);cursor:pointer;padding:4px 8px">×</button>
     </div>
     <p style="font-size:13px;color:var(--muted);margin:0 0 20px;line-height:1.5">
-      Personalize your <a href="/imprint/" target="_blank" style="color:var(--accent-ui)">imprint page</a> so it looks like your brand, not the platform's.
+      Personalize your <a href="/imprint/" id="imprintPitchLink" target="_blank" onclick="var u=(window._uid||(window._user&&window._user.uid)||'');if(u){this.href='/imprint/?uid='+encodeURIComponent(u);}" style="color:var(--accent-ui)">imprint page</a> so it looks like your brand, not the platform's.
     </p>
 
     <!-- Non-subscriber pitch — shown when window.pressSub() reports inactive -->
@@ -29783,12 +29783,16 @@
       // The anchor also has a live onclick fallback but this is the
       // primary path — no runtime work at click time.
       try {
-        const _prevLink = document.getElementById('imprintPreviewLink');
         const _prevUid = window._uid || (window._user && window._user.uid) || '';
-        if (_prevLink && _prevUid) {
-          _prevLink.href = '/imprint/?uid=' + encodeURIComponent(_prevUid);
+        if (_prevUid) {
+          const _prevLink = document.getElementById('imprintPreviewLink');
+          if (_prevLink) _prevLink.href = '/imprint/?uid=' + encodeURIComponent(_prevUid);
+          const _pitchLink = document.getElementById('imprintPitchLink');
+          if (_pitchLink) _pitchLink.href = '/imprint/?uid=' + encodeURIComponent(_prevUid);
+        } else {
+          console.warn('[imprint-preview] window._uid was empty at modal-open time — signed in?');
         }
-      } catch (_) {}
+      } catch (e) { console.warn('[imprint-preview] href injection failed:', e); }
       // Load the current theme from Firestore
       _loadImprintTheme();
     } else {
@@ -29861,6 +29865,8 @@
         updatedAt: Date.now(),
       }, { merge: true });
       if (status) { status.textContent = '✅ Saved. Refresh your imprint page to see it live.'; status.style.color = 'var(--accent-ui,#065f46)'; }
+      console.log('[imprint] theme saved for uid', uid, '{accent,font,hero}=', {accent, font, hero});
+      console.log('[imprint] NOTE: theme only renders if press-status?uid=' + uid + ' returns { active: true, tier: "indie" | "imprint" }. Check that in DevTools if the imprint page still looks default.');
     } catch (e) {
       console.error('[imprint] theme save failed:', e);
       if (status) { status.textContent = 'Save failed: ' + (e.message || 'unknown'); status.style.color = 'var(--danger,#c04040)'; }

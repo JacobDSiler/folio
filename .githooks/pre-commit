@@ -53,9 +53,12 @@ case "$LAST_STRIPPED" in
     ;;
 esac
 
-# The dispatcher must be near the tail. If `export default` isn't in the
-# last 4000 bytes, the file has been cut off before the export block.
-if ! tail -c 4000 "$WORKER" | grep -q "export default"; then
+# The dispatcher must be near the tail. Bumped from 4000 → 8000 bytes
+# on 2026-07-09 after the worker grew to include /sign-share, /photo-*
+# endpoints, and an expanded /info listing. Widen further if the worker
+# keeps growing — the check just wants to be sure the dispatcher block
+# isn't lopped off entirely.
+if ! tail -c 8000 "$WORKER" | grep -q "export default"; then
   echo ""
   echo "❌ COMMIT BLOCKED — $WORKER is missing 'export default' near the tail."
   echo ""
