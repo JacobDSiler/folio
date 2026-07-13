@@ -470,6 +470,25 @@ async function applyImprintTheme(uid) {
       }
       console.log('[imprint-theme] background applied:', theme.background, 'bright=' + _bright, _bright < 380 ? '(dark → flipped text)' : '(light)');
     }
+    // Apply wallpaper — page background image with tile/stretch/center fit.
+    if (theme.wallpaper && /^https:\/\//i.test(theme.wallpaper)) {
+      const fit = ['tile','stretch','center'].includes(theme.wallpaperFit) ? theme.wallpaperFit : 'tile';
+      const safeUrl = theme.wallpaper.replace(/["'\\]/g, '');
+      let props = '';
+      if (fit === 'tile') {
+        props = "background-image: url('" + safeUrl + "'); background-repeat: repeat; background-attachment: fixed; background-position: top left;";
+      } else if (fit === 'stretch') {
+        props = "background-image: url('" + safeUrl + "'); background-repeat: no-repeat; background-size: cover; background-attachment: fixed; background-position: center;";
+      } else {
+        props = "background-image: url('" + safeUrl + "'); background-repeat: no-repeat; background-attachment: fixed; background-position: center;";
+      }
+      const styleEl = document.createElement('style');
+      // Inject onto html+body so it survives header/footer chrome. Also fall
+      // back the color to the picked --bg so translucent images blend cleanly.
+      styleEl.textContent = 'html,body{' + props + '}';
+      document.head.appendChild(styleEl);
+      console.log('[imprint-theme] wallpaper applied:', safeUrl, 'fit=' + fit);
+    }
 
     // Apply header font — swap out Playfair Display for the selected font
     const fontMap = {
