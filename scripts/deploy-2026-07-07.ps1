@@ -71,7 +71,7 @@ try {
     $must = @(
         "app.html", "shelf.html",
         "docs\firestore.rules", "docs\firebase-storage-cors.json",
-        "docs\SHELF_MODERATION_DESIGN.md",
+        "docs\SHELF_MODERATION_DESIGN.md", "docs\LOCALIZATION_DESIGN.md",
         "admin\index.html", "admin\admins\index.html",
         "admin\boost\index.html", "admin\reviews\index.html", "admin\press\index.html",
         "wrangler.toml", ".gitignore"
@@ -146,6 +146,7 @@ try {
     & git add .gitignore
     & git add app.html shelf.html
     & git add docs\firestore.rules docs\storage.rules docs\firebase-storage-cors.json docs\SHELF_MODERATION_DESIGN.md
+    & git add docs\LOCALIZATION_DESIGN.md
     & git add firebase.json .firebaserc
     & git add admin\index.html admin\admins\index.html
     & git add admin\boost\index.html admin\reviews\index.html admin\press\index.html

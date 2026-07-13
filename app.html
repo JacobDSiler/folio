@@ -29758,6 +29758,22 @@
         Paste any https:// URL — Imgur, your own site, etc. Recommended: 1600×400 landscape. Leave blank to hide.
       </p>
 
+      <!-- Wallpaper (repeating pattern or full-bleed background) -->
+      <label style="display:block;font-size:12.5px;font-weight:500;color:var(--text);margin:0 0 6px">Wallpaper URL <span style="color:var(--hint);font-weight:400;font-size:11px">(optional — page background pattern or texture)</span></label>
+      <input type="url" id="imprintWallpaperInput" placeholder="https://... (paste an image URL)"
+        style="width:100%;font-size:12.5px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:ui-monospace,Menlo,monospace;margin:0 0 8px">
+      <div style="display:flex;gap:8px;align-items:center;margin:0 0 6px">
+        <label for="imprintWallpaperFit" style="font-size:11.5px;color:var(--muted);white-space:nowrap">Fit:</label>
+        <select id="imprintWallpaperFit" style="flex:1;font-size:12.5px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);font-family:inherit;cursor:pointer">
+          <option value="tile">Tile (repeat pattern)</option>
+          <option value="stretch">Stretch to fill (cover)</option>
+          <option value="center">Center (no repeat)</option>
+        </select>
+      </div>
+      <p style="font-size:10.5px;color:var(--hint);margin:0 0 20px;line-height:1.5">
+        For seamless textures pick <em>Tile</em>. For a hero-style photo pick <em>Stretch</em>. For a logo watermark pick <em>Center</em>. Leave blank to hide.
+      </p>
+
       <!-- Action row — compact single-row layout per Jacob's mockup:
              [💾 Save] | Preview my imprint → | Cancel
            Save is the amber-tinted primary action but stays as an icon
@@ -29867,6 +29883,10 @@
         if (fontSel) fontSel.value = d.font || 'playfair';
         const heroInp = document.getElementById('imprintHeroInput');
         if (heroInp) heroInp.value = d.hero || '';
+        const wallInp = document.getElementById('imprintWallpaperInput');
+        if (wallInp) wallInp.value = d.wallpaper || '';
+        const wallFit = document.getElementById('imprintWallpaperFit');
+        if (wallFit) wallFit.value = d.wallpaperFit || 'tile';
       } else {
         console.log('[imprint] no theme doc yet — showing defaults');
         _pickImprintColor('#c98c2a');
@@ -29885,10 +29905,17 @@
       if (status) { status.textContent = 'Not signed in.'; status.style.color = 'var(--danger,#c04040)'; }
       return;
     }
-    const accent     = (document.getElementById('imprintAccentInput') || {}).value || '#c98c2a';
-    const background = (document.getElementById('imprintBgInput')     || {}).value || '#faf7f1';
-    const font       = (document.getElementById('imprintFontSelect')  || {}).value || 'playfair';
-    const hero       = ((document.getElementById('imprintHeroInput')  || {}).value || '').trim();
+    const accent     = (document.getElementById('imprintAccentInput')    || {}).value || '#c98c2a';
+    const background = (document.getElementById('imprintBgInput')        || {}).value || '#faf7f1';
+    const font       = (document.getElementById('imprintFontSelect')     || {}).value || 'playfair';
+    const hero       = ((document.getElementById('imprintHeroInput')     || {}).value || '').trim();
+    const wallpaper  = ((document.getElementById('imprintWallpaperInput')|| {}).value || '').trim();
+    const wallpaperFit = (document.getElementById('imprintWallpaperFit') || {}).value || 'tile';
+    // Validate wallpaper URL if provided
+    if (wallpaper && !/^https:\/\//i.test(wallpaper)) {
+      if (status) { status.textContent = 'Wallpaper URL must start with https://'; status.style.color = 'var(--danger,#c04040)'; }
+      return;
+    }
     // Validate hero URL is https if provided
     if (hero && !/^https:\/\//i.test(hero)) {
       if (status) { status.textContent = 'Hero image URL must start with https://'; status.style.color = 'var(--danger,#c04040)'; }
@@ -29900,14 +29927,16 @@
       const { doc, setDoc } = window._fb;
       const ref = doc(window._db, 'folio_imprint_themes', uid);
       await setDoc(ref, {
-        accent:     String(accent).slice(0, 20),
-        background: String(background).slice(0, 20),
-        font:       String(font).slice(0, 20),
-        hero:       String(hero).slice(0, 500),
-        updatedAt:  Date.now(),
+        accent:       String(accent).slice(0, 20),
+        background:   String(background).slice(0, 20),
+        font:         String(font).slice(0, 20),
+        hero:         String(hero).slice(0, 500),
+        wallpaper:    String(wallpaper).slice(0, 500),
+        wallpaperFit: ['tile','stretch','center'].includes(wallpaperFit) ? wallpaperFit : 'tile',
+        updatedAt:    Date.now(),
       }, { merge: true });
       if (status) { status.textContent = '✅ Saved. Refresh your imprint page to see it live.'; status.style.color = 'var(--accent-ui,#065f46)'; }
-      console.log('[imprint] theme saved for uid', uid, '{accent,background,font,hero}=', {accent, background, font, hero});
+      console.log('[imprint] theme saved for uid', uid, '{accent,background,font,hero,wallpaper,wallpaperFit}=', {accent, background, font, hero, wallpaper, wallpaperFit});
       console.log('[imprint] NOTE: theme only renders if press-status?uid=' + uid + ' returns { active: true, tier: "indie" | "imprint" }. Check that in DevTools if the imprint page still looks default.');
     } catch (e) {
       console.error('[imprint] theme save failed:', e);
