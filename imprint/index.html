@@ -448,7 +448,27 @@ async function applyImprintTheme(uid) {
     // Apply accent color to CSS variable
     if (theme.accent && /^#[0-9a-f]{3,8}$/i.test(theme.accent)) {
       root.setProperty('--accent', theme.accent);
-      // Also refresh accent-related bits — dark mode uses accent for many things
+    }
+    // Apply background color (Indie+ personalization). Overrides the
+    // default --bg which drives page + card surfaces.
+    if (theme.background && /^#[0-9a-f]{3,8}$/i.test(theme.background)) {
+      root.setProperty('--bg', theme.background);
+      // If author picked a dark background, flip text tokens toward light.
+      // Rough contrast check — sum RGB channels; below 380 is "dark".
+      const _hexInt = parseInt(theme.background.replace('#',''), 16);
+      const _r = (_hexInt >> 16) & 255;
+      const _g = (_hexInt >> 8) & 255;
+      const _b = _hexInt & 255;
+      const _bright = _r + _g + _b;
+      if (_bright < 380) {
+        root.setProperty('--text',  '#e8dece');
+        root.setProperty('--muted', '#a89e8b');
+        root.setProperty('--hint',  '#79705f');
+        root.setProperty('--surface', '#1f1a14');
+        root.setProperty('--border', 'rgba(232,222,206,0.10)');
+        root.setProperty('--border-mid', 'rgba(232,222,206,0.16)');
+      }
+      console.log('[imprint-theme] background applied:', theme.background, 'bright=' + _bright, _bright < 380 ? '(dark → flipped text)' : '(light)');
     }
 
     // Apply header font — swap out Playfair Display for the selected font
@@ -468,7 +488,7 @@ async function applyImprintTheme(uid) {
     if (theme.hero && /^https:\/\//i.test(theme.hero)) {
       const hdr = document.querySelector('.imprint-hdr');
       if (hdr) {
-        hdr.style.backgroundImage = 'linear-gradient(180deg, rgba(20,17,13,0.5) 0%, rgba(20,17,13,0.9) 100%), url(\'' + theme.hero.replace(/[\'"]/g, '') + '\')';
+        hdr.style.backgroundImage = 'linear-gradient(180deg, rgba(20,17,13,0.15) 0%, rgba(20,17,13,0.60) 100%), url(\'' + theme.hero.replace(/[\'"]/g, '') + '\')';
         hdr.style.backgroundSize = 'cover';
         hdr.style.backgroundPosition = 'center';
         hdr.style.minHeight = '260px';

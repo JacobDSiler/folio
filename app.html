@@ -29729,6 +29729,18 @@
         <input type="color" id="imprintAccentInput" value="#c98c2a" style="width:36px;height:36px;padding:0;border:2px solid var(--border-mid);border-radius:6px;cursor:pointer;background:none" onchange="_pickImprintColor(this.value)" title="Custom color">
       </div>
 
+      <!-- Background color -->
+      <label style="display:block;font-size:12.5px;font-weight:500;color:var(--text);margin:14px 0 6px">Background color</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px">
+        <button type="button" class="ic-bg-swatch" data-color="#faf7f1" style="width:36px;height:36px;border-radius:50%;border:2px solid transparent;background:#faf7f1;cursor:pointer" onclick="_pickImprintBg('#faf7f1')" title="Folio cream (default)"></button>
+        <button type="button" class="ic-bg-swatch" data-color="#f5efe0" style="width:36px;height:36px;border-radius:50%;border:2px solid transparent;background:#f5efe0;cursor:pointer" onclick="_pickImprintBg('#f5efe0')" title="Parchment"></button>
+        <button type="button" class="ic-bg-swatch" data-color="#e8e0d0" style="width:36px;height:36px;border-radius:50%;border:2px solid transparent;background:#e8e0d0;cursor:pointer" onclick="_pickImprintBg('#e8e0d0')" title="Aged paper"></button>
+        <button type="button" class="ic-bg-swatch" data-color="#f0eaf8" style="width:36px;height:36px;border-radius:50%;border:2px solid transparent;background:#f0eaf8;cursor:pointer" onclick="_pickImprintBg('#f0eaf8')" title="Pale lavender"></button>
+        <button type="button" class="ic-bg-swatch" data-color="#eaf3ec" style="width:36px;height:36px;border-radius:50%;border:2px solid transparent;background:#eaf3ec;cursor:pointer" onclick="_pickImprintBg('#eaf3ec')" title="Soft moss"></button>
+        <button type="button" class="ic-bg-swatch" data-color="#1a1611" style="width:36px;height:36px;border-radius:50%;border:2px solid transparent;background:#1a1611;cursor:pointer" onclick="_pickImprintBg('#1a1611')" title="Charcoal (dark mode)"></button>
+        <input type="color" id="imprintBgInput" value="#faf7f1" style="width:36px;height:36px;padding:0;border:2px solid var(--border-mid);border-radius:6px;cursor:pointer;background:none" onchange="_pickImprintBg(this.value)" title="Custom color">
+      </div>
+
       <!-- Header font -->
       <label style="display:block;font-size:12.5px;font-weight:500;color:var(--text);margin:0 0 6px">Header font</label>
       <select id="imprintFontSelect" style="width:100%;font-size:13px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit;margin:0 0 14px">
@@ -29746,19 +29758,23 @@
         Paste any https:// URL — Imgur, your own site, etc. Recommended: 1600×400 landscape. Leave blank to hide.
       </p>
 
-      <!-- Action row — Save is the primary action, full-width and prominent
-           so it can't be hidden by tight layouts or narrow modals. Preview
-           and Cancel are secondary chrome below. -->
+      <!-- Action row — compact single-row layout per Jacob's mockup:
+             [💾 Save] | Preview my imprint → | Cancel
+           Save is the amber-tinted primary action but stays as an icon
+           button so the row balances visually with Preview + Cancel.
+           Status line sits above so success/error feedback is visible
+           without shifting button positions. -->
       <div style="padding-top:14px;border-top:.5px solid var(--border-mid);margin-top:8px">
-        <button type="button" id="imprintSaveBtn" onclick="_saveImprintTheme()"
-          style="display:block;width:100%;padding:12px 20px;background:var(--accent);border:none;border-radius:8px;color:#fff;cursor:pointer;font-size:14px;font-weight:600;font-family:inherit;box-shadow:0 2px 6px rgba(0,0,0,0.12)">
-          💾 Save theme
-        </button>
-        <div id="imprintSaveStatus" style="font-size:11.5px;color:var(--hint);text-align:center;margin-top:8px;min-height:14px"></div>
-        <div style="display:flex;gap:10px;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:.5px dotted var(--border-mid)">
+        <div id="imprintSaveStatus" style="font-size:11.5px;color:var(--hint);text-align:center;margin:0 0 10px;min-height:14px"></div>
+        <div style="display:flex;gap:12px;justify-content:space-between;align-items:center;padding-top:10px;border-top:.5px dotted var(--border-mid)">
+          <button type="button" id="imprintSaveBtn" onclick="_saveImprintTheme()"
+            title="Save theme"
+            style="padding:8px 14px;background:var(--accent);border:none;border-radius:7px;color:#fff;cursor:pointer;font-size:16px;font-weight:600;font-family:inherit;box-shadow:0 2px 6px rgba(0,0,0,0.12);display:inline-flex;align-items:center;gap:6px">
+            <span aria-hidden="true">💾</span><span style="font-size:12.5px;font-weight:500">Save</span>
+          </button>
           <a href="/imprint/" id="imprintPreviewLink" target="_blank"
              onclick="var u=(window._uid||(window._user&&window._user.uid)||'');if(u){this.href='/imprint/?uid='+encodeURIComponent(u);}else{alert('Sign in first, then click Preview.');event.preventDefault();return false;}"
-             style="font-size:12px;color:var(--muted)">Preview my imprint →</a>
+             style="font-size:12px;color:var(--muted);flex:1;text-align:center">Preview my imprint →</a>
           <button type="button" onclick="_closeImprintCustomize()"
             style="padding:7px 14px;background:none;border:.5px solid var(--border-mid);border-radius:6px;color:var(--muted);cursor:pointer;font-size:12px;font-family:inherit">
             Cancel
@@ -29825,6 +29841,14 @@
     });
   };
 
+  window._pickImprintBg = function _pickImprintBg(color) {
+    const inp = document.getElementById('imprintBgInput');
+    if (inp) inp.value = color;
+    document.querySelectorAll('.ic-bg-swatch').forEach(function(b){
+      b.style.borderColor = (b.getAttribute('data-color') === color) ? 'var(--text)' : 'transparent';
+    });
+  };
+
   window._loadImprintTheme = async function _loadImprintTheme() {
     const uid = window._uid || (window._user && window._user.uid) || '';
     if (!uid) { console.warn('[imprint] load: no uid — modal opens with defaults'); return; }
@@ -29838,6 +29862,7 @@
         const d = snap.data() || {};
         console.log('[imprint] theme doc found:', d);
         _pickImprintColor(d.accent || '#c98c2a');
+        _pickImprintBg(d.background || '#faf7f1');
         const fontSel = document.getElementById('imprintFontSelect');
         if (fontSel) fontSel.value = d.font || 'playfair';
         const heroInp = document.getElementById('imprintHeroInput');
@@ -29845,6 +29870,7 @@
       } else {
         console.log('[imprint] no theme doc yet — showing defaults');
         _pickImprintColor('#c98c2a');
+        _pickImprintBg('#faf7f1');
       }
     } catch (e) {
       console.warn('[imprint] theme load failed:', e && e.message, e);
@@ -29859,9 +29885,10 @@
       if (status) { status.textContent = 'Not signed in.'; status.style.color = 'var(--danger,#c04040)'; }
       return;
     }
-    const accent = (document.getElementById('imprintAccentInput') || {}).value || '#c98c2a';
-    const font   = (document.getElementById('imprintFontSelect') || {}).value || 'playfair';
-    const hero   = ((document.getElementById('imprintHeroInput') || {}).value || '').trim();
+    const accent     = (document.getElementById('imprintAccentInput') || {}).value || '#c98c2a';
+    const background = (document.getElementById('imprintBgInput')     || {}).value || '#faf7f1';
+    const font       = (document.getElementById('imprintFontSelect')  || {}).value || 'playfair';
+    const hero       = ((document.getElementById('imprintHeroInput')  || {}).value || '').trim();
     // Validate hero URL is https if provided
     if (hero && !/^https:\/\//i.test(hero)) {
       if (status) { status.textContent = 'Hero image URL must start with https://'; status.style.color = 'var(--danger,#c04040)'; }
@@ -29873,13 +29900,14 @@
       const { doc, setDoc } = window._fb;
       const ref = doc(window._db, 'folio_imprint_themes', uid);
       await setDoc(ref, {
-        accent: String(accent).slice(0, 20),
-        font:   String(font).slice(0, 20),
-        hero:   String(hero).slice(0, 500),
-        updatedAt: Date.now(),
+        accent:     String(accent).slice(0, 20),
+        background: String(background).slice(0, 20),
+        font:       String(font).slice(0, 20),
+        hero:       String(hero).slice(0, 500),
+        updatedAt:  Date.now(),
       }, { merge: true });
       if (status) { status.textContent = '✅ Saved. Refresh your imprint page to see it live.'; status.style.color = 'var(--accent-ui,#065f46)'; }
-      console.log('[imprint] theme saved for uid', uid, '{accent,font,hero}=', {accent, font, hero});
+      console.log('[imprint] theme saved for uid', uid, '{accent,background,font,hero}=', {accent, background, font, hero});
       console.log('[imprint] NOTE: theme only renders if press-status?uid=' + uid + ' returns { active: true, tier: "indie" | "imprint" }. Check that in DevTools if the imprint page still looks default.');
     } catch (e) {
       console.error('[imprint] theme save failed:', e);
