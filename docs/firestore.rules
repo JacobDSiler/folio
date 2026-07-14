@@ -95,9 +95,12 @@ service cloud.firestore {
       // where('uid','==', <me>) — the app's "my folios" query — because
       // then every result provably satisfies isUser(). An unfiltered
       // list of all folios is denied.
+      // Read: owner, published-folio-viewer, OR admin (so /admin/shelf/
+      // can see pending + rejected listings that aren't public-visible).
       allow read:   if isUser(resource.data.uid)
                     || (resource.data.release != null
-                        && resource.data.release.published == true);
+                        && resource.data.release.published == true)
+                    || isAdmin();
 
       // Create: the new doc must be stamped with the creator's own uid.
       allow create: if isUser(request.resource.data.uid);
