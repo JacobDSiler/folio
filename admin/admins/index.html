@@ -137,7 +137,11 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
       _fb.auth = _fb.getAuth(app);
       _fb.db = _fb.getFirestore(app);
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
-    } catch (e) { document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown'); }
+    } catch (e) {
+      console.error('[admins] boot failed:', e);
+      document.getElementById('authGate').classList.remove('hidden');
+      document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown');
+    }
   }
   async function isAdmin(uid) {
     if (!uid) return false;
@@ -153,16 +157,25 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
     _user = u;
     const gate = document.getElementById('authGate');
     const body = document.getElementById('adminBody');
-    if (!u) { gate.classList.remove('hidden'); body.classList.add('hidden'); document.getElementById('signOutBtn').classList.add('hidden'); document.getElementById('signedInAs').textContent = ''; return; }
-    document.getElementById('signedInAs').textContent = u.email || u.uid.slice(0, 12) + '…';
-    document.getElementById('signOutBtn').classList.remove('hidden');
-    if (!(await isAdmin(u.uid))) {
+    console.log('[admins] auth state:', u ? ('signed in as ' + (u.email || u.uid)) : 'signed out');
+    try {
+      if (!u) { gate.classList.remove('hidden'); body.classList.add('hidden'); document.getElementById('signOutBtn').classList.add('hidden'); document.getElementById('signedInAs').textContent = ''; return; }
+      document.getElementById('signedInAs').textContent = u.email || u.uid.slice(0, 12) + '…';
+      document.getElementById('signOutBtn').classList.remove('hidden');
+      const admin = await isAdmin(u.uid);
+      console.log('[admins] isAdmin(' + u.uid + ') =', admin);
+      if (!admin) {
       gate.classList.remove('hidden'); body.classList.add('hidden');
       document.getElementById('authStatus').textContent = 'Signed in as ' + (u.email || u.uid) + ' — not admin.';
       return;
     }
-    gate.classList.add('hidden'); body.classList.remove('hidden');
-    loadRoles();
+      gate.classList.add('hidden'); body.classList.remove('hidden');
+      loadRoles();
+    } catch (e) {
+      console.error('[admins] onAuthChange failed:', e);
+      gate.classList.remove('hidden');
+      document.getElementById('authStatus').textContent = 'Auth check failed: ' + (e.message || 'unknown');
+    }
   }
   window.doSignIn = async function() { try { await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider()); } catch (e) { document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown'); } };
   window.doSignOut = async function() { try { await _fb.signOut(_fb.auth); } catch (_) {} };

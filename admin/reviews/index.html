@@ -155,8 +155,25 @@ button.danger:hover{background:var(--danger);color:#fff}
     }
   }
 
-  function onAuthChange(u) {
+  async function _isAdmin(uid) {
+    if (!uid) return false;
+    if (ADMIN_UIDS.includes(uid)) return true;
+    // Fallback: check the dynamic folio_roles collection so grants via
+    // /admin/admins/ take effect here too.
+    try {
+      const roleDoc = await _fb.getDoc(_fb.doc(_fb.db, 'folio_roles', uid));
+      if (!roleDoc.exists()) return false;
+      const d = roleDoc.data() || {};
+      return Array.isArray(d.roles) && d.roles.includes('admin');
+    } catch (e) {
+      console.warn('[reviews] folio_roles lookup failed:', e.message);
+      return false;
+    }
+  }
+
+  async function onAuthChange(u) {
     _user = u;
+    console.log('[reviews] auth state change:', u ? ('signed in as ' + (u.email || u.uid)) : 'signed out');
     if (!u) {
       document.getElementById('authGate').classList.remove('hidden');
       document.getElementById('adminBody').classList.add('hidden');
@@ -166,10 +183,12 @@ button.danger:hover{background:var(--danger);color:#fff}
     }
     document.getElementById('signedInAs').textContent = u.email || u.uid;
     document.getElementById('signOutBtn').classList.remove('hidden');
-    if (!ADMIN_UIDS.includes(u.uid)) {
+    const isAdmin = await _isAdmin(u.uid);
+    console.log('[reviews] isAdmin(' + u.uid + ') =', isAdmin);
+    if (!isAdmin) {
       document.getElementById('authGate').classList.remove('hidden');
       document.getElementById('adminBody').classList.add('hidden');
-      document.getElementById('authStatus').textContent = 'Signed in as ' + (u.email || u.uid) + ' but this uid is NOT in the admin allowlist.';
+      document.getElementById('authStatus').textContent = 'Signed in as ' + (u.email || u.uid) + ' — not in admin allowlist. Bootstrap UIDs: ' + ADMIN_UIDS.join(', ');
       return;
     }
     document.getElementById('authGate').classList.add('hidden');
