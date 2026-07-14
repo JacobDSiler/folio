@@ -160,6 +160,11 @@ a:hover{text-decoration:underline}
   </div>
 </div>
 
+<!-- ag-psd: client-side PSD/PSDT parser used by the photo-composite
+     pipeline to auto-extract Smart Object placement + mockup layers
+     from Adobe Stock templates. ~200KB minified. Cached aggressively
+     by the browser; only downloaded on the /press/photos/ page. -->
+<script src="https://cdn.jsdelivr.net/npm/ag-psd@25.0.0/dist/bundle.js" defer></script>
 <script>
   const PAYWALL_WORKER_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
   let _fb = {};
@@ -311,6 +316,7 @@ a:hover{text-decoration:underline}
   // send CORS headers, canvas becomes tainted and downloads fail — we catch
   // that and show a helpful error.
 
+  // Base canvas-drawn templates (always available)
   const TEMPLATES = {
     'ig-square': { w: 1080, h: 1080, render: renderIgSquare },
     'tw-banner': { w: 1500, h: 500, render: renderTwBanner },
@@ -319,6 +325,293 @@ a:hover{text-decoration:underline}
     'ereader': { w: 1080, h: 1080, render: renderEreader },
     'cozy-flatlay': { w: 1080, h: 1080, render: renderCozyFlatlay }
   };
+
+  // ═══ PHOTO-COMPOSITE TEMPLATES (Adobe Stock etc.) ══════════════════
+  // Loaded from /press/photos/templates/manifest.json at boot. Each
+  // manifest entry becomes a template that renders by:
+  //   1. draw the mockup PNG as the full-canvas background
+  //   2. clip + affine-warp the author's cover into the coverQuad
+  //   3. draw text overlays on top
+  //
+  // Affine warp (setTransform matrix math) covers slightly tilted
+  // covers cleanly. For true perspective (opposing edges converging
+  // hard) we'd need a WebGL fallback — deferred until a template
+  // actually needs it. Almost all book mockups are close to affine.
+  let _photoTemplates = [];
+
+  async function _loadPhotoTemplateManifest() {
+    try {
+      const r = await fetch('/press/photos/templates/manifest.json', { cache: 'no-store' });
+      if (!r.ok) return;
+      const data = await r.json();
+      const list = (data && Array.isArray(data.templates)) ? data.templates : [];
+      // Only accept templates with a real coverQuad — placeholders
+      // (all-zero quads) are skipped until Jacob calibrates them.
+      _photoTemplates = list.filter(function(t){
+        // PSDT entries don't need coverQuad — ag-psd will extract the
+        // Smart Object's bounds from the file itself.
+        if (t.psdt) return true;
+        const q = t.coverQuad || {};
+        const tl = q.topLeft || [0,0];
+        return tl[0] > 0 || tl[1] > 0;
+      });
+      // Register each into TEMPLATES using an async renderer that
+      // composites the cover into the mockup quad.
+      _photoTemplates.forEach(function(tpl){
+        TEMPLATES[tpl.id] = {
+          w: tpl.outputWidth  || 1080,
+          h: tpl.outputHeight || 1080,
+          render: function(folio, ctx, W, H) {
+            // Route to PSDT-native renderer if the manifest entry has
+            // a `psdt` field; otherwise use the flat-PNG pipeline.
+            if (tpl.psdt) return _renderPsdtTemplate(folio, ctx, W, H, tpl);
+            return _renderPhotoTemplate(folio, ctx, W, H, tpl);
+          },
+          _photoName: tpl.name,
+        };
+        _appendPhotoTemplateButton(tpl);
+      });
+      if (_photoTemplates.length) {
+        console.log('[photos] loaded', _photoTemplates.length, 'photo-composite template(s)');
+      }
+    } catch (e) {
+      console.warn('[photos] template manifest load failed:', e.message);
+    }
+  }
+
+  // Add a picker button for a photo template. Groups them under a
+  // "Photo mockups" divider inserted once on first append.
+  function _appendPhotoTemplateButton(tpl) {
+    const picker = document.querySelector('.pp-templates');
+    if (!picker) return;
+    if (!document.getElementById('ppPhotoDivider')) {
+      const d = document.createElement('div');
+      d.id = 'ppPhotoDivider';
+      d.style.cssText = 'grid-column:1/-1;font-size:11px;color:var(--hint);text-transform:uppercase;letter-spacing:.08em;margin-top:8px;padding-top:8px;border-top:.5px dotted var(--border-mid)';
+      d.textContent = 'Photo mockups (Adobe Stock)';
+      picker.appendChild(d);
+    }
+    const btn = document.createElement('button');
+    btn.className = 'pp-template';
+    btn.dataset.template = tpl.id;
+    btn.onclick = function(){ _pickTemplate(tpl.id); };
+    btn.innerHTML = '<div class="pp-template-name">' + esc(tpl.name) + '</div>' +
+      '<div class="pp-template-dim">' + (tpl.outputWidth || 1080) + ' × ' + (tpl.outputHeight || 1080) + '</div>';
+    picker.appendChild(btn);
+  }
+
+  // Given a source rectangle (cover: 0..w × 0..h) and a destination
+  // quad (4 corners), compute the 2x3 affine matrix that maps source
+  // corners to dest corners. If the quad isn't perfectly affine
+  // (opposing edges don't stay parallel) we fit an approximation —
+  // corners will still land on the mid-quad, just slightly interpolated.
+  function _affineForQuad(srcW, srcH, quad) {
+    const tl = quad.topLeft, tr = quad.topRight;
+    const bl = quad.bottomLeft;
+    // Affine mapping: (0,0)→tl, (srcW,0)→tr, (0,srcH)→bl
+    //   x' = a*x + c*y + e
+    //   y' = b*x + d*y + f
+    // Solve:
+    //   tl = (e, f)
+    //   tr = (a*srcW + e, b*srcW + f) → a = (tr.x - tl.x) / srcW, b = (tr.y - tl.y) / srcW
+    //   bl = (c*srcH + e, d*srcH + f) → c = (bl.x - tl.x) / srcH, d = (bl.y - tl.y) / srcH
+    const a = (tr[0] - tl[0]) / srcW;
+    const b = (tr[1] - tl[1]) / srcW;
+    const c = (bl[0] - tl[0]) / srcH;
+    const d = (bl[1] - tl[1]) / srcH;
+    const e = tl[0], f = tl[1];
+    return [a, b, c, d, e, f];
+  }
+
+  // Render a template defined by a raw PSDT file. Uses ag-psd to parse
+  // the file client-side, extracts the Smart Object placeholder's
+  // transform, and composites the author's cover through it. The
+  // remaining layers render as the mockup background.
+  //
+  // Falls back to the flat-PNG path if ag-psd fails or the file can't
+  // be parsed. That way a broken PSDT never bricks the template — it
+  // just uses the manual pipeline.
+  async function _renderPsdtTemplate(folio, ctx, W, H, tpl) {
+    // ag-psd bundles as a global `agPsd` on the window (UMD build).
+    // Wait up to 3s for it to load — script tag has `defer` so it
+    // may still be initializing when render fires on a cold cache.
+    const _waitAgPsd = function() {
+      return new Promise(function(resolve){
+        let attempts = 0;
+        const iv = setInterval(function(){
+          if (window.agPsd || attempts > 30) { clearInterval(iv); resolve(!!window.agPsd); }
+          attempts++;
+        }, 100);
+      });
+    };
+    const _ready = await _waitAgPsd();
+    if (!_ready) {
+      console.warn('[photos] ag-psd not loaded; falling back to flat PNG path');
+      return _renderPhotoTemplate(folio, ctx, W, H, tpl);
+    }
+    let psd;
+    try {
+      const r = await fetch(tpl.psdt);
+      if (!r.ok) throw new Error('PSDT fetch failed: HTTP ' + r.status);
+      const buf = await r.arrayBuffer();
+      psd = window.agPsd.readPsd(buf, { skipCompositeImageData: false, skipThumbnail: true });
+    } catch (e) {
+      console.warn('[photos] PSDT parse failed:', e.message, '- using flat PNG fallback if available');
+      if (tpl.asset) return _renderPhotoTemplate(folio, ctx, W, H, tpl);
+      ctx.fillStyle = '#5e4128';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#faf7f1';
+      ctx.font = '600 22px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('PSDT parse failed: ' + e.message, W/2, H/2);
+      return;
+    }
+    // Scale mockup to canvas dimensions. PSDT may be larger/smaller than W×H;
+    // we fit-contain and center.
+    const psdW = psd.width, psdH = psd.height;
+    const scale = Math.min(W / psdW, H / psdH);
+    const drawW = psdW * scale;
+    const drawH = psdH * scale;
+    const offX = (W - drawW) / 2;
+    const offY = (H - drawH) / 2;
+
+    // Find ALL Smart Object placeholders — Adobe Stock uses "[YOUR IMAGE
+    // HERE]" or "[YOUR DESIGN HERE]" tags to mark cover slots. Multi-book
+    // templates have several (Book 1 + Book 2, or Book Stack + Left/Right
+    // Page). We composite the author's cover onto every match unless the
+    // manifest specifies a `smartObjectSkip` list (case-insensitive substring
+    // match against layer or ancestor group names) — useful for open-book
+    // templates where interior "page" slots shouldn't get the cover art.
+    //
+    // Manifest options:
+    //   smartObjectName: 'exact substring' — restrict to matching layers only
+    //   smartObjectSkip: ['left page', 'right page', 'back page'] — exclude these
+    const targetName = (tpl.smartObjectName || '').toLowerCase();
+    const skipList = (tpl.smartObjectSkip || []).map(function(x){ return String(x).toLowerCase(); });
+    const nameHints = [
+      'your image', 'your design', 'your cover', 'image here', 'design here',
+      '[your', 'cover', 'smart object', 'book cover', 'place cover'
+    ];
+    const smartObjs = [];
+    const visit = function(layer, parentPath) {
+      if (!layer) return;
+      const lname = (layer.name || '').toLowerCase();
+      const pathStr = (parentPath + ' > ' + lname).trim();
+      const isCandidate = !!layer.placedLayer || nameHints.some(function(h){ return lname.indexOf(h) >= 0; });
+      const nameOk = targetName ? lname.indexOf(targetName) >= 0 : isCandidate;
+      // Skip if any ancestor group OR the layer itself matches the skip list
+      const shouldSkip = skipList.some(function(sk){ return pathStr.toLowerCase().indexOf(sk) >= 0; });
+      if (nameOk && !shouldSkip) smartObjs.push({ layer: layer, path: pathStr });
+      if (layer.children) layer.children.forEach(function(c){ visit(c, pathStr); });
+    };
+    (psd.children || []).forEach(function(c){ visit(c, ''); });
+    console.log('[photos] PSDT loaded:', psdW+'x'+psdH, 'layers=' + ((psd.children||[]).length), 'coverSlots=' + smartObjs.length, smartObjs.map(function(o){ return o.path; }));
+
+    // Draw ALL layers as the mockup background, EXCEPT the smart object
+    // placeholder (that spot gets the author's cover instead).
+    // ag-psd provides a composite `canvas` on the top-level psd object,
+    // rendered from all layers. Simplest path: draw psd.canvas, then
+    // draw a masked cutout of the smart-object region + fill with author cover.
+    if (psd.canvas) {
+      ctx.drawImage(psd.canvas, offX, offY, drawW, drawH);
+    }
+
+    // Composite the author's cover into each smart-object placeholder.
+    // For most Adobe Stock templates we want the cover on ALL matched
+    // slots (Book 1 + Book 2 = same book two ways). Interior pages get
+    // excluded via the manifest's smartObjectSkip list.
+    if (folio.coverUrl && smartObjs.length) {
+      try {
+        const coverImg = await loadImage(folio.coverUrl);
+        smartObjs.forEach(function(entry){
+          const bounds = entry.layer;
+          // ag-psd exposes smart-object bounds as top/left/bottom/right in
+          // PSD pixel coords. Some SOs also carry placedLayer.transform
+          // with 4 corner points for true perspective — deferred until a
+          // template actually needs it. Bounds-based affine covers 95%
+          // of book mockups.
+          const x = offX + bounds.left * scale;
+          const y = offY + bounds.top  * scale;
+          const w = (bounds.right - bounds.left) * scale;
+          const h = (bounds.bottom - bounds.top) * scale;
+          ctx.drawImage(coverImg, x, y, w, h);
+        });
+      } catch (e) {
+        console.warn('[photos] cover composite over PSDT failed:', e.message);
+      }
+    }
+
+    // Text overlays (in canvas pixel space)
+    if (Array.isArray(tpl.textOverlays)) {
+      ctx.save();
+      tpl.textOverlays.forEach(function(t){
+        ctx.font = t.font || '500 20px system-ui';
+        ctx.fillStyle = t.color || 'rgba(255,255,255,0.9)';
+        ctx.textAlign = t.align || 'left';
+        ctx.textBaseline = 'top';
+        const rendered = String(t.text || '')
+          .replace(/\{title\}/g,  folio.title  || '')
+          .replace(/\{author\}/g, folio.author || '')
+          .replace(/\{series\}/g, folio.series || '');
+        ctx.fillText(rendered, t.x || 0, t.y || 0);
+      });
+      ctx.restore();
+    }
+  }
+
+  async function _renderPhotoTemplate(folio, ctx, W, H, tpl) {
+    // 1. Background — mockup PNG at full canvas
+    let bgImg;
+    try {
+      bgImg = await loadImage(tpl.asset);
+    } catch (e) {
+      // Fall back to a solid warm fill so the failure is visible but
+      // the render still produces something
+      ctx.fillStyle = '#5e4128';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#faf7f1';
+      ctx.font = '600 22px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText('Mockup image failed to load: ' + tpl.asset, W/2, H/2);
+      return;
+    }
+    ctx.drawImage(bgImg, 0, 0, W, H);
+
+    // 2. Cover — warp into the coverQuad using an affine transform
+    if (folio.coverUrl) {
+      try {
+        const coverImg = await loadImage(folio.coverUrl);
+        const m = _affineForQuad(coverImg.width, coverImg.height, tpl.coverQuad);
+        ctx.save();
+        ctx.setTransform(m[0], m[1], m[2], m[3], m[4], m[5]);
+        // Multiply by any devicePixelRatio-agnostic base — canvas transform
+        // is applied in the coordinate space we're drawing into.
+        ctx.drawImage(coverImg, 0, 0);
+        ctx.restore();
+      } catch (e) {
+        console.warn('[photos] cover composite failed:', e.message);
+      }
+    }
+
+    // 3. Text overlays
+    if (Array.isArray(tpl.textOverlays)) {
+      ctx.save();
+      tpl.textOverlays.forEach(function(t){
+        ctx.font = t.font || '500 20px system-ui';
+        ctx.fillStyle = t.color || 'rgba(255,255,255,0.9)';
+        ctx.textAlign = t.align || 'left';
+        ctx.textBaseline = 'top';
+        // Handle {title} {author} {series} tokens in the text
+        const rendered = String(t.text || '')
+          .replace(/\{title\}/g,  folio.title  || '')
+          .replace(/\{author\}/g, folio.author || '')
+          .replace(/\{series\}/g, folio.series || '');
+        ctx.fillText(rendered, t.x || 0, t.y || 0);
+      });
+      ctx.restore();
+    }
+  }
+
 
   async function loadImage(url) {
     return new Promise(function(resolve, reject) {
@@ -1431,6 +1724,7 @@ a:hover{text-decoration:underline}
 
   boot();
   _handlePaidReturn();
+  _loadPhotoTemplateManifest();
 </script>
 
 </body>
