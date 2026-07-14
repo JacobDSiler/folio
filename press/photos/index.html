@@ -190,6 +190,8 @@ a:hover{text-decoration:underline}
       _fb.where = fsMod.where;
       _fb.getDocs = fsMod.getDocs;
       _fb.limit = fsMod.limit;
+      _fb.doc = fsMod.doc;
+      _fb.getDoc = fsMod.getDoc;
       const cfg = {
         apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",
         authDomain: "auth.jacobsiler.com",
@@ -476,36 +478,53 @@ a:hover{text-decoration:underline}
     const offY = (H - drawH) / 2;
 
     // Find ALL Smart Object placeholders — Adobe Stock uses "[YOUR IMAGE
-    // HERE]" or "[YOUR DESIGN HERE]" tags to mark cover slots. Multi-book
-    // templates have several (Book 1 + Book 2, or Book Stack + Left/Right
-    // Page). We composite the author's cover onto every match unless the
-    // manifest specifies a `smartObjectSkip` list (case-insensitive substring
-    // match against layer or ancestor group names) — useful for open-book
-    // templates where interior "page" slots shouldn't get the cover art.
+    // HERE]" or "[YOUR DESIGN HERE]" tags to mark placeholder slots.
+    // Multi-book templates have several. We split them by intent:
+    //   • coverSlots       — get the author's cover composited
+    //   • interiorPageSlots — get the author's folio body text rendered
+    //                         as formatted book pages (only if manifest
+    //                         opts in via `interiorPageText: true`)
+    //   • skipped           — nothing (mockup default remains)
     //
     // Manifest options:
-    //   smartObjectName: 'exact substring' — restrict to matching layers only
-    //   smartObjectSkip: ['left page', 'right page', 'back page'] — exclude these
+    //   smartObjectName:   'exact substring' — restrict cover slots to matches
+    //   smartObjectSkip:   ['back page', ...] — exclude entirely
+    //   interiorPageText:  true — render folio text into 'page'-named slots
     const targetName = (tpl.smartObjectName || '').toLowerCase();
     const skipList = (tpl.smartObjectSkip || []).map(function(x){ return String(x).toLowerCase(); });
+    const wantsInteriorText = !!tpl.interiorPageText;
     const nameHints = [
       'your image', 'your design', 'your cover', 'image here', 'design here',
       '[your', 'cover', 'smart object', 'book cover', 'place cover'
     ];
-    const smartObjs = [];
+    // Layer names/ancestors that indicate 'this is an interior page, not a cover'
+    const pageHints = ['left page', 'right page', 'back page', 'spread', 'page interior'];
+    const coverSlots = [];
+    const pageSlots = [];
     const visit = function(layer, parentPath) {
       if (!layer) return;
       const lname = (layer.name || '').toLowerCase();
       const pathStr = (parentPath + ' > ' + lname).trim();
+      const pathLower = pathStr.toLowerCase();
       const isCandidate = !!layer.placedLayer || nameHints.some(function(h){ return lname.indexOf(h) >= 0; });
       const nameOk = targetName ? lname.indexOf(targetName) >= 0 : isCandidate;
-      // Skip if any ancestor group OR the layer itself matches the skip list
-      const shouldSkip = skipList.some(function(sk){ return pathStr.toLowerCase().indexOf(sk) >= 0; });
-      if (nameOk && !shouldSkip) smartObjs.push({ layer: layer, path: pathStr });
+      const isPageSlot = pageHints.some(function(h){ return pathLower.indexOf(h) >= 0; });
+      const shouldSkip = skipList.some(function(sk){ return pathLower.indexOf(sk) >= 0; });
+      if (!nameOk || shouldSkip) {
+        // don't bucket, keep the mockup default
+      } else if (isPageSlot) {
+        if (wantsInteriorText) pageSlots.push({ layer: layer, path: pathStr });
+        // otherwise leave the interior page alone (fall back to mockup default)
+      } else {
+        coverSlots.push({ layer: layer, path: pathStr });
+      }
       if (layer.children) layer.children.forEach(function(c){ visit(c, pathStr); });
     };
     (psd.children || []).forEach(function(c){ visit(c, ''); });
-    console.log('[photos] PSDT loaded:', psdW+'x'+psdH, 'layers=' + ((psd.children||[]).length), 'coverSlots=' + smartObjs.length, smartObjs.map(function(o){ return o.path; }));
+    const smartObjs = coverSlots;  // legacy alias for the composite loop below
+    console.log('[photos] PSDT loaded:', psdW+'x'+psdH, 'layers=' + ((psd.children||[]).length),
+      'coverSlots=' + coverSlots.length, coverSlots.map(function(o){ return o.path; }),
+      'pageSlots=' + pageSlots.length, pageSlots.map(function(o){ return o.path; }));
 
     // Draw ALL layers as the mockup background, EXCEPT the smart object
     // placeholder (that spot gets the author's cover instead).
@@ -540,6 +559,26 @@ a:hover{text-decoration:underline}
         console.warn('[photos] cover composite over PSDT failed:', e.message);
       }
     }
+    // Interior page text — render folio's opening chapter into any
+    // page-shaped smart objects (Left Page, Right Page, Back Page, ...).
+    // Text is fetched on demand from Firestore folio_projects/{id}/body/full.
+    if (wantsInteriorText && pageSlots.length && folio.id) {
+      try {
+        const bodyText = await _fetchFolioOpeningText(folio.id);
+        if (bodyText) {
+          pageSlots.forEach(function(entry){
+            const bounds = entry.layer;
+            const x = offX + bounds.left * scale;
+            const y = offY + bounds.top  * scale;
+            const w = (bounds.right - bounds.left) * scale;
+            const h = (bounds.bottom - bounds.top) * scale;
+            _drawBookPageText(ctx, bodyText, x, y, w, h);
+          });
+        }
+      } catch (e) {
+        console.warn('[photos] interior page text render failed:', e.message);
+      }
+    }
 
     // Text overlays (in canvas pixel space)
     if (Array.isArray(tpl.textOverlays)) {
@@ -557,6 +596,97 @@ a:hover{text-decoration:underline}
       });
       ctx.restore();
     }
+  }
+
+  // ═══ INTERIOR PAGE TEXT ════════════════════════════════════════════
+  // Renders the author's opening chapter into any "page" smart-object
+  // slot on a PSDT template. Used when the manifest sets
+  // interiorPageText: true and the template has Left Page / Right Page
+  // placeholders (e.g. "open book" mockups). Cached per folio for the
+  // page-session so template switches are instant.
+
+  const _openingTextCache = new Map();  // folioId → { text, at }
+
+  async function _fetchFolioOpeningText(folioId) {
+    if (!folioId) return null;
+    if (_openingTextCache.has(folioId)) return _openingTextCache.get(folioId).text;
+    if (!_fb || !_fb.getDoc || !_fb.doc || !_fb.db) return null;
+    try {
+      // Look at the folio's stored full-text body — same location the
+      // reader reads from. Structure: folio_projects/{id}/body/full
+      const ref = _fb.doc(_fb.db, 'folio_projects', folioId, 'body', 'full');
+      const snap = await _fb.getDoc(ref);
+      if (!snap.exists()) return null;
+      const d = snap.data() || {};
+      // Data shape: { chapters: [{ id, title, content }, ...], ... }
+      // Some folios use compressed 'gz' fields. For photo previews we
+      // want plaintext, so unpack if needed. Fall back to whatever
+      // structure we find.
+      let text = '';
+      if (Array.isArray(d.chapters)) {
+        // Grab first non-TOC chapter's first ~800 words.
+        for (const ch of d.chapters) {
+          if (ch && ch.type === 'toc') continue;
+          const plain = String(ch.content || '')
+            .replace(/<[^>]*>/g, ' ')       // strip HTML tags
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/\s+/g, ' ')
+            .trim();
+          if (plain) { text = plain; break; }
+        }
+      }
+      // Trim to about 800 words — plenty for two facing pages
+      const words = text.split(' ').filter(Boolean).slice(0, 800);
+      const opening = words.join(' ');
+      _openingTextCache.set(folioId, { text: opening, at: Date.now() });
+      return opening;
+    } catch (e) {
+      console.warn('[photos] opening text fetch failed:', e.message);
+      return null;
+    }
+  }
+
+  // Draw formatted book-page text within a bounds rectangle. Uses word-
+  // wrap + justified paragraphs at a size that matches typical mockup
+  // page densities. Text color is a dark-ink brown, not pure black,
+  // to match printed paperbacks.
+  function _drawBookPageText(ctx, text, x, y, w, h) {
+    if (!text) return;
+    ctx.save();
+    // Clip to the page bounds so overflow doesn't spill into shadows
+    ctx.beginPath();
+    ctx.rect(x, y, w, h);
+    ctx.clip();
+    // Serif type at ~2% of page width — matches most trade paperbacks
+    const fontPx = Math.max(9, Math.round(w * 0.028));
+    ctx.font = fontPx + "px 'Playfair Display', Georgia, serif";
+    ctx.fillStyle = '#241a10';
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    const pad = Math.round(w * 0.08);
+    const innerW = w - pad * 2;
+    const lineH = Math.round(fontPx * 1.5);
+    let cx = x + pad;
+    let cy = y + pad;
+    // Word-wrap
+    const words = text.split(' ');
+    let line = '';
+    for (let i = 0; i < words.length && cy < y + h - lineH; i++) {
+      const trial = line ? line + ' ' + words[i] : words[i];
+      if (ctx.measureText(trial).width > innerW && line) {
+        ctx.fillText(line, cx, cy);
+        cy += lineH;
+        line = words[i];
+      } else {
+        line = trial;
+      }
+    }
+    // Final line
+    if (line && cy < y + h - lineH) ctx.fillText(line, cx, cy);
+    ctx.restore();
   }
 
   async function _renderPhotoTemplate(folio, ctx, W, H, tpl) {

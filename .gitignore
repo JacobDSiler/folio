@@ -13,3 +13,6 @@ Folio - Welcome (standalone).html
 .aider*
 .claude/
 .wrangler/
+
+# Product photo PSDT templates — hosted in Firebase Storage, not git
+press/photos/templates/*.psdt

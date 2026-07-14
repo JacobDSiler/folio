@@ -51,6 +51,15 @@ service firebase.storage {
       allow write, delete: if isOwner(folioId);
     }
 
+    // Product photo templates — Adobe Stock PSDT files hosted here
+    // instead of the git repo to keep the repo lean. Public read (any
+    // Folio user can render templates onto their covers). Writes are
+    // Jacob-only via the Firebase Console or gsutil — no client uploads.
+    match /photo_templates/{fileName} {
+      allow read:  if true;
+      allow write: if false;  // console/gsutil only
+    }
+
     // Lulu print-job PDFs — written at
     //   folio-lulu/<stamp>-interior.pdf  and  ...-cover.pdf
     // These are transient uploads with a flat, non-prefixed name, so
