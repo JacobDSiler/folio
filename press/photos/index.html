@@ -223,6 +223,11 @@ a:hover{text-decoration:underline}
     try {
       const r = await fetch(PAYWALL_WORKER_URL + '/press-status?uid=' + encodeURIComponent(user.uid));
       const status = await r.json().catch(function(){ return { active: false }; });
+      // Stash on window so _isImprintTier() and _updateDownloadButton()
+      // see it — otherwise the Download button stays in "Buy" mode even
+      // for Imprint subscribers who legitimately have unlimited access.
+      window._pressSubCache = status;
+      console.log('[photos] press subscription:', status);
       if (!status.active || status.tier !== 'imprint') {
         // Free or Indie — show upgrade prompt
         document.getElementById('upgradeGate').classList.remove('pp-hidden');
@@ -233,6 +238,10 @@ a:hover{text-decoration:underline}
       document.getElementById('mainView').classList.remove('pp-hidden');
       document.getElementById('upgradeGate').classList.add('pp-hidden');
       await loadFolios(user.uid);
+      // Re-evaluate the Download button if a folio's already selected
+      if (_selectedFolio && typeof _updateDownloadButton === 'function') {
+        await _updateDownloadButton();
+      }
     } catch (e) {
       console.error('[photos] tier check failed:', e);
     }
@@ -1650,6 +1659,7 @@ a:hover{text-decoration:underline}
     } catch (_) { return false; }
   }
 
+
   // Server-side truth check for a specific folio+template. Only called
   // when the client-side cache says "not paid" and we need to double-
   // check (e.g., just returned from PayPal).
@@ -1854,8 +1864,3 @@ a:hover{text-decoration:underline}
 
   boot();
   _handlePaidReturn();
-  _loadPhotoTemplateManifest();
-</script>
-
-</body>
-</html>
