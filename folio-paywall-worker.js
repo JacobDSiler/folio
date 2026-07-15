@@ -2185,6 +2185,94 @@ async function handleSignShare(request, env) {
 }
 
 
+
+/* KDP METADATA IMPORT
+   Fetches an Amazon author page (or a single book page) and extracts
+   title / blurb / cover / pageCount / series metadata for each book.
+   BEST-EFFORT — Amazon changes HTML periodically; expect breakage.
+   Client falls back to manual entry cleanly.
+*/
+async function handleKdpImport(request, env) {
+  let body;
+  try { body = await request.json(); }
+  catch (e) { return errorJson('Bad JSON body', 400, request, env); }
+  const url = String((body && body.url) || '').trim();
+  if (!url) return errorJson('Missing url', 400, request, env);
+  let parsed;
+  try { parsed = new URL(url); } catch (e) { return errorJson('Invalid URL', 400, request, env); }
+  if (!/^(?:www\.)?amazon\.[a-z.]{2,6}$/i.test(parsed.hostname)) {
+    return errorJson('URL must be an Amazon domain', 400, request, env);
+  }
+  let html;
+  try {
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    });
+    if (!r.ok) return errorJson('Amazon returned HTTP ' + r.status, 502, request, env);
+    html = await r.text();
+  } catch (e) {
+    return errorJson('Fetch failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+  const isBookPage = /\/(dp|gp\/product)\//i.test(parsed.pathname);
+  const books = isBookPage ? _kdpParseBookPage(html, url) : _kdpParseAuthorPage(html, url);
+  return json({ ok: true, books: books, count: books.length, source: isBookPage ? 'book' : 'author' }, 200, request, env);
+}
+
+function _kdpParseBookPage(html, url) {
+  const book = {};
+  const titleM = html.match(/<span[^>]*id="productTitle"[^>]*>([^<]+)<\/span>/i)
+              || html.match(/<meta[^>]+property="og:title"[^>]+content="([^"]+)"/i);
+  if (titleM) book.title = _kdpClean(titleM[1]);
+  const asinM = url.match(/\/(?:dp|gp\/product)\/([A-Z0-9]{10})/i)
+             || html.match(/"asin"\s*:\s*"([A-Z0-9]{10})"/i);
+  if (asinM) book.asin = asinM[1];
+  const blurbM = html.match(/<div[^>]*id="bookDescription_feature_div"[^>]*>[\s\S]*?<div[^>]*>([\s\S]*?)<\/div>/i);
+  if (blurbM) book.blurb = _kdpClean(blurbM[1].replace(/<[^>]+>/g, ' ')).slice(0, 2000);
+  const coverM = html.match(/<img[^>]*id="(?:imgBlkFront|ebooksImgBlkFront|landingImage)"[^>]+src="([^"]+)"/i);
+  if (coverM) book.coverUrl = coverM[1];
+  const pagesM = html.match(/(\d{2,4})\s*pages/i);
+  if (pagesM) book.pageCount = parseInt(pagesM[1], 10);
+  const seriesM = html.match(/Book\s+(\d+)\s+of\s+\d+\s*:\s*([^<\n]+)/i);
+  if (seriesM) { book.seriesOrder = parseInt(seriesM[1], 10); book.series = _kdpClean(seriesM[2]); }
+  if (!book.title) return [];
+  return [book];
+}
+
+function _kdpParseAuthorPage(html, baseUrl) {
+  const books = [];
+  const seen = new Set();
+  const bookLinks = html.matchAll(/href="([^"]*\/(?:dp|gp\/product)\/([A-Z0-9]{10})[^"]*)"/gi);
+  for (const m of bookLinks) {
+    const asin = m[2];
+    if (seen.has(asin)) continue;
+    seen.add(asin);
+    const linkIdx = m.index;
+    const chunk = html.slice(Math.max(0, linkIdx - 500), Math.min(html.length, linkIdx + 500));
+    const titleM = chunk.match(/alt="([^"]+)"/i) || chunk.match(/>([^<]{3,120})</);
+    const coverM = chunk.match(/<img[^>]+src="([^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/i);
+    if (!titleM) continue;
+    books.push({
+      asin: asin,
+      title: _kdpClean(titleM[1]).slice(0, 200),
+      coverUrl: coverM ? coverM[1] : '',
+      amazonUrl: 'https://www.amazon.com/dp/' + asin,
+    });
+    if (books.length >= 30) break;
+  }
+  return books;
+}
+
+function _kdpClean(str) {
+  return String(str || '')
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === 'OPTIONS') {
@@ -2221,6 +2309,7 @@ export default {
           'GET  /photo-return   ?token=&site=&folio=&template=',
           'GET  /photo-status   ?uid=&folioId=&template=',
           'POST /sign-share     { folioId, role } → { shareUrl }  (owner mints a signed reader link)',
+          'POST /kdp-import    { url } → { books: [...] }  (Amazon author/book page metadata scrape)',
         ],
       }, 200, request, env);
     }
@@ -2243,6 +2332,7 @@ export default {
     if (path === '/review-submit'  && request.method === 'POST') return handleReviewSubmit(request, env);
     if (path === '/boost-debug'    && request.method === 'GET')  return handleBoostDebug(request, env);
     if (path === '/sign-share'    && request.method === 'POST') return handleSignShare(request, env);
+    if (path === '/kdp-import'   && request.method === 'POST') return handleKdpImport(request, env);
     if (path === '/photo-checkout' && request.method === 'POST') return handlePhotoCheckout(request, env);
     if (path === '/photo-return'   && request.method === 'GET')  return handlePhotoReturn(request, env);
     if (path === '/photo-status'   && request.method === 'GET')  return handlePhotoStatus(request, env);

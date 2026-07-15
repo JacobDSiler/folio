@@ -50,6 +50,8 @@ a:hover{text-decoration:underline}
 .imprint-cover{max-width:1100px;margin:0 auto;padding:52px 20px 12px;text-align:center}
 .imprint-kicker{font-size:10.5px;text-transform:uppercase;letter-spacing:.16em;color:var(--hint);margin-bottom:14px}
 .imprint-author{font-family:'Playfair Display',Georgia,serif;font-size:42px;font-weight:700;letter-spacing:-.02em;color:var(--text);margin:0 0 8px;line-height:1.15}
+.imprint-founding{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;color:var(--accent);background:rgba(201,140,42,0.12);border:.5px solid rgba(201,140,42,0.35);padding:3px 10px;border-radius:11px;margin:0 0 12px;letter-spacing:.03em;text-transform:uppercase;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+.imprint-founding-date{font-weight:400;text-transform:none;color:var(--muted);margin-left:4px}
 .imprint-tagline{font-size:14px;color:var(--muted);margin:0 0 18px;font-style:italic}
 .imprint-count{font-size:12px;color:var(--hint);margin-bottom:22px}
 .imprint-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:8px}
@@ -443,6 +445,23 @@ async function applyImprintTheme(uid) {
     }
     const theme = themeSnap.data() || {};
     console.log('[imprint-theme] theme loaded:', theme);
+    // Founding contributor chip — shown when the theme doc has the flag.
+    if (theme.foundingContributor) {
+      try {
+        const authorEl = document.getElementById('imprintAuthorName');
+        const parent = authorEl && authorEl.parentNode;
+        if (parent && !document.getElementById('imprintFoundingChip')) {
+          const chip = document.createElement('div');
+          chip.id = 'imprintFoundingChip';
+          chip.className = 'imprint-founding';
+          const since = theme.foundingSince ? new Date(theme.foundingSince) : null;
+          const sinceStr = since ? since.toLocaleString(undefined, { month: 'short', year: 'numeric' }) : '';
+          chip.innerHTML = '✨ Founding contributor' + (sinceStr ? '<span class="imprint-founding-date">since ' + sinceStr + '</span>' : '');
+          // Insert right after the author name
+          authorEl.insertAdjacentElement('afterend', chip);
+        }
+      } catch (e) { console.warn('[imprint-theme] founding chip render failed:', e.message); }
+    }
     const root = document.documentElement.style;
 
     // Apply accent color to CSS variable
