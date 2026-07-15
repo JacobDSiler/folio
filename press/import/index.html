@@ -1,0 +1,261 @@
+<!doctype html>
+<!-- FOLIO KDP IMPORT v2026.07.15.1 -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Import from Amazon — Folio</title>
+<meta name="description" content="Import your Amazon KDP backlist metadata into Folio in one click.">
+<style>
+:root {
+  --bg:#faf7f1; --surface:#fff; --text:#1a1611; --muted:#5a5347; --hint:#8a8174;
+  --border:rgba(0,0,0,0.10); --border-mid:rgba(0,0,0,0.14);
+  --accent:#c98c2a; --accent-ui:#065f46; --danger:#c04040;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.55;min-height:100vh}
+a{color:var(--accent-ui);text-decoration:none}
+.hdr{background:var(--surface);border-bottom:.5px solid var(--border);padding:14px 20px}
+.hdr-row{max-width:900px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.brand{font-family:'Playfair Display',Georgia,serif;font-size:18px;font-weight:600;margin:0;color:var(--text)}
+.brand .accent{color:var(--accent)}
+.nav-actions{display:flex;gap:14px;font-size:13px;color:var(--muted)}
+.nav-actions a{color:var(--muted)}
+.wrap{max-width:900px;margin:0 auto;padding:24px 20px 60px}
+h1{font-family:'Playfair Display',Georgia,serif;font-size:28px;font-weight:600;margin:6px 0 4px}
+.lead{font-size:14px;color:var(--muted);margin:0 0 24px;line-height:1.65}
+.card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;box-shadow:0 1px 3px rgba(0,0,0,0.05)}
+label{display:block;font-size:12px;font-weight:500;color:var(--hint);margin:0 0 6px}
+input[type=url],input[type=text]{width:100%;padding:9px 12px;border:.5px solid var(--border-mid);border-radius:8px;font-size:13px;font-family:ui-monospace,Menlo,monospace;background:var(--surface);color:var(--text);outline:none}
+button.primary{background:var(--accent-ui);color:#fff;border:none;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit}
+button.primary:hover{filter:brightness(.94)}
+button.primary:disabled{opacity:.5;cursor:not-allowed}
+button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--text);padding:7px 12px;border-radius:7px;font-size:12px;cursor:pointer;font-family:inherit}
+.status{font-size:12.5px;margin-top:12px;min-height:16px;color:var(--muted)}
+.status.err{color:var(--danger)}
+.status.ok{color:var(--accent-ui);font-weight:500}
+.book-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:16px}
+.book-card{background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;padding:10px;cursor:pointer;transition:border-color .15s;position:relative}
+.book-card.selected{border-color:var(--accent-ui);background:rgba(6,95,70,0.04)}
+.book-card:hover{border-color:var(--accent-ui)}
+.book-card img{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:4px;margin-bottom:6px;background:linear-gradient(135deg,var(--bg),var(--surface))}
+.book-card .b-title{font-family:'Playfair Display',Georgia,serif;font-size:12.5px;font-weight:600;line-height:1.25;margin:0 0 3px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.book-card .b-asin{font-size:9.5px;color:var(--hint);font-family:ui-monospace,Menlo,monospace}
+.book-card .b-check{position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;background:var(--surface);border:.5px solid var(--border-mid);display:flex;align-items:center;justify-content:center;font-size:12px;color:transparent}
+.book-card.selected .b-check{background:var(--accent-ui);border-color:var(--accent-ui);color:#fff}
+.auth-gate{text-align:center;padding:50px 20px}
+.hidden{display:none !important}
+.warn{background:rgba(201,140,42,0.08);border:.5px solid rgba(201,140,42,0.3);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--muted);margin:12px 0}
+.warn strong{color:var(--accent)}
+</style>
+</head>
+<body>
+<header class="hdr">
+  <div class="hdr-row">
+    <h1 class="brand"><span class="accent">📚</span> Folio · KDP Import</h1>
+    <div class="nav-actions">
+      <a href="/press/">← Press</a>
+      <a href="/app.html">Editor</a>
+      <span id="signedInAs"></span>
+    </div>
+  </div>
+</header>
+
+<div id="authGate" class="auth-gate hidden">
+  <h2 style="font-family:'Playfair Display',Georgia,serif;font-size:22px;margin:0 0 10px">Sign in to import</h2>
+  <p style="color:var(--muted);font-size:13px;margin:0 0 20px">Books get created in YOUR Folio account, so we need to know who you are.</p>
+  <button class="primary" onclick="doSignIn()">Sign in with Google</button>
+  <div id="authStatus" class="status err"></div>
+</div>
+
+<main id="mainView" class="wrap hidden">
+  <h1>Import your backlist from Amazon</h1>
+  <p class="lead">Paste your Amazon author page URL (or a single book URL) and Folio pulls titles, blurbs, covers, and series metadata for you. Manuscript text still needs to come from your own files — we can't extract book text from Kindle. This just saves you from typing every title, blurb, and cover URL by hand.</p>
+
+  <div class="card">
+    <label for="kdpUrl">Amazon URL</label>
+    <input type="url" id="kdpUrl" placeholder="https://www.amazon.com/author/xxx  or  https://www.amazon.com/dp/BXXXXXXXXX">
+    <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <button class="primary" onclick="fetchBooks()" id="fetchBtn">Fetch metadata</button>
+      <span class="status" id="fetchStatus"></span>
+    </div>
+    <div class="warn">
+      <strong>Heads up:</strong> Amazon changes their HTML shape from time to time — if a fetch returns unusable data, tell me and I'll re-tune the parser. Cover images point at Amazon-hosted URLs; consider replacing them in the editor for long-term stability.
+    </div>
+  </div>
+
+  <div id="resultsCard" class="card hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px">
+      <div>
+        <strong id="resultsCount"></strong>
+        <span style="color:var(--hint);font-size:12px">— click to select which to import</span>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="ghost" onclick="selectAll()">Select all</button>
+        <button class="ghost" onclick="selectNone()">None</button>
+      </div>
+    </div>
+    <div id="bookList" class="book-list"></div>
+    <div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;padding-top:14px;border-top:.5px solid var(--border)">
+      <button class="primary" onclick="importSelected()" id="importBtn">Import selected</button>
+      <span class="status" id="importStatus"></span>
+    </div>
+  </div>
+</main>
+
+<script>
+const PAYWALL_WORKER_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
+let _fb = {};
+let _user = null;
+let _books = [];
+let _selectedAsins = new Set();
+
+async function boot() {
+  try {
+    const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+    const authMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+    const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    Object.assign(_fb, {
+      initializeApp: appMod.initializeApp,
+      getAuth: authMod.getAuth,
+      GoogleAuthProvider: authMod.GoogleAuthProvider,
+      signInWithPopup: authMod.signInWithPopup,
+      onAuthStateChanged: authMod.onAuthStateChanged,
+      getFirestore: fsMod.getFirestore,
+      doc: fsMod.doc, setDoc: fsMod.setDoc, addDoc: fsMod.addDoc,
+      collection: fsMod.collection, serverTimestamp: fsMod.serverTimestamp,
+    });
+    const cfg = { apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0", authDomain:"auth.jacobsiler.com", projectId:"miscellaneous-117e9", storageBucket:"miscellaneous-117e9.firebasestorage.app", messagingSenderId:"514858431339", appId:"1:514858431339:web:8b3acbe89966b45fe3922e" };
+    const app = _fb.initializeApp(cfg);
+    _fb.auth = _fb.getAuth(app);
+    _fb.db = _fb.getFirestore(app);
+    _fb.onAuthStateChanged(_fb.auth, onAuth);
+  } catch (e) { document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown'); }
+}
+
+function onAuth(u) {
+  _user = u;
+  const gate = document.getElementById('authGate');
+  const main = document.getElementById('mainView');
+  if (!u) { gate.classList.remove('hidden'); main.classList.add('hidden'); document.getElementById('signedInAs').textContent = ''; return; }
+  gate.classList.add('hidden'); main.classList.remove('hidden');
+  document.getElementById('signedInAs').textContent = u.email || u.uid.slice(0,12) + '…';
+}
+
+window.doSignIn = async function() {
+  try { await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider()); }
+  catch (e) { document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown'); }
+};
+
+window.fetchBooks = async function() {
+  const url = (document.getElementById('kdpUrl').value || '').trim();
+  const status = document.getElementById('fetchStatus');
+  const btn = document.getElementById('fetchBtn');
+  if (!url) { status.textContent = 'Paste an Amazon URL first.'; status.className = 'status err'; return; }
+  btn.disabled = true;
+  status.textContent = 'Fetching from Amazon…';
+  status.className = 'status';
+  try {
+    const r = await fetch(PAYWALL_WORKER_URL + '/kdp-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url }),
+    });
+    const d = await r.json();
+    if (!r.ok || !d.ok) throw new Error(d.error || 'HTTP ' + r.status);
+    _books = d.books || [];
+    _selectedAsins = new Set(_books.map(function(b){ return b.asin; }));  // preselect all
+    renderBooks();
+    status.textContent = 'Found ' + _books.length + ' book' + (_books.length === 1 ? '' : 's') + ' from the ' + (d.source === 'author' ? 'author page' : 'book page') + '.';
+    status.className = 'status ok';
+  } catch (e) {
+    status.textContent = 'Fetch failed: ' + (e.message || 'unknown');
+    status.className = 'status err';
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+function renderBooks() {
+  const list = document.getElementById('bookList');
+  const card = document.getElementById('resultsCard');
+  const count = document.getElementById('resultsCount');
+  if (!_books.length) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  count.textContent = _books.length + ' book' + (_books.length === 1 ? '' : 's') + ' available';
+  list.innerHTML = _books.map(function(b){
+    const isSel = _selectedAsins.has(b.asin);
+    const cover = b.coverUrl
+      ? '<img src="' + esc(b.coverUrl) + '" alt="" loading="lazy" referrerpolicy="no-referrer">'
+      : '<div style="width:100%;aspect-ratio:2/3;background:var(--surface);border:.5px dashed var(--border-mid);border-radius:4px;display:flex;align-items:center;justify-content:center;color:var(--hint);font-size:11px;text-align:center;padding:8px">No cover</div>';
+    return '<div class="book-card ' + (isSel ? 'selected' : '') + '" onclick="toggleBook(\'' + esc(b.asin) + '\')">' +
+      '<div class="b-check">✓</div>' +
+      cover +
+      '<div class="b-title">' + esc(b.title || '(no title)') + '</div>' +
+      '<div class="b-asin">' + esc(b.asin || '') + '</div>' +
+    '</div>';
+  }).join('');
+}
+
+window.toggleBook = function(asin) {
+  if (_selectedAsins.has(asin)) _selectedAsins.delete(asin);
+  else _selectedAsins.add(asin);
+  renderBooks();
+};
+
+window.selectAll = function() { _selectedAsins = new Set(_books.map(function(b){return b.asin;})); renderBooks(); };
+window.selectNone = function() { _selectedAsins.clear(); renderBooks(); };
+
+window.importSelected = async function() {
+  const status = document.getElementById('importStatus');
+  const btn = document.getElementById('importBtn');
+  const picks = _books.filter(function(b){ return _selectedAsins.has(b.asin); });
+  if (!picks.length) { status.textContent = 'Nothing selected.'; status.className = 'status err'; return; }
+  if (!confirm('Create ' + picks.length + ' folio project' + (picks.length === 1 ? '' : 's') + ' from selected books? You\'ll still need to paste the manuscript text in the editor before publishing.')) return;
+  btn.disabled = true;
+  status.textContent = 'Importing ' + picks.length + '…';
+  status.className = 'status';
+  let created = 0, failed = 0;
+  for (const b of picks) {
+    try {
+      const projId = 'proj_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const ref = _fb.doc(_fb.db, 'folio_projects', projId);
+      await _fb.setDoc(ref, {
+        uid: _user.uid,
+        name: b.title || 'Untitled',
+        createdAt: Date.now(),
+        source: 'kdp-import',
+        sourceAsin: b.asin || '',
+        release: {
+          title: b.title || '',
+          description: b.blurb || '',
+          coverUrl: b.coverUrl || '',
+          pageCount: b.pageCount || 0,
+          series: b.series || null,
+          seriesOrder: b.seriesOrder || null,
+          published: false,          // author still needs to add manuscript + publish
+          listOnShelf: false,
+          priceMode: 'free',
+        }
+      });
+      created++;
+      status.textContent = 'Imported ' + created + ' / ' + picks.length + '…';
+    } catch (e) {
+      console.error('[kdp-import] failed for', b.asin, e);
+      failed++;
+    }
+  }
+  status.textContent = '✅ Created ' + created + ' folio' + (created === 1 ? '' : 's') +
+    (failed ? ' · ' + failed + ' failed (see console)' : '') +
+    '. Open the editor to paste the manuscript for each.';
+  status.className = 'status ok';
+  btn.disabled = false;
+};
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+
+boot();
+</script>
+</body>
+</html>

@@ -152,6 +152,7 @@ try {
     & git add admin\boost\index.html admin\reviews\index.html admin\press\index.html
     & git add wrangler.toml
     & git add press\photos\index.html
+    & git add press\index.html press\import\index.html
     & git add imprint\index.html
     & git add .githooks\pre-commit
     & git add policy\index.html

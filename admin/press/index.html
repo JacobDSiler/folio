@@ -96,7 +96,16 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
             <option value="yearly">Yearly</option>
           </select>
         </div>
+        <div>
+          <label for="grantMonths">Duration (months)</label>
+          <input type="number" id="grantMonths" min="1" max="120" step="1" value="6" style="width:100%">
+        </div>
       </div>
+
+      <label style="display:flex;gap:8px;align-items:flex-start;padding:8px 10px;background:var(--bg);border-radius:6px;font-size:12.5px;cursor:pointer;margin:12px 0 4px">
+        <input type="checkbox" id="grantFounding" style="margin:2px 0 0">
+        <span>Mark as <strong>Founding contributor</strong> — adds a ✨ chip on their imprint page. Perfect for family + friends who seed the platform early.</span>
+      </label>
 
       <label for="grantNote">Note (stored on the doc, not used by the app)</label>
       <input type="text" id="grantNote" placeholder="e.g., 'Founder comp' or 'Beta tester Q3'" autocomplete="off">
@@ -218,26 +227,41 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
     const uid = (document.getElementById('targetUid').value || '').trim();
     const tier = document.getElementById('grantTier').value;
     const period = document.getElementById('grantPeriod').value;
+    const months = Math.max(1, Math.min(120, parseInt(document.getElementById('grantMonths').value, 10) || 6));
+    const founding = document.getElementById('grantFounding').checked;
     const note = (document.getElementById('grantNote').value || '').trim();
     if (!uid) { setStatus('grantStatus', 'Enter a UID first.', 'err'); return; }
-    if (!confirm('Grant ' + tier + ' ' + period + ' comp to ' + uid.slice(0, 12) + '…?')) return;
+    if (!confirm('Grant ' + tier + ' ' + period + ' comp (' + months + ' months' + (founding ? ', founding contributor' : '') + ') to ' + uid.slice(0, 12) + '…?')) return;
     setStatus('grantStatus', 'Granting…');
     try {
-      const ref = _fb.doc(_fb.db, 'folio_user_settings', uid);
-      const nowIso = new Date().toISOString();
+      const now = Date.now();
+      const nowIso = new Date(now).toISOString();
+      // Compute expiration: add `months` calendar months to today.
+      const exp = new Date(now);
+      exp.setMonth(exp.getMonth() + months);
       const payload = {
         pressSubscription: {
           status: 'ACTIVE',
           tier: tier,
           period: period,
-          paypalSubscriptionId: 'COMP-' + Date.now(),
+          paypalSubscriptionId: 'COMP-' + now,
           activatedAt: nowIso,
+          expiresAt: exp.toISOString(),
+          durationMonths: months,
           compedBy: _user ? _user.uid : 'unknown',
           compNote: note || '',
+          foundingContributor: !!founding,
         }
       };
-      await _fb.setDoc(ref, payload, { merge: true });
-      setStatus('grantStatus', '✅ ' + tier.toUpperCase() + ' granted. User sees it on next auth check / hard refresh.', 'ok');
+      await _fb.setDoc(_fb.doc(_fb.db, 'folio_user_settings', uid), payload, { merge: true });
+      // Also mark on folio_imprint_themes/{uid} so the imprint page render
+      // can show the chip without needing to read the subscription doc.
+      if (founding) {
+        try {
+          await _fb.setDoc(_fb.doc(_fb.db, 'folio_imprint_themes', uid), { foundingContributor: true, foundingSince: nowIso }, { merge: true });
+        } catch (e) { console.warn('[grant] imprint theme mark failed:', e.message); }
+      }
+      setStatus('grantStatus', '✅ ' + tier.toUpperCase() + ' granted for ' + months + ' months' + (founding ? ' (founding contributor)' : '') + '. User sees it on next auth check / hard refresh.', 'ok');
       lookupCurrentSub();
     } catch (e) {
       setStatus('grantStatus', 'Grant failed: ' + (e.message || 'unknown'), 'err');
