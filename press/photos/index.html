@@ -238,6 +238,9 @@ a:hover{text-decoration:underline}
       document.getElementById('mainView').classList.remove('pp-hidden');
       document.getElementById('upgradeGate').classList.add('pp-hidden');
       await loadFolios(user.uid);
+      if (_selectedFolio && typeof _updateDownloadButton === 'function') {
+        await _updateDownloadButton();
+      }
       // Re-evaluate the Download button if a folio's already selected
       if (_selectedFolio && typeof _updateDownloadButton === 'function') {
         await _updateDownloadButton();
@@ -1864,3 +1867,8 @@ a:hover{text-decoration:underline}
 
   boot();
   _handlePaidReturn();
+  _loadPhotoTemplateManifest();
+</script>
+
+</body>
+</html>
