@@ -174,6 +174,8 @@ button.ghost:hover{background:var(--bg)}
       _fb.signInWithPopup = authMod.signInWithPopup;
       _fb.signOut = authMod.signOut;
       _fb.onAuthStateChanged = authMod.onAuthStateChanged;
+      _fb.setPersistence = authMod.setPersistence;
+      _fb.browserLocalPersistence = authMod.browserLocalPersistence;
       _fb.getFirestore = fsMod.getFirestore;
       _fb.doc = fsMod.doc;
       _fb.updateDoc = fsMod.updateDoc;
@@ -198,6 +200,11 @@ button.ghost:hover{background:var(--bg)}
       _fb.db = _fb.getFirestore(app);
       console.log('[admin-boost] ✅ Firebase ready');
 
+      // Explicit persistence — ensures a signed-in Google session
+      // hydrates from IndexedDB across admin pages without
+      // requiring re-sign-in on each subpage.
+      try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
+      catch (_e) { console.warn('[admin] persistence set failed:', _e && _e.message); }
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
     } catch (e) {
       console.error('[admin-boost] boot failed:', e);
