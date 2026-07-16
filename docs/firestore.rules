@@ -326,9 +326,11 @@ service cloud.firestore {
       allow write: if false;  // worker only (bypasses rules via SA)
     }
 
-        match /folio_imprint_themes/{uid} {
+    match /folio_imprint_themes/{uid} {
       allow read: if true;
-      allow write: if isUser(uid);
+      // Owner writes their own customization; admins can also write to mark
+      // fields like `foundingContributor` from /admin/press/ comp flow.
+      allow write: if isUser(uid) || isAdmin();
     }
 
     // Lulu print-on-demand job records. Doc id is "<uid>_<jobId>" and

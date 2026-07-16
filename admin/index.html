@@ -134,6 +134,8 @@ button.primary:hover{filter:brightness(.94)}
       _fb.signInWithPopup = authMod.signInWithPopup;
       _fb.signOut = authMod.signOut;
       _fb.onAuthStateChanged = authMod.onAuthStateChanged;
+      _fb.setPersistence = authMod.setPersistence;
+      _fb.browserLocalPersistence = authMod.browserLocalPersistence;
       _fb.getFirestore = fsMod.getFirestore;
       _fb.doc = fsMod.doc;
       _fb.getDoc = fsMod.getDoc;
@@ -141,6 +143,11 @@ button.primary:hover{filter:brightness(.94)}
       const app = _fb.initializeApp(cfg);
       _fb.auth = _fb.getAuth(app);
       _fb.db = _fb.getFirestore(app);
+      // Explicit persistence — ensures a signed-in Google session
+      // hydrates from IndexedDB across admin pages without
+      // requiring re-sign-in on each subpage.
+      try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
+      catch (_e) { console.warn('[admin] persistence set failed:', _e && _e.message); }
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
     } catch (e) { document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown'); }
   }

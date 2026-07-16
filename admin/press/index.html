@@ -73,9 +73,9 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
 
 <div class="admin-wrap">
   <div id="authGate" class="auth-gate">
-    <h2>Sign in required</h2>
-    <p style="color:var(--muted);font-size:13px;margin:0 0 20px">Owner-locked to admin uids in <code>firestore.rules</code>.</p>
-    <button class="primary" onclick="doSignIn()">Sign in with Google</button>
+    <h2 id="gateTitle">Checking sign-in…</h2>
+    <p id="gateBody" style="color:var(--muted);font-size:13px;margin:0 0 20px">If you're already signed in on Folio, this will resolve in a second.</p>
+    <button class="primary hidden" id="gateSignInBtn" onclick="doSignIn()">Sign in with Google</button>
     <div class="status err" id="authStatus"></div>
   </div>
 
@@ -163,6 +163,8 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
       _fb.signInWithPopup = authMod.signInWithPopup;
       _fb.signOut = authMod.signOut;
       _fb.onAuthStateChanged = authMod.onAuthStateChanged;
+      _fb.setPersistence = authMod.setPersistence;
+      _fb.browserLocalPersistence = authMod.browserLocalPersistence;
       _fb.getFirestore = fsMod.getFirestore;
       _fb.doc = fsMod.doc;
       _fb.getDoc = fsMod.getDoc;
@@ -183,6 +185,13 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
       const app = _fb.initializeApp(cfg);
       _fb.auth = _fb.getAuth(app);
       _fb.db = _fb.getFirestore(app);
+      // Explicit persistence — Firebase v10 defaults to LOCAL but making it
+      // explicit removes ambiguity when auth appears not to hydrate across
+      // pages. Await this before wiring the listener so the first fire uses
+      // the restored session rather than transient null.
+      try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
+      catch (e) { console.warn('[press-admin] persistence set failed:', e.message); }
+      console.log('[press-admin] auth ready. currentUser at boot:', _fb.auth.currentUser && _fb.auth.currentUser.email);
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
     } catch (e) {
       document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown');
@@ -191,7 +200,15 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
 
   function onAuthChange(u) {
     _user = u;
+    console.log('[press-admin] onAuthChange fired. user:', u ? (u.email + ' · ' + u.uid) : 'null');
+    const gateTitle = document.getElementById('gateTitle');
+    const gateBody = document.getElementById('gateBody');
+    const gateBtn = document.getElementById('gateSignInBtn');
     if (!u) {
+      // Truly signed out — swap the "Checking sign-in…" copy for the CTA.
+      gateTitle.textContent = 'Sign in required';
+      gateBody.innerHTML = 'Owner-locked to admin uids in <code>firestore.rules</code>.';
+      gateBtn.classList.remove('hidden');
       document.getElementById('authGate').classList.remove('hidden');
       document.getElementById('adminBody').classList.add('hidden');
       document.getElementById('signOutBtn').classList.add('hidden');
@@ -201,9 +218,12 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
     document.getElementById('signedInAs').textContent = u.email || u.uid;
     document.getElementById('signOutBtn').classList.remove('hidden');
     if (!ADMIN_UIDS.includes(u.uid)) {
+      gateTitle.textContent = 'Not an admin';
+      gateBody.textContent = '';
+      gateBtn.classList.add('hidden');
       document.getElementById('authGate').classList.remove('hidden');
       document.getElementById('adminBody').classList.add('hidden');
-      document.getElementById('authStatus').textContent = 'Signed in as ' + (u.email || u.uid) + ' — not on admin allowlist.';
+      document.getElementById('authStatus').textContent = 'Signed in as ' + (u.email || u.uid) + ' — uid ' + u.uid + ' not on admin allowlist.';
       return;
     }
     document.getElementById('authGate').classList.add('hidden');
