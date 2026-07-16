@@ -30,6 +30,14 @@ a:hover{text-decoration:underline}
 .card h2{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:600;margin:0 0 6px}
 .card .sub{font-size:12px;color:var(--hint);margin:0 0 14px;line-height:1.6}
 label{display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:10px 0 4px}
+
+.author-suggestion{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-bottom:.5px dotted var(--border-mid);font-size:12.5px}
+.author-suggestion:last-child{border-bottom:none}
+.author-suggestion:hover{background:var(--bg)}
+.author-suggestion .as-name{flex:1;font-weight:500;color:var(--text)}
+.author-suggestion .as-title{color:var(--hint);font-size:11px;font-style:italic}
+.author-suggestion .as-uid{color:var(--muted);font-family:ui-monospace,Menlo,monospace;font-size:10px}
+
 input,select{width:100%;font-size:13px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit}
 input:focus,select:focus{border-color:var(--accent-ui)}
 input[type="text"]{font-family:ui-monospace,Menlo,monospace;font-size:12px}
@@ -78,8 +86,15 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
       <h2>Grant comp subscription</h2>
       <div class="sub">Sets the user's <code>pressSubscription.status</code> to ACTIVE with the tier + period you pick. Client sees it on next auth check or hard refresh.</div>
 
-      <label for="targetUid">Target user UID</label>
-      <input type="text" id="targetUid" placeholder="x9AgFZ7O8WVz2UVtyO4ggWKNfc73" autocomplete="off">
+      <label for="authorSearch">Look up author by name</label>
+      <div style="position:relative">
+        <input type="text" id="authorSearch" placeholder="Start typing an author name (e.g. Thomas)…" autocomplete="off" oninput="_filterAuthors()" onfocus="_filterAuthors()">
+        <div id="authorSuggestions" style="display:none;position:absolute;top:100%;left:0;right:0;background:var(--surface);border:.5px solid var(--border-mid);border-top:none;border-radius:0 0 8px 8px;max-height:300px;overflow-y:auto;z-index:5;box-shadow:0 4px 12px rgba(0,0,0,0.08)"></div>
+      </div>
+      <div id="authorLookupStatus" style="font-size:11px;color:var(--hint);margin-top:4px">Loading known authors…</div>
+
+      <label for="targetUid" style="margin-top:14px">Target user UID</label>
+      <input type="text" id="targetUid" placeholder="Auto-filled from the lookup above, or paste directly" autocomplete="off">
 
       <div class="row">
         <div>
@@ -90,15 +105,16 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
           </select>
         </div>
         <div>
-          <label for="grantPeriod">Period</label>
-          <select id="grantPeriod">
-            <option value="monthly" selected>Monthly</option>
-            <option value="yearly">Yearly</option>
+          <label for="grantLength">Comp length</label>
+          <select id="grantLength">
+            <option value="1">1 month</option>
+            <option value="3">3 months</option>
+            <option value="6" selected>6 months</option>
+            <option value="12">12 months (1 year)</option>
+            <option value="24">24 months (2 years)</option>
+            <option value="60">5 years</option>
+            <option value="1200">Lifetime (100 years)</option>
           </select>
-        </div>
-        <div>
-          <label for="grantMonths">Duration (months)</label>
-          <input type="number" id="grantMonths" min="1" max="120" step="1" value="6" style="width:100%">
         </div>
       </div>
 
@@ -151,6 +167,10 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
       _fb.getDoc = fsMod.getDoc;
       _fb.setDoc = fsMod.setDoc;
       _fb.updateDoc = fsMod.updateDoc;
+      _fb.collection = fsMod.collection;
+      _fb.getDocs = fsMod.getDocs;
+      _fb.query = fsMod.query;
+      _fb.limit = fsMod.limit;
       const cfg = {
         apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",
         authDomain: "auth.jacobsiler.com",
@@ -194,7 +214,82 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
     catch (e) { document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown'); }
   };
   window.doSignOut = async function() { try { await _fb.signOut(_fb.auth); } catch (_) {} };
-  window.fillMyUid = function() {
+  let _authorList = [];  // [{ uid, author, title, count }]
+
+async function _loadAuthorList() {
+  const statusEl = document.getElementById('authorLookupStatus');
+  if (!_fb.getDocs || !_fb.collection || !_fb.db) { statusEl.textContent = 'Firestore not ready'; return; }
+  try {
+    const snap = await _fb.getDocs(_fb.query(_fb.collection(_fb.db, 'folio_projects'), _fb.limit(500)));
+    const byUid = new Map();
+    snap.forEach(function(d){
+      const data = d.data() || {};
+      const uid = String(data.uid || '');
+      if (!uid) return;
+      const author = String((data.release && data.release.author) || data.name || 'Unknown');
+      const title = String((data.release && data.release.title) || data.name || '');
+      if (!byUid.has(uid)) {
+        byUid.set(uid, { uid, author, sampleTitle: title, count: 1 });
+      } else {
+        const cur = byUid.get(uid);
+        cur.count++;
+        // Prefer a real author name over "Unknown" if we see one later
+        if (author && author !== 'Unknown' && cur.author === 'Unknown') cur.author = author;
+      }
+    });
+    _authorList = Array.from(byUid.values()).sort(function(a,b){
+      return String(a.author).localeCompare(String(b.author));
+    });
+    statusEl.textContent = '✅ ' + _authorList.length + ' authors loaded — type a name to filter';
+    statusEl.style.color = 'var(--accent-ui)';
+  } catch (e) {
+    statusEl.textContent = '⚠ Author list load failed: ' + (e.message || 'unknown');
+    statusEl.style.color = 'var(--danger)';
+    console.error('[admin/press] author load failed', e);
+  }
+}
+
+window._filterAuthors = function() {
+  const q = (document.getElementById('authorSearch').value || '').trim().toLowerCase();
+  const drop = document.getElementById('authorSuggestions');
+  if (!_authorList.length) { drop.style.display = 'none'; return; }
+  const matches = q
+    ? _authorList.filter(function(a){
+        return a.author.toLowerCase().indexOf(q) >= 0
+            || a.uid.toLowerCase().indexOf(q) >= 0
+            || (a.sampleTitle || '').toLowerCase().indexOf(q) >= 0;
+      })
+    : _authorList;
+  const cap = matches.slice(0, 40);
+  drop.innerHTML = cap.map(function(a){
+    return '<div class="author-suggestion" onclick="_selectAuthor(\'' + escAttr(a.uid) + '\', \'' + escAttr(a.author) + '\')">' +
+      '<div style="flex:1;min-width:0"><div class="as-name">' + esc(a.author) + '</div>' +
+      '<div class="as-title">' + esc(a.sampleTitle || '') + ' · ' + a.count + ' folio' + (a.count === 1 ? '' : 's') + '</div></div>' +
+      '<div class="as-uid">' + esc(a.uid.slice(0, 12)) + '…</div>' +
+    '</div>';
+  }).join('') + (matches.length > cap.length ? '<div class="author-suggestion" style="justify-content:center;color:var(--hint);font-style:italic">…and ' + (matches.length - cap.length) + ' more — narrow your search</div>' : '');
+  drop.style.display = cap.length ? 'block' : 'none';
+};
+
+window._selectAuthor = function(uid, author) {
+  document.getElementById('targetUid').value = uid;
+  document.getElementById('authorSearch').value = author;
+  document.getElementById('authorSuggestions').style.display = 'none';
+  setStatus('grantStatus', 'Selected: ' + author + ' (' + uid.slice(0, 12) + '…). Set tier + duration, then Grant comp.', 'ok');
+};
+
+function escAttr(s){ return String(s || '').replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+
+// Close suggestions when clicking outside
+document.addEventListener('click', function(e){
+  if (!e.target.closest('#authorSearch') && !e.target.closest('#authorSuggestions')) {
+    const d = document.getElementById('authorSuggestions');
+    if (d) d.style.display = 'none';
+  }
+});
+
+window.fillMyUid = function() {
     document.getElementById('targetUid').value = _user ? _user.uid : '';
     lookupCurrentSub();
   };
@@ -226,12 +321,19 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
   window.grantComp = async function() {
     const uid = (document.getElementById('targetUid').value || '').trim();
     const tier = document.getElementById('grantTier').value;
-    const period = document.getElementById('grantPeriod').value;
-    const months = Math.max(1, Math.min(120, parseInt(document.getElementById('grantMonths').value, 10) || 6));
+    const months = Math.max(1, Math.min(1200, parseInt(document.getElementById('grantLength').value, 10) || 6));
+    // Billing period is derived from length — anything ≥12 months rolls up as yearly
+    // for the internal schema, matching how PayPal Subscriptions would categorize it.
+    // Comps aren't actually billed, but keeping the field for schema symmetry
+    // with paid subs so the client-side pressSub() code doesn't need special-cases.
+    const period = months >= 12 ? 'yearly' : 'monthly';
     const founding = document.getElementById('grantFounding').checked;
     const note = (document.getElementById('grantNote').value || '').trim();
     if (!uid) { setStatus('grantStatus', 'Enter a UID first.', 'err'); return; }
-    if (!confirm('Grant ' + tier + ' ' + period + ' comp (' + months + ' months' + (founding ? ', founding contributor' : '') + ') to ' + uid.slice(0, 12) + '…?')) return;
+    const lenLabel = months >= 12
+      ? (months / 12) + ' year' + (months / 12 === 1 ? '' : 's')
+      : months + ' month' + (months === 1 ? '' : 's');
+    if (!confirm('Grant ' + tier + ' comp (' + lenLabel + (founding ? ', founding contributor' : '') + ') to ' + uid.slice(0, 12) + '…?')) return;
     setStatus('grantStatus', 'Granting…');
     try {
       const now = Date.now();
@@ -261,7 +363,7 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
           await _fb.setDoc(_fb.doc(_fb.db, 'folio_imprint_themes', uid), { foundingContributor: true, foundingSince: nowIso }, { merge: true });
         } catch (e) { console.warn('[grant] imprint theme mark failed:', e.message); }
       }
-      setStatus('grantStatus', '✅ ' + tier.toUpperCase() + ' granted for ' + months + ' months' + (founding ? ' (founding contributor)' : '') + '. User sees it on next auth check / hard refresh.', 'ok');
+      setStatus('grantStatus', '✅ ' + tier.toUpperCase() + ' granted for ' + lenLabel + (founding ? ' (founding contributor)' : '') + '. User sees it on next auth check / hard refresh.', 'ok');
       lookupCurrentSub();
     } catch (e) {
       setStatus('grantStatus', 'Grant failed: ' + (e.message || 'unknown'), 'err');
