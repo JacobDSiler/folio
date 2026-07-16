@@ -56,6 +56,7 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
 .hidden{display:none !important}
 .current-sub{padding:10px 12px;background:var(--bg);border-radius:6px;margin-top:8px;font-size:12.5px;font-family:ui-monospace,Menlo,monospace;white-space:pre-wrap;color:var(--text)}
 </style>
+<link rel="icon" type="image/png" href="/favicon.png">
 </head>
 <body>
 <header class="admin-hdr">
@@ -207,6 +208,9 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
     }
     document.getElementById('authGate').classList.add('hidden');
     document.getElementById('adminBody').classList.remove('hidden');
+    // Kick off the author lookup list so the "Look up author by name"
+    // input becomes usable as soon as the admin is verified.
+    try { _loadAuthorList(); } catch (e) { console.warn('[press-admin] author load failed:', e); }
   }
 
   window.doSignIn = async function() {
@@ -381,14 +385,4 @@ window.fillMyUid = function() {
         'pressSubscription.status': 'CANCELLED',
         'pressSubscription.cancelledAt': new Date().toISOString()
       });
-      setStatus('revokeStatus', '✅ Subscription revoked.', 'ok');
-      lookupCurrentSub();
-    } catch (e) {
-      setStatus('revokeStatus', 'Revoke failed: ' + (e.message || 'unknown'), 'err');
-    }
-  };
-
-  boot();
-</script>
-</body>
-</html>
+      setStatu
