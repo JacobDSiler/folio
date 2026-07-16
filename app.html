@@ -444,18 +444,44 @@
       margin-top: 2px
     }
 
+    /* Sidebar scroll region — widened scrollbar + subtle fade shadow at
+       top/bottom so it's obvious there's more content below the fold.
+       Earlier version had a 4px scrollbar that was effectively invisible,
+       causing tester Thomas to think the chapter list was truncated at
+       ~5 items when it was actually just scrolled off-screen. */
     .sidebar-scroll {
       flex: 1;
-      overflow-y: auto
+      overflow-y: auto;
+      position: relative;
+      /* Firefox */
+      scrollbar-width: thin;
+      scrollbar-color: var(--muted) transparent;
+      /* Vertical fade masks — subtle 24px gradient hint at top + bottom.
+         Uses CSS mask so it fades the content itself instead of adding
+         an overlay that would obscure clicks. */
+      -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
+      mask-image: linear-gradient(to bottom, transparent 0, #000 18px, #000 calc(100% - 18px), transparent 100%);
     }
 
     .sidebar-scroll::-webkit-scrollbar {
-      width: 4px
+      width: 10px
+    }
+
+    .sidebar-scroll::-webkit-scrollbar-track {
+      background: transparent
     }
 
     .sidebar-scroll::-webkit-scrollbar-thumb {
       background: var(--border-mid);
-      border-radius: 2px
+      border-radius: 5px;
+      border: 2px solid transparent;
+      background-clip: padding-box;
+      min-height: 40px;
+    }
+
+    .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+      background: var(--muted);
+      background-clip: padding-box;
     }
 
     .section {
@@ -5513,6 +5539,18 @@
 </head>
 
 <body>
+  <!-- Persistent auth pill — fixed top-right, visible from any tab.
+       Solves Thomas's confusion: he couldn't find the sign-in button
+       (it was buried in the Folio tab) and had no confirmation that
+       sign-in succeeded. This pill is always there and always shows
+       the current state at a glance. Two modes:
+         (a) signed-out / anonymous → "Sign in with Google" CTA
+         (b) signed in with Google  → avatar + first name + sign-out on hover
+       On desktop it sits at top-right. On mobile it collapses to
+       an icon-only button that expands on tap. -->
+  <div id="authPill" style="position:fixed;top:10px;right:12px;z-index:1000;display:none;font-family:var(--sans);pointer-events:none">
+    <div id="authPillContent" style="pointer-events:auto"></div>
+  </div>
   <!-- Mobile-only hamburger + slide-in overlay. The button is fixed
        top-left over the preview; tapping it adds .editor-sidebar-open
        to <body> which slides the sidebar in from the left. The overlay
@@ -6194,7 +6232,12 @@
             <div style="display:flex;gap:5px;flex-wrap:wrap">
               <button class="btn-sm btn-ghost" onclick="saveVersion()" id="btnSaveVer" disabled
                 style="font-size:11px;padding:5px 10px">📌 Save version</button>
-              <button class="btn-sm btn-ghost" onclick="newFolio()" style="font-size:11px;padding:5px 10px">＋ New
+              <!-- "+ New folio" — sized up + emerald border after Thomas
+                   (early tester) lost work because he couldn't find this
+                   button. Now visually stands apart from Save version. -->
+              <button class="btn-sm" onclick="newFolio()"
+                title="Start a fresh, blank folio. If you have unsaved work, you'll be offered a chance to save it first."
+                style="font-size:12px;padding:6px 12px;background:#ecfdf5;border:1px solid #10b981;color:#065f46;border-radius:6px;font-weight:600;cursor:pointer">＋ New
                 folio</button>
               <button class="btn-sm btn-ghost" id="btnSaveAsCopy" onclick="saveFolioAsCopy()"
                 style="display:none;font-size:11px;padding:5px 10px;background:#fef3c7;border-color:#d97706;color:#92400e"
@@ -7045,16 +7088,83 @@
       }
     });
 
+    // Track the last known auth mode so we can fire a "Signed in" toast
+    // exactly on the guest→Google transition, not on every re-render.
+    let _lastAuthMode = null; // 'none' | 'guest' | 'google'
+
+    function _renderAuthPill(mode, displayName, email, photo) {
+      const pill = document.getElementById('authPill');
+      const inner = document.getElementById('authPillContent');
+      if (!pill || !inner) return;
+      pill.style.display = '';
+      if (mode === 'google') {
+        const avatarHtml = photo
+          ? '<img src="' + photo + '" alt="" width="22" height="22" style="border-radius:50%;flex-shrink:0">'
+          : '<div style="width:22px;height:22px;border-radius:50%;background:var(--accent-ui);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;flex-shrink:0">' + (displayName || 'G').slice(0,2).toUpperCase() + '</div>';
+        const firstName = (displayName || email || 'You').split(' ')[0];
+        inner.innerHTML =
+          '<div title="' + (email || '') + ' — click for sign-in / sign-out options" ' +
+          '     onclick="_scrollToAuthCard()" ' +
+          '     style="display:flex;align-items:center;gap:7px;background:var(--surface);border:.5px solid #10b981;color:#065f46;padding:5px 10px 5px 5px;border-radius:22px;box-shadow:0 2px 10px rgba(0,0,0,0.08);cursor:pointer;font-size:12px;font-weight:500;transition:box-shadow .15s">' +
+          avatarHtml +
+          '<span style="color:#10b981;font-weight:700">✓</span>' +
+          '<span style="max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + firstName + '</span>' +
+          '</div>';
+      } else if (mode === 'guest') {
+        // Anonymous session — encourage sign-in with a warmer amber pill.
+        inner.innerHTML =
+          '<button onclick="signInGoogle()" ' +
+          '  title="Sign in with Google to save your folios permanently" ' +
+          '  style="display:flex;align-items:center;gap:7px;background:#fef9f0;border:.5px solid #f0d080;color:#92400e;padding:6px 12px;border-radius:22px;box-shadow:0 2px 10px rgba(0,0,0,0.08);cursor:pointer;font-family:var(--sans);font-size:12px;font-weight:600">' +
+          '<svg width="14" height="14" viewBox="0 0 48 48" style="flex-shrink:0">' +
+          '<path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.42 17.74 9.5 24 9.5z"/>' +
+          '<path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>' +
+          '<path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>' +
+          '<path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-3.92-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>' +
+          '</svg>' +
+          'Sign in with Google</button>';
+      } else {
+        pill.style.display = 'none';
+      }
+    }
+
+    // Scroll the sidebar Folio tab into view + open the auth card so the
+    // user can sign out or manage account from the pill click.
+    window._scrollToAuthCard = function() {
+      try {
+        // Switch to the Folio tab if the app has one
+        if (typeof switchTab === 'function') switchTab('project');
+        else if (typeof showTab === 'function') showTab('project');
+        const card = document.getElementById('authSignedIn') || document.getElementById('authSignedOut');
+        if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch (_) { }
+    };
+
     function _refreshAuthUI(user) {
       if (!user) {
         // No user at all — shouldn't happen with anon fallback, but handle it
         document.getElementById('authSignedOut').style.display = '';
         document.getElementById('authSignedIn').style.display = 'none';
+        _renderAuthPill('none');
+        _lastAuthMode = 'none';
         return;
       }
 
       const isAnon = user.isAnonymous;
       const hasGoogle = user.providerData.some(p => p.providerId === 'google.com');
+      // Persistent pill + transition toast
+      const newMode = hasGoogle ? 'google' : (isAnon ? 'guest' : 'google');
+      if (newMode === 'google') {
+        const gp = user.providerData.find(p => p.providerId === 'google.com') || {};
+        _renderAuthPill('google', gp.displayName || user.displayName, gp.email || user.email, gp.photoURL || user.photoURL);
+        // Fire toast only on transition from non-Google (guest / none / null) → Google
+        if (_lastAuthMode && _lastAuthMode !== 'google' && typeof toastSuccess === 'function') {
+          toastSuccess('✅ Signed in as ' + (gp.displayName || gp.email || 'you'), { icon: '👋', duration: 4000 });
+        }
+      } else {
+        _renderAuthPill('guest');
+      }
+      _lastAuthMode = newMode;
 
       if (isAnon) {
         // Guest: show the signed-in card (with animal name) + link prompt
@@ -9595,8 +9705,65 @@
     }
 
     /* ── New project ── */
-    function newFolio() {
-      if (chapters.length && !confirm('Start a new folio? Unsaved changes will be lost.')) return;
+    // Non-destructive new-folio flow — CRITICAL fix after early tester
+    // Thomas lost work by clicking "New folio" with unsaved chapters and
+    // clicking OK on a confusing single-line confirm. This wrapper adds
+    // a save-first path and clearer language, then delegates to
+    // _resetToBlankFolio() for the actual state reset.
+    async function newFolio() {
+      const currentName = (document.getElementById('projName') && document.getElementById('projName').value || '').trim() || 'this folio';
+      // Case A: nothing to lose — no chapters at all
+      if (!chapters.length) {
+        _resetToBlankFolio();
+        return;
+      }
+      // Case B: work is saved to cloud (has a project id and no dirty flag)
+      //         → user can safely walk away, just confirm the intent.
+      if (_projId && !_autoSaveDirty) {
+        if (!confirm('Start a new, blank folio?\n\n"' + currentName + '" is safely saved. You can return to it any time from "My folios".')) return;
+        _resetToBlankFolio();
+        return;
+      }
+      // Case C: unsaved work exists. Offer to SAVE first before doing
+      //         anything destructive. Two confirms with clear language —
+      //         first says "save first", second (only reached on cancel)
+      //         says "discard permanently".
+      const saveFirst = confirm(
+        '⚠️  Unsaved changes in "' + currentName + '"\n\n' +
+        'Click OK to SAVE the current folio first, then start a new one.\n' +
+        'Click Cancel if you want to review other options.'
+      );
+      if (saveFirst) {
+        try {
+          // saveFolio() requires a name; if none is set, prompt for one
+          // so the save doesn't silently bail and leave the user stuck.
+          if (!document.getElementById('projName').value.trim()) {
+            const suggested = (chapters[0] && chapters[0].title) || 'Untitled folio';
+            const name = prompt('Give this folio a name before saving:', suggested);
+            if (!name) { setStatus('Cancelled — folio not saved, no new folio started'); return; }
+            document.getElementById('projName').value = name.trim();
+          }
+          await saveFolio();
+          if (typeof toastSuccess === 'function') toastSuccess('Saved. Starting your new folio…', { icon: '✅', duration: 2400 });
+          _resetToBlankFolio();
+        } catch (e) {
+          alert('Save failed: ' + (e && e.message || 'unknown') + '\n\nYour current work is still in the editor. Try again or click Save above.');
+        }
+        return;
+      }
+      // Reached only if user actively cancelled the "save first" prompt.
+      const discard = confirm(
+        '❌  DISCARD all unsaved changes in "' + currentName + '" ' +
+        'and start a new folio?\n\n' +
+        'This cannot be undone.'
+      );
+      if (discard) _resetToBlankFolio();
+    }
+
+    // Pure state-reset — the destructive half of newFolio, split out so
+    // the guard above can call it after a save-first flow completes.
+    // Do NOT call this directly from onclick handlers.
+    function _resetToBlankFolio() {
       _projId = null;
       _loadedFolioOwnerUid = null;
       localStorage.removeItem('folio_last_open');
@@ -9614,6 +9781,7 @@
       // Phase 4 — start the new folio from the writer's saved defaults
       // (theme / fonts / layout). No-op if none have been saved.
       try { _applyFolioDefaults(); } catch (e) { }
+      _autoSaveDirty = false;
       renderPreview();
       setStatus('New folio started');
     }

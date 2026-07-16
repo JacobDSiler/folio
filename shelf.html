@@ -99,6 +99,13 @@ a:hover{text-decoration:underline}
 .shelf-card.featured{border:1px solid var(--accent);box-shadow:0 0 0 3px rgba(201,140,42,0.10),var(--shadow)}
 .shelf-card.featured:hover{box-shadow:0 0 0 3px rgba(201,140,42,0.14),var(--shadow-h)}
 .shelf-badge.featured{background:var(--accent);color:#fff}
+/* Owner-visible pending review indicator — floats over the top-right
+   of the cover so the author can tell at a glance which of their
+   listings are still awaiting moderator approval. Non-owners never
+   see this because the pending listing itself is filtered out for them. */
+.shelf-card{position:relative}
+.shelf-pending-chip{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;background:rgba(196,72,44,0.94);color:#fff;font-size:10.5px;font-weight:600;padding:4px 9px;border-radius:11px;letter-spacing:.05em;text-transform:uppercase;box-shadow:0 2px 8px rgba(0,0,0,0.25);cursor:help;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border:.5px solid rgba(255,255,255,0.2)}
+.shelf-pending-chip:hover{background:rgba(196,72,44,1)}
 .shelf-empty{text-align:center;padding:80px 20px;color:var(--hint);font-size:14px}
 .shelf-empty .lead{font-family:'Playfair Display',Georgia,serif;font-size:22px;color:var(--text);margin-bottom:8px}
 .shelf-foot{max-width:1100px;margin:40px auto 0;padding:22px 20px 28px;border-top:.5px solid var(--border);font-size:12px;color:var(--hint);text-align:center}
@@ -233,7 +240,14 @@ function renderShelf(){
     const boostChip = isMine
       ? '<button class="shelf-boost-chip'+(isQuiet?' recommended':'')+'" onclick="event.stopPropagation();openBoostPicker(\''+esc(f.id)+'\',\''+esc(f.title).replace(/\'/g,"\\'")+'\')" title="'+(isQuiet?'This folio is quiet — a boost could 10× your reach':'Boost this folio')+'">'+(isQuiet?'📉 Boost →':'🚀 Boost')+'</button>'
       : '';
+    // Pending review chip — owner-only, floats top-right of the card.
+    // Only owners see the card at all when it's pending (see filter in
+    // renderShelf); the chip makes clear it's not yet public.
+    const pendingChip = (isMine && f.shelfPendingModeration)
+      ? '<span class="shelf-pending-chip" title="This folio is awaiting moderator approval — only you can see it on the shelf until it\'s approved. It will appear to everyone once a moderator reviews it.">⏳ Pending review</span>'
+      : '';
     return '<div class="shelf-card'+(isFeatured?' featured':'')+'" onclick="if(!event.target.closest(\'a\')&&!event.target.closest(\'button\'))window.location=\''+esc(href)+'\'" tabindex="0" onkeydown="if(event.key===\'Enter\')window.location=\''+esc(href)+'\'">'+
+      pendingChip+
       cover+
       '<h2 class="shelf-card-title"><a href="'+esc(href)+'">'+esc(f.title)+'</a></h2>'+
       authorPart+blurb+
