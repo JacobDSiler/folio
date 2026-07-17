@@ -405,4 +405,24 @@ window.fillMyUid = function() {
         'pressSubscription.status': 'CANCELLED',
         'pressSubscription.cancelledAt': new Date().toISOString()
       });
-      setStatu
+    setStatus('revokeStatus', 'Revoking…');
+    try {
+      const ref = _fb.doc(_fb.db, 'folio_user_settings', uid);
+      await _fb.updateDoc(ref, {
+        'pressSubscription.status': 'CANCELLED',
+        'pressSubscription.cancelledAt': new Date().toISOString()
+      });
+      setStatus('revokeStatus', '✅ Revoked. User sees loss of features on next auth check.', 'ok');
+      lookupCurrentSub();
+    } catch (e) {
+      setStatus('revokeStatus', 'Revoke failed: ' + (e.message || 'unknown'), 'err');
+    }
+  };
+
+  // Actually start the boot flow — was missing, which is why the page
+  // stalled forever at "Checking sign-in…" (auth listener never got
+  // wired up because boot() never ran).
+  boot();
+</script>
+</body>
+</html>

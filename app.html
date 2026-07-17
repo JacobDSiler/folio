@@ -8780,6 +8780,45 @@
                     }
                   } catch (_ignored) {}
                   console.log('[signed-teaser] ✅ unlocked', _j.chapterId, '(visible in gate)');
+                  // Force the paywall gate to re-run AFTER the DOM has
+                  // been repainted with the unlocked content. _pwShowPreview
+                  // has an idempotency guard that bails if the CTA is
+                  // already present, so we schedule a delayed _pwReapply()
+                  // AND manually unhide any pages with the matching chid
+                  // as a belt-and-braces fix. This is the difference
+                  // between "content is merged" and "reader can see it".
+                  const _unlockedChId = _j.chapterId;
+                  setTimeout(function(){
+                    try {
+                      const bp = document.getElementById('bookPreview');
+                      if (!bp) return;
+                      // Direct unhide — most robust because it doesn't
+                      // depend on _pwShowPreview knowing what's in the
+                      // signed-unlocked set at re-render time. Walks
+                      // pages and clears .pw-hidden-page for the range
+                      // that belongs to this chapter (data-chapid is
+                      // only stamped on the first page of the chapter).
+                      const pages = Array.from(bp.children);
+                      let unhide = false;
+                      for (let i = 0; i < pages.length; i++) {
+                        const pageChId = pages[i].getAttribute && pages[i].getAttribute('data-chapid');
+                        if (pageChId === _unlockedChId) {
+                          unhide = true;
+                        } else if (pageChId && pageChId !== _unlockedChId) {
+                          unhide = false;
+                        }
+                        if (unhide) pages[i].classList.remove('pw-hidden-page');
+                      }
+                      // Also nudge the paywall to reapply — if _pwReapply
+                      // exists, it'll re-run the gate with the updated
+                      // _signedTeaserUnlocked set (and skip its idempotency
+                      // guard if we clear the CTA first).
+                      const cta = bp.querySelector('.pw-preview-cta');
+                      if (cta) cta.remove();
+                      if (typeof _pwReapply === 'function') _pwReapply();
+                      console.log('[signed-teaser] pages re-shown for chapter', _unlockedChId);
+                    } catch (e) { console.warn('[signed-teaser] unhide failed:', e); }
+                  }, 250);
                 }
               } else {
                 console.warn('[signed-teaser] worker returned', _r.status,
