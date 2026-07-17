@@ -8779,7 +8779,17 @@
                       }
                     }
                   } catch (_ignored) {}
-                  console.log('[signed-teaser] ✅ unlocked', _j.chapterId, '(visible in gate)');
+                  // Log content length so we can distinguish "worker
+                  // succeeded but returned empty content" from a genuine
+                  // unlock. Empty content = body/paid is missing for
+                  // this folio, meaning the author hasn't republished
+                  // since the D1 body/paid split shipped.
+                  const _contentLen = (_j.content || '').length;
+                  console.log('[signed-teaser] ✅ unlocked', _j.chapterId,
+                    '· content length:', _contentLen,
+                    _contentLen === 0
+                      ? '⚠ EMPTY — folio needs to be republished to populate body/paid'
+                      : '(visible in gate)');
                   // Force the paywall gate to re-run AFTER the DOM has
                   // been repainted with the unlocked content. _pwShowPreview
                   // has an idempotency guard that bails if the CTA is
@@ -22422,12 +22432,24 @@
           // page walk completes first; _rdJumpToChapter retries internally
           // if the chapter isn't painted yet.
           if (_teaserChId) {
-            setTimeout(() => {
+            // Auto-jump to the shared chapter — fires TWICE with
+            // different delays so it works both for fast-loading free
+            // folios AND slow-loading paid folios (which need extra
+            // time for the signed-teaser fetch + paywall gate rebuild).
+            // _rdJumpToChapter is idempotent — running it twice just
+            // scrolls to the same spot. First attempt at 600ms for
+            // free-folio snappiness; second at 1600ms as a safety net
+            // for signed-teaser paid folios that need the fetch to
+            // finish + the CTA to be repositioned first.
+            const _jumpAndBanner = function(label) {
               try {
                 if (typeof _rdJumpToChapter === 'function') _rdJumpToChapter(_teaserChId);
                 _rdShowTeaserBanner(_teaserChId, id);
+                console.log('[teaser] auto-jump attempt (' + label + ')');
               } catch (e) { console.warn('[teaser] jump failed:', e); }
-            }, 600);
+            };
+            setTimeout(function(){ _jumpAndBanner('600ms'); }, 600);
+            setTimeout(function(){ _jumpAndBanner('1600ms'); }, 1600);
           }
         }).catch(err => {
           const code = err && err.code;
