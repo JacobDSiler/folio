@@ -1,0 +1,249 @@
+<!doctype html>
+<!-- FOLIO HELP + FAQ v2026.07.16.1 -->
+<!--
+  Standalone help / FAQ page. First iteration seeded from early tester
+  Thomas's questions (chapter types, serial release, sign-in, creating
+  a new folio, saving) plus common author FAQ. Kept as a single static
+  HTML file with no JS so it loads instantly and can't break behind
+  a bad Firebase state. Extend by appending <details> blocks under
+  the appropriate <h2>.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Help + FAQ — Folio</title>
+<meta name="description" content="Help and frequently asked questions for authors and readers on Folio.">
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+:root {
+  --bg:#faf7f1; --surface:#fff; --text:#1a1611; --muted:#5a5347; --hint:#8a8174;
+  --border:rgba(0,0,0,0.10); --border-mid:rgba(0,0,0,0.14);
+  --accent:#c98c2a; --accent-ui:#065f46; --danger:#c04040;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.65;min-height:100vh}
+a{color:var(--accent-ui)}
+.pol-hdr{background:var(--surface);border-bottom:.5px solid var(--border);padding:16px 20px}
+.pol-hdr-row{max-width:820px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.pol-brand{font-family:'Playfair Display',Georgia,serif;font-size:20px;font-weight:600;margin:0;color:var(--text);text-decoration:none}
+.pol-brand .accent{color:var(--accent)}
+.pol-nav{display:flex;gap:14px;font-size:13px}
+.pol-nav a{color:var(--muted);text-decoration:none}
+.pol-nav a:hover{color:var(--text)}
+.pol-wrap{max-width:780px;margin:0 auto;padding:40px 24px 80px}
+.pol-eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--accent);font-weight:500;margin:0 0 8px}
+h1{font-family:'Playfair Display',Georgia,serif;font-size:38px;font-weight:600;line-height:1.2;margin:0 0 6px;letter-spacing:-0.01em}
+.lead{font-size:16px;color:var(--muted);line-height:1.7;margin:0 0 40px}
+h2{font-family:'Playfair Display',Georgia,serif;font-size:22px;font-weight:600;margin:44px 0 6px;letter-spacing:-0.005em}
+.h2-note{font-size:13px;color:var(--hint);margin:0 0 18px;line-height:1.55}
+p{font-size:15px;line-height:1.75;margin:0 0 14px;color:var(--text)}
+code{background:var(--surface);border:.5px solid var(--border-mid);border-radius:4px;padding:1px 6px;font-size:13.5px;font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+.faq{border:.5px solid var(--border);border-radius:10px;background:var(--surface);margin:0 0 10px;overflow:hidden;transition:box-shadow .15s}
+.faq[open]{box-shadow:0 2px 12px rgba(0,0,0,0.05)}
+.faq summary{list-style:none;cursor:pointer;padding:14px 18px;display:flex;align-items:center;gap:10px;font-size:15px;font-weight:500;color:var(--text);user-select:none;transition:background .12s}
+.faq summary::-webkit-details-marker{display:none}
+.faq summary:hover{background:var(--bg)}
+.faq[open] summary{border-bottom:.5px solid var(--border);background:var(--bg)}
+.faq-caret{display:inline-block;color:var(--hint);font-size:11px;transition:transform .15s;width:12px;text-align:center;flex-shrink:0}
+.faq[open] .faq-caret{transform:rotate(90deg)}
+.faq-body{padding:12px 18px 18px 40px}
+.faq-body p{margin:0 0 10px}
+.faq-body ul{padding-left:20px;margin:6px 0 12px}
+.faq-body li{font-size:14.5px;line-height:1.7;margin:0 0 6px}
+.callout{background:rgba(6,95,70,0.06);border-left:3px solid var(--accent-ui);padding:12px 16px;border-radius:0 6px 6px 0;margin:14px 0 20px;font-size:14px;color:var(--text)}
+.callout strong{color:var(--accent-ui)}
+.footlinks{margin-top:60px;padding-top:24px;border-top:.5px solid var(--border);font-size:13px;color:var(--hint);text-align:center;line-height:1.8}
+.footlinks a{color:var(--muted);margin:0 8px}
+</style>
+</head>
+<body>
+
+<header class="pol-hdr">
+  <div class="pol-hdr-row">
+    <a href="/" class="pol-brand"><span class="accent">✨</span> Folio</a>
+    <nav class="pol-nav">
+      <a href="/">Home</a>
+      <a href="/shelf">Shelf</a>
+      <a href="/press">For authors</a>
+      <a href="/app.html">Open editor</a>
+    </nav>
+  </div>
+</header>
+
+<div class="pol-wrap">
+
+  <p class="pol-eyebrow">Help + FAQ</p>
+  <h1>How Folio works</h1>
+  <p class="lead">Short answers to the things authors and readers ask most often. If you don't see your question here, email <a href="mailto:hello@onfolio.press">hello@onfolio.press</a> and I'll add it.</p>
+
+
+  <h2>Getting started</h2>
+  <p class="h2-note">The essentials for your first hour on Folio.</p>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> What is a folio?</summary>
+    <div class="faq-body">
+      <p>A folio is a book (or short piece, or serial) on Folio. Each folio has its own cover, title, chapters, and pricing. You can have as many folios as you want under one account — they're independent projects, not versions of the same document.</p>
+      <p>Think of it like this: one folio = one book you'd put on a shelf.</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> How do I create a new folio?</summary>
+    <div class="faq-body">
+      <p>Open the editor at <a href="/app.html">onfolio.press/app.html</a> and click the green <strong>＋ New folio</strong> button in the sidebar (under the Save controls). That gives you a fresh, empty folio to work in.</p>
+      <p>If you have unsaved changes in the current folio, Folio will offer to save it first before creating a new one — so you can't accidentally lose work.</p>
+      <div class="callout"><strong>Tip:</strong> Every folio you save (with the ☁ Save button) is stored to the cloud and follows your Google account across devices. You can jump between them from the "My folios" list any time.</div>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> How do I sign in? Do I need an account?</summary>
+    <div class="faq-body">
+      <p>Folio works as a guest — you can start writing immediately without signing in. But <strong>guest work only saves to this browser</strong>. Clear your browsing data, switch devices, or come back next week and it may be gone.</p>
+      <p>To make your work permanent and sync across devices, click <strong>Sign in with Google</strong> in the top-right corner of the editor. You'll see a green ✓ chip appear with your name once you're signed in — that's how you know it worked.</p>
+      <p>No password, no signup form. Google handles the identity part; Folio just remembers you're you.</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> How does saving work?</summary>
+    <div class="faq-body">
+      <p>Two layers, both automatic:</p>
+      <ul>
+        <li><strong>Local backup</strong> — every keystroke is snapshotted to your browser. If you close the tab, refresh, or lose power, your work is still there when you come back.</li>
+        <li><strong>Cloud save</strong> — when you're signed in with Google and click ☁ <strong>Save</strong>, your folio is written to the cloud and follows your account. This is what you want for anything you plan to keep.</li>
+      </ul>
+      <p>You'll see a status indicator in the sidebar showing whether the current folio is saved (green) or has unsaved edits (amber). If you try to leave with unsaved changes, the browser will warn you.</p>
+    </div>
+  </details>
+
+
+  <h2>The editor</h2>
+  <p class="h2-note">How to organize chapters, use the different tabs, and get around.</p>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> What are the chapter types (Pre / TOC / Ch / Post)?</summary>
+    <div class="faq-body">
+      <p>Each chapter has a small type badge you can click to change:</p>
+      <ul>
+        <li><strong>Pre</strong> — front matter that comes before the story starts. Dedication, foreword, acknowledgements, prologue, epigraphs.</li>
+        <li><strong>TOC</strong> — Table of Contents. Auto-generated from your chapter titles; you don't write it manually.</li>
+        <li><strong>Ch</strong> — a regular chapter. This is the default for anything you import.</li>
+        <li><strong>Post</strong> — back matter that comes after the story ends. Epilogue, about the author, acknowledgements you didn't put up front, appendices.</li>
+      </ul>
+      <p>Type affects how the chapter is numbered, styled, and included in exports. Only <strong>Ch</strong> chapters get chapter numbers.</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> The Manuscript tab feels cramped — where's the chapter list?</summary>
+    <div class="faq-body">
+      <p>The Import / Options / Write panels at the top of the Manuscript tab are collapsible now — click a panel header to expand or collapse it. Leave them collapsed and the Chapter List below gets all the space.</p>
+      <p>If you have more than a handful of chapters, you can scroll the sidebar with the mouse wheel or the scrollbar on the right edge. The scrollbar was recently widened so it's easier to spot.</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> I can't see beyond chapter 5 — where did the rest go?</summary>
+    <div class="faq-body">
+      <p>They're still there — the Chapter List scrolls. Look for the scrollbar on the right edge of the sidebar, or use the mouse wheel while hovering the list. If chapters really are missing, check the ☁ Save status: if a save failed silently, an older version of the folio may have loaded. Sign in with Google (if you haven't) so cloud save is available.</p>
+    </div>
+  </details>
+
+
+  <h2>Publishing + the Shelf</h2>
+  <p class="h2-note">What "release" means, how to list your folio publicly, and what happens next.</p>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> What does "release" mean?</summary>
+    <div class="faq-body">
+      <p>Releasing a folio is the moment you make it available to readers. Before release, only you can see it. After release, it has a public URL that anyone can open. Releasing also lets you optionally list the folio on the <a href="/shelf">Folio Shelf</a> — the public marketplace where readers browse and discover new books.</p>
+      <p>You can un-release a folio at any time. That takes it back to private and hides it from the Shelf.</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> What's a serial release?</summary>
+    <div class="faq-body">
+      <p>A serial folio releases chapters one at a time on a schedule you set — weekly, biweekly, monthly, or whatever cadence you like. Great for building anticipation, growing a mailing list, and getting reader feedback while you write later chapters.</p>
+      <p>You can also release the next chapter manually at any time with the 🔓 button in the sidebar, ahead of schedule.</p>
+      <div class="callout"><strong>Tip:</strong> You don't need to have all chapters written before starting a serial. Publish chapter 1, write chapter 2 in the meantime, and Folio will release it on schedule.</div>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> Can I edit a chapter after publishing it?</summary>
+    <div class="faq-body">
+      <p>Yes. Editing a published chapter updates the version readers see the next time they open it. There's no separate "publish edit" step for text changes.</p>
+      <p>If you change something shelf-visible — title, description, cover, genre — the listing goes back to the moderation queue for a quick review before it re-appears on the public Shelf. Your existing readers can still open the folio during that window; only the Shelf listing is affected.</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> Why isn't my folio showing up on the Shelf yet?</summary>
+    <div class="faq-body">
+      <p>Every new listing goes through a quick moderator review before it's publicly visible. You'll see a small <strong>⏳ Pending review</strong> chip on your own card in the meantime — that's the signal that we can see it but the public can't. Once approved, the chip disappears.</p>
+      <p>If it's been more than 24 hours, email <a href="mailto:hello@onfolio.press">hello@onfolio.press</a>.</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> Can I still publish on Amazon KDP, Kobo, Apple Books, etc.?</summary>
+    <div class="faq-body">
+      <p>Yes — Folio is designed to sit alongside every other channel you sell on. The only conflict is <strong>KDP Select</strong>, Amazon's exclusive-digital program that forbids selling the same book anywhere else. If you're in KDP Select, don't sell on Folio at the same time (you'd violate Amazon's terms). Standard non-Select KDP, wide distribution via Draft2Digital / PublishDrive, Kobo, Apple, Google Play — all fine.</p>
+      <p>Folio takes 0% of your book sales. Optional Press subscriptions ($2 / $6 per month) give you extra author tools; they don't take a cut of your revenue.</p>
+    </div>
+  </details>
+
+
+  <h2>Money + subscriptions</h2>
+  <p class="h2-note">What's free, what's paid, how you get paid.</p>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> How much does Folio cost?</summary>
+    <div class="faq-body">
+      <p>Reading is always free. Writing and publishing is free up to a point.</p>
+      <ul>
+        <li><strong>Free</strong> — up to 3 folios, all core editing + export tools.</li>
+        <li><strong>Indie ($2/mo)</strong> — unlimited folios, imprint customization, priority moderation.</li>
+        <li><strong>Imprint ($6/mo)</strong> — everything in Indie plus product photos, AI cover assistant, expanded analytics, founding contributor perks.</li>
+      </ul>
+      <p>Folio does not take a percentage of your book sales, tips, or subscription revenue. See the <a href="/press">Press page</a> for the full breakdown.</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> How do I set up tips so readers can support me?</summary>
+    <div class="faq-body">
+      <p>In the editor, open the release settings for any folio, and add a Tip URL — your PayPal.me link, Ko-fi, Stripe checkout, Buy Me a Coffee, whatever you already use. Once set, readers see a small "Tip the author" link at the end of each chapter that opens your payment page in a new tab.</p>
+      <p>Folio takes 0% of tips — the payment goes directly from the reader to your vendor of choice. No intermediary.</p>
+    </div>
+  </details>
+
+  <details class="faq">
+    <summary><span class="faq-caret">▸</span> What's a Founding Contributor?</summary>
+    <div class="faq-body">
+      <p>A perk we grant to early authors who help seed the platform — family, friends, and first supporters. Founding contributors get a comped Imprint subscription and a small ✨ chip on their imprint page indicating they came on board early.</p>
+      <p>Founding status is invite-only right now (from Jacob directly). If you're a serious author interested in an early-days comp, email <a href="mailto:hello@onfolio.press">hello@onfolio.press</a>.</p>
+    </div>
+  </details>
+
+
+  <h2>Still stuck?</h2>
+  <p>Email <a href="mailto:hello@onfolio.press">hello@onfolio.press</a> and I'll get back to you personally. Feedback is genuinely welcome — early tester questions have shaped a lot of what's in this FAQ.</p>
+
+
+  <div class="footlinks">
+    <a href="/">Home</a> ·
+    <a href="/shelf">Shelf</a> ·
+    <a href="/press">For authors</a> ·
+    <a href="/policy">Content policy</a> ·
+    <a href="/app.html">Open editor</a>
+  </div>
+</div>
+
+</body>
+</html>

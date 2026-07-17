@@ -1,0 +1,117 @@
+<!doctype html>
+<!-- FOLIO 404 + SMART REDIRECT v2026.07.17.1
+     GitHub Pages serves this file for ANY missing path. We use that
+     to handle two things:
+       (1) /s/<folioId>[?teaser=…&tt=…] — signed teaser share links.
+           Forward to /app.html?read=<folioId>&<originalQuery>.
+       (2) Anything else — show a friendly "not found" with links back
+           to the shelf, editor, and help.
+     Without this file, teaser share links (the marketing surface Jacob
+     depends on) 404 from GitHub's default black-and-white error page. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Not found — Folio</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+:root{--bg:#faf7f1;--surface:#fff;--text:#1a1611;--muted:#5a5347;--hint:#8a8174;--border:rgba(0,0,0,0.10);--border-mid:rgba(0,0,0,0.14);--accent:#c98c2a;--accent-ui:#065f46}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:40px 36px;max-width:480px;width:100%;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.06)}
+.brand{font-family:'Playfair Display',Georgia,serif;font-size:22px;font-weight:600;color:var(--text);margin:0 0 8px}
+.brand .accent{color:var(--accent)}
+.status{font-family:'Playfair Display',Georgia,serif;font-size:44px;font-weight:600;color:var(--accent);margin:0 0 4px;line-height:1}
+.title{font-family:'Playfair Display',Georgia,serif;font-size:24px;font-weight:600;margin:8px 0 6px;color:var(--text)}
+.subtitle{font-size:13.5px;color:var(--muted);margin:0 0 24px;line-height:1.6}
+.spinner{width:28px;height:28px;border:2.5px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 18px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.links{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-top:22px}
+.links a{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;padding:8px 14px;border-radius:8px;background:var(--bg);border:.5px solid var(--border-mid);color:var(--text);text-decoration:none;transition:background .12s}
+.links a:hover{background:var(--surface);border-color:var(--accent)}
+.debug{margin-top:24px;padding-top:16px;border-top:.5px solid var(--border);font-size:11px;color:var(--hint);font-family:ui-monospace,Menlo,monospace;word-break:break-all}
+.hidden{display:none}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand"><span class="accent">✨</span> Folio</div>
+
+    <!-- Redirect card — shown briefly while forwarding a /s/… link. -->
+    <div id="redirectCard" class="hidden">
+      <div class="spinner"></div>
+      <div class="title">Opening your folio…</div>
+      <p class="subtitle">You'll be forwarded to the reader in a moment.</p>
+      <div class="links">
+        <a id="manualLink" href="/app.html">Continue manually →</a>
+      </div>
+    </div>
+
+    <!-- Normal 404 — shown when the path doesn't match any smart route. -->
+    <div id="notFoundCard">
+      <div class="status">404</div>
+      <div class="title">Page not found</div>
+      <p class="subtitle">This URL doesn't lead anywhere on Folio. It may have been mistyped, or the folio it pointed to has been unpublished.</p>
+      <div class="links">
+        <a href="/">Home</a>
+        <a href="/shelf">Shelf</a>
+        <a href="/help/">Help + FAQ</a>
+        <a href="/app.html">Open the editor</a>
+      </div>
+      <div class="debug" id="debugPath"></div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      'use strict';
+      // Path handling — the requested path is available on
+      // window.location.pathname exactly as the user typed it.
+      const path = window.location.pathname || '';
+      const search = window.location.search || '';
+
+      // ── Route 1: /s/<folioId> teaser share links ──────────────────
+      // Match the folio id out of the path. If we get one, forward
+      // to the reader with the full original query string intact so
+      // ?teaser= + ?tt= (the signed-teaser token) survive the hop.
+      const shareMatch = path.match(/^\/s\/([^\/\?#]+)/);
+      if (shareMatch && shareMatch[1]) {
+        const folioId = decodeURIComponent(shareMatch[1]);
+        const extra = search.replace(/^\?/, '');
+        const target = '/app.html?read=' + encodeURIComponent(folioId) +
+                       (extra ? '&' + extra : '');
+        // Show the redirect card, prime the manual link, then replace().
+        document.getElementById('notFoundCard').classList.add('hidden');
+        document.getElementById('redirectCard').classList.remove('hidden');
+        document.getElementById('manualLink').href = target;
+        try { window.location.replace(target); }
+        catch (e) { console.warn('[folio-404] replace failed:', e); }
+        return;
+      }
+
+      // ── Route 2: legacy /read/<folioId> style URLs, if any exist ──
+      // Kept as a defensive shim — cheap to support and covers any
+      // old bookmarks pointing at a defunct URL shape.
+      const readMatch = path.match(/^\/read\/([^\/\?#]+)/);
+      if (readMatch && readMatch[1]) {
+        const folioId = decodeURIComponent(readMatch[1]);
+        const extra = search.replace(/^\?/, '');
+        const target = '/app.html?read=' + encodeURIComponent(folioId) +
+                       (extra ? '&' + extra : '');
+        document.getElementById('notFoundCard').classList.add('hidden');
+        document.getElementById('redirectCard').classList.remove('hidden');
+        document.getElementById('manualLink').href = target;
+        try { window.location.replace(target); }
+        catch (e) { console.warn('[folio-404] replace failed:', e); }
+        return;
+      }
+
+      // ── Fallback: genuine 404. Show the debug path so we can spot
+      //             which URLs are hitting this page in dev tools. ──
+      document.getElementById('debugPath').textContent =
+        'Requested: ' + path + (search || '');
+    })();
+  </script>
+</body>
+</html>

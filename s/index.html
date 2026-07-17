@@ -1,0 +1,90 @@
+<!doctype html>
+<!-- FOLIO SHARE REDIRECT v2026.07.17.1
+     Teaser + share links from the editor are shaped like:
+       https://www.onfolio.press/s/<folioId>?teaser=<chId>&tt=<token>
+     GitHub Pages doesn't have a route at /s/<folioId>, so without this
+     page every teaser link 404s. This page reads the folio id from the
+     URL path, forwards the query string intact, and redirects to
+     /app.html?read=<folioId>&<rest>. Zero-JS-required fallback link is
+     rendered too in case the redirect is blocked. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Opening folio… — Folio</title>
+<meta name="robots" content="noindex,nofollow">
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+:root{--bg:#faf7f1;--surface:#fff;--text:#1a1611;--muted:#5a5347;--hint:#8a8174;--border:rgba(0,0,0,0.10);--accent:#c98c2a;--accent-ui:#065f46}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;height:100%}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:36px 32px;max-width:440px;width:100%;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.06)}
+.brand{font-family:'Playfair Display',Georgia,serif;font-size:22px;font-weight:600;color:var(--text);margin:0 0 8px}
+.brand .accent{color:var(--accent)}
+.title{font-family:'Playfair Display',Georgia,serif;font-size:28px;font-weight:600;margin:0 0 6px;color:var(--text)}
+.subtitle{font-size:13px;color:var(--muted);margin:0 0 24px;line-height:1.6}
+.spinner{width:32px;height:32px;border:2.5px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 22px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.fallback{margin-top:20px;padding-top:20px;border-top:.5px solid var(--border);font-size:12.5px;color:var(--hint)}
+.fallback a{color:var(--accent-ui);text-decoration:underline}
+.error{color:#c04040;font-size:13px;margin:12px 0 0}
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand"><span class="accent">✨</span> Folio</div>
+    <div class="spinner" id="spinner"></div>
+    <div class="title" id="title">Opening your folio…</div>
+    <p class="subtitle" id="subtitle">You'll be redirected to the reader in a moment.</p>
+    <div class="fallback">
+      Not redirected automatically? <a id="manualLink" href="/app.html">Click here to continue →</a>
+    </div>
+    <div class="error" id="error" style="display:none"></div>
+  </div>
+
+  <script>
+    (function() {
+      'use strict';
+      // Extract folio id from the URL path. Format:
+      //   /s/<folioId>       → folioId
+      //   /s/<folioId>/      → folioId (trailing slash tolerated)
+      // Anything else falls back to a helpful error.
+      const path = window.location.pathname || '';
+      const match = path.match(/^\/s\/([^\/\?#]+)/);
+      const folioId = match ? decodeURIComponent(match[1]) : '';
+
+      // Forward the entire query string (contains ?teaser=, ?tt=,
+      // ?role=, etc.) to the reader. Prepend read=<folioId> so the
+      // reader loads that folio.
+      const originalQs = window.location.search || '';
+      const extraParams = originalQs.replace(/^\?/, '');
+      const target = folioId
+        ? '/app.html?read=' + encodeURIComponent(folioId) + (extraParams ? '&' + extraParams : '')
+        : '/shelf';
+
+      // Update the fallback link right away so keyboard-nav / no-JS
+      // users can click through even if the JS redirect below never
+      // runs (e.g., aggressive tracking blockers).
+      const link = document.getElementById('manualLink');
+      if (link) link.href = target;
+
+      if (!folioId) {
+        document.getElementById('spinner').style.display = 'none';
+        document.getElementById('title').textContent = 'Folio not specified';
+        document.getElementById('subtitle').textContent = 'This link is missing a folio id. Try again from the sender, or browse the Folio Shelf.';
+        return;
+      }
+
+      // Use replace() so the /s/… URL doesn't clutter browser history —
+      // Back button from the reader should return to whoever linked here.
+      try {
+        window.location.replace(target);
+      } catch (e) {
+        document.getElementById('error').style.display = 'block';
+        document.getElementById('error').textContent = 'Redirect failed: ' + (e && e.message || 'unknown') + '. Click the link below to continue manually.';
+      }
+    })();
+  </script>
+</body>
+</html>
