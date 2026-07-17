@@ -7936,18 +7936,52 @@
           }
         })();
         if (Object.keys(_paidContentMap).length > 0) {
-          const _paidJson = JSON.stringify({ chapters: _paidContentMap });
-          let _paidGz = null;
-          if (_supportsCompressionStream()) {
-            try { _paidGz = await _gzipToBase64(_paidJson); }
-            catch (e) { console.warn('[D1] paid body gzip failed:', e); }
+          // BRICKING DEFENCE — the whole reason chapter N teaser links
+          // silently break: a publish where state.chapters was loaded
+          // WITHOUT the paid content merge (owner not signed in, body/paid
+          // fetch failed, secondary account confusion) writes an all-empty
+          // _paidContentMap over the existing body/paid, destroying the
+          // real content. Once bricked, teaser links return empty forever.
+          //
+          // Detect the failure mode BEFORE the write: if every value in
+          // _paidContentMap is an empty string, we're almost certainly
+          // about to brick body/paid. Abort the paid write, keep the
+          // existing content on the server, toast the author so they
+          // know something's off (and can inspect DevTools for the
+          // owner-check log). body/main still gets rewritten — the
+          // free-preview + teaser-visible chapters are unaffected.
+          let _anyNonEmpty = false;
+          Object.keys(_paidContentMap).forEach(function(id){
+            if ((_paidContentMap[id] || '').length > 0) _anyNonEmpty = true;
+          });
+          if (!_anyNonEmpty) {
+            console.warn('[D1-publish] 🛑 body/paid write ABORTED — every paid chapter is empty. ' +
+              'Existing body/paid content on the server is preserved. ' +
+              'Sign in as the folio owner, reload, verify chapters have text, then republish.');
+            if (typeof toastWarning === 'function') {
+              toastWarning('Publish saved settings only. Paid chapter content NOT written (all local chapters were empty — check DevTools console for owner-check diagnostic).', {
+                icon: '⚠',
+                duration: 12000
+              });
+            }
+            // bodyPaidPayload stays null → the writer at line ~8546 sees
+            // no payload and skips the body/paid setDoc. Everything else
+            // in the publish (parent doc, body/main) still runs so
+            // metadata + preview chapters + release settings update.
+          } else {
+            const _paidJson = JSON.stringify({ chapters: _paidContentMap });
+            let _paidGz = null;
+            if (_supportsCompressionStream()) {
+              try { _paidGz = await _gzipToBase64(_paidJson); }
+              catch (e) { console.warn('[D1] paid body gzip failed:', e); }
+            }
+            bodyPaidPayload = {
+              uid: window._uid,
+              updatedAt: window._fb.serverTimestamp(),
+            };
+            if (_paidGz) bodyPaidPayload.content_gz = _paidGz;
+            else bodyPaidPayload.content = { chapters: _paidContentMap };
           }
-          bodyPaidPayload = {
-            uid: window._uid,
-            updatedAt: window._fb.serverTimestamp(),
-          };
-          if (_paidGz) bodyPaidPayload.content_gz = _paidGz;
-          else bodyPaidPayload.content = { chapters: _paidContentMap };
         }
       }
 
