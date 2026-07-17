@@ -60,6 +60,36 @@ a:hover{text-decoration:underline}
 .imprint-actions .tip{background:var(--accent);color:#fff;border-color:transparent}
 .imprint-actions .tip:hover{filter:brightness(.94)}
 
+/* Author profile block — a subtle "who is this author?" surface that
+   sits below the cover text. Photo + short bio inline; "Read more"
+   opens a modal with the fuller bio and links. All fields are
+   optional — the whole block hides itself if the theme doc doesn't
+   populate any of them. */
+.imprint-profile{max-width:640px;margin:14px auto 0;padding:18px 22px;background:var(--surface);border:.5px solid var(--border);border-radius:12px;display:none;text-align:left}
+.imprint-profile.has-content{display:block}
+.imprint-profile-row{display:flex;align-items:flex-start;gap:16px}
+.imprint-profile-photo{width:64px;height:64px;border-radius:50%;object-fit:cover;flex-shrink:0;background:var(--bg);border:.5px solid var(--border-mid);display:block}
+.imprint-profile-photo-fallback{width:64px;height:64px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',Georgia,serif;font-size:22px;font-weight:700;flex-shrink:0}
+.imprint-profile-body{flex:1;min-width:0}
+.imprint-profile-bio{font-size:14px;color:var(--text);line-height:1.6;margin:0;white-space:pre-wrap}
+.imprint-profile-more{margin-top:8px;background:none;border:none;padding:0;color:var(--accent-ui);font-size:12.5px;font-weight:500;cursor:pointer;font-family:inherit}
+.imprint-profile-more:hover{text-decoration:underline}
+.imprint-profile-links{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.imprint-profile-link{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:4px 10px;border-radius:11px;background:var(--bg);border:.5px solid var(--border-mid);color:var(--text);text-decoration:none;transition:background .12s}
+.imprint-profile-link:hover{background:var(--surface);text-decoration:none}
+.imprint-profile-link-icon{font-size:12px}
+
+/* Author profile modal — fuller bio + full links */
+.imprint-profile-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1000;display:none;align-items:center;justify-content:center;padding:20px}
+.imprint-profile-modal-overlay.open{display:flex}
+.imprint-profile-modal{background:var(--surface);border:.5px solid var(--border);border-radius:14px;padding:28px 32px;max-width:560px;width:100%;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.35);position:relative}
+.imprint-profile-modal-close{position:absolute;top:12px;right:14px;background:none;border:none;font-size:22px;color:var(--hint);cursor:pointer;padding:6px 10px;border-radius:6px;line-height:1;font-family:inherit}
+.imprint-profile-modal-close:hover{background:var(--bg);color:var(--text)}
+.imprint-profile-modal-hdr{display:flex;align-items:center;gap:16px;margin-bottom:20px}
+.imprint-profile-modal-hdr h2{font-family:'Playfair Display',Georgia,serif;font-size:22px;margin:0;color:var(--text);font-weight:600}
+.imprint-profile-modal-hdr .modal-subtitle{font-size:12px;color:var(--hint);margin:3px 0 0}
+.imprint-profile-modal-body{font-size:15px;color:var(--text);line-height:1.7;white-space:pre-wrap;margin:0 0 20px}
+
 .imprint-grid-wrap{max-width:1100px;margin:0 auto;padding:32px 20px 60px}
 .imprint-status{font-size:12px;color:var(--hint);margin:8px 0 14px;min-height:16px}
 .imprint-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px}
@@ -183,7 +213,38 @@ a:hover{text-decoration:underline}
   <div class="imprint-tagline" id="imprintTagline"></div>
   <div class="imprint-count" id="imprintCount"></div>
   <div class="imprint-actions" id="imprintActions"></div>
+
+  <!-- Author profile block — populated by _renderAuthorProfile() from
+       fields on the folio_imprint_themes/{uid} doc. Hidden by default;
+       toggles visible only when the theme has at least one of:
+       bio, bioFull, photoUrl, links. -->
+  <div class="imprint-profile" id="imprintProfile">
+    <div class="imprint-profile-row">
+      <div id="imprintProfilePhotoWrap"></div>
+      <div class="imprint-profile-body">
+        <p class="imprint-profile-bio" id="imprintProfileBio"></p>
+        <button class="imprint-profile-more" id="imprintProfileMore" style="display:none" onclick="_openProfileModal()">Read more →</button>
+        <div class="imprint-profile-links" id="imprintProfileLinks"></div>
+      </div>
+    </div>
+  </div>
 </section>
+
+<!-- Author profile modal — fuller bio + full links -->
+<div class="imprint-profile-modal-overlay" id="imprintProfileModalOverlay" onclick="if(event.target===this)_closeProfileModal()">
+  <div class="imprint-profile-modal" role="dialog" aria-modal="true" aria-labelledby="imprintProfileModalTitle">
+    <button class="imprint-profile-modal-close" onclick="_closeProfileModal()" aria-label="Close">×</button>
+    <div class="imprint-profile-modal-hdr">
+      <div id="imprintProfileModalPhotoWrap"></div>
+      <div>
+        <h2 id="imprintProfileModalTitle">Author</h2>
+        <p class="modal-subtitle" id="imprintProfileModalSubtitle"></p>
+      </div>
+    </div>
+    <div class="imprint-profile-modal-body" id="imprintProfileModalBio"></div>
+    <div class="imprint-profile-links" id="imprintProfileModalLinks"></div>
+  </div>
+</div>
 
 <div class="imprint-grid-wrap">
   <div class="imprint-status" id="imprintStatus"></div>
@@ -193,6 +254,7 @@ a:hover{text-decoration:underline}
 <footer class="imprint-foot">
   Folio — beautiful books in your browser · <strong>0% commission, ever</strong> ·
   <a href="/">Home</a> · <a href="/shelf">Shelf</a> · <a href="/app.html">Write a folio</a> ·
+  <a href="/help/">Help + FAQ</a> ·
   <a id="imprintSupportLink" href="https://ko-fi.com/jacobsiler" target="_blank" rel="noopener">☕ Support Folio</a> ·
   <a href="/privacy.html">Privacy</a> · <a href="/terms.html">Terms</a>
   <div style="margin-top:6px;font-size:9.5px;color:var(--hint);opacity:.6">build v2026.07.01.5</div>
@@ -445,6 +507,17 @@ async function applyImprintTheme(uid) {
     }
     const theme = themeSnap.data() || {};
     console.log('[imprint-theme] theme loaded:', theme);
+    // Author profile surface — bio / photo / links. Skipped entirely
+    // when none of those fields are populated (backwards-compat with
+    // theme docs written before this feature).
+    try { _renderAuthorProfile(theme); } catch (e) { console.warn('[imprint-theme] profile render failed:', e.message); }
+    // Populate the tagline element (which existed but was previously
+    // unused) if the theme includes a tagline. Sits under the author
+    // name, above the folio count.
+    if (theme.tagline) {
+      const tagEl = document.getElementById('imprintTagline');
+      if (tagEl) tagEl.textContent = theme.tagline;
+    }
     // Founding contributor chip — shown when the theme doc has the flag.
     if (theme.foundingContributor) {
       try {
@@ -537,6 +610,121 @@ async function applyImprintTheme(uid) {
     console.warn('[imprint] custom theme fetch/apply failed:', e && e.message);
   }
 }
+
+/* Author profile renderer — takes the loaded theme doc and, if any of
+   the profile fields are populated, unhides the profile block and fills
+   it in. Missing fields degrade gracefully; the whole block hides if
+   nothing is set. Fields on the theme doc:
+     photoUrl:  string   — https URL to author photo (square works best)
+     bio:       string   — short inline bio, ~1-3 sentences
+     bioFull:   string   — longer bio shown in the Read More modal
+     links:     array    — [{ label: 'Website', url: 'https://…' }, …]
+*/
+function _renderAuthorProfile(theme) {
+  const el = document.getElementById('imprintProfile');
+  if (!el) return;
+  const bio = String(theme.bio || '').trim();
+  const bioFull = String(theme.bioFull || '').trim();
+  const photoUrl = String(theme.photoUrl || '').trim();
+  const links = Array.isArray(theme.links) ? theme.links : [];
+  const hasProfile = bio || bioFull || photoUrl || links.length;
+  if (!hasProfile) return;
+  el.classList.add('has-content');
+
+  // Photo — real <img> when https URL, otherwise a text-fallback avatar
+  // using the first two letters of the author's name.
+  const authorName = (document.getElementById('imprintAuthorName').textContent || 'A').trim();
+  const wrap = document.getElementById('imprintProfilePhotoWrap');
+  const modalWrap = document.getElementById('imprintProfileModalPhotoWrap');
+  const initials = authorName.split(/\s+/).slice(0, 2).map(s => s[0] || '').join('').toUpperCase() || 'A';
+  const photoHtml = (photoUrl && /^https:\/\//i.test(photoUrl))
+    ? '<img class="imprint-profile-photo" src="' + photoUrl.replace(/["'\\]/g, '') + '" alt="" loading="lazy">'
+    : '<div class="imprint-profile-photo-fallback">' + initials + '</div>';
+  wrap.innerHTML = photoHtml;
+  modalWrap.innerHTML = photoHtml;
+
+  // Inline bio (short)
+  const bioEl = document.getElementById('imprintProfileBio');
+  if (bio) {
+    bioEl.textContent = bio;
+  } else if (bioFull) {
+    // No short bio — show the first ~180 chars of bioFull inline
+    const preview = bioFull.length > 200 ? bioFull.slice(0, 200).replace(/\s+\S*$/, '') + '…' : bioFull;
+    bioEl.textContent = preview;
+  } else {
+    bioEl.style.display = 'none';
+  }
+
+  // "Read more" button — shown only when there's a fuller bio to reveal
+  // OR the inline bio was truncated.
+  const moreBtn = document.getElementById('imprintProfileMore');
+  const showMore = bioFull && (bioFull.length > (bio || '').length);
+  if (showMore) moreBtn.style.display = '';
+
+  // Links row — up to 8, each rendered as a small chip. Only https URLs
+  // are trusted; anything else silently dropped.
+  const linksEl = document.getElementById('imprintProfileLinks');
+  const modalLinksEl = document.getElementById('imprintProfileModalLinks');
+  const linksHtml = links.slice(0, 8).filter(function(l){
+    return l && typeof l === 'object' && /^https?:\/\//i.test(String(l.url || ''));
+  }).map(function(l){
+    const label = String(l.label || l.url).slice(0, 40).replace(/[<>&"']/g, '');
+    const url = String(l.url).replace(/["'\\]/g, '');
+    const icon = _profileLinkIcon(url);
+    return '<a class="imprint-profile-link" href="' + url + '" target="_blank" rel="noopener nofollow" title="' + url + '">' +
+           '<span class="imprint-profile-link-icon">' + icon + '</span>' + label + '</a>';
+  }).join('');
+  linksEl.innerHTML = linksHtml;
+  modalLinksEl.innerHTML = linksHtml;
+
+  // Modal title / subtitle
+  document.getElementById('imprintProfileModalTitle').textContent = authorName;
+  const tagline = (document.getElementById('imprintTagline').textContent || '').trim();
+  if (tagline) document.getElementById('imprintProfileModalSubtitle').textContent = tagline;
+
+  // Modal body — prefer bioFull, fall back to bio
+  document.getElementById('imprintProfileModalBio').textContent = bioFull || bio || '';
+}
+
+// Naive icon picker for common link destinations. Falls back to a
+// generic globe. Deliberately minimal — no external font/icon library
+// needed for a single-emoji-per-link surface.
+function _profileLinkIcon(url) {
+  const u = String(url).toLowerCase();
+  if (/twitter\.com|x\.com/.test(u)) return '𝕏';
+  if (/mastodon|fosstodon|hachyderm/.test(u)) return '🐘';
+  if (/instagram\.com/.test(u)) return '📷';
+  if (/threads\.net/.test(u)) return '@';
+  if (/bsky\.app|bluesky/.test(u)) return '☁';
+  if (/facebook\.com/.test(u)) return 'f';
+  if (/linkedin\.com/.test(u)) return 'in';
+  if (/youtube\.com|youtu\.be/.test(u)) return '▶';
+  if (/tiktok\.com/.test(u)) return '♪';
+  if (/goodreads\.com/.test(u)) return '📚';
+  if (/amazon\.[a-z.]+/.test(u)) return 'A';
+  if (/patreon\.com/.test(u)) return 'P';
+  if (/substack\.com/.test(u)) return '📰';
+  if (/medium\.com/.test(u)) return 'M';
+  if (/github\.com/.test(u)) return '⌨';
+  if (/^mailto:/.test(u)) return '✉';
+  return '🌐';
+}
+
+window._openProfileModal = function() {
+  document.getElementById('imprintProfileModalOverlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+};
+window._closeProfileModal = function() {
+  document.getElementById('imprintProfileModalOverlay').classList.remove('open');
+  document.body.style.overflow = '';
+};
+// Esc closes the modal
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    const ov = document.getElementById('imprintProfileModalOverlay');
+    if (ov && ov.classList.contains('open')) _closeProfileModal();
+  }
+});
 
 async function boot(){
   const uid=getUidParam();
