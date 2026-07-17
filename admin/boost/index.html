@@ -73,8 +73,13 @@ button.ghost:hover{background:var(--bg)}
 .auth-gate p{color:var(--muted);font-size:13px;margin:0 0 20px}
 
 .hidden{display:none !important}
+label{display:block;font-size:11.5px;font-weight:500;color:var(--text);margin:6px 0 3px}
 </style>
 <link rel="icon" type="image/png" href="/favicon.png">
+<!-- Shared admin helpers — Firebase config, ADMIN_UIDS, author-lookup
+     widget. Sourced by every /admin/* page so a bug fix in the
+     lookup logic lands everywhere at once. -->
+<script src="/admin/_shared.js"></script>
 </head>
 <body>
 <header class="admin-hdr">
@@ -107,8 +112,17 @@ button.ghost:hover{background:var(--bg)}
       <h2>New boost</h2>
       <div class="sub">Sets <code>release.featuredUntil</code> to <code>now + duration</code>. If the folio was already featured, this extends by the picked duration from now — it doesn't stack on top of the existing expiry.</div>
 
-      <label for="folioId">Folio ID</label>
+      <!-- Author lookup slot — populated by FolioAdmin.mountAuthorLookup()
+           after admin auth is verified. Selecting an author shows their
+           folios in the folio dropdown below so you don't have to paste
+           a raw folio id from Firestore. -->
+      <div id="authorLookupSlot" style="margin-bottom:12px"></div>
+
+      <label for="folioId">Folio ID <span style="font-weight:400;color:var(--hint)">(auto-fills after picking an author, or paste directly)</span></label>
       <input type="text" id="folioId" placeholder="proj_1780180509410_j07ppo" autocomplete="off">
+      <select id="authorFolioSelect" style="display:none;margin-top:6px;font-size:12.5px">
+        <option value="">— pick a folio —</option>
+      </select>
 
       <div class="row">
         <div>
@@ -233,6 +247,58 @@ button.ghost:hover{background:var(--bg)}
     $('authGate').classList.add('hidden');
     $('adminBody').classList.remove('hidden');
     loadFeatured();
+    // Mount the shared author-lookup widget. When an author is picked,
+    // populate the folio dropdown with just that author's folios so the
+    // boost target is a couple of clicks away instead of a copy-paste
+    // from Firestore.
+    try {
+      if (typeof FolioAdmin !== 'undefined' && FolioAdmin.mountAuthorLookup) {
+        FolioAdmin.mountAuthorLookup({
+          container: document.getElementById('authorLookupSlot'),
+          db: _fb.db,
+          fb: { collection: _fb.collection, getDocs: _fb.getDocs, query: _fb.query, limit: _fb.limit },
+          label: 'Look up author (fills the folio dropdown below)',
+          onSelect: function(uid, name) { _boostLoadAuthorFolios(uid, name); }
+        });
+      } else {
+        console.warn('[admin-boost] FolioAdmin not loaded — author lookup unavailable');
+      }
+    } catch (e) { console.warn('[admin-boost] author lookup mount failed:', e); }
+  }
+
+  // Load all folios owned by the picked author, populate the folio
+  // dropdown. Selecting one fills the folioId input.
+  async function _boostLoadAuthorFolios(uid, authorName) {
+    const sel = document.getElementById('authorFolioSelect');
+    if (!sel) return;
+    sel.style.display = 'none';
+    sel.innerHTML = '<option value="">— loading…—</option>';
+    try {
+      const snap = await _fb.getDocs(
+        _fb.query(
+          _fb.collection(_fb.db, 'folio_projects'),
+          _fb.where('uid', '==', uid),
+          _fb.limit(50)
+        )
+      );
+      const opts = ['<option value="">— pick a folio for ' + FolioAdmin.esc(authorName) + ' —</option>'];
+      snap.forEach(function(d){
+        const data = d.data() || {};
+        const r = data.release || {};
+        const title = String(r.title || data.name || 'Untitled');
+        const pub = r.published ? '✓' : (r.listOnShelf ? '⏳' : '·');
+        opts.push('<option value="' + FolioAdmin.escAttr(d.id) + '">' + pub + ' ' + FolioAdmin.esc(title) + ' — ' + FolioAdmin.esc(d.id.slice(0, 20)) + '…</option>');
+      });
+      sel.innerHTML = opts.join('');
+      sel.style.display = '';
+      sel.onchange = function() {
+        if (sel.value) document.getElementById('folioId').value = sel.value;
+      };
+    } catch (e) {
+      sel.innerHTML = '<option>⚠ Load failed: ' + FolioAdmin.esc(e.message || 'unknown') + '</option>';
+      sel.style.display = '';
+      console.error('[admin-boost] author folios load failed:', e);
+    }
   }
 
   async function doSignIn() {

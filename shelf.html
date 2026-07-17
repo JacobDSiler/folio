@@ -99,6 +99,14 @@ a:hover{text-decoration:underline}
 .shelf-card.featured{border:1px solid var(--accent);box-shadow:0 0 0 3px rgba(201,140,42,0.10),var(--shadow)}
 .shelf-card.featured:hover{box-shadow:0 0 0 3px rgba(201,140,42,0.14),var(--shadow-h)}
 .shelf-badge.featured{background:var(--accent);color:#fff}
+/* Language chip — small, muted, sits in the card footer next to the
+   genre. Uppercase 2-letter code (EN, FR, JA, ZH…) is legible at a
+   glance and internationally recognized. On long hover (title attr)
+   the browser shows the full language name. Non-English folios get
+   a subtle amber accent to draw the eye — English (majority) stays
+   neutral so it doesn't clutter every card. */
+.shelf-lang-chip{display:inline-flex;align-items:center;font-size:9.5px;font-weight:600;letter-spacing:.08em;padding:2px 7px;border-radius:10px;background:var(--bg);color:var(--muted);border:.5px solid var(--border-mid);cursor:help;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+.shelf-lang-chip.non-en{background:rgba(201,140,42,0.10);color:#b57a1e;border-color:rgba(201,140,42,0.28)}
 /* Owner-visible pending review indicator — floats over the top-right
    of the cover so the author can tell at a glance which of their
    listings are still awaiting moderator approval. Non-owners never
@@ -164,6 +172,9 @@ a:hover{text-decoration:underline}
 </footer>
 <script>
 const GENRE_LABELS = {literary:'Literary',general:'Fiction',mystery:'Mystery',thriller:'Thriller',romance:'Romance',fantasy:'Fantasy',scifi:'Sci-fi',horror:'Horror',historical:'Historical',ya:'Young adult',children:'Children’s',memoir:'Memoir',selfhelp:'Self-help',business:'Business',health:'Health',poetry:'Poetry',essays:'Essays',educational:'Educational',other:'Other'};
+// Language labels — shown as tooltip on hover of the two-letter chip.
+// Keep in sync with the #bookLang <select> options in app.html.
+const LANG_LABELS = {en:'English',fr:'French',de:'German',es:'Spanish',it:'Italian',pt:'Portuguese',nl:'Dutch',ja:'Japanese',zh:'Chinese',ru:'Russian',ar:'Arabic',hi:'Hindi',ko:'Korean',pl:'Polish',sv:'Swedish',da:'Danish',fi:'Finnish',no:'Norwegian',tr:'Turkish',cs:'Czech',el:'Greek',he:'Hebrew',ga:'Irish',cy:'Welsh'};
 let _allFolios = [];
 let _fbDb=null,_fbQuery=null,_fbGetDocs=null,_fbCollection=null,_fbWhere=null,_fbLimit=null;
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
@@ -246,12 +257,18 @@ function renderShelf(){
     const pendingChip = (isMine && f.shelfPendingModeration)
       ? '<span class="shelf-pending-chip" title="This folio is awaiting moderator approval — only you can see it on the shelf until it\'s approved. It will appear to everyone once a moderator reviews it.">⏳ Pending review</span>'
       : '';
+    // Language chip — shows the folio's declared language. Only non-English
+    // folios get emphasis (amber tint); English is the default and would
+    // clutter the majority of cards if highlighted.
+    const langCode = String(f.language || 'en').split('-')[0].toLowerCase();
+    const langLabel = LANG_LABELS[langCode] || langCode.toUpperCase();
+    const langChip = '<span class="shelf-lang-chip' + (langCode === 'en' ? '' : ' non-en') + '" title="Language: ' + esc(langLabel) + '">' + esc(langCode.toUpperCase()) + '</span>';
     return '<div class="shelf-card'+(isFeatured?' featured':'')+'" onclick="if(!event.target.closest(\'a\')&&!event.target.closest(\'button\'))window.location=\''+esc(href)+'\'" tabindex="0" onkeydown="if(event.key===\'Enter\')window.location=\''+esc(href)+'\'">'+
       pendingChip+
       cover+
       '<h2 class="shelf-card-title"><a href="'+esc(href)+'">'+esc(f.title)+'</a></h2>'+
       authorPart+blurb+
-      '<div class="shelf-card-foot">'+badge+genre+boostChip+'</div>'+
+      '<div class="shelf-card-foot">'+badge+genre+langChip+boostChip+'</div>'+
       '</div>';
   };
   if (featured.length > 0) {
@@ -367,6 +384,11 @@ async function fetchShelf(){
         description:String(r.description||''),
         blurb:String(r.shelfBlurb||(r.shelfUseDescription?r.description:'')||r.description||''),
         genre:String(r.shelfGenre||''),
+        // Folio language — displayed as a small chip on the card so
+        // readers can spot non-English folios at a glance. Missing
+        // language falls back to 'en' (pre-language folios published
+        // before the field existed default to English).
+        language:String(r.language||'en'),
         hasAdultContent:!!r.hasAdultContent,
         shelfPendingModeration:!!r.shelfPendingModeration,
         coverUrl:(typeof r.coverUrl==='string'&&/^https:\/\//i.test(r.coverUrl))?r.coverUrl:'',

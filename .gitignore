@@ -16,3 +16,10 @@ Folio - Welcome (standalone).html
 
 # Product photo PSDT templates — hosted in Firebase Storage, not git
 press/photos/templates/*.psdt
+
+# Personal outreach drafts + author notes. Working documents for
+# Jacob's own use (message drafts, comp strategies, tester feedback)
+# — not part of the Folio app or its public documentation.
+docs/THOMAS_*.md
+docs/AUTHORS.md
+docs/OUTREACH_*.md

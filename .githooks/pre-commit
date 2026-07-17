@@ -1,13 +1,12 @@
 #!/bin/sh
 # ═══════════════════════════════════════════════════════════════════
-# Folio pre-commit hook — catches worker truncation before push.
+# Folio pre-commit hook — catches file-tail truncation before push.
 #
-# The paywall worker has been truncated at its dispatcher tail three
-# times this week. Diagnosis is in task #57. Until root cause is
-# fixed, this hook is the last line of defense:
-#   1. Syntax check via `node --check`
-#   2. Tail-pattern check — the file MUST end with `};` (the export closure)
-#   3. Byte-count sanity — expect > 50 KB, warn if unexpectedly small
+# Widened 2026-07-16 after app.html was truncated twice in one
+# session by VS Code's file watcher. Now checks THREE files:
+#   • folio-paywall-worker.js — must end with `};` after export
+#   • app.html                — must end with `</html>`
+#   • shelf.html              — must end with `</html>`
 #
 # Exits non-zero (blocking the commit) on any failure. To bypass in
 # an emergency, use `git commit --no-verify`.
@@ -15,57 +14,83 @@
 
 WORKER=folio-paywall-worker.js
 
-if [ ! -f "$WORKER" ]; then
-  # Not in a folio checkout — nothing to check.
-  exit 0
-fi
-
-# 1. Syntax check
-if ! node --check "$WORKER" 2>/dev/null; then
-  echo ""
-  echo "❌ COMMIT BLOCKED — $WORKER has a syntax error."
-  echo ""
-  echo "   Most common cause: end-of-file truncation."
-  echo "   Check the tail with:  tail -12 $WORKER"
-  echo "   Expected tail:        ends with '};' after the export block."
-  echo ""
-  echo "   If you truly need to commit anyway: git commit --no-verify"
-  echo ""
-  exit 1
-fi
-
-# 2. Tail-pattern check — file must end with `};` or `}` (both valid JS)
-# AND the last 500 bytes must contain `export default` so we know the
-# dispatcher block is present.
-LAST_STRIPPED=$(tail -c 10 "$WORKER" | tr -d '[:space:]')
-# Accept `};` or `}` — both are valid ways to end an export default block.
-case "$LAST_STRIPPED" in
-  *"};"|*"}") ;;
-  *)
+# ─────────────────────────────────────────────────────────────────
+# Worker checks — syntax + tail + dispatcher presence
+# ─────────────────────────────────────────────────────────────────
+if [ -f "$WORKER" ]; then
+  # 1. Syntax check
+  if ! node --check "$WORKER" 2>/dev/null; then
     echo ""
-    echo "❌ COMMIT BLOCKED — $WORKER doesn't end with a closing brace."
+    echo "❌ COMMIT BLOCKED — $WORKER has a syntax error."
     echo ""
-    echo "   Last non-space chars: [$LAST_STRIPPED]"
-    echo "   File is likely truncated mid-dispatcher."
-    echo "   Check the tail with:  tail -15 $WORKER"
+    echo "   Most common cause: end-of-file truncation."
+    echo "   Check the tail with:  tail -12 $WORKER"
+    echo "   Expected tail:        ends with '};' after the export block."
+    echo ""
+    echo "   If you truly need to commit anyway: git commit --no-verify"
     echo ""
     exit 1
-    ;;
-esac
+  fi
 
-# The dispatcher must be near the tail. Bumped from 4000 → 8000 bytes
-# on 2026-07-09 after the worker grew to include /sign-share, /photo-*
-# endpoints, and an expanded /info listing. Widen further if the worker
-# keeps growing — the check just wants to be sure the dispatcher block
-# isn't lopped off entirely.
-if ! tail -c 8000 "$WORKER" | grep -q "export default"; then
-  echo ""
-  echo "❌ COMMIT BLOCKED — $WORKER is missing 'export default' near the tail."
-  echo ""
-  echo "   Dispatcher block is likely truncated."
-  echo "   Check the tail with:  tail -30 $WORKER"
-  echo ""
-  exit 1
+  # 2. Tail-pattern check — file must end with `};` or `}` (both valid JS)
+  LAST_STRIPPED=$(tail -c 10 "$WORKER" | tr -d '[:space:]')
+  case "$LAST_STRIPPED" in
+    *"};"|*"}") ;;
+    *)
+      echo ""
+      echo "❌ COMMIT BLOCKED — $WORKER doesn't end with a closing brace."
+      echo ""
+      echo "   Last non-space chars: [$LAST_STRIPPED]"
+      echo "   File is likely truncated mid-dispatcher."
+      echo "   Check the tail with:  tail -15 $WORKER"
+      echo ""
+      exit 1
+      ;;
+  esac
+
+  # Dispatcher must be near the tail
+  if ! tail -c 8000 "$WORKER" | grep -q "export default"; then
+    echo ""
+    echo "❌ COMMIT BLOCKED — $WORKER is missing 'export default' near the tail."
+    echo ""
+    echo "   Dispatcher block is likely truncated."
+    echo "   Check the tail with:  tail -30 $WORKER"
+    echo ""
+    exit 1
+  fi
 fi
 
-# 3. Byte-count sanity — 
+# ─────────────────────────────────────────────────────────────────
+# HTML file tail checks — every HTML file MUST close with </html>.
+# VS Code has been silently truncating app.html mid-attribute; the
+# only signal we ever get is a broken deploy. Fail fast here instead.
+# ─────────────────────────────────────────────────────────────────
+for HTML_FILE in app.html shelf.html; do
+  [ -f "$HTML_FILE" ] || continue
+  # Check the ACTUAL last non-blank line — not just "somewhere in the last
+  # 200 bytes", which false-passes when a JS template literal contains
+  # `</html>` and the real file tail is truncated. sed strips trailing
+  # blank lines first, then we test the last line matches </html> alone.
+  LAST_NONBLANK=$(sed -e '/^[[:space:]]*$/d' "$HTML_FILE" | tail -n 1 | tr -d '[:space:]')
+  if [ "$LAST_NONBLANK" != "</html>" ]; then
+    echo ""
+    echo "❌ COMMIT BLOCKED — $HTML_FILE does not end with </html>."
+    echo ""
+    echo "   The file is almost certainly truncated. Common cause:"
+    echo "   VS Code's file watcher racing an external write. Check:"
+    echo "     tail -5 $HTML_FILE"
+    echo ""
+    echo "   Recover from HEAD if needed:"
+    echo "     git checkout HEAD -- $HTML_FILE   # discards your edits"
+    echo "     (or restore just the missing tail if edits are precious)"
+    echo ""
+    echo "   Emergency bypass:  git commit --no-verify"
+    echo ""
+    exit 1
+  fi
+done
+
+# ─────────────────────────────────────────────────────────────────
+# All good.
+# ─────────────────────────────────────────────────────────────────
+exit 0

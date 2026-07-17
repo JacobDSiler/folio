@@ -489,6 +489,56 @@
       border-bottom: 0.5px solid var(--border)
     }
 
+    /* Collapsible manuscript-tab panels — shipped after early tester
+       (Thomas) found the always-expanded import/paste sections crowded
+       the Chapter List below into a tiny sliver. Native <details>
+       gives zero-JS behaviour, keyboard accessibility, and a clear
+       affordance for expanding when needed. */
+    .ms-panel {
+      border-bottom: 0.5px solid var(--border);
+    }
+    .ms-panel[open] {
+      background: var(--bg);
+    }
+    .ms-panel-summary {
+      list-style: none;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 1.25rem;
+      font-size: 12.5px;
+      user-select: none;
+      transition: background 0.12s;
+    }
+    .ms-panel-summary::-webkit-details-marker { display: none; }
+    .ms-panel-summary:hover { background: var(--surface); }
+    .ms-panel[open] .ms-panel-summary { background: var(--surface); }
+    .ms-panel-caret {
+      display: inline-block;
+      color: var(--hint);
+      font-size: 10px;
+      transition: transform 0.15s;
+      flex-shrink: 0;
+      width: 10px;
+      text-align: center;
+    }
+    .ms-panel[open] .ms-panel-caret { transform: rotate(90deg); }
+    .ms-panel-label {
+      font-weight: 500;
+      color: var(--text);
+      flex-shrink: 0;
+    }
+    .ms-panel-hint {
+      margin-left: auto;
+      font-size: 10.5px;
+      color: var(--hint);
+      font-weight: 400;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     .section-title {
       font-size: 10px;
       font-weight: 500;
@@ -5652,6 +5702,20 @@
           <span style="flex:1;text-align:left">Blank journals · Papermint</span>
           <span style="color:var(--hint);font-size:10px">↗</span>
         </a>
+        <!-- Help + FAQ link. Wired in after Thomas's first-time-user
+             feedback showed how much confusion could be solved by a
+             single always-visible page of "how does X work" answers.
+             Sits under Papermint so it's within the same "useful
+             extras" cluster. -->
+        <a href="/help/" target="_blank" rel="noopener"
+          title="Help + FAQ — how folios work, what the buttons do, common questions"
+          style="display:flex;align-items:center;gap:6px;margin-top:6px;padding:7px 10px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:6px;color:var(--text);text-decoration:none;font-size:12px;font-weight:500;transition:background .15s ease,border-color .15s ease"
+          onmouseover="this.style.background='var(--surface)';this.style.borderColor='var(--accent)'"
+          onmouseout="this.style.background='var(--bg)';this.style.borderColor='var(--border-mid)'">
+          <span style="font-size:14px">❔</span>
+          <span style="flex:1;text-align:left">Help + FAQ</span>
+          <span style="color:var(--hint);font-size:10px">↗</span>
+        </a>
         <!-- Leave feedback — universally accessible. Submitting a review
              earns a free 24h Featured Boost on one of your published folios
              (one-time per folio, ever). Reviews are also considered for
@@ -5693,73 +5757,96 @@
 
         <!-- ── IMPORT TAB ── -->
         <div id="tab-import">
-          <div class="section">
-            <div class="section-title">Import Files</div>
-            <div class="file-drop" id="ms-dropzone" onclick="document.getElementById('msInput').click()">
-              <span class="drop-icon">⇪</span>
-              Click or drag files here<br>
-              <span style="font-size:10px;opacity:0.6">.docx · .txt · .md · .rtf — single file or batch</span>
+          <!-- Manuscript tab restructured after early tester feedback:
+               the Import / Paste sections used to stack on top of the
+               Chapter List, crowding it into a tiny sliver. Now they
+               collapse into <details> panels so the Chapter List gets
+               most of the vertical space. Click any panel to expand
+               when you actually need it. Native <details> means it
+               works without JS, is keyboard-accessible (Enter/Space),
+               and remembers its state within the session. -->
+          <details class="ms-panel">
+            <summary class="ms-panel-summary">
+              <span class="ms-panel-caret">▸</span>
+              <span class="ms-panel-label">📥 Import files</span>
+              <span class="ms-panel-hint">docx · txt · md · rtf</span>
+            </summary>
+            <div class="section" style="border-top:none;padding-top:12px">
+              <div class="file-drop" id="ms-dropzone" onclick="document.getElementById('msInput').click()">
+                <span class="drop-icon">⇪</span>
+                Click or drag files here<br>
+                <span style="font-size:10px;opacity:0.6">.docx · .txt · .md · .rtf — single file or batch</span>
+              </div>
+              <input type="file" id="msInput" accept=".docx,.txt,.md,.rtf,.doc" multiple style="display:none"
+                onchange="handleFileImport(this)">
+              <div class="file-chips" id="importedChips"></div>
             </div>
-            <input type="file" id="msInput" accept=".docx,.txt,.md,.rtf,.doc" multiple style="display:none"
-              onchange="handleFileImport(this)">
-            <div class="file-chips" id="importedChips"></div>
-          </div>
+          </details>
 
-          <div class="section">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-              <div class="section-title" style="margin-bottom:0">Import options</div>
-              <button class="btn-sm btn-ghost" style="padding:4px 10px;font-size:11px" onclick="openSchemaModal()">⚙
-                Advanced</button>
-            </div>
-
-            <!-- Split mode -->
-            <label style="font-size:11.5px;font-weight:500;color:var(--text);display:block;margin-bottom:4px">Chapter
-              detection</label>
-            <select id="splitMode" onchange="updateSplitUI()" style="margin-bottom:8px">
-              <option value="auto">Auto-detect chapters (smart)</option>
-              <option value="heading">Split on # Markdown headings</option>
-              <option value="none">Import as one — no splitting</option>
-            </select>
-
-            <!-- Auto-detect pattern preview (shown for auto mode) -->
-            <div id="autoDetectInfo"
-              style="font-size:11px;color:var(--hint);background:var(--bg);padding:6px 9px;border-radius:6px;border:.5px solid var(--border-mid);margin-bottom:8px;display:none">
-              <span id="autoDetectMsg">Drop a file to preview detected chapters</span>
-            </div>
-
-            <div style="margin-top:4px">
-              <label>Sort order</label>
-              <select id="importSort" onchange="reClassifyAll()">
-                <option value="natural">Natural (01, 02, 03…)</option>
-                <option value="filename">Filename A–Z</option>
-                <option value="manual">Manual (drag to reorder)</option>
+          <details class="ms-panel">
+            <summary class="ms-panel-summary">
+              <span class="ms-panel-caret">▸</span>
+              <span class="ms-panel-label">⚙ Import options</span>
+              <span class="ms-panel-hint">chapter detection · sort · advanced</span>
+            </summary>
+            <div class="section" style="border-top:none;padding-top:12px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                <label style="font-size:11.5px;font-weight:500;color:var(--text);margin:0">Chapter detection</label>
+                <button class="btn-sm btn-ghost" style="padding:4px 10px;font-size:11px" onclick="openSchemaModal()">⚙
+                  Advanced</button>
+              </div>
+              <select id="splitMode" onchange="updateSplitUI()" style="margin-bottom:8px">
+                <option value="auto">Auto-detect chapters (smart)</option>
+                <option value="heading">Split on # Markdown headings</option>
+                <option value="none">Import as one — no splitting</option>
               </select>
-            </div>
 
-            <!-- Apply + View buttons -->
-            <div style="display:flex;gap:6px;margin-top:10px">
-              <button class="ch-add-btn" style="flex:1" onclick="applyImportToChapters()" id="applyImportBtn" disabled>
-                ↓ Split into chapters
-              </button>
-              <button class="btn-sm btn-ghost" style="flex:1;padding:8px 4px;font-size:11.5px"
-                onclick="viewFullManuscript()" id="btnViewManuscript" disabled
-                title="View and mark chapter breaks in the full manuscript">
-                👁 Split view
-              </button>
-            </div>
-            <p class="small-note" style="margin-top:5px">Use "View full" to preview the whole manuscript without
-              splitting it into chapters.</p>
-          </div>
+              <!-- Auto-detect pattern preview (shown for auto mode) -->
+              <div id="autoDetectInfo"
+                style="font-size:11px;color:var(--hint);background:var(--bg);padding:6px 9px;border-radius:6px;border:.5px solid var(--border-mid);margin-bottom:8px;display:none">
+                <span id="autoDetectMsg">Drop a file to preview detected chapters</span>
+              </div>
 
-          <div class="section">
-            <div class="section-title">Paste Manuscript</div>
-            <p class="small-note">Or paste directly. Use <strong>#</strong> for chapter titles, <strong>##</strong> for
-              scene breaks.</p>
-            <textarea id="manuscript" rows="8" oninput="onManuscriptPaste()"
-              placeholder="# Chapter One&#10;&#10;It was a dark and stormy night...&#10;&#10;## &#10;&#10;Morning came quietly."></textarea>
-            <button class="ch-add-btn" onclick="parseManuscriptToChapters()" style="margin-top:6px">↓ Parse into chapter
-              list</button>
-          </div>
+              <div style="margin-top:4px">
+                <label>Sort order</label>
+                <select id="importSort" onchange="reClassifyAll()">
+                  <option value="natural">Natural (01, 02, 03…)</option>
+                  <option value="filename">Filename A–Z</option>
+                  <option value="manual">Manual (drag to reorder)</option>
+                </select>
+              </div>
+
+              <!-- Apply + View buttons -->
+              <div style="display:flex;gap:6px;margin-top:10px">
+                <button class="ch-add-btn" style="flex:1" onclick="applyImportToChapters()" id="applyImportBtn" disabled>
+                  ↓ Split into chapters
+                </button>
+                <button class="btn-sm btn-ghost" style="flex:1;padding:8px 4px;font-size:11.5px"
+                  onclick="viewFullManuscript()" id="btnViewManuscript" disabled
+                  title="View and mark chapter breaks in the full manuscript">
+                  👁 Split view
+                </button>
+              </div>
+              <p class="small-note" style="margin-top:5px">Use "View full" to preview the whole manuscript without
+                splitting it into chapters.</p>
+            </div>
+          </details>
+
+          <details class="ms-panel">
+            <summary class="ms-panel-summary">
+              <span class="ms-panel-caret">▸</span>
+              <span class="ms-panel-label">✍ Write / paste manuscript</span>
+              <span class="ms-panel-hint">or paste from another editor</span>
+            </summary>
+            <div class="section" style="border-top:none;padding-top:12px">
+              <p class="small-note">Paste or write directly. Use <strong>#</strong> for chapter titles, <strong>##</strong> for
+                scene breaks.</p>
+              <textarea id="manuscript" rows="8" oninput="onManuscriptPaste()"
+                placeholder="# Chapter One&#10;&#10;It was a dark and stormy night...&#10;&#10;## &#10;&#10;Morning came quietly."></textarea>
+              <button class="ch-add-btn" onclick="parseManuscriptToChapters()" style="margin-top:6px">↓ Parse into chapter
+                list</button>
+            </div>
+          </details>
         </div>
 
         <!-- ── CHAPTERS TAB ── -->
@@ -5767,7 +5854,7 @@
           <div class="section">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
               <div class="section-title" style="margin-bottom:0">Chapter List</div>
-              <span style="font-size:10px;color:var(--hint)">drag to reorder · click type badge to change</span>
+              <span style="font-size:10px;color:var(--hint)" title="Pre = front matter (dedication, foreword). Ch = regular chapter. Post = back matter (epilogue, about the author). TOC = auto-generated Table of Contents.">drag to reorder · click type badge · hover for legend</span>
             </div>
             <div class="stats-bar" id="chStatsBar"></div>
             <div class="ch-list" id="chList"></div>
@@ -8658,7 +8745,27 @@
                     }
                     return c;
                   });
-                  console.log('[signed-teaser] unlocked', _j.chapterId);
+                  // CRITICAL: record this chapter as unlocked so the paywall
+                  // gate (_pwShowPreview) treats it as visible. Without this
+                  // the content is merged but the paywall keeps the pages
+                  // hidden because release.teasers doesn't include this id.
+                  // The whole point of a SIGNED teaser is that it works
+                  // WITHOUT adding the chapter to the public teaser list.
+                  window._signedTeaserUnlocked = window._signedTeaserUnlocked || new Set();
+                  window._signedTeaserUnlocked.add(_j.chapterId);
+                  // Also mutate the CLIENT copy of release.teasers so any
+                  // downstream code that only reads release.teasers sees it.
+                  // This is client-only — nothing writes back to Firestore.
+                  try {
+                    if (data && data.release) {
+                      data.release.teasers = Array.isArray(data.release.teasers)
+                        ? data.release.teasers.slice() : [];
+                      if (data.release.teasers.indexOf(_j.chapterId) < 0) {
+                        data.release.teasers.push(_j.chapterId);
+                      }
+                    }
+                  } catch (_ignored) {}
+                  console.log('[signed-teaser] ✅ unlocked', _j.chapterId, '(visible in gate)');
                 }
               } else {
                 console.warn('[signed-teaser] worker returned', _r.status,
@@ -11328,13 +11435,22 @@
     function chItemHTML(ch, i) {
       const typeClasses = { pre: 'chip-pre', chapter: 'chip-ch', post: 'chip-post', toc: 'chip-toc' };
       const typeLabel = { pre: 'Pre', chapter: 'Ch', post: 'Post', toc: 'TOC' };
+      // Descriptive tooltips added after early tester feedback — Thomas
+      // wasn't sure what Pre/TOC/Ch/Post meant. Full names + "click to
+      // change" tells you what the badge is AND what happens on click.
+      const typeTip = {
+        pre: 'Front matter (Pre) — dedication, foreword, prologue. Comes before Chapter 1. Click to change type.',
+        chapter: 'Chapter — regular numbered chapter. Click to change type.',
+        post: 'Back matter (Post) — epilogue, about the author, appendix. Comes after the last chapter. Click to change type.',
+        toc: 'Table of Contents — auto-generated from your chapter titles. Click to change type.'
+      };
       // Word count for this chapter
       const wc = ch.content.trim() ? ch.content.trim().split(/\s+/).length : 0;
       const wcStr = wc > 0 ? (wc >= 1000 ? (wc / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : wc) + ' w' : '';
       return `<div class="ch-item" data-id="${ch.id}" data-i="${i}" draggable="true">
     <div class="ch-item-head">
       <span class="ch-drag-handle" title="Drag to reorder">⠿</span>
-      <span class="chip-type ${typeClasses[ch.type]}" onclick="cycleChType('${ch.id}')" title="Click to change type">${typeLabel[ch.type]}</span>
+      <span class="chip-type ${typeClasses[ch.type]}" onclick="cycleChType('${ch.id}')" title="${typeTip[ch.type] || 'Click to change type'}">${typeLabel[ch.type]}</span>
       <input class="ch-title-input" value="${esc(ch.title)}" placeholder="(untitled)" oninput="updateChTitle('${ch.id}',this.value)">
       <span style="font-size:9.5px;color:var(--hint);flex-shrink:0;padding:0 3px;white-space:nowrap">${wcStr}</span>
       <button class="ch-expand-btn" onclick="scrollToChapter('${ch.id}')" title="Jump to chapter in preview">▶</button>
@@ -19879,6 +19995,16 @@
         shelfPendingModeration: (_rlCurrent && _rlCurrent.shelfListedAt)
           ? !!_rlCurrent.shelfPendingModeration
           : !!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked),
+        // Folio language — pulled from the Book tab's #bookLang select
+        // (BCP-47 codes: en, en-GB, en-US, fr, de, es, it, pt, nl, ja, zh, …).
+        // Surfaces on the shelf as a small language chip so readers can
+        // spot non-English folios at a glance without opening them.
+        // Falls back to 'en' if the select isn't present or empty.
+        language: (function(){
+          const sel = document.getElementById('bookLang');
+          const v = (sel && sel.value || '').trim();
+          return v || 'en';
+        })(),
         // Series / collection linking (Phase 3 task #53). Both nullable —
         // empty means standalone folio. Number is clamped 0-999 for sanity.
         series: ((document.getElementById('rlSeriesName') && document.getElementById('rlSeriesName').value) || '').trim().slice(0, 80) || null,
@@ -21967,7 +22093,15 @@
       const chapterIds = new Set(
         (typeof getChapters === 'function' ? getChapters() : []).map(c => c.id)
       );
+      // Public teaser set (from release.teasers) PLUS any chapter that was
+      // unlocked via a signed teaser link this session. Signed unlocks are
+      // additive and don't modify Firestore, but must be treated as visible
+      // by this gate or the reader still sees blank pages after the worker
+      // successfully returned the content.
       const teaserSet = new Set(Array.isArray(release && release.teasers) ? release.teasers : []);
+      if (window._signedTeaserUnlocked && window._signedTeaserUnlocked.forEach) {
+        window._signedTeaserUnlocked.forEach(function(id){ teaserSet.add(id); });
+      }
       const pages = Array.from(bp.children);
       let seenChapters = 0;
       let currentVisible = true;
