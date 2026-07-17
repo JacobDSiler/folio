@@ -107,6 +107,12 @@ a:hover{text-decoration:underline}
    neutral so it doesn't clutter every card. */
 .shelf-lang-chip{display:inline-flex;align-items:center;font-size:9.5px;font-weight:600;letter-spacing:.08em;padding:2px 7px;border-radius:10px;background:var(--bg);color:var(--muted);border:.5px solid var(--border-mid);cursor:help;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
 .shelf-lang-chip.non-en{background:rgba(201,140,42,0.10);color:#b57a1e;border-color:rgba(201,140,42,0.28)}
+/* Clickable series pill in the card footer. Filters the shelf when
+   clicked (event.stopPropagation prevents also triggering the card's
+   navigate-to-reader). Hover state lifts to the amber accent to
+   signal it's interactive. */
+.shelf-card-series-link{display:inline-flex;align-items:center;font-size:10.5px;font-weight:500;padding:2px 8px;border-radius:10px;background:var(--bg);color:var(--muted);border:.5px solid var(--border-mid);text-decoration:none;transition:background .12s,color .12s,border-color .12s;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.shelf-card-series-link:hover{background:rgba(201,140,42,0.10);color:var(--accent);border-color:var(--accent);text-decoration:none}
 /* Owner-visible pending review indicator — floats over the top-right
    of the cover so the author can tell at a glance which of their
    listings are still awaiting moderator approval. Non-owners never
@@ -267,6 +273,13 @@ function renderShelf(){
     const adultBadge = f.hasAdultContent ? '<span class="shelf-badge adult" title="This release contains adult content">🔞 adult</span>' : '';
     const badge = featBadge + typeBadge + adultBadge;
     const genre=f.genre?'<span class="shelf-card-genre">'+esc(GENRE_LABELS[f.genre]||f.genre)+'</span>':'';
+    // Series link — clickable badge that filters the shelf to just
+    // that series. Positioned in the card footer alongside the genre.
+    // Uses event.stopPropagation on click so the outer card's
+    // navigate-to-reader onclick doesn't also fire.
+    const seriesLink = f.series
+      ? '<a class="shelf-card-series-link" href="/shelf?series=' + encodeURIComponent(f.series) + '" onclick="event.stopPropagation()" title="Browse the ' + esc(f.series) + ' series">📚 ' + esc(f.series) + '</a>'
+      : '';
     const blurb=f.blurb?'<p class="shelf-card-blurb">'+esc(f.blurb)+'</p>':'';
     const href='/app.html?read='+encodeURIComponent(f.id);
     const authorPart=f.author?'<p class="shelf-card-author">by '+(f.uid?'<a href="/imprint/?uid='+encodeURIComponent(f.uid)+'" onclick="event.stopPropagation()">'+esc(f.author)+'</a>':esc(f.author))+'</p>':'';
@@ -300,7 +313,7 @@ function renderShelf(){
       cover+
       '<h2 class="shelf-card-title"><a href="'+esc(href)+'">'+esc(f.title)+'</a></h2>'+
       authorPart+blurb+
-      '<div class="shelf-card-foot">'+badge+genre+langChip+boostChip+'</div>'+
+      '<div class="shelf-card-foot">'+badge+genre+seriesLink+langChip+boostChip+'</div>'+
       '</div>';
   };
   if (featured.length > 0) {
