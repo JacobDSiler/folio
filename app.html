@@ -20396,9 +20396,14 @@
       // Teaser exemption: any chapter id in release.teasers stays unlocked
       // even when its index is past `released`. Lets the author hand-pick
       // a free preview chapter beyond the cadence/preview cutoff.
+      // Also merges window._signedTeaserUnlocked so per-URL signed
+      // teaser unlocks aren't stripped back by the serial lock walk.
       const _teaserSet = new Set(
         Array.isArray(release && release.teasers) ? release.teasers : []
       );
+      if (window._signedTeaserUnlocked && window._signedTeaserUnlocked.forEach) {
+        window._signedTeaserUnlocked.forEach(function(id){ _teaserSet.add(id); });
+      }
 
       // Walk pages.
       //
@@ -20588,9 +20593,19 @@
 
       // Same teaser exemption as _serialApplyLocks — TOC rows for teaser
       // chapters render undimmed, not "🔒 ", since they remain readable.
+      // Also honour signed-teaser unlocks: chapters unlocked via ?tt=
+      // are NOT in release.teasers (deliberately — that's what makes
+      // signed teasers "unlisted"), so the render code has to merge
+      // window._signedTeaserUnlocked in explicitly. Without this the
+      // TOC row for the shared chapter still shows a 🔒 icon even
+      // though the content is fully readable — confusing for readers
+      // and defeats the marketing purpose of the signed teaser.
       const _teaserSet = new Set(
         Array.isArray(release && release.teasers) ? release.teasers : []
       );
+      if (window._signedTeaserUnlocked && window._signedTeaserUnlocked.forEach) {
+        window._signedTeaserUnlocked.forEach(function(id){ _teaserSet.add(id); });
+      }
 
       const rows = bp.querySelectorAll('.toc-nav-row[data-chapid]');
       rows.forEach(row => {
@@ -22155,6 +22170,16 @@
       if (window._signedTeaserUnlocked && window._signedTeaserUnlocked.forEach) {
         window._signedTeaserUnlocked.forEach(function(id){ teaserSet.add(id); });
       }
+      // Diagnostic — if the signed-teaser flow ran but the chapter is
+      // still gated, this log tells you whether the unlocked set is
+      // being consulted at gate time. Copy-paste to Jacob if it's empty
+      // when a ?tt= URL is loaded.
+      console.log('[paywall-gate] teaserSet at _pwShowPreview:',
+        Array.from(teaserSet),
+        '| _signedTeaserUnlocked:',
+        window._signedTeaserUnlocked
+          ? Array.from(window._signedTeaserUnlocked)
+          : 'undefined');
       const pages = Array.from(bp.children);
       let seenChapters = 0;
       let currentVisible = true;
