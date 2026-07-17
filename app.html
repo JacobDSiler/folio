@@ -7908,6 +7908,33 @@
           }
           return c;
         });
+        // Diagnostic: publish flow's view of paid content BEFORE writing.
+        // If contentBytesTotal is 0 or all chapters have length 0, the
+        // publish is about to write EMPTY content to body/paid — the
+        // bricked-teaser-link bug. Root cause: you're publishing a folio
+        // whose local chapters have empty content (either you loaded it
+        // as a non-owner and the body/paid merge silently skipped, or
+        // you did the initial load before the paid-content merge fix
+        // shipped).
+        (function _paidPublishAudit(){
+          let total = 0, emptyCount = 0;
+          const perCh = {};
+          Object.keys(_paidContentMap).forEach(function(id){
+            const len = (_paidContentMap[id] || '').length;
+            perCh[id] = len;
+            total += len;
+            if (len === 0) emptyCount++;
+          });
+          console.log('[D1-publish] paid content map audit',
+            { chaptersInMap: Object.keys(_paidContentMap).length,
+              contentBytesTotal: total,
+              emptyChapters: emptyCount,
+              perChapter: perCh });
+          if (emptyCount > 0 && total === 0) {
+            console.warn('[D1-publish] ⚠ EVERY paid chapter is empty. body/paid will be bricked.',
+              'Sign in as the folio owner and reload the folio before publishing.');
+          }
+        })();
         if (Object.keys(_paidContentMap).length > 0) {
           const _paidJson = JSON.stringify({ chapters: _paidContentMap });
           let _paidGz = null;
@@ -8611,12 +8638,29 @@
         console.log('[D1] PAID folio detected, _unlockParam:', _unlockParam);
         try {
           const _isOwner = !!(window._uid && data.uid && data.uid === window._uid);
+          // Owner-check diagnostic — critical for signed-teaser + republish
+          // debugging. If _isOwner=false when Jacob thinks he's the owner,
+          // he's signed in with the wrong Google account. That silently
+          // skips the body/paid fetch below, leaves chapter content empty
+          // in the editor, and any republish writes empty content back to
+          // body/paid — bricking teaser links for those chapters.
+          console.log('[D1] owner check',
+            { viewerUid: window._uid, folioOwnerUid: data.uid, isOwner: _isOwner,
+              expectedForFullEditAccess: 'viewerUid must match folioOwnerUid' });
           let _paidDoc = null;
           if (_isOwner) {
             try {
               const _paidRef = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'paid');
               const _paidSnap = await window._fb.getDoc(_paidRef);
-              if (_paidSnap.exists()) _paidDoc = _paidSnap.data();
+              if (_paidSnap.exists()) {
+                _paidDoc = _paidSnap.data();
+                const _chCount = _paidDoc.content_gz
+                  ? '(gzipped, needs decompress to count)'
+                  : Object.keys((_paidDoc.content || {}).chapters || {}).length;
+                console.log('[D1] owner body/paid loaded — chapters in doc:', _chCount);
+              } else {
+                console.warn('[D1] body/paid does NOT exist for this folio — first publish under the new schema will create it');
+              }
             } catch (e) { console.warn('[D1] owner body/paid fetch failed:', e); }
           } else if (window.__folioVipBypass || _unlockParam ||
             (typeof _pwGetToken === 'function' && typeof _pwIsValid === 'function') || localStorage.getItem('folioShareToken_' + folioId)) {

@@ -155,6 +155,13 @@ a:hover{text-decoration:underline}
   </select>
 </div>
 <div class="shelf-grid-wrap">
+  <!-- Series filter banner — visible when /shelf?series= is set. Shows
+       the series name + a chip to clear the filter. Populated by JS
+       so bare /shelf hides the banner entirely. -->
+  <div id="shelfSeriesBanner" style="display:none;margin:0 0 16px;padding:14px 18px;background:rgba(201,140,42,0.10);border:.5px solid rgba(201,140,42,0.30);border-radius:10px;font-size:13.5px;color:var(--text)">
+    <span style="font-family:'Playfair Display',Georgia,serif;font-size:16px;font-weight:600">📚 Series: <span id="shelfSeriesName"></span></span>
+    <a href="/shelf" style="float:right;font-size:12px;color:var(--muted);text-decoration:none;border:.5px solid var(--border-mid);padding:4px 10px;border-radius:6px;background:var(--surface)">✕ Clear</a>
+  </div>
   <div class="shelf-status" id="shelfStatus">Loading the shelf…</div>
   <div id="shelfFeaturedContainer" style="display:none">
     <div class="shelf-featured-divider">✨ Featured</div>
@@ -191,12 +198,37 @@ function renderShelf(){
   const p=(document.getElementById('shelfPrice')||{}).value||'';
   const g=(document.getElementById('shelfGenre')||{}).value||'';
   const so=(document.getElementById('shelfSort')||{}).value||'newest';
+  // Series filter — /shelf?series=<name> pins the view to a single
+  // series, useful for authors emailing readers a single link that
+  // lands on all books in a series (Jacob's marketing use case).
+  // Case-insensitive substring match, so `?series=embers` matches
+  // "Embers of Elekra" without needing exact URL encoding.
+  const _urlSeries = (function(){
+    try { return (new URLSearchParams(window.location.search).get('series') || '').trim().toLowerCase(); }
+    catch (e) { return ''; }
+  })();
   let items=_allFolios.slice();
   if(p==='serial')items=items.filter(f=>f.serial);
   else if(p==='free')items=items.filter(f=>f.priceMode==='free'&&!f.serial);
   else if(p==='paid')items=items.filter(f=>f.priceMode==='paid'&&!f.serial);
   if(g)items=items.filter(f=>f.genre===g);
   if(s)items=items.filter(f=>f.title.toLowerCase().includes(s)||f.author.toLowerCase().includes(s));
+  if(_urlSeries){
+    items=items.filter(f=>String(f.series||'').toLowerCase().includes(_urlSeries));
+    // Reveal the banner + fill in the actual series name (from the
+    // first matching folio, so casing is preserved).
+    const banner=document.getElementById('shelfSeriesBanner');
+    const nameEl=document.getElementById('shelfSeriesName');
+    if(banner&&nameEl){
+      const _display=(items[0]&&items[0].series)||_urlSeries;
+      nameEl.textContent=_display;
+      banner.style.display='';
+    }
+    // Force reading-order sort when a series is pinned — that's what
+    // readers want when they land here (book 1, 2, 3…). Overrides
+    // the default sort dropdown only for series-filtered views.
+    items.sort((a,b)=>(a.seriesOrder||9999)-(b.seriesOrder||9999)||a.title.localeCompare(b.title));
+  }
   if(so==='alpha')items.sort((a,b)=>a.title.localeCompare(b.title));
   else if(so==='author')items.sort((a,b)=>a.author.localeCompare(b.author)||a.title.localeCompare(b.title));
   else items.sort((a,b)=>b.listedAt-a.listedAt);
@@ -389,6 +421,11 @@ async function fetchShelf(){
         // language falls back to 'en' (pre-language folios published
         // before the field existed default to English).
         language:String(r.language||'en'),
+        // Series membership — surfaced so /shelf?series=<name> can
+        // filter to a single series. The author sets this at publish
+        // time in the release modal.
+        series:String(r.series||''),
+        seriesOrder:Number(r.seriesOrder||0),
         hasAdultContent:!!r.hasAdultContent,
         shelfPendingModeration:!!r.shelfPendingModeration,
         coverUrl:(typeof r.coverUrl==='string'&&/^https:\/\//i.test(r.coverUrl))?r.coverUrl:'',
