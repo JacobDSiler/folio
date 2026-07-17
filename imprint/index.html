@@ -424,7 +424,18 @@ function renderCards(folios){
   multiSeriesKeys.sort();  // alphabetical series ordering — reasonable default
   multiSeriesKeys.forEach(function(k){
     html += '<div class="imprint-series-section">';
-    html += '<h3 class="imprint-series-title">📚 '+esc(k)+' <span class="imprint-series-count">'+seriesMap[k].length+' books</span></h3>';
+    // Series title + share button. The share button copies the
+    // /shelf?series=<name> URL to the clipboard so authors can paste
+    // a single link into an email that lands readers on every book in
+    // that series (and every future book in it automatically). No
+    // network round-trip; the URL is deterministic from the series name.
+    const _seriesShareUrl = 'https://www.onfolio.press/shelf?series=' + encodeURIComponent(k);
+    html += '<h3 class="imprint-series-title">📚 '+esc(k)+' <span class="imprint-series-count">'+seriesMap[k].length+' books</span>' +
+      '<button type="button" class="imprint-series-share" ' +
+      '  onclick="_copySeriesLink(this, \'' + esc(k).replace(/'/g,"\\'") + '\')" ' +
+      '  title="Copy a link to this series — opens the shelf filtered to just these books"' +
+      '  style="margin-left:auto;font-size:11.5px;padding:5px 12px;border:.5px solid var(--accent);color:var(--accent);background:none;border-radius:14px;cursor:pointer;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',system-ui,sans-serif;font-weight:500;transition:background .12s,color .12s">' +
+      '🔗 Share series</button></h3>';
     html += '<div class="imprint-series-grid">' + seriesMap[k].map(renderCardHtml).join('') + '</div>';
     html += '</div>';
   });
@@ -725,6 +736,43 @@ document.addEventListener('keydown', function(e) {
     if (ov && ov.classList.contains('open')) _closeProfileModal();
   }
 });
+
+// Copy-to-clipboard for the "Share series" buttons. Uses the modern
+// clipboard API when available; falls back to a hidden textarea for
+// older browsers or non-secure contexts. Reader gets visual feedback
+// via a short-lived button state change.
+window._copySeriesLink = async function(btn, seriesName) {
+  const url = 'https://www.onfolio.press/shelf?series=' + encodeURIComponent(seriesName);
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(url);
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      ta.style.position = 'fixed'; ta.style.top = '-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+    }
+    // Flash the button — "✓ Copied" for 1.5s, then revert
+    const orig = btn.innerHTML;
+    const origBg = btn.style.background;
+    const origColor = btn.style.color;
+    btn.innerHTML = '✓ Copied';
+    btn.style.background = 'var(--accent)';
+    btn.style.color = '#fff';
+    setTimeout(function(){
+      btn.innerHTML = orig;
+      btn.style.background = origBg;
+      btn.style.color = origColor;
+    }, 1500);
+  } catch (e) {
+    console.warn('[imprint] series link copy failed:', e);
+    // Fallback: show URL in a prompt so the user can copy manually
+    try { window.prompt('Copy this series link:', url); } catch (_) { }
+  }
+};
 
 async function boot(){
   const uid=getUidParam();
