@@ -144,7 +144,18 @@ try {
     # press/, and scripts/folio-push.ps1 stays uncommitted; Jacob can
     # review + commit those separately if desired.
     & git add .gitignore
+    # index.html is the main welcome/marketing page — it kept getting
+    # dropped from this list, which is why deploys sometimes silently
+    # skipped a batch when index.html was the only file changed. Added
+    # 2026-07-17 after "your branch is up to date with origin/main"
+    # errors traced back here.
+    & git add index.html
     & git add app.html shelf.html
+    # Product photo templates — the .psdt files themselves stay in
+    # Firebase Storage (gitignored), but manifest.json IS tracked so
+    # the app knows which templates exist and where their metadata
+    # lives. Untracked manifest = photos page shows an empty catalog.
+    & git add press\photos\templates\manifest.json
     & git add docs\firestore.rules docs\storage.rules docs\firebase-storage-cors.json docs\SHELF_MODERATION_DESIGN.md
     & git add docs\LOCALIZATION_DESIGN.md
     & git add docs\TOMORROW_PLAN.md docs\EMAIL_FOLIO_LAUNCH.md docs\STOCK_PHOTO_TEMPLATES.md

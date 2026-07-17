@@ -1,0 +1,37 @@
+{
+  "_meta": {
+    "note": "PSDT-native pipeline. The `psdt` field can point at ANY URL — local repo path or Firebase Storage or CDN. Recommended: host large PSDT files in Firebase Storage under photo_templates/ to keep the git repo lean. ag-psd parses the PSDT client-side and auto-extracts Smart Object placement.",
+    "smartObjectName":  "Optional — restrict cover detection to layers containing this substring",
+    "smartObjectSkip":  "Optional — array of substrings; skip any smart object whose layer name OR any ancestor group name contains one",
+    "interiorPageText": "Optional bool — if true, page-shaped slots (Left Page, Right Page, Back Page) get filled with the author's opening chapter text instead of being left as mockup defaults"
+  },
+  "templates": [
+    {
+      "id": "adobe-224892809",
+      "name": "Front and Back Covers (Adobe Stock)",
+      "psdt": "https://firebasestorage.googleapis.com/v0/b/miscellaneous-117e9.firebasestorage.app/o/photo_templates%2Fadobe-224892809.psdt?alt=media",
+      "adobeStockId": "224892809",
+      "licenseType": "enhanced",
+      "outputWidth": 1080,
+      "outputHeight": 1080,
+      "textOverlays": [
+        { "text": "Read at onfolio.press", "x": 540, "y": 1010, "align": "center", "font": "500 22px system-ui", "color": "rgba(255,255,255,0.9)" }
+      ],
+      "_notes": "Two books (front + back angle). Auto-detects both [YOUR IMAGE HERE] slots and puts the author's cover on both."
+    },
+    {
+      "id": "adobe-118772280",
+      "name": "Book Mockups Set — Open Book (Adobe Stock)",
+      "psdt": "https://firebasestorage.googleapis.com/v0/b/miscellaneous-117e9.firebasestorage.app/o/photo_templates%2Fadobe-118772280.psdt?alt=media",
+      "adobeStockId": "118772280",
+      "licenseType": "enhanced",
+      "outputWidth": 1080,
+      "outputHeight": 1080,
+      "interiorPageText": true,
+      "textOverlays": [
+        { "text": "Read at onfolio.press", "x": 540, "y": 1010, "align": "center", "font": "500 22px system-ui", "color": "rgba(255,255,255,0.9)" }
+      ],
+      "_notes": "Book Stack (front cover) + open book with Left/Right/Back Page. Author's cover goes on Book Stack; folio's opening chapter text renders into the page slots."
+    }
+  ]
+}
