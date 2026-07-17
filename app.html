@@ -5598,8 +5598,22 @@
          (b) signed in with Google  → avatar + first name + sign-out on hover
        On desktop it sits at top-right. On mobile it collapses to
        an icon-only button that expands on tap. -->
-  <div id="authPill" style="position:fixed;top:10px;right:12px;z-index:1000;display:none;font-family:var(--sans);pointer-events:none">
-    <div id="authPillContent" style="pointer-events:auto"></div>
+  <!-- Auth pill visibility rules:
+       - HIDDEN when the app is in reader mode (html[data-reader]) —
+         the reader has its own top-bar sign-in / profile controls.
+       - HIDDEN on narrow viewports where the top bar is already
+         crowded (< 900px) — collision with hamburger + toolbar.
+       - Otherwise visible top-right of the editor.
+       Solves Jacob's "the pill covers important top-bar buttons"
+       complaint without losing the sign-in visibility Thomas needed. -->
+  <style>
+    #authPill { position: fixed; top: 10px; right: 12px; z-index: 950; font-family: var(--sans); pointer-events: none; }
+    #authPill .pill-inner { pointer-events: auto; }
+    html[data-reader] #authPill { display: none !important; }
+    @media (max-width: 900px) { #authPill { display: none !important; } }
+  </style>
+  <div id="authPill" style="display:none">
+    <div id="authPillContent" class="pill-inner"></div>
   </div>
   <!-- Mobile-only hamburger + slide-in overlay. The button is fixed
        top-left over the preview; tapping it adds .editor-sidebar-open
