@@ -52,7 +52,8 @@ service cloud.firestore {
     function isAdmin() {
       return request.auth != null && (
         request.auth.uid in [
-          'x9AgFZ7O8WVz2UVtyO4ggWKNfc73'  // Jacob — bootstrap admin
+          'x9AgFZ7O8WVz2UVtyO4ggWKNfc73',  // Jacob — bootstrap admin (primary)
+          'Y1bO4mc8aAclkbRNIYXyez8i7Rj2'   // Jacob — bootstrap admin (secondary account)
         ]
         || (
           exists(/databases/$(database)/documents/folio_roles/$(request.auth.uid))

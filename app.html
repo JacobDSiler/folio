@@ -30091,6 +30091,42 @@
         For seamless textures pick <em>Tile</em>. For a hero-style photo pick <em>Stretch</em>. For a logo watermark pick <em>Center</em>. Leave blank to hide.
       </p>
 
+      <!-- Author profile block — bio / photo / links.
+           Introduced 2026-07-17 after early tester Thomas + his Cedarfort-
+           published father requested a "who am I" surface on the imprint
+           page. All fields are optional; the imprint renderer hides the
+           block entirely if nothing is populated. Fields map 1:1 to
+           theme doc keys: tagline, bio, bioFull, photoUrl, links. -->
+      <div style="padding:14px 16px;background:rgba(6,95,70,0.05);border:.5px solid rgba(6,95,70,0.20);border-radius:8px;margin:0 0 16px">
+        <div style="font-size:12.5px;font-weight:600;color:var(--accent-ui);margin:0 0 4px">About you</div>
+        <p style="font-size:10.5px;color:var(--muted);margin:0 0 12px;line-height:1.5">
+          Optional — appears in a compact card on your imprint page below the folio list. All fields hide themselves if left blank.
+        </p>
+
+        <label for="imprintTaglineInput" style="display:block;font-size:12px;font-weight:500;color:var(--text);margin:0 0 4px">Tagline <span style="color:var(--hint);font-weight:400">(one line, appears under your name)</span></label>
+        <input type="text" id="imprintTaglineInput" maxlength="120" placeholder="e.g. Novelist. Slow reader of long books."
+          style="width:100%;font-size:12.5px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit;margin:0 0 12px">
+
+        <label for="imprintPhotoInput" style="display:block;font-size:12px;font-weight:500;color:var(--text);margin:0 0 4px">Photo URL <span style="color:var(--hint);font-weight:400">(square image works best — 400×400 or larger)</span></label>
+        <input type="url" id="imprintPhotoInput" placeholder="https://..."
+          style="width:100%;font-size:12.5px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:ui-monospace,Menlo,monospace;margin:0 0 12px">
+
+        <label for="imprintBioInput" style="display:block;font-size:12px;font-weight:500;color:var(--text);margin:0 0 4px">Short bio <span style="color:var(--hint);font-weight:400">(1-3 sentences, shown inline on the card)</span></label>
+        <textarea id="imprintBioInput" maxlength="500" rows="3" placeholder="A brief introduction — who you are, what you write."
+          style="width:100%;font-size:12.5px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit;line-height:1.5;resize:vertical;margin:0 0 12px"></textarea>
+
+        <label for="imprintBioFullInput" style="display:block;font-size:12px;font-weight:500;color:var(--text);margin:0 0 4px">Longer bio <span style="color:var(--hint);font-weight:400">(optional — shown in a "Read more" modal on your imprint page)</span></label>
+        <textarea id="imprintBioFullInput" maxlength="4000" rows="6" placeholder="More about your background, prior work, what you're writing now, where readers can find you. Paragraphs are preserved."
+          style="width:100%;font-size:12.5px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit;line-height:1.5;resize:vertical;margin:0 0 12px"></textarea>
+
+        <label for="imprintLinksInput" style="display:block;font-size:12px;font-weight:500;color:var(--text);margin:0 0 4px">Links <span style="color:var(--hint);font-weight:400">(one per line — Label|URL, or just paste the URL)</span></label>
+        <textarea id="imprintLinksInput" rows="4" placeholder="Website | https://example.com&#10;X | https://x.com/username&#10;Bluesky | https://bsky.app/profile/handle&#10;Newsletter | https://yourname.substack.com"
+          style="width:100%;font-size:12px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:ui-monospace,Menlo,monospace;line-height:1.5;resize:vertical;margin:0 0 6px"></textarea>
+        <p style="font-size:10.5px;color:var(--hint);margin:0 0 4px;line-height:1.5">
+          Icons are auto-detected for X/Bluesky/Instagram/Mastodon/YouTube/Goodreads/Substack/Amazon/Patreon/LinkedIn/GitHub/etc. Up to 8 links shown. If you skip the label, the URL displays as-is.
+        </p>
+      </div>
+
       <!-- Action row — compact single-row layout per Jacob's mockup:
              [💾 Save] | Preview my imprint → | Cancel
            Save is the amber-tinted primary action but stays as an icon
@@ -30204,6 +30240,24 @@
         if (wallInp) wallInp.value = d.wallpaper || '';
         const wallFit = document.getElementById('imprintWallpaperFit');
         if (wallFit) wallFit.value = d.wallpaperFit || 'tile';
+        // Author profile fields (introduced 2026-07-17). Populate if the
+        // theme doc has them; leave blank otherwise. Links stored as an
+        // array of {label,url} but the editor UI is a textarea with
+        // "Label | url" per line, so we serialize back to text here.
+        const tagInp = document.getElementById('imprintTaglineInput');
+        if (tagInp) tagInp.value = d.tagline || '';
+        const photoInp = document.getElementById('imprintPhotoInput');
+        if (photoInp) photoInp.value = d.photoUrl || '';
+        const bioInp = document.getElementById('imprintBioInput');
+        if (bioInp) bioInp.value = d.bio || '';
+        const bioFullInp = document.getElementById('imprintBioFullInput');
+        if (bioFullInp) bioFullInp.value = d.bioFull || '';
+        const linksInp = document.getElementById('imprintLinksInput');
+        if (linksInp && Array.isArray(d.links)) {
+          linksInp.value = d.links
+            .map(function(l){ return (l && l.label ? (l.label + ' | ') : '') + (l && l.url || ''); })
+            .join('\n');
+        }
       } else {
         console.log('[imprint] no theme doc yet — showing defaults');
         _pickImprintColor('#c98c2a');
@@ -30228,6 +30282,12 @@
     const hero       = ((document.getElementById('imprintHeroInput')     || {}).value || '').trim();
     const wallpaper  = ((document.getElementById('imprintWallpaperInput')|| {}).value || '').trim();
     const wallpaperFit = (document.getElementById('imprintWallpaperFit') || {}).value || 'tile';
+    // Author profile fields
+    const tagline    = ((document.getElementById('imprintTaglineInput') || {}).value || '').trim().slice(0, 120);
+    const photoUrl   = ((document.getElementById('imprintPhotoInput')   || {}).value || '').trim();
+    const bio        = ((document.getElementById('imprintBioInput')     || {}).value || '').trim().slice(0, 500);
+    const bioFull    = ((document.getElementById('imprintBioFullInput') || {}).value || '').trim().slice(0, 4000);
+    const linksRaw   = ((document.getElementById('imprintLinksInput')   || {}).value || '').trim();
     // Validate wallpaper URL if provided
     if (wallpaper && !/^https:\/\//i.test(wallpaper)) {
       if (status) { status.textContent = 'Wallpaper URL must start with https://'; status.style.color = 'var(--danger,#c04040)'; }
@@ -30238,6 +30298,31 @@
       if (status) { status.textContent = 'Hero image URL must start with https://'; status.style.color = 'var(--danger,#c04040)'; }
       return;
     }
+    // Validate photo URL is https if provided
+    if (photoUrl && !/^https:\/\//i.test(photoUrl)) {
+      if (status) { status.textContent = 'Photo URL must start with https://'; status.style.color = 'var(--danger,#c04040)'; }
+      return;
+    }
+    // Parse the links textarea into an array of {label, url}. Format is
+    // "Label | url" per line, OR just a bare URL. Silently drops any
+    // non-http(s) URL or malformed line. Capped at 8 total (renderer
+    // also caps but doing it here keeps the doc small).
+    const links = [];
+    linksRaw.split(/\r?\n/).forEach(function(raw){
+      const line = String(raw || '').trim();
+      if (!line) return;
+      let label = '', url = '';
+      const bar = line.indexOf('|');
+      if (bar >= 0) {
+        label = line.slice(0, bar).trim().slice(0, 40);
+        url   = line.slice(bar + 1).trim();
+      } else {
+        url = line;
+      }
+      if (!/^https?:\/\//i.test(url)) return;
+      links.push({ label: label || url, url: url.slice(0, 400) });
+    });
+    const cappedLinks = links.slice(0, 8);
     if (btn) btn.disabled = true;
     if (status) { status.textContent = 'Saving…'; status.style.color = 'var(--hint)'; }
     try {
@@ -30250,6 +30335,13 @@
         hero:         String(hero).slice(0, 500),
         wallpaper:    String(wallpaper).slice(0, 500),
         wallpaperFit: ['tile','stretch','center'].includes(wallpaperFit) ? wallpaperFit : 'tile',
+        // Author profile fields (see mountAuthorProfile in imprint/index.html
+        // for how they render). All optional, all length-capped above.
+        tagline:      tagline || null,
+        photoUrl:     photoUrl || null,
+        bio:          bio || null,
+        bioFull:      bioFull || null,
+        links:        cappedLinks.length ? cappedLinks : null,
         updatedAt:    Date.now(),
       }, { merge: true });
       if (status) { status.textContent = '✅ Saved. Refresh your imprint page to see it live.'; status.style.color = 'var(--accent-ui,#065f46)'; }
