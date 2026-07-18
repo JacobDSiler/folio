@@ -55,17 +55,31 @@ a:hover{text-decoration:underline}
 .imprint-tagline{font-size:14px;color:var(--muted);margin:0 0 18px;font-style:italic}
 .imprint-count{font-size:12px;color:var(--hint);margin-bottom:22px}
 .imprint-actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:8px}
-.imprint-actions a{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:7px 14px;border-radius:8px;background:var(--surface);border:.5px solid var(--border-mid);color:var(--text);text-decoration:none;transition:background .12s}
-.imprint-actions a:hover{background:var(--bg);text-decoration:none}
-.imprint-actions .tip{background:var(--accent);color:#fff;border-color:transparent}
-.imprint-actions .tip:hover{filter:brightness(.94)}
+/* Action buttons — semi-opaque background + backdrop-blur so they stay
+   legible over any wallpaper (busy dark patterns like Jacob's starry
+   sky were washing out the surface color). backdrop-filter is a modern
+   frosted-glass effect: the underlying wallpaper still shows through
+   but is blurred + softened. Falls back gracefully to a solid opaque
+   background on browsers that lack support. */
+.imprint-actions a{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:7px 14px;border-radius:8px;background:rgba(255,255,255,0.92);border:.5px solid var(--border-mid);color:var(--text);text-decoration:none;transition:background .12s;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:0 2px 10px rgba(0,0,0,0.10)}
+.imprint-actions a:hover{background:rgba(255,255,255,0.98);text-decoration:none}
+.imprint-actions .tip{background:var(--accent);color:#fff;border-color:transparent;backdrop-filter:none;-webkit-backdrop-filter:none}
+.imprint-actions .tip:hover{filter:brightness(.94);background:var(--accent)}
+/* Dark-background variant — when the theme applied a dark background
+   token, the action buttons should look like frosted glass over dark
+   rather than white. Detects the dark-flip by presence of the .dark
+   attribute on documentElement, which the theme applier sets when
+   the picked background is below the brightness threshold. */
+html.dark .imprint-actions a{background:rgba(30,25,20,0.85);color:#e8dece;border-color:rgba(255,255,255,0.10);box-shadow:0 2px 10px rgba(0,0,0,0.35)}
+html.dark .imprint-actions a:hover{background:rgba(45,38,30,0.95)}
 
 /* Author profile block — a subtle "who is this author?" surface that
    sits below the cover text. Photo + short bio inline; "Read more"
    opens a modal with the fuller bio and links. All fields are
    optional — the whole block hides itself if the theme doc doesn't
    populate any of them. */
-.imprint-profile{max-width:640px;margin:14px auto 0;padding:18px 22px;background:var(--surface);border:.5px solid var(--border);border-radius:12px;display:none;text-align:left}
+.imprint-profile{max-width:640px;margin:14px auto 0;padding:18px 22px;background:rgba(255,255,255,0.94);border:.5px solid var(--border-mid);border-radius:12px;display:none;text-align:left;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);box-shadow:0 4px 18px rgba(0,0,0,0.08)}
+html.dark .imprint-profile{background:rgba(30,25,20,0.88);border-color:rgba(255,255,255,0.12);box-shadow:0 4px 18px rgba(0,0,0,0.42)}
 .imprint-profile.has-content{display:block}
 .imprint-profile-row{display:flex;align-items:flex-start;gap:16px}
 .imprint-profile-photo{width:64px;height:64px;border-radius:50%;object-fit:cover;flex-shrink:0;background:var(--bg);border:.5px solid var(--border-mid);display:block}
@@ -108,7 +122,11 @@ a:hover{text-decoration:underline}
 .imprint-card-cover{width:100%;aspect-ratio:2/3;object-fit:cover;border-radius:6px;background:linear-gradient(135deg,var(--bg),var(--surface));border:.5px solid var(--border);margin-bottom:12px}
 .imprint-card-cover-placeholder{display:flex;align-items:center;justify-content:center;color:var(--hint);font-family:'Playfair Display',Georgia,serif;font-size:14px;text-align:center;padding:12px;font-style:italic;line-height:1.3}
 .imprint-series-section{margin-bottom:32px}
-.imprint-series-title{font-family:'Playfair Display',Georgia,serif;font-size:20px;font-weight:600;color:var(--text);margin:0 0 12px;padding:0 0 6px;border-bottom:.5px solid var(--border);display:flex;align-items:baseline;gap:10px}
+/* Series title bar — floating panel so it reads over any wallpaper.
+   Was rendering directly on the wallpaper (dark text on dark stars =
+   unreadable). Now sits on a frosted surface with a subtle shadow. */
+.imprint-series-title{font-family:'Playfair Display',Georgia,serif;font-size:20px;font-weight:600;color:var(--text);margin:0 0 12px;padding:12px 18px;border-radius:10px;background:rgba(255,255,255,0.92);border:.5px solid var(--border-mid);display:flex;align-items:baseline;gap:10px;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+html.dark .imprint-series-title{background:rgba(30,25,20,0.85);border-color:rgba(255,255,255,0.10);box-shadow:0 2px 8px rgba(0,0,0,0.35)}
 .imprint-series-count{font-size:11.5px;color:var(--hint);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;font-weight:400;letter-spacing:.02em}
 .imprint-standalone-title{margin-top:20px}
 .imprint-series-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:20px}
@@ -570,6 +588,13 @@ async function applyImprintTheme(uid) {
         root.setProperty('--surface', '#1f1a14');
         root.setProperty('--border', 'rgba(232,222,206,0.10)');
         root.setProperty('--border-mid', 'rgba(232,222,206,0.16)');
+        // Also flip a class on <html> so CSS rules like `html.dark .imprint-*`
+        // can pick the dark-variant frosted-glass backgrounds for action
+        // buttons, profile card, and series titles. Without this class the
+        // frosted panels stay white-tinted over a dark wallpaper, which
+        // looks jarring. Set once when the theme is applied; never toggled
+        // otherwise.
+        document.documentElement.classList.add('dark');
       }
       console.log('[imprint-theme] background applied:', theme.background, 'bright=' + _bright, _bright < 380 ? '(dark → flipped text)' : '(light)');
     }
