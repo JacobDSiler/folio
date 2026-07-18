@@ -5598,22 +5598,21 @@
          (b) signed in with Google  → avatar + first name + sign-out on hover
        On desktop it sits at top-right. On mobile it collapses to
        an icon-only button that expands on tap. -->
-  <!-- Auth pill visibility rules:
-       - HIDDEN when the app is in reader mode (html[data-reader]) —
-         the reader has its own top-bar sign-in / profile controls.
-       - HIDDEN on narrow viewports where the top bar is already
-         crowded (< 900px) — collision with hamburger + toolbar.
-       - Otherwise visible top-right of the editor.
-       Solves Jacob's "the pill covers important top-bar buttons"
-       complaint without losing the sign-in visibility Thomas needed. -->
+  <!-- Auth pill — permanently hidden in app.html per Jacob's 2026-07-17
+       UX overhaul. The sidebar Folio tab now shows sign-in state
+       prominently (green ✓, avatar, name, email, sign-out button),
+       AND the top bar has its own controls. The pill was solving
+       Thomas's "where do I sign in" problem in an earlier iteration
+       but ended up creating a persistent collision with the
+       Editing/Preview/Find toolbar buttons top-right. Left the
+       markup + render code in place so the imprint/shelf pages
+       (which lack the sidebar) can still use it if we want to
+       later — but on app.html it's fully suppressed with !important. -->
   <style>
-    #authPill { position: fixed; top: 10px; right: 12px; z-index: 950; font-family: var(--sans); pointer-events: none; }
-    #authPill .pill-inner { pointer-events: auto; }
-    html[data-reader] #authPill { display: none !important; }
-    @media (max-width: 900px) { #authPill { display: none !important; } }
+    #authPill { display: none !important; }
   </style>
   <div id="authPill" style="display:none">
-    <div id="authPillContent" class="pill-inner"></div>
+    <div id="authPillContent"></div>
   </div>
   <!-- Mobile-only hamburger + slide-in overlay. The button is fixed
        top-left over the preview; tapping it adds .editor-sidebar-open
@@ -5665,6 +5664,25 @@
         <button id="darkModeBtn" onclick="toggleDarkMode()" title="Toggle dark mode"
           style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 5px;color:var(--hint);border-radius:4px;transition:color .15s"
           onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--hint)'">☽</button>
+        <!-- Sidebar shortcuts — collapsible after Jacob's 2026-07-17
+             feedback that 6 utility buttons eat ~half the sidebar top
+             before you can see any actual work. `<details>` remembers
+             its open state per browser via localStorage below so once
+             an author knows where things are they can permanently
+             collapse this. Default is OPEN so first-time users still
+             discover the shortcuts. -->
+        <details class="sidebar-shortcuts" id="sidebarShortcuts" open ontoggle="try{localStorage.setItem('folio_shortcuts_open', this.open ? '1' : '0');}catch(_){}">
+          <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px;margin-top:10px;padding:6px 8px;background:transparent;border:.5px dashed transparent;border-radius:6px;font-size:11px;font-weight:500;color:var(--hint);user-select:none;transition:color .12s,border-color .12s"
+            onmouseover="this.style.color='var(--text)';this.style.borderColor='var(--border-mid)'"
+            onmouseout="this.style.color='var(--hint)';this.style.borderColor='transparent'">
+            <span class="shortcuts-caret" style="display:inline-block;transition:transform .15s;width:10px;font-size:9px">▸</span>
+            <span style="flex:1">Shortcuts</span>
+            <span style="font-size:10px;opacity:.55">6</span>
+          </summary>
+          <style>
+            #sidebarShortcuts[open] .shortcuts-caret { transform: rotate(90deg); }
+            #sidebarShortcuts summary::-webkit-details-marker { display: none; }
+          </style>
         <!-- Shelf portal — every author is also a reader. Prominent link
              keeps the marketplace one click away every session: browse
              other authors' work, spot-check where their own listing sits,
@@ -5742,6 +5760,16 @@
           <span style="flex:1;text-align:left">Leave feedback <span style="color:var(--accent);font-size:10px">+ free 24h boost</span></span>
           <span style="color:var(--hint);font-size:10px">→</span>
         </button>
+        </details>
+        <script>
+          (function(){
+            try {
+              const s = localStorage.getItem('folio_shortcuts_open');
+              const el = document.getElementById('sidebarShortcuts');
+              if (el && s === '0') el.open = false;
+            } catch (_) {}
+          })();
+        </script>
       </div>
 
       <div class="tabs">
@@ -6383,31 +6411,69 @@
               stay local (file size).</p>
           </div>
 
-          <div class="section">
-            <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
-              <span>🔖 Bookmarks</span>
-              <span id="bmCount" style="font-size:9px;color:var(--hint);font-weight:400;letter-spacing:.03em">0</span>
+          <!-- Bookmarks + Annotations moved into collapsible <details>
+               panels after Jacob's 2026-07-17 feedback that these sections
+               eat most of the Folio tab even when empty. Both default
+               COLLAPSED because they're reference / review surfaces —
+               authors open them when they need to look up a bookmark
+               or a note, not while writing. State persists per browser
+               via localStorage so an author's preferred layout survives
+               refresh. Counts stay visible in the summary so an author
+               can see at a glance whether there's anything worth
+               opening the panel for. -->
+          <details class="sidebar-panel" id="bmPanel" ontoggle="try{localStorage.setItem('folio_bm_open',this.open?'1':'0');}catch(_){}">
+            <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:12px 1.25rem;font-size:13px;font-weight:500;color:var(--text);user-select:none;transition:background .12s"
+              onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
+              <span class="panel-caret" style="display:inline-block;font-size:10px;color:var(--hint);transition:transform .15s;width:10px">▸</span>
+              <span style="flex:1">🔖 Bookmarks</span>
+              <span id="bmCount" style="font-size:10.5px;color:var(--hint);font-weight:400;background:var(--bg);padding:2px 8px;border-radius:10px;min-width:20px;text-align:center">0</span>
+            </summary>
+            <div class="section" style="border-top:none;padding-top:8px">
+              <div id="bmList" class="bm-list"></div>
+              <div id="bmEmpty" style="font-size:11.5px;color:var(--hint);padding:.35rem 0">
+                Hover a paragraph in the preview and click the 🔖 to bookmark it.
+              </div>
+              <p class="small-note" style="margin-top:6px">Saved locally to this browser. Sharing with collaborators
+                coming in Phase&nbsp;2.</p>
             </div>
-            <div id="bmList" class="bm-list"></div>
-            <div id="bmEmpty" style="font-size:11.5px;color:var(--hint);padding:.35rem 0">
-              Hover a paragraph in the preview and click the 🔖 to bookmark it.
-            </div>
-            <p class="small-note" style="margin-top:6px">Saved locally to this browser. Sharing with collaborators
-              coming in Phase&nbsp;2.</p>
-          </div>
+          </details>
 
-          <div class="section">
-            <div class="section-title" style="display:flex;align-items:center;justify-content:space-between">
-              <span>✍ Annotations</span>
-              <span id="annCount" style="font-size:9px;color:var(--hint);font-weight:400;letter-spacing:.03em">0</span>
+          <details class="sidebar-panel" id="annPanel" ontoggle="try{localStorage.setItem('folio_ann_open',this.open?'1':'0');}catch(_){}">
+            <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:12px 1.25rem;font-size:13px;font-weight:500;color:var(--text);user-select:none;transition:background .12s"
+              onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background='transparent'">
+              <span class="panel-caret" style="display:inline-block;font-size:10px;color:var(--hint);transition:transform .15s;width:10px">▸</span>
+              <span style="flex:1">✍ Annotations</span>
+              <span id="annCount" style="font-size:10.5px;color:var(--hint);font-weight:400;background:var(--bg);padding:2px 8px;border-radius:10px;min-width:20px;text-align:center">0</span>
+            </summary>
+            <div class="section" style="border-top:none;padding-top:8px">
+              <div id="annList" class="ann-list"></div>
+              <div id="annEmpty" style="font-size:11.5px;color:var(--hint);padding:.35rem 0">
+                Select any text in the preview to highlight it or attach a note.
+              </div>
+              <p class="small-note" style="margin-top:6px">Highlights and notes live locally. Scope controls for
+                editor/beta-reader exposure come in Phase&nbsp;2.</p>
             </div>
-            <div id="annList" class="ann-list"></div>
-            <div id="annEmpty" style="font-size:11.5px;color:var(--hint);padding:.35rem 0">
-              Select any text in the preview to highlight it or attach a note.
-            </div>
-            <p class="small-note" style="margin-top:6px">Highlights and notes live locally. Scope controls for
-              editor/beta-reader exposure come in Phase&nbsp;2.</p>
-          </div>
+          </details>
+          <style>
+            .sidebar-panel { border-bottom: .5px solid var(--border); }
+            .sidebar-panel[open] .panel-caret { transform: rotate(90deg); color: var(--accent-ui); }
+            .sidebar-panel[open] > summary { background: var(--bg); border-bottom: .5px solid var(--border); }
+            .sidebar-panel summary::-webkit-details-marker { display: none; }
+          </style>
+          <script>
+            (function(){
+              try {
+                const bm = localStorage.getItem('folio_bm_open');
+                const ann = localStorage.getItem('folio_ann_open');
+                const bmEl = document.getElementById('bmPanel');
+                const annEl = document.getElementById('annPanel');
+                // Default CLOSED (opt-in expand); only open if user has
+                // explicitly opened before.
+                if (bmEl) bmEl.open = (bm === '1');
+                if (annEl) annEl.open = (ann === '1');
+              } catch (_) {}
+            })();
+          </script>
 
           <div class="section">
             <div class="section-title">Invite &amp; Share</div>
