@@ -13527,6 +13527,16 @@
       if (!_imgModalState) return;
       _imgModalState[key] = val;
       if (key === 'size' && val !== 'page') _imgModalState.bleed = false;
+      // Auto-enable bleed when the user picks "Full page" — a Full Page
+      // image without bleed still leaves margins + a title/header/footer,
+      // which is almost never what an author wants. Making it a default
+      // ON toggle for size=page means picking Full Page immediately gives
+      // the true edge-to-edge look (graphic novels, maps, illustrations).
+      // Users who want the classic "large centered illustration on a
+      // regular page" can un-check bleed for the same effect as before.
+      if (key === 'size' && val === 'page' && _imgModalState.bleed !== true) {
+        _imgModalState.bleed = true;
+      }
       // Caption edits skip the re-render so the input keeps focus.
       if (key !== 'caption') _imgRenderModal();
     }
@@ -14413,8 +14423,24 @@
           let _titleHTML = titleBlock;
           let _chIdUsed = false;
           if (_titleHTML && pages.length && _isFullPageSlice(pages[0])) {
-            pagesHTML += pageWrap(_titleHTML, pageNum++, false, ch.id);
-            _titleHTML = ''; _chIdUsed = true;
+            // Full-bleed graphic-novel treatment: when the FIRST slice
+            // of the chapter is a bleed image, the title/header/footer
+            // page that would normally precede it is skipped entirely
+            // so the bleed spread is uninterrupted. This is what
+            // authors expect from a "full bleed" — no chapter chrome
+            // before the art. The image's data-chapid marker still
+            // acts as the chapter anchor for TOC + jump-to-chapter.
+            //
+            // Non-bleed full-page images DO get the title page — that's
+            // the classical "chapter with a large illustration" layout.
+            const _firstIsBleed = !!(pages[0][0].__imgMeta && pages[0][0].__imgMeta.bleed);
+            if (_firstIsBleed) {
+              _titleHTML = ''; // do not render a chapter title page
+              _chIdUsed = false; // let the image page carry the ch.id anchor
+            } else {
+              pagesHTML += pageWrap(_titleHTML, pageNum++, false, ch.id);
+              _titleHTML = ''; _chIdUsed = true;
+            }
           }
           for (let pg = 0; pg < pages.length; pg++) {
             const slice = pages[pg];
@@ -23487,8 +23513,15 @@
     window._rdShowEndOfBookPanel = function _rdShowEndOfBookPanel() {
       const panel = document.getElementById('rdEndOfBook');
       if (!panel) return;
-      // Only in reader mode. If the app is in editor mode, hide.
-      if (typeof _readerMode !== 'undefined' && !_readerMode) {
+      // Reader-only gate. INVERTED default from the previous version:
+      // if _readerMode is anything other than STRICTLY true (false,
+      // undefined, null, or "not yet initialized"), hide the panel.
+      // The old check only hid when _readerMode was explicitly false —
+      // undefined fell through, so the editor's preview showed the CTA.
+      // Jacob spotted this while editing "Resonance" — CTA shouldn't
+      // appear for authors, only for readers who reach end-of-book.
+      const _isReader = (typeof _readerMode !== 'undefined' && _readerMode === true);
+      if (!_isReader) {
         panel.style.display = 'none';
         return;
       }
