@@ -169,6 +169,7 @@ try {
     & git add help\index.html
     & git add admin\_shared.js
     & git add docs\AUTH_UNAUTHORIZED_DOMAIN_FIX.md docs\STABILITY_PLAN.md
+    & git add docs\TUTORIAL_STRATEGY.md
     & git add imprint\index.html
     & git add .githooks\pre-commit
     & git add policy\index.html
