@@ -5700,7 +5700,7 @@
              for their /imprint/ page. Free-tier authors get a "Try Indie"
              CTA instead. Rendered but hidden by default; auth state +
              subscription state determine which UI shows. -->
-        <button id="imprintCustomizeBtn" type="button" onclick="_openImprintCustomize()"
+        <button id="imprintCustomizeBtn" type="button" onclick="(function(){ const u=(window._uid||(window._user&&window._user.uid)||''); if(u){ window.open('/imprint/?uid='+encodeURIComponent(u)+'&customize=1', '_blank'); } else if(typeof _openImprintCustomize==='function'){ _openImprintCustomize(); } else { alert('Sign in first, then click Customize again.'); } })()"
           style="display:flex;align-items:center;gap:6px;margin-top:8px;padding:7px 10px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:6px;color:var(--text);text-decoration:none;font-size:12px;font-weight:500;transition:background .15s ease,border-color .15s ease;cursor:pointer;font-family:inherit;width:100%"
           onmouseover="this.style.background='var(--surface)';this.style.borderColor='var(--accent)'"
           onmouseout="this.style.background='var(--bg)';this.style.borderColor='var(--border-mid)'">
