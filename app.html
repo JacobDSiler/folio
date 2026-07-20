@@ -9229,9 +9229,16 @@
             // that lang's content from chapters[] into the buffer first
             // so we serialise the freshest version.
             if (_activeEditLang && _activeEditLang !== _folioPrimaryLang) {
+              // Serialise-time snapshot of the currently-editing lang.
+              // Uses the SAME translatable-section filter (pre + chapter
+              // + post) so front matter translations don't get dropped
+              // on the way to disk.
               const map = {};
               (chapters || []).forEach(function(c){
-                if (c && c.id && c.type === 'chapter') map[c.id] = (typeof c.content === 'string') ? c.content : '';
+                if (typeof _isTranslatableSection === 'function' ? _isTranslatableSection(c)
+                    : (c && c.id && (c.type === 'chapter' || c.type === 'pre' || c.type === 'post'))) {
+                  map[c.id] = (typeof c.content === 'string') ? c.content : '';
+                }
               });
               _translationBuffer[_activeEditLang] = map;
             }
@@ -11920,11 +11927,22 @@
     // Snapshot current chapters[i].content into state.translations[lang]
     // before switching away. If lang === primary, no snapshot needed
     // (primary just IS chapters[i].content).
+    // Helper: is this a translatable section? Includes pre (front matter
+     // — introduction, foreword, dedication), chapter (regular body),
+     // AND post (back matter — epilogue, about the author). Excludes toc
+     // which is auto-generated from chapter titles per language.
+    //
+     // Bugfix 2026-07-20: previously only checked `chapter`, which meant
+     // front matter kept the primary-language content when the author
+     // switched to Spanish/Chinese. Now front + back matter also swap.
+    function _isTranslatableSection(c) {
+      return !!(c && c.id && (c.type === 'chapter' || c.type === 'pre' || c.type === 'post'));
+    }
     function _snapshotCurrentLangContent(lang) {
       if (!lang || lang === _folioPrimaryLang) return;
       const map = {};
       (chapters || []).forEach(function(c){
-        if (c && c.id && c.type === 'chapter') {
+        if (_isTranslatableSection(c)) {
           map[c.id] = (typeof c.content === 'string') ? c.content : '';
         }
       });
@@ -11940,7 +11958,7 @@
         // when switching away.
         const cached = _translationBuffer.__primary || {};
         (chapters || []).forEach(function(c){
-          if (c && c.id && c.type === 'chapter' && cached[c.id] != null) {
+          if (_isTranslatableSection(c) && cached[c.id] != null) {
             c.content = cached[c.id];
           }
         });
@@ -11948,7 +11966,7 @@
       }
       const map = _translationBuffer[lang] || {};
       (chapters || []).forEach(function(c){
-        if (c && c.id && c.type === 'chapter') {
+        if (_isTranslatableSection(c)) {
           c.content = map[c.id] || '';
         }
       });
@@ -11959,10 +11977,12 @@
       if (!newLang || newLang === _activeEditLang) return;
       // Snapshot outgoing lang
       if (_activeEditLang === _folioPrimaryLang) {
-        // Cache primary before switching away, so we can restore it later
+        // Cache primary before switching away, so we can restore it later.
+        // Includes front matter (pre) + chapter + back matter (post) —
+        // all translatable section types (see _isTranslatableSection).
         const primaryMap = {};
         (chapters || []).forEach(function(c){
-          if (c && c.id && c.type === 'chapter') primaryMap[c.id] = c.content || '';
+          if (_isTranslatableSection(c)) primaryMap[c.id] = c.content || '';
         });
         _translationBuffer.__primary = primaryMap;
       } else {
