@@ -948,5 +948,323 @@ boot();
     <span><strong style="color:var(--accent)">Folio Press</strong> is coming — the pro tier that unlocks downloadable social-media product photos, custom imprint styling, and priority featured slots. <a href="/press" style="color:var(--accent);text-decoration:underline">Learn more →</a></span>
   </div>
 </div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     LIVE CUSTOMIZE DRAWER — 2026-07-20
+     Slides in from the right when the owner opens their own imprint
+     with ?customize=1 in the URL. Every input LIVE-mutates the CSS
+     variables on the page so changes are visible instantly. Save
+     button persists to folio_imprint_themes/{uid}. Non-owners never
+     see this UI (guarded by the mount check inside boot).
+     ═══════════════════════════════════════════════════════════════════ -->
+<style>
+  #customizeDrawer{position:fixed;top:0;right:0;bottom:0;width:340px;max-width:92vw;background:var(--surface);border-left:.5px solid var(--border);box-shadow:-8px 0 32px rgba(0,0,0,0.18);z-index:1200;display:none;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+  #customizeDrawer.open{display:flex}
+  #customizeDrawer .cd-hdr{padding:16px 20px;border-bottom:.5px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+  #customizeDrawer .cd-hdr h3{margin:0;font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:600;color:var(--text)}
+  #customizeDrawer .cd-hdr .cd-close{background:none;border:none;font-size:20px;color:var(--hint);cursor:pointer;padding:4px 8px;border-radius:6px}
+  #customizeDrawer .cd-hdr .cd-close:hover{background:var(--bg);color:var(--text)}
+  #customizeDrawer .cd-body{flex:1;overflow-y:auto;padding:14px 20px 100px}
+  #customizeDrawer label{display:block;font-size:12px;font-weight:500;color:var(--text);margin:12px 0 4px}
+  #customizeDrawer input[type=text],#customizeDrawer input[type=url],#customizeDrawer textarea,#customizeDrawer select{width:100%;padding:7px 9px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px}
+  #customizeDrawer input[type=color]{width:36px;height:32px;padding:2px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--bg);cursor:pointer}
+  #customizeDrawer .cd-swatch-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  #customizeDrawer .cd-swatch{width:26px;height:26px;border-radius:50%;border:2px solid transparent;cursor:pointer}
+  #customizeDrawer .cd-swatch.selected{border-color:var(--text)}
+  #customizeDrawer .cd-hint{font-size:10.5px;color:var(--hint);margin:2px 0 8px;line-height:1.5}
+  #customizeDrawer .cd-foot{position:absolute;bottom:0;left:0;right:0;padding:12px 20px;border-top:.5px solid var(--border);background:var(--surface);display:flex;gap:10px;align-items:center}
+  #customizeDrawer .cd-foot button{padding:8px 14px;font-size:12.5px;font-weight:500;border-radius:7px;cursor:pointer;font-family:inherit}
+  #customizeDrawer .cd-save{background:var(--accent);color:#fff;border:none;flex:1}
+  #customizeDrawer .cd-save:hover{filter:brightness(.94)}
+  #customizeDrawer .cd-save:disabled{opacity:.5;cursor:not-allowed}
+  #customizeDrawer .cd-status{font-size:11px;color:var(--hint);flex:1;text-align:right;line-height:1.4}
+  #customizeDrawer .cd-status.ok{color:var(--accent-ui)}
+  #customizeDrawer .cd-status.err{color:var(--danger)}
+  #customizeToggle{position:fixed;top:70px;right:14px;z-index:1150;padding:8px 14px;background:var(--accent);color:#fff;border:none;border-radius:22px;font-size:12px;font-weight:500;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,0.18);display:none}
+  #customizeToggle.visible{display:inline-flex}
+  #customizeToggle:hover{filter:brightness(.94)}
+</style>
+
+<button id="customizeToggle" onclick="_cdOpen()">🎨 Customize this imprint</button>
+
+<div id="customizeDrawer" role="dialog" aria-label="Customize imprint">
+  <div class="cd-hdr">
+    <h3>🎨 Customize imprint</h3>
+    <button class="cd-close" onclick="_cdClose()" aria-label="Close">×</button>
+  </div>
+  <div class="cd-body">
+    <div class="cd-hint">Every change previews live on this page. Nothing saves to the cloud until you hit Save.</div>
+
+    <label>Accent color</label>
+    <div class="cd-swatch-row">
+      <button type="button" class="cd-swatch" style="background:#c98c2a" data-accent="#c98c2a" onclick="_cdSetAccent('#c98c2a')" title="Folio amber (default)"></button>
+      <button type="button" class="cd-swatch" style="background:#8B4513" data-accent="#8B4513" onclick="_cdSetAccent('#8B4513')" title="Saddle brown"></button>
+      <button type="button" class="cd-swatch" style="background:#065f46" data-accent="#065f46" onclick="_cdSetAccent('#065f46')" title="Deep green"></button>
+      <button type="button" class="cd-swatch" style="background:#7c2d12" data-accent="#7c2d12" onclick="_cdSetAccent('#7c2d12')" title="Rust"></button>
+      <button type="button" class="cd-swatch" style="background:#4c1d95" data-accent="#4c1d95" onclick="_cdSetAccent('#4c1d95')" title="Deep violet"></button>
+      <button type="button" class="cd-swatch" style="background:#1e3a8a" data-accent="#1e3a8a" onclick="_cdSetAccent('#1e3a8a')" title="Navy"></button>
+      <input type="color" id="cdAccentInput" value="#c98c2a" oninput="_cdSetAccent(this.value)" title="Custom color">
+    </div>
+
+    <label>Background color</label>
+    <div class="cd-swatch-row">
+      <button type="button" class="cd-swatch" style="background:#faf7f1" data-bg="#faf7f1" onclick="_cdSetBg('#faf7f1')" title="Folio cream"></button>
+      <button type="button" class="cd-swatch" style="background:#f5efe0" data-bg="#f5efe0" onclick="_cdSetBg('#f5efe0')" title="Parchment"></button>
+      <button type="button" class="cd-swatch" style="background:#e8e0d0" data-bg="#e8e0d0" onclick="_cdSetBg('#e8e0d0')" title="Aged paper"></button>
+      <button type="button" class="cd-swatch" style="background:#f0eaf8" data-bg="#f0eaf8" onclick="_cdSetBg('#f0eaf8')" title="Lavender"></button>
+      <button type="button" class="cd-swatch" style="background:#eaf3ec" data-bg="#eaf3ec" onclick="_cdSetBg('#eaf3ec')" title="Moss"></button>
+      <button type="button" class="cd-swatch" style="background:#1a1611" data-bg="#1a1611" onclick="_cdSetBg('#1a1611')" title="Charcoal"></button>
+      <input type="color" id="cdBgInput" value="#faf7f1" oninput="_cdSetBg(this.value)" title="Custom bg">
+    </div>
+
+    <label>Header font</label>
+    <select id="cdFontSelect" onchange="_cdSetFont(this.value)">
+      <option value="playfair">Playfair Display (classic)</option>
+      <option value="crimson">Crimson Pro (traditional)</option>
+      <option value="inter">Inter (modern)</option>
+      <option value="jetbrains">JetBrains Mono (technical)</option>
+    </select>
+
+    <label>Hero image URL <span style="color:var(--hint);font-weight:400">(optional)</span></label>
+    <input type="url" id="cdHeroInput" placeholder="https://…" oninput="_cdSetHero(this.value)">
+    <div class="cd-hint">Banner across the top. Recommended 1600×400. Leave blank to hide.</div>
+
+    <label>Wallpaper URL <span style="color:var(--hint);font-weight:400">(optional)</span></label>
+    <input type="url" id="cdWallpaperInput" placeholder="https://…" oninput="_cdSetWallpaper(this.value)">
+    <label style="margin-top:6px;font-size:11px">Fit</label>
+    <select id="cdWallpaperFit" onchange="_cdSetWallpaper(document.getElementById('cdWallpaperInput').value)">
+      <option value="tile">Tile (repeat)</option>
+      <option value="stretch">Stretch (cover)</option>
+      <option value="center">Center (no repeat)</option>
+    </select>
+
+    <label style="margin-top:16px;padding-top:12px;border-top:.5px solid var(--border)">Tagline <span style="color:var(--hint);font-weight:400">(one line, under your name)</span></label>
+    <input type="text" id="cdTaglineInput" maxlength="120" placeholder="e.g. Novelist. Slow reader of long books." oninput="_cdSetTagline(this.value)">
+
+    <label>Photo URL <span style="color:var(--hint);font-weight:400">(square image, 400×400+)</span></label>
+    <input type="url" id="cdPhotoInput" placeholder="https://…" oninput="_cdSetPhoto(this.value)">
+
+    <label>Short bio <span style="color:var(--hint);font-weight:400">(1-3 sentences)</span></label>
+    <textarea id="cdBioInput" rows="3" maxlength="500" placeholder="A brief introduction…" oninput="_cdSetBio(this.value)"></textarea>
+
+    <label>Longer bio <span style="color:var(--hint);font-weight:400">(shown in Read More modal)</span></label>
+    <textarea id="cdBioFullInput" rows="5" maxlength="4000" placeholder="More about your background…" oninput="_cdSetBioFull(this.value)"></textarea>
+
+    <label>Links <span style="color:var(--hint);font-weight:400">(one per line, "Label | URL")</span></label>
+    <textarea id="cdLinksInput" rows="4" placeholder="Website | https://example.com&#10;X | https://x.com/username&#10;Newsletter | https://…" oninput="_cdSetLinks(this.value)"></textarea>
+  </div>
+  <div class="cd-foot">
+    <div class="cd-status" id="cdStatus"></div>
+    <button type="button" class="cd-save" id="cdSaveBtn" onclick="_cdSave()">💾 Save</button>
+  </div>
+</div>
+
+<script>
+  /* Live customize drawer — added 2026-07-20.
+     Owner-only. Mounts when URL has ?customize=1 AND signed-in uid
+     matches the imprint's uid. All setters mutate CSS variables /
+     DOM elements immediately so the visible page reflects changes
+     as the author types. Save button writes the collected state to
+     folio_imprint_themes/{uid}. Uses the existing Firebase modules
+     already imported by the imprint boot flow (window._fb bindings). */
+  const _cdTheme = { accent:'#c98c2a', background:'#faf7f1', font:'playfair', hero:'', wallpaper:'', wallpaperFit:'tile', tagline:'', photoUrl:'', bio:'', bioFull:'', links:[] };
+  window._cdOpen = function(){
+    const d = document.getElementById('customizeDrawer');
+    if (d) d.classList.add('open');
+  };
+  window._cdClose = function(){
+    const d = document.getElementById('customizeDrawer');
+    if (d) d.classList.remove('open');
+  };
+  function _cdMarkSwatch(group, val) {
+    document.querySelectorAll('#customizeDrawer .cd-swatch[data-' + group + ']').forEach(function(b){
+      b.classList.toggle('selected', b.getAttribute('data-' + group) === val);
+    });
+  }
+  window._cdSetAccent = function(v){
+    if (!/^#[0-9a-f]{3,8}$/i.test(v)) return;
+    _cdTheme.accent = v;
+    document.documentElement.style.setProperty('--accent', v);
+    const inp = document.getElementById('cdAccentInput');
+    if (inp) inp.value = v;
+    _cdMarkSwatch('accent', v);
+  };
+  window._cdSetBg = function(v){
+    if (!/^#[0-9a-f]{3,8}$/i.test(v)) return;
+    _cdTheme.background = v;
+    document.documentElement.style.setProperty('--bg', v);
+    const inp = document.getElementById('cdBgInput');
+    if (inp) inp.value = v;
+    _cdMarkSwatch('bg', v);
+    // Dark background flip — mirror the theme applier's logic
+    const _hex = parseInt(v.replace('#',''), 16);
+    const _bright = ((_hex>>16)&255) + ((_hex>>8)&255) + (_hex&255);
+    document.documentElement.classList.toggle('dark', _bright < 380);
+    if (_bright < 380) {
+      document.documentElement.style.setProperty('--text','#e8dece');
+      document.documentElement.style.setProperty('--muted','#a89e8b');
+      document.documentElement.style.setProperty('--surface','#1f1a14');
+    } else {
+      document.documentElement.style.setProperty('--text','#1a1611');
+      document.documentElement.style.setProperty('--muted','#5a5347');
+      document.documentElement.style.setProperty('--surface','#fff');
+    }
+  };
+  window._cdSetFont = function(v){
+    _cdTheme.font = v;
+    const fontMap = { playfair:"'Playfair Display',Georgia,serif", crimson:"'Crimson Pro','Iowan Old Style',Georgia,serif", inter:"'Inter','Helvetica Neue',sans-serif", jetbrains:"'JetBrains Mono',ui-monospace,monospace" };
+    let sEl = document.getElementById('cdFontStyle');
+    if (!sEl) { sEl = document.createElement('style'); sEl.id='cdFontStyle'; document.head.appendChild(sEl); }
+    sEl.textContent = ".imprint-author,.imprint-card-title,.imprint-series-title{font-family:" + (fontMap[v]||fontMap.playfair) + " !important}";
+  };
+  window._cdSetHero = function(v){
+    _cdTheme.hero = String(v||'').trim();
+    // Live hero application would require injecting a hero image into
+    // the DOM; skipped for now to keep the drawer light. Saves fine and
+    // shows on next reload.
+  };
+  window._cdSetWallpaper = function(v){
+    _cdTheme.wallpaper = String(v||'').trim();
+    const fitSel = document.getElementById('cdWallpaperFit');
+    const fit = fitSel ? fitSel.value : 'tile';
+    _cdTheme.wallpaperFit = fit;
+    const url = _cdTheme.wallpaper.replace(/["'\\]/g, '');
+    if (!url) { document.body.style.backgroundImage = ''; return; }
+    document.body.style.backgroundImage = "url('" + url + "')";
+    document.body.style.backgroundAttachment = 'fixed';
+    if (fit === 'tile') { document.body.style.backgroundRepeat='repeat'; document.body.style.backgroundSize=''; }
+    else if (fit === 'stretch') { document.body.style.backgroundRepeat='no-repeat'; document.body.style.backgroundSize='cover'; document.body.style.backgroundPosition='center'; }
+    else { document.body.style.backgroundRepeat='no-repeat'; document.body.style.backgroundSize=''; document.body.style.backgroundPosition='center'; }
+  };
+  window._cdSetTagline = function(v){
+    _cdTheme.tagline = String(v||'').slice(0, 120);
+    const el = document.getElementById('imprintTagline');
+    if (el) el.textContent = _cdTheme.tagline;
+  };
+  window._cdSetPhoto = function(v){
+    _cdTheme.photoUrl = String(v||'').trim();
+    const wrap = document.getElementById('imprintProfilePhotoWrap');
+    if (wrap && _cdTheme.photoUrl && /^https:\/\//i.test(_cdTheme.photoUrl)) {
+      wrap.innerHTML = '<img class="imprint-profile-photo" src="' + _cdTheme.photoUrl.replace(/["'\\]/g,'') + '" alt="">';
+    }
+  };
+  window._cdSetBio = function(v){
+    _cdTheme.bio = String(v||'').slice(0, 500);
+    const el = document.getElementById('imprintProfileBio');
+    if (el) { el.textContent = _cdTheme.bio; el.style.display = _cdTheme.bio ? '' : 'none'; }
+    const p = document.getElementById('imprintProfile');
+    if (p && (_cdTheme.bio || _cdTheme.photoUrl || _cdTheme.bioFull || (_cdTheme.links && _cdTheme.links.length))) p.classList.add('has-content');
+  };
+  window._cdSetBioFull = function(v){
+    _cdTheme.bioFull = String(v||'').slice(0, 4000);
+    const moreBtn = document.getElementById('imprintProfileMore');
+    if (moreBtn) moreBtn.style.display = _cdTheme.bioFull ? '' : 'none';
+    const modalBio = document.getElementById('imprintProfileModalBio');
+    if (modalBio) modalBio.textContent = _cdTheme.bioFull || _cdTheme.bio;
+  };
+  window._cdSetLinks = function(v){
+    const raw = String(v||'').trim();
+    const out = [];
+    raw.split(/\r?\n/).forEach(function(line){
+      const t = line.trim();
+      if (!t) return;
+      const bar = t.indexOf('|');
+      let label = '', url = '';
+      if (bar >= 0) { label = t.slice(0, bar).trim(); url = t.slice(bar+1).trim(); }
+      else { url = t; }
+      if (!/^https?:\/\//i.test(url)) return;
+      out.push({ label: label || url, url: url.slice(0, 400) });
+    });
+    _cdTheme.links = out.slice(0, 8);
+    // Live-render the links row on the profile card
+    const linksEl = document.getElementById('imprintProfileLinks');
+    if (linksEl) {
+      const _iconFor = window._profileLinkIcon || function(){ return '🌐'; };
+      linksEl.innerHTML = _cdTheme.links.map(function(l){
+        const label = String(l.label || l.url).slice(0, 40).replace(/[<>&"']/g, '');
+        return '<a class="imprint-profile-link" href="' + l.url.replace(/["'\\]/g,'') + '" target="_blank" rel="noopener nofollow"><span class="imprint-profile-link-icon">' + _iconFor(l.url) + '</span>' + label + '</a>';
+      }).join('');
+    }
+  };
+  window._cdSave = async function(){
+    const status = document.getElementById('cdStatus');
+    const btn = document.getElementById('cdSaveBtn');
+    if (!window._myUid) { status.textContent = 'Sign in first'; status.className='cd-status err'; return; }
+    if (!_fbDoc || !_fbDb) { status.textContent = 'Firestore not ready'; status.className='cd-status err'; return; }
+    btn.disabled = true;
+    status.textContent = 'Saving…';
+    status.className = 'cd-status';
+    try {
+      const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      const ref = _fbDoc(_fbDb, 'folio_imprint_themes', window._myUid);
+      await fsMod.setDoc(ref, {
+        accent: _cdTheme.accent,
+        background: _cdTheme.background,
+        font: _cdTheme.font,
+        hero: _cdTheme.hero || null,
+        wallpaper: _cdTheme.wallpaper || null,
+        wallpaperFit: _cdTheme.wallpaperFit,
+        tagline: _cdTheme.tagline || null,
+        photoUrl: _cdTheme.photoUrl || null,
+        bio: _cdTheme.bio || null,
+        bioFull: _cdTheme.bioFull || null,
+        links: _cdTheme.links.length ? _cdTheme.links : null,
+        updatedAt: Date.now(),
+      }, { merge: true });
+      status.textContent = '✅ Saved';
+      status.className = 'cd-status ok';
+    } catch (e) {
+      console.error('[customize] save failed', e);
+      status.textContent = 'Save failed: ' + (e.message || 'unknown');
+      status.className = 'cd-status err';
+    } finally { btn.disabled = false; }
+  };
+
+  // Mount decision — show the drawer + toggle button when the viewer
+  // is the owner AND ?customize=1 is set. Also expose a general
+  // "Customize" toggle button that owners see any time (no query needed).
+  function _cdMountCheck() {
+    const uidParam = (function(){ try { return new URLSearchParams(location.search).get('uid') || ''; } catch(_){ return ''; } })();
+    const owner = !!(window._myUid && uidParam && window._myUid === uidParam);
+    const btn = document.getElementById('customizeToggle');
+    if (btn) btn.classList.toggle('visible', owner);
+    // Auto-open if ?customize=1
+    try {
+      const shouldOpen = new URLSearchParams(location.search).get('customize') === '1';
+      if (owner && shouldOpen) _cdOpen();
+    } catch (_) {}
+    // Prefill inputs from current theme applied to the page (loaded by applyImprintTheme).
+    if (owner) _cdPrefillFromDoc(uidParam);
+  }
+  async function _cdPrefillFromDoc(uid) {
+    if (!uid || !_fbDoc || !_fbGetDoc || !_fbDb) return;
+    try {
+      const snap = await _fbGetDoc(_fbDoc(_fbDb, 'folio_imprint_themes', uid));
+      if (!snap.exists()) return;
+      const d = snap.data() || {};
+      if (d.accent) { _cdTheme.accent = d.accent; const i = document.getElementById('cdAccentInput'); if (i) i.value = d.accent; _cdMarkSwatch('accent', d.accent); }
+      if (d.background) { _cdTheme.background = d.background; const i = document.getElementById('cdBgInput'); if (i) i.value = d.background; _cdMarkSwatch('bg', d.background); }
+      if (d.font) { _cdTheme.font = d.font; const s = document.getElementById('cdFontSelect'); if (s) s.value = d.font; }
+      if (d.hero) { _cdTheme.hero = d.hero; const i = document.getElementById('cdHeroInput'); if (i) i.value = d.hero; }
+      if (d.wallpaper) { _cdTheme.wallpaper = d.wallpaper; const i = document.getElementById('cdWallpaperInput'); if (i) i.value = d.wallpaper; }
+      if (d.wallpaperFit) { _cdTheme.wallpaperFit = d.wallpaperFit; const s = document.getElementById('cdWallpaperFit'); if (s) s.value = d.wallpaperFit; }
+      if (d.tagline) { _cdTheme.tagline = d.tagline; const i = document.getElementById('cdTaglineInput'); if (i) i.value = d.tagline; }
+      if (d.photoUrl) { _cdTheme.photoUrl = d.photoUrl; const i = document.getElementById('cdPhotoInput'); if (i) i.value = d.photoUrl; }
+      if (d.bio) { _cdTheme.bio = d.bio; const i = document.getElementById('cdBioInput'); if (i) i.value = d.bio; }
+      if (d.bioFull) { _cdTheme.bioFull = d.bioFull; const i = document.getElementById('cdBioFullInput'); if (i) i.value = d.bioFull; }
+      if (Array.isArray(d.links)) {
+        _cdTheme.links = d.links.slice(0, 8);
+        const i = document.getElementById('cdLinksInput');
+        if (i) i.value = _cdTheme.links.map(function(l){ return (l.label && l.label !== l.url) ? (l.label + ' | ' + l.url) : l.url; }).join('\n');
+      }
+    } catch (e) { console.warn('[customize] prefill failed:', e); }
+  }
+  // Wait for auth to resolve before checking ownership.
+  const _cdAuthWatch = setInterval(function(){
+    if (typeof window._myUid !== 'undefined') { clearInterval(_cdAuthWatch); _cdMountCheck(); }
+  }, 300);
+  // Also re-run when auth state changes later (sign-in from another tab).
+  document.addEventListener('DOMContentLoaded', function(){ setTimeout(_cdMountCheck, 500); });
+</script>
 </body>
 </html>
