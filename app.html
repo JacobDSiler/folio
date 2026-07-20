@@ -7771,9 +7771,18 @@
       const _pd = _stk ? (typeof _pwDecode === 'function' ? _pwDecode(_stk) : null) : null;
       const _isStaff = (_pd && _pd.folio === _projId && (_pd.role === 'collab' || _pd.role === 'editor'));
 
+      // Non-owner autosave block — Thomas incident fix (2026-07-20).
+      // Previously fell through silently; now logs so we can catch any
+      // future edge case where autosave tries to write across owner
+      // boundaries. Combined with the saveFolio + _writeFolioCloud
+      // guards, autosave can no longer overwrite someone else's folio.
       if (typeof _loadedFolioOwnerUid !== 'undefined' &&
         _loadedFolioOwnerUid && window._uid &&
-        _loadedFolioOwnerUid !== window._uid && !_isStaff) return;
+        _loadedFolioOwnerUid !== window._uid && !_isStaff) {
+        console.log('[autosave] skipped — folio owner is', _loadedFolioOwnerUid,
+          'but you are', window._uid, '(use Save as my copy to fork it)');
+        return;
+      }
       if (!_fbReady || !_autoSaveDirty) return;
       // Don't autosave a totally empty folio. If it's empty we'd just
       // be creating an "Untitled folio" entry the user has to delete.
@@ -8658,6 +8667,25 @@
   async function _writeFolioCloud(folioId, name, opts) {
     const { parentPayload, bodyPayload, bodyPaidPayload } = await _buildCloudSavePayload(name, opts);
     const isOwner = !!(window._uid && _loadedFolioOwnerUid && _loadedFolioOwnerUid === window._uid);
+    // Defense-in-depth ownership guard — added 2026-07-20 alongside the
+    // saveFolio() guard above. This is the second wall: even if some
+    // caller (autosave race, background sync, dev script) reaches
+    // _writeFolioCloud with a non-owner, non-editor/collab user, we
+    // refuse the write. Combined with the saveFolio pre-check, the
+    // "admin previews someone's folio and autosave stamps my uid on
+    // it" bug (which lost Thomas his Psalms of the Heart for an hour)
+    // is now impossible.
+    //
+    // Brand-new folios (no _loadedFolioOwnerUid yet) are exempt — first
+    // save legitimately stamps the current user's uid.
+    if (!isOwner && _loadedFolioOwnerUid) {
+      const role = (typeof _annUserRoleHere === 'function') ? _annUserRoleHere() : '';
+      if (role !== 'editor' && role !== 'collab') {
+        console.warn('[write] BLOCKED — non-owner write attempted.',
+          { folioOwner: _loadedFolioOwnerUid, viewerUid: window._uid, role: role || '(none)' });
+        throw new Error('You do not own this folio. Save was blocked to preserve the original author\'s content.');
+      }
+    }
 
     // NON-DESTRUCTIVE PATH: For invited Editors and Collabs
     if (!isOwner) {
@@ -9244,6 +9272,38 @@
     /* ── Save project ── */
     async function saveFolio() {
       if (!_fbReady) { setStatus('Not connected to cloud yet'); toastWarning('Not connected to cloud yet — try again in a moment', { icon: '☁', duration: 3000 }); return; }
+      // OWNERSHIP GUARD — added 2026-07-20 after Thomas incident.
+      // A non-owner (admin previewing, or any signed-in user who
+      // arrived via a share link WITHOUT an editor/collab role) must
+      // NOT be allowed to save. Even admin bypasses this guard
+      // deliberately — the folio you're reviewing is not yours to
+      // stamp with your uid. Only Save-as-Copy (which mints a fresh
+      // _projId) is a legitimate non-owner write path.
+      //
+      // Invited editor/collab roles fall through — their save is
+      // routed to /suggestions in _writeFolioCloud, which is safe
+      // (non-destructive).
+      const _isOwner = !!(_loadedFolioOwnerUid && window._uid && _loadedFolioOwnerUid === window._uid);
+      const _isNewFolio = !_loadedFolioOwnerUid; // brand-new folio being saved for the first time
+      const _isInvitedStaff = (function(){
+        try {
+          const stk = localStorage.getItem('folioShareToken_' + _projId);
+          const pd = stk && typeof _pwDecode === 'function' ? _pwDecode(stk) : null;
+          return !!(pd && pd.folio === _projId && (pd.role === 'collab' || pd.role === 'editor'));
+        } catch (_) { return false; }
+      })();
+      if (!_isOwner && !_isNewFolio && !_isInvitedStaff) {
+        console.warn('[save] BLOCKED — attempted to save folio owned by',
+          _loadedFolioOwnerUid, 'while signed in as', window._uid);
+        if (typeof toastWarning === 'function') {
+          toastWarning(
+            'You\'re viewing someone else\'s folio — Save is disabled. Use "📋 Save as my copy" to fork it into your own account instead.',
+            { icon: '🔒', duration: 7000 }
+          );
+        }
+        setStatus('Save blocked — not the owner of this folio');
+        return;
+      }
       const name = document.getElementById('projName').value.trim();
       if (!name) { document.getElementById('projName').focus(); setStatus('Give your folio a name first'); return; }
       if (!_projId) _projId = 'proj_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
