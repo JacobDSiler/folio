@@ -156,6 +156,15 @@ a:hover{text-decoration:underline}
     <option value="essays">Essays / Short stories</option><option value="educational">Educational / How-to</option>
     <option value="other">Other</option>
   </select>
+  <!-- Language filter — auto-populated from actual folios present on
+       the shelf (see renderShelf() below). Hidden entirely when every
+       folio is English, so an all-EN shelf doesn't show a redundant
+       "All languages" dropdown. Populates in reverse-alphabetical
+       frequency order so the language with the MOST folios sits
+       first after "All languages". -->
+  <select class="shelf-select" id="shelfLanguage" onchange="renderShelf()" style="display:none">
+    <option value="">All languages</option>
+  </select>
   <select class="shelf-select" id="shelfSort" onchange="renderShelf()">
     <option value="newest">Newest</option><option value="alpha">A → Z</option><option value="author">By author</option>
   </select>
@@ -203,7 +212,39 @@ function renderShelf(){
   const s=((document.getElementById('shelfSearch')||{}).value||'').trim().toLowerCase();
   const p=(document.getElementById('shelfPrice')||{}).value||'';
   const g=(document.getElementById('shelfGenre')||{}).value||'';
+  const lang=(document.getElementById('shelfLanguage')||{}).value||'';
   const so=(document.getElementById('shelfSort')||{}).value||'newest';
+  // Populate the language dropdown ONCE per shelf load. Reads which
+  // languages have folios currently visible; hides the whole dropdown
+  // if only one language is present (usually all-English) so it
+  // doesn't clutter the filter bar unnecessarily. Retains the user's
+  // current selection across re-renders (search/genre/price change).
+  (function _shelfPopulateLangFilter(){
+    const sel = document.getElementById('shelfLanguage');
+    if (!sel || sel.dataset.populated === '1') return;
+    // Count folios per two-letter language code (en, fr, ja, …).
+    const counts = new Map();
+    (_allFolios || []).forEach(function(f){
+      const code = String(f.language || 'en').split('-')[0].toLowerCase();
+      counts.set(code, (counts.get(code) || 0) + 1);
+    });
+    if (counts.size <= 1) {
+      // All one language → keep hidden, don't clutter the filter bar
+      return;
+    }
+    // Sort by frequency descending; break ties alphabetically
+    const codes = Array.from(counts.keys()).sort(function(a,b){
+      const d = counts.get(b) - counts.get(a);
+      return d !== 0 ? d : a.localeCompare(b);
+    });
+    const optsHtml = codes.map(function(c){
+      const label = LANG_LABELS[c] || c.toUpperCase();
+      return '<option value="'+c+'">'+esc(label)+' ('+counts.get(c)+')</option>';
+    }).join('');
+    sel.insertAdjacentHTML('beforeend', optsHtml);
+    sel.style.display = '';
+    sel.dataset.populated = '1';
+  })();
   // Series filter — /shelf?series=<name> pins the view to a single
   // series, useful for authors emailing readers a single link that
   // lands on all books in a series (Jacob's marketing use case).
@@ -218,6 +259,10 @@ function renderShelf(){
   else if(p==='free')items=items.filter(f=>f.priceMode==='free'&&!f.serial);
   else if(p==='paid')items=items.filter(f=>f.priceMode==='paid'&&!f.serial);
   if(g)items=items.filter(f=>f.genre===g);
+  // Language filter — matches on the two-letter primary code so `en`
+  // catches both `en`, `en-GB`, and `en-US` (BCP-47 subtags collapse
+  // to the same shelf category by design).
+  if(lang)items=items.filter(f=>String(f.language||'en').split('-')[0].toLowerCase()===lang);
   if(s)items=items.filter(f=>f.title.toLowerCase().includes(s)||f.author.toLowerCase().includes(s));
   if(_urlSeries){
     items=items.filter(f=>String(f.series||'').toLowerCase().includes(_urlSeries));
