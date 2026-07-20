@@ -20238,6 +20238,33 @@
           const v = (sel && sel.value || '').trim();
           return v || 'en';
         })(),
+        // Multi-language support (phase 1 — 2026-07-17). A folio can
+        // now hold multiple translations of the same work. `language`
+        // above stays as the PRIMARY / default language; `languages`
+        // is the complete list of language codes this folio has
+        // content for. Readers see stacked chips on the shelf card
+        // and switch translations via the reader's language dropdown
+        // (phase 2). Phase 1 defaults `languages` to [language] so
+        // every existing single-language folio remains valid — no
+        // migration needed. Authors declare additional languages by
+        // ticking checkboxes in the release modal or by importing
+        // localised chapter files (phase 2 editor UI).
+        languages: (function(){
+          // If the release modal exposes a multi-select or checkbox
+          // group under #rlLanguages, honour it; otherwise fall back
+          // to the primary language. Duplicates are stripped.
+          const container = document.getElementById('rlLanguages');
+          const codes = new Set();
+          const primary = ((document.getElementById('bookLang') || {}).value || 'en').trim() || 'en';
+          codes.add(primary);
+          if (container) {
+            container.querySelectorAll('input[type="checkbox"]:checked').forEach(function(cb){
+              const v = String(cb.value || '').trim();
+              if (v) codes.add(v);
+            });
+          }
+          return Array.from(codes);
+        })(),
         // Series / collection linking (Phase 3 task #53). Both nullable —
         // empty means standalone folio. Number is clamped 0-999 for sanity.
         series: ((document.getElementById('rlSeriesName') && document.getElementById('rlSeriesName').value) || '').trim().slice(0, 80) || null,
