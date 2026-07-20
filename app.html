@@ -5899,6 +5899,17 @@
               <span style="font-size:10px;color:var(--hint)" title="Pre = front matter (dedication, foreword). Ch = regular chapter. Post = back matter (epilogue, about the author). TOC = auto-generated Table of Contents.">drag to reorder · click type badge · hover for legend</span>
             </div>
             <div class="stats-bar" id="chStatsBar"></div>
+            <!-- Language edit toggle — Phase 3 multi-language editor.
+                 Hidden unless the folio has additional languages ticked
+                 in the Book tab's "Also available in" list. Clicking a
+                 pill swaps chapter content in/out of state.translations
+                 so the author can write per-language versions of each
+                 chapter. Primary language is the leftmost pill. -->
+            <div id="chLangBar" style="display:none;background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;padding:8px 10px;margin:6px 0;font-size:11px">
+              <div style="color:var(--hint);font-size:10.5px;margin-bottom:5px;text-transform:uppercase;letter-spacing:.06em">Editing in</div>
+              <div id="chLangPills" style="display:flex;flex-wrap:wrap;gap:5px"></div>
+              <div id="chLangHint" style="font-size:10.5px;color:var(--hint);margin-top:5px;line-height:1.4"></div>
+            </div>
             <div class="ch-list" id="chList"></div>
             <div style="display:flex;gap:6px">
               <button class="ch-add-btn" style="flex:1" onclick="addBlankChapter()">+ Add chapter</button>
@@ -5986,7 +5997,7 @@
             <label style="margin-top:10px;font-size:11.5px;color:var(--text)">
               Also available in <span style="font-weight:400;color:var(--hint)">(optional — tick any translations this folio holds)</span>
             </label>
-            <div id="rlLanguages" style="display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:4px;padding:8px 10px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:6px;font-size:11.5px">
+            <div id="rlLanguages" onchange="if(typeof _renderLangBar==='function')_renderLangBar()" style="display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:4px;padding:8px 10px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:6px;font-size:11.5px">
               <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" value="en" style="margin:0"> English</label>
               <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" value="fr" style="margin:0"> French</label>
               <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" value="de" style="margin:0"> German</label>
@@ -7082,6 +7093,29 @@
     let _autoSaveTimer = null;  // debounce timer for auto-save
     let _loadedFolioOwnerUid = null; // uid of whoever owns the currently-loaded folio (for "save as my copy" gating)
     let _autoSaveDirty = false; // true when unsaved changes exist
+
+    /* ══════════════════════════════════════════════════════════════════
+       Multi-language editor state — Phase 3 (2026-07-20)
+       ──────────────────────────────────────────────────────────────────
+       An author can now write chapter content in more than one language.
+       state.translations = { <langCode>: { <chapterId>: <content>, … }, … }
+       The PRIMARY language (from #bookLang) lives in state.chapters
+       directly — unchanged from pre-multi-lang. Additional languages
+       live in state.translations keyed by BCP-47 code.
+
+       When the author clicks a language pill, we SWAP:
+         - Save current chapter content into state.translations[oldLang]
+         - Load state.translations[newLang] content into chapters[i].content
+         - Re-render
+
+       This lets the entire existing editor codebase (which reads
+       chapters[i].content everywhere) work unchanged for whichever
+       language is active. Only the swap point knows about langs.
+       ══════════════════════════════════════════════════════════════════ */
+    let _activeEditLang = null;              // set to primary on load
+    let _translationBuffer = {};             // in-memory { lang: { chId: content, … } }
+    let _folioPrimaryLang = 'en';            // captured from state.meta.lang on load
+
 
     /* ── Firebase ready ── */
     window.addEventListener('fb-ready', async () => {
@@ -8687,6 +8721,93 @@
       }
     }
 
+    // ─── AUTO-VERSION SNAPSHOT (Thomas incident followup, 2026-07-20) ───
+    // Before any destructive write to body/main + body/paid, capture the
+    // CURRENT (about-to-be-overwritten) state to /versions/auto_<ts>. So
+    // if a save writes empty content (the exact Thomas bug), the previous
+    // good state is one click away in the sidebar's Versions panel.
+    //
+    // Rate limit: max 1 auto-version per 3 minutes per folio. Prevents
+    // the versions collection from ballooning during active editing (the
+    // 4-second autosave debounce would otherwise write hundreds per hour).
+    // Owner-initiated manual saves ALWAYS snapshot (they're rare + high
+    // intent), invited-editor writes also snapshot (their edits are the
+    // most likely to accidentally overwrite).
+    try {
+      const NOW = Date.now();
+      const _lastAutoAt = window._folioLastAutoVersionAt || {};
+      const _lastForFolio = _lastAutoAt[folioId] || 0;
+      const _rateLimitOk = (NOW - _lastForFolio) > (3 * 60 * 1000);
+      // Auto-versioning only makes sense for existing folios owned by
+      // the current user. Skip fresh creates (nothing prior to snapshot)
+      // and skip editor/collab writes (they go to /suggestions, not
+      // body/main — no destructive overwrite to protect against, AND
+      // firestore rules only permit the owner to write /versions).
+      const _isFreshCreate = !_loadedFolioOwnerUid;
+      const _autoVersionOwner = isOwner;
+      if (!_isFreshCreate && _rateLimitOk && _autoVersionOwner) {
+        // Fetch the CURRENT body/main state before it's overwritten. This
+        // is what we're preserving. Use a lightweight get() — we already
+        // paid for it during load, so most Firestore SDK layers cache it.
+        const _bodyRef = window._fb.doc(window._db, 'folio_projects', folioId, 'body', 'main');
+        const _bodySnap = await window._fb.getDoc(_bodyRef);
+        if (_bodySnap.exists()) {
+          const _prev = _bodySnap.data() || {};
+          const _vid = 'auto_' + NOW;
+          const _autoName = 'Auto-saved · ' + new Date(NOW).toLocaleString(undefined, {
+            month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'
+          });
+          // Copy the previous body into a new version doc. Compressed
+          // state_gz survives as-is; uncompressed state.state ditto.
+          const _verPayload = {
+            name: _autoName,
+            autoVersion: true,
+            savedAt: window._fb.serverTimestamp(),
+          };
+          if (_prev.state_gz) _verPayload.state_gz = _prev.state_gz;
+          else if (_prev.state) _verPayload.state = _prev.state;
+          await window._fb.setDoc(
+            window._fb.doc(window._db, 'folio_projects', folioId, 'versions', _vid),
+            _verPayload
+          );
+          _lastAutoAt[folioId] = NOW;
+          window._folioLastAutoVersionAt = _lastAutoAt;
+          console.log('[auto-version] ✅ snapshotted', _vid, 'for folio', folioId);
+          // Prune — keep only the 30 most recent auto-versions per folio.
+          // Manual "📌 Save version" entries are never touched. Runs
+          // asynchronously so the save flow doesn't wait on it.
+          setTimeout(async function(){
+            try {
+              const _vSnap = await window._fb.getDocs(
+                window._fb.collection(window._db, 'folio_projects', folioId, 'versions')
+              );
+              const _autos = [];
+              _vSnap.forEach(function(d){
+                const _dd = d.data() || {};
+                if (d.id.startsWith('auto_') || _dd.autoVersion === true) {
+                  _autos.push({ id: d.id, ts: (_dd.savedAt && _dd.savedAt.toMillis) ? _dd.savedAt.toMillis() : parseInt(d.id.slice(5), 10) || 0 });
+                }
+              });
+              _autos.sort(function(a, b){ return b.ts - a.ts; }); // newest first
+              const _toDelete = _autos.slice(30); // everything past #30 goes
+              for (const _v of _toDelete) {
+                try {
+                  await window._fb.deleteDoc(window._fb.doc(window._db, 'folio_projects', folioId, 'versions', _v.id));
+                } catch (e) { console.warn('[auto-version] prune delete failed:', e && e.message); }
+              }
+              if (_toDelete.length > 0) console.log('[auto-version] pruned', _toDelete.length, 'old auto-versions');
+            } catch (e) { console.warn('[auto-version] prune failed:', e && e.message); }
+          }, 3000);
+        }
+      } else if (!_rateLimitOk) {
+        // Rate-limited — skip silently. Not an error, just a throttle.
+      }
+    } catch (e) {
+      // Auto-version failures MUST NOT block the actual save. Log + carry on.
+      console.warn('[auto-version] snapshot failed (save proceeds normally):', e && e.message);
+    }
+    // ─── END AUTO-VERSION SNAPSHOT ───
+
     // NON-DESTRUCTIVE PATH: For invited Editors and Collabs
     if (!isOwner) {
       const role = _annUserRoleHere();
@@ -9097,6 +9218,31 @@
             return out;
           })(),
         },
+        // Multi-language chapter content (phase 3) — a per-language map
+        // of chapter content. state.chapters holds the PRIMARY language
+        // (unchanged). state.translations holds each additional lang's
+        // per-chapter content. On save, snapshot the currently-active
+        // lang before serialising so nothing in-flight is lost.
+        translations: (function(){
+          try {
+            // If author is currently editing a NON-primary lang, snapshot
+            // that lang's content from chapters[] into the buffer first
+            // so we serialise the freshest version.
+            if (_activeEditLang && _activeEditLang !== _folioPrimaryLang) {
+              const map = {};
+              (chapters || []).forEach(function(c){
+                if (c && c.id && c.type === 'chapter') map[c.id] = (typeof c.content === 'string') ? c.content : '';
+              });
+              _translationBuffer[_activeEditLang] = map;
+            }
+            // Return a copy without the __primary internal key
+            const out = {};
+            Object.keys(_translationBuffer).forEach(function(k){
+              if (k !== '__primary') out[k] = _translationBuffer[k];
+            });
+            return out;
+          } catch (_) { return {}; }
+        })(),
         toggles: {
           pageNums: getC('pageNums'),
           runningHeader: getV('runningHeader') || 'both',
@@ -9170,6 +9316,18 @@
           });
         }
       } catch (_e) { /* checkboxes only rendered post-boot; ignore */ }
+      // Restore multi-language translations (phase 3). Reset editing
+      // language to primary + rehydrate the translations buffer.
+      try {
+        _folioPrimaryLang = (state.meta && state.meta.lang) || 'en';
+        _activeEditLang = _folioPrimaryLang;
+        _translationBuffer = (state.translations && typeof state.translations === 'object')
+          ? Object.assign({}, state.translations)
+          : {};
+        // Show/hide the language bar based on additional-lang presence.
+        // Deferred so #chLangBar exists in the DOM by then.
+        setTimeout(function(){ try { _renderLangBar(); } catch (_) {} }, 0);
+      } catch (_e) { /* first-time load; ignore */ }
       if (state.toggles) Object.entries(state.toggles).forEach(([k, v]) => {
         const el = document.getElementById(k);
         if (!el) return;
@@ -9990,14 +10148,30 @@
     function _renderVersionList(list) {
       const el = document.getElementById('verList');
       if (!list.length) { el.innerHTML = '<p class="small-note" style="padding:.4rem 0">No versions yet — click Save version above to snapshot your work.</p>'; return; }
-      el.innerHTML = list.map(v => {
+      // Sort: manual "📌 Save version" entries first, then auto-versions
+      // by recency. Manual saves are user-intentional and rarer, so they
+      // deserve top billing. Auto-versions are the safety net below.
+      const _manual = list.filter(v => !v.autoVersion && !String(v.id || '').startsWith('auto_'));
+      const _autos = list.filter(v => v.autoVersion || String(v.id || '').startsWith('auto_'));
+      const _ordered = _manual.concat(_autos);
+      el.innerHTML = _ordered.map(v => {
         const d = v.savedAt ? new Date(v.savedAt.seconds * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
         const chs = v.state?.chapters?.filter(c => c.type !== 'toc').length ?? '?';
         const rawWC = v.state?.chapters ? v.state.chapters.reduce((s, c) => s + (c.content || '').trim().split(/\s+/).filter(x => x).length, 0) : 0;
         const wc = rawWC ? formatWC(rawWC) : '?';
-        return `<div class="ver-card" style="flex-direction:column;align-items:stretch;gap:4px">
+        // Auto-versions get a subtle grey badge + muted card so authors
+        // instantly see which are their intentional saves vs the safety
+        // net auto-snapshots. Same Restore + Delete buttons on both.
+        const _isAuto = v.autoVersion || String(v.id || '').startsWith('auto_');
+        const _autoBadge = _isAuto
+          ? '<span style="font-size:9px;padding:1px 6px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;color:var(--hint);font-weight:400;letter-spacing:.02em">AUTO</span>'
+          : '';
+        const _cardStyle = _isAuto
+          ? 'flex-direction:column;align-items:stretch;gap:4px;opacity:.85'
+          : 'flex-direction:column;align-items:stretch;gap:4px';
+        return `<div class="ver-card" style="${_cardStyle}">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:6px">
-        <span class="ver-name" style="font-weight:500">${esc(v.name)}</span>
+        <span class="ver-name" style="font-weight:500;display:flex;align-items:center;gap:6px">${esc(v.name)}${_autoBadge}</span>
         <div style="display:flex;gap:4px">
           <button class="btn-sm btn-ghost" style="padding:2px 7px;font-size:10px" onclick="_restoreVersion('${v.id}')">Restore</button>
           <button class="btn-sm btn-ghost" style="padding:2px 7px;font-size:10px;color:#c44" onclick="_deleteVersion('${v.id}','${esc(v.name)}')">Delete</button>
@@ -11741,6 +11915,122 @@
       el.style.boxShadow = '0 0 0 3px #c9956a, 0 4px 24px rgba(0,0,0,0.35)';
       setTimeout(() => { el.style.boxShadow = ''; el.style.transition = ''; }, 1000);
     }
+
+    /* Multi-language edit helpers — Phase 3. */
+    // Snapshot current chapters[i].content into state.translations[lang]
+    // before switching away. If lang === primary, no snapshot needed
+    // (primary just IS chapters[i].content).
+    function _snapshotCurrentLangContent(lang) {
+      if (!lang || lang === _folioPrimaryLang) return;
+      const map = {};
+      (chapters || []).forEach(function(c){
+        if (c && c.id && c.type === 'chapter') {
+          map[c.id] = (typeof c.content === 'string') ? c.content : '';
+        }
+      });
+      _translationBuffer[lang] = map;
+    }
+    // Load state.translations[lang] into chapters[i].content. If lang is
+    // primary, restore from the primary snapshot (we cached it once when
+    // switching AWAY from primary). Non-primary langs default to empty
+    // strings for chapters we've never touched in that language.
+    function _loadLangContent(lang) {
+      if (!lang || lang === _folioPrimaryLang) {
+        // Restore primary — reads from the __primaryBuffer we cached
+        // when switching away.
+        const cached = _translationBuffer.__primary || {};
+        (chapters || []).forEach(function(c){
+          if (c && c.id && c.type === 'chapter' && cached[c.id] != null) {
+            c.content = cached[c.id];
+          }
+        });
+        return;
+      }
+      const map = _translationBuffer[lang] || {};
+      (chapters || []).forEach(function(c){
+        if (c && c.id && c.type === 'chapter') {
+          c.content = map[c.id] || '';
+        }
+      });
+    }
+    // Public: switch which language the author is editing. Snapshots
+    // current lang, loads new lang, re-renders.
+    window.switchEditLang = function switchEditLang(newLang) {
+      if (!newLang || newLang === _activeEditLang) return;
+      // Snapshot outgoing lang
+      if (_activeEditLang === _folioPrimaryLang) {
+        // Cache primary before switching away, so we can restore it later
+        const primaryMap = {};
+        (chapters || []).forEach(function(c){
+          if (c && c.id && c.type === 'chapter') primaryMap[c.id] = c.content || '';
+        });
+        _translationBuffer.__primary = primaryMap;
+      } else {
+        _snapshotCurrentLangContent(_activeEditLang);
+      }
+      // Load incoming lang
+      _loadLangContent(newLang);
+      _activeEditLang = newLang;
+      _autoSaveDirty = true;
+      renderChapterList();
+      if (typeof renderPreview === 'function') renderPreview();
+      _renderLangBar();
+      if (typeof toastInfo === 'function') {
+        const label = (window.LANG_LABELS && window.LANG_LABELS[newLang.split('-')[0]]) || newLang.toUpperCase();
+        toastInfo('Now editing: ' + label + (newLang === _folioPrimaryLang ? ' (primary)' : ''),
+          { icon: '🌐', duration: 2200 });
+      }
+    };
+    // Render the language pill row above the chapter list. Only shows
+    // if the folio has additional languages declared in the Book tab.
+    function _renderLangBar() {
+      const bar = document.getElementById('chLangBar');
+      const pills = document.getElementById('chLangPills');
+      const hint = document.getElementById('chLangHint');
+      if (!bar || !pills) return;
+      const additional = (function(){
+        const c = document.getElementById('rlLanguages');
+        if (!c) return [];
+        const out = [];
+        c.querySelectorAll('input[type="checkbox"]:checked').forEach(function(cb){
+          const v = String(cb.value || '').trim();
+          if (v) out.push(v);
+        });
+        return out;
+      })();
+      if (additional.length === 0) {
+        bar.style.display = 'none';
+        return;
+      }
+      const primary = (document.getElementById('bookLang') || {}).value || 'en';
+      _folioPrimaryLang = primary;
+      if (!_activeEditLang) _activeEditLang = primary;
+      const langs = [primary].concat(additional.filter(function(l){ return l !== primary; }));
+      const seen = new Set();
+      const uniq = langs.filter(function(l){ if (seen.has(l)) return false; seen.add(l); return true; });
+      const LABELS = {
+        en:'English', 'en-GB':'English (UK)', 'en-US':'English (US)',
+        fr:'French', de:'German', es:'Spanish', it:'Italian', pt:'Portuguese',
+        nl:'Dutch', ja:'Japanese', zh:'Chinese'
+      };
+      pills.innerHTML = uniq.map(function(l){
+        const label = LABELS[l] || l.toUpperCase();
+        const active = (l === _activeEditLang);
+        const isPrimary = (l === primary);
+        const bg = active ? 'var(--accent-ui,#065f46)' : 'var(--surface)';
+        const color = active ? '#fff' : 'var(--text)';
+        const suffix = isPrimary ? ' <span style="opacity:.7;font-size:9.5px">primary</span>' : '';
+        return '<button type="button" onclick="switchEditLang(\'' + l + '\')" ' +
+          'style="cursor:pointer;padding:4px 10px;font-size:11px;font-weight:500;border:.5px solid var(--border-mid);border-radius:12px;background:' + bg + ';color:' + color + ';font-family:inherit">' +
+          label + suffix + '</button>';
+      }).join('');
+      const nonPrimary = _activeEditLang && _activeEditLang !== primary;
+      hint.innerHTML = nonPrimary
+        ? 'Editing the <b>' + (LABELS[_activeEditLang] || _activeEditLang.toUpperCase()) + '</b> translation. Content saves alongside the primary — readers switch languages via the reader\'s language dropdown.'
+        : 'This is your primary language. Add translations by ticking languages in the Book tab.';
+      bar.style.display = '';
+    }
+    window._renderLangBar = _renderLangBar;
 
     function renderChapterList() {
       _syncTOCToggle();
@@ -14465,13 +14755,20 @@
 
           // Generous sub-pixel safety. Mirror vs. flexbox column drift
           // can accumulate to several px per page (worst at non-integer
-          // zoom levels where toFixed rounding compounds). Half a line
-          // minimum slack is the bullet-proof setting: at this point a
-          // paragraph that "exactly fits" by measurement provably
-          // cannot overflow the actual content area. Worst-case cost is
-          // ~1 line per page in tight layouts, far preferable to mid-
-          // character clipping under overflow:hidden.
-          const pageContentPx = contentH - Math.max(8, Math.ceil(lineH * 0.5));
+          // zoom levels where toFixed rounding compounds).
+          //
+          // Bumped from 0.5 lines → 1.2 lines on 2026-07-20 after Jacob
+          // reported paragraphs "split at the end of a page, and when I
+          // click in it I can navigate to the end of the paragraph and
+          // have it actually show on page." Symptom of overflow past
+          // the clipped content region: paragraph measurement said it
+          // fit, actual render was slightly taller, half-line slack
+          // wasn't enough to absorb the drift. One-and-a-bit line slack
+          // is roomier but far preferable to visually-clipped-but-
+          // navigable-to text (which looks like a rendering bug to
+          // readers). Worst-case cost: ~1 extra line of whitespace at
+          // page bottom in tight layouts.
+          const pageContentPx = contentH - Math.max(14, Math.ceil(lineH * 1.2));
           // Normalise markdown horizontal rules to scene breaks
           const normParas = paras.map(p =>
             /^[-*_]{3,}$/.test(p.trim()) ? '__SCENE_BREAK__' : p);
