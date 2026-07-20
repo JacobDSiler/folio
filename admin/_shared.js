@@ -141,11 +141,30 @@
       }
     });
 
-    // Fetch author list — dedupe by uid, sort alphabetical.
+    // Fetch author list — merges THREE sources:
+    //   1. folio_projects  — all published + unpublished folios (gives us
+    //                        author names + titles)
+    //   2. folio_imprint_themes — every user who's customized their
+    //                        imprint (has a doc id = uid)
+    //   3. folio_user_settings — every user who's signed in at all
+    //                        (has a doc id = uid, may not have folios)
+    //
+    // This lets the admin comp brand-new signups who haven't published
+    // yet — e.g. Thomas's father Cedarfort-published who Jacob promised
+    // a comp to before his father even created his first folio. The
+    // father just needs to sign in ONCE at /app.html and his uid
+    // becomes findable in the lookup.
+    //
+    // Dedup key is the uid. Preferred display name is:
+    //   author name from folio_projects > 'Imprint author' > 'Signed-in user'
+    // …so an author with a published folio always shows with their real
+    // name, while a bare signup shows as generic "Signed-in user" with
+    // just the uid prefix visible.
     (async function loadList() {
       try {
-        const snap = await fb.getDocs(fb.query(fb.collection(db, 'folio_projects'), fb.limit(500)));
         const byUid = new Map();
+        // 1. folio_projects — authors with folios
+        const snap = await fb.getDocs(fb.query(fb.collection(db, 'folio_projects'), fb.limit(500)));
         snap.forEach(function (d) {
           const data = d.data() || {};
           const authorUid = String(data.uid || '');
@@ -160,12 +179,51 @@
             if (author && author !== 'Unknown' && cur.author === 'Unknown') cur.author = author;
           }
         });
+        const fromProjects = byUid.size;
+        // 2. folio_imprint_themes — customized imprints. Doc id = uid.
+        //    Author name may be captured here if the author set a
+        //    display name. Doesn't overwrite existing folio_projects
+        //    entries (those have richer data).
+        if (fb.collection && fb.getDocs) {
+          try {
+            const themesSnap = await fb.getDocs(fb.query(fb.collection(db, 'folio_imprint_themes'), fb.limit(500)));
+            themesSnap.forEach(function(d){
+              const authorUid = String(d.id || '');
+              if (!authorUid || byUid.has(authorUid)) return;
+              const data = d.data() || {};
+              const author = String(data.authorName || data.displayName || 'Imprint author');
+              byUid.set(authorUid, { uid: authorUid, author: author, sampleTitle: '(imprint customized — no folios yet)', count: 0 });
+            });
+          } catch (e) { console.warn('[FolioAdmin] folio_imprint_themes list failed:', e.message); }
+        }
+        // 3. folio_user_settings — every signed-in user (has settings doc).
+        //    Widest net; catches anyone who hit /app.html and got a Google
+        //    session created. Names default to "Signed-in user" since we
+        //    don't have a display name in this doc. Admin still gets the
+        //    uid prefix in the suggestion row so they can distinguish.
+        if (fb.collection && fb.getDocs) {
+          try {
+            const settingsSnap = await fb.getDocs(fb.query(fb.collection(db, 'folio_user_settings'), fb.limit(500)));
+            settingsSnap.forEach(function(d){
+              const authorUid = String(d.id || '');
+              if (!authorUid || byUid.has(authorUid)) return;
+              byUid.set(authorUid, { uid: authorUid, author: 'Signed-in user', sampleTitle: '(no folios or customization yet — uid ' + authorUid.slice(0, 8) + '…)', count: 0 });
+            });
+          } catch (e) { console.warn('[FolioAdmin] folio_user_settings list failed:', e.message); }
+        }
         authorList = Array.from(byUid.values()).sort(function (a, b) {
+          // Sort published authors first (count > 0), then imprint-only,
+          // then bare signups. Within each group, alphabetical by author.
+          const ac = a.count > 0 ? 0 : (a.author === 'Signed-in user' ? 2 : 1);
+          const bc = b.count > 0 ? 0 : (b.author === 'Signed-in user' ? 2 : 1);
+          if (ac !== bc) return ac - bc;
           return String(a.author).localeCompare(String(b.author));
         });
-        statusEl.textContent = '✅ ' + authorList.length + ' authors loaded — type a name to filter';
+        const fromThemes = byUid.size - fromProjects;
+        const fromSettings = byUid.size - fromProjects - fromThemes;
+        statusEl.textContent = '✅ ' + authorList.length + ' users loaded (' + fromProjects + ' with folios, ' + (byUid.size - fromProjects) + ' signed-in only) — type a name or UID to filter';
         statusEl.style.color = 'var(--accent-ui, #065f46)';
-        console.log('[FolioAdmin] author list loaded:', authorList.length, 'unique authors');
+        console.log('[FolioAdmin] author list loaded:', authorList.length, 'total,', fromProjects, 'have folios');
       } catch (e) {
         statusEl.textContent = '⚠ Author list load failed: ' + (e.message || 'unknown');
         statusEl.style.color = 'var(--danger, #c04040)';

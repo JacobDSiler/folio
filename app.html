@@ -5974,6 +5974,31 @@
               <option value="ja">Japanese</option>
               <option value="zh">Chinese</option>
             </select>
+
+            <!-- Multi-language folio — Phase 2 (2026-07-17).
+                 Tick additional languages this folio is ALSO available
+                 in. Readers see stacked language chips on the shelf
+                 card and can switch translations via the reader's
+                 language dropdown. The PRIMARY language above is
+                 always included automatically — no need to tick it
+                 here. Leaving all boxes unticked = single-language
+                 folio (the majority case). -->
+            <label style="margin-top:10px;font-size:11.5px;color:var(--text)">
+              Also available in <span style="font-weight:400;color:var(--hint)">(optional — tick any translations this folio holds)</span>
+            </label>
+            <div id="rlLanguages" style="display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:4px;padding:8px 10px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:6px;font-size:11.5px">
+              <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" value="en" style="margin:0"> English</label>
+              <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" value="fr" style="margin:0"> French</label>
+              <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" value="de" style="margin:0"> German</label>
+              <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" value="es" style="margin:0"> Spanish</label>
+              <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" value="it" style="margin:0"> Italian</label>
+              <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" value="pt" style="margin:0"> Portuguese</label>
+              <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" value="nl" style="margin:0"> Dutch</label>
+              <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" value="ja" style="margin:0"> Japanese</label>
+              <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer"><input type="checkbox" value="zh" style="margin:0"> Chinese</label>
+            </div>
+            <p class="small-note" style="margin-top:4px">Ticking a language marks the folio as available in it; you'll be able to edit translated chapter content in the Manuscript tab (Phase 3, coming next). Readers on the shelf see one card per folio with stacked language chips.</p>
+
             <div class="toggle-row" style="margin-top:12px">
               <span>Auto page numbers</span>
               <label class="toggle"><input type="checkbox" id="pageNums" checked onchange="renderPreview()"><span
@@ -9027,6 +9052,22 @@
           copyright: getV('copyright'),
           series: getV('bookSeries'), seriesNum: getV('seriesNum'),
           isbn: getV('bookISBN'), lang: getV('bookLang'),
+          // Multi-language folio (phase 2) — the additional-language
+          // checkboxes in the Book tab. Stored as a string array of
+          // BCP-47 codes so it round-trips cleanly through JSON + gzip.
+          // Empty array means single-language (default). Primary
+          // language above is implied; this is the "also available in"
+          // set. Deserialise reads this back and re-ticks the boxes.
+          additionalLangs: (function(){
+            const c = document.getElementById('rlLanguages');
+            if (!c) return [];
+            const out = [];
+            c.querySelectorAll('input[type="checkbox"]:checked').forEach(function(cb){
+              const v = String(cb.value || '').trim();
+              if (v) out.push(v);
+            });
+            return out;
+          })(),
         },
         toggles: {
           pageNums: getC('pageNums'),
@@ -9089,6 +9130,18 @@
         series: 'bookSeries', seriesNum: 'seriesNum', isbn: 'bookISBN', lang: 'bookLang'
       };
       if (state.meta) Object.entries(state.meta).forEach(([k, v]) => { const el = document.getElementById(META_MAP[k]); if (el) el.value = v || ''; });
+      // Restore additional-languages checkbox state (phase 2 multi-lang).
+      // state.meta.additionalLangs is an array of BCP-47 codes.
+      try {
+        const additional = (state.meta && Array.isArray(state.meta.additionalLangs))
+          ? state.meta.additionalLangs : [];
+        const container = document.getElementById('rlLanguages');
+        if (container) {
+          container.querySelectorAll('input[type="checkbox"]').forEach(function(cb){
+            cb.checked = additional.indexOf(cb.value) >= 0;
+          });
+        }
+      } catch (_e) { /* checkboxes only rendered post-boot; ignore */ }
       if (state.toggles) Object.entries(state.toggles).forEach(([k, v]) => {
         const el = document.getElementById(k);
         if (!el) return;
@@ -22680,6 +22733,13 @@
 
   function _rdHydrate() {
     if (!_readerMode) return;
+    // Populate the language switcher pill in the reader top bar.
+    // Idempotent — safe to run on every _rdHydrate call. Hides itself
+    // if the folio has ≤ 1 language, so single-language folios never
+    // see the switcher and top-bar space is preserved.
+    try {
+      if (typeof _rdPopulateLangSwitch === 'function') _rdPopulateLangSwitch(_rlCurrent);
+    } catch (_e) { /* release not loaded yet — first _rdHydrate call */ }
 
     // 1. Robust Role Detection
     const folioId = _readerFolioId || _projId;
@@ -23454,6 +23514,100 @@
     window._rdCloseDrawer = _rdCloseDrawer;
     window._rdJumpToChapter = _rdJumpToChapter;
     window._rdResumeProgress = _rdResumeProgress;
+
+    /* ══════════════════════════════════════════════════════════════════
+       Multi-language reader — Phase 2 (2026-07-17)
+       ──────────────────────────────────────────────────────────────────
+       Two functions: _rdPopulateLangSwitch fills the top-bar dropdown
+       when the folio has 2+ languages (called from _rdHydrate after
+       load). _rdSwitchLanguage swaps in translated chapter content
+       and re-renders.
+
+       Translated chapter content is stored on state.translations[lang].
+       Phase 2 ships the READ side — authors seeding translations still
+       edit the primary state.chapters directly; Phase 3 will add a
+       per-language edit toggle in the Manuscript tab.
+
+       For the phase-1-only case (no translations map yet), switching
+       to a non-primary language shows the same content with an amber
+       "translation coming soon" banner. This keeps the switcher
+       useful even before content is populated — readers can see the
+       author IS working on other languages, which drives engagement.
+       ══════════════════════════════════════════════════════════════════ */
+    function _rdPopulateLangSwitch(release) {
+      const sel = document.getElementById('rdLangSwitch');
+      if (!sel) return;
+      const primary = String((release && release.language) || 'en');
+      const list = Array.isArray(release && release.languages) ? release.languages : [];
+      // Merge primary + additional, dedupe, keep primary first
+      const codes = [primary].concat(list.filter(function(l){ return l !== primary; }));
+      const dedupe = [];
+      const seen = new Set();
+      codes.forEach(function(c){
+        const k = String(c).split('-')[0].toLowerCase();
+        if (!k || seen.has(k)) return;
+        seen.add(k);
+        dedupe.push({ code: k, orig: c });
+      });
+      if (dedupe.length <= 1) {
+        sel.style.display = 'none';
+        return;
+      }
+      const LANG_LABELS = window._folioLangLabels || {
+        en:'English',fr:'French',de:'German',es:'Spanish',it:'Italian',
+        pt:'Portuguese',nl:'Dutch',ja:'Japanese',zh:'Chinese',ru:'Russian',
+        ar:'Arabic',hi:'Hindi',ko:'Korean',pl:'Polish',sv:'Swedish',
+        da:'Danish',fi:'Finnish',no:'Norwegian',tr:'Turkish',cs:'Czech',
+        el:'Greek',he:'Hebrew',ga:'Irish',cy:'Welsh'
+      };
+      // Restore last picked language for this folio, if any
+      const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId)
+        || (typeof _projId !== 'undefined' && _projId) || '';
+      const stored = folioId ? localStorage.getItem('folio_lang_' + folioId) : null;
+      const active = (stored && dedupe.some(function(d){ return d.code === stored; }))
+        ? stored : dedupe[0].code;
+      sel.innerHTML = dedupe.map(function(d){
+        const label = LANG_LABELS[d.code] || d.code.toUpperCase();
+        const suffix = d.code === dedupe[0].code ? ' (original)' : '';
+        return '<option value="'+d.code+'"'+(d.code === active ? ' selected' : '')+'>'+label+suffix+'</option>';
+      }).join('');
+      sel.style.display = '';
+    }
+
+    function _rdSwitchLanguage(newLang) {
+      const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId)
+        || (typeof _projId !== 'undefined' && _projId) || '';
+      if (folioId) {
+        try { localStorage.setItem('folio_lang_' + folioId, newLang); } catch (_) {}
+      }
+      // Look up translations map on the loaded state. Falls back to
+      // primary if the requested lang isn't populated yet.
+      const trans = (window._loadedFolioTranslations || {})[newLang];
+      if (trans && Array.isArray(trans.chapters)) {
+        try {
+          const chById = new Map();
+          trans.chapters.forEach(function(c){ if (c && c.id) chById.set(c.id, c.content); });
+          if (Array.isArray(chapters)) {
+            chapters = chapters.map(function(c){
+              if (c && c.type === 'chapter' && chById.has(c.id)) {
+                return Object.assign({}, c, { content: chById.get(c.id) });
+              }
+              return c;
+            });
+          }
+          if (typeof renderPreview === 'function') renderPreview();
+          if (typeof toastSuccess === 'function')
+            toastSuccess('Switched to ' + newLang.toUpperCase(), { icon: '🌐', duration: 1800 });
+        } catch (e) { console.warn('[lang-switch] apply failed:', e); }
+      } else {
+        // No translation content yet — flash a "coming soon" note.
+        if (typeof toastInfo === 'function')
+          toastInfo('Author hasn\'t added the ' + newLang.toUpperCase() + ' translation yet. Original text still shown.',
+            { icon: '🌐', duration: 4000 });
+      }
+    }
+    window._rdPopulateLangSwitch = _rdPopulateLangSwitch;
+    window._rdSwitchLanguage = _rdSwitchLanguage;
 
     // Mobile editor hamburger — toggles the slide-in sidebar on phones.
     // No-ops invisibly on desktop because the button is display:none
@@ -28754,6 +28908,13 @@
         Unlocked</span>
     </div>
     <select id="rdChapSel" onchange="_rdJumpToChapter(this.value)" title="Jump to chapter"></select>
+    <!-- Multi-language reader switcher — phase 2 (2026-07-17). Populated
+         by _rdPopulateLangSwitch() when a folio has release.languages
+         with 2+ entries. Hidden entirely on single-language folios so
+         it doesn't clutter the majority-case top bar. Selecting a
+         different language stores the pick in localStorage per folio
+         and re-renders chapters via _rdSwitchLanguage(). -->
+    <select id="rdLangSwitch" onchange="_rdSwitchLanguage(this.value)" title="Change reading language" style="display:none;font-size:11.5px;padding:4px 7px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer"></select>
     <button id="rdTypoBtn" onclick="_rdToggleTypo()" title="Typography">Aa</button>
     <button id="rdPronBtn" onclick="_rdTogglePronTips()" title="Show pronunciations on hover">🗣</button>
     <button id="rdBmBtn" onclick="_rdOpenDrawer('bookmarks')" title="Bookmarks">🔖</button>

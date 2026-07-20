@@ -244,8 +244,15 @@ async function _loadAuthorList() {
   const statusEl = document.getElementById('authorLookupStatus');
   if (!_fb.getDocs || !_fb.collection || !_fb.db) { statusEl.textContent = 'Firestore not ready'; return; }
   try {
-    const snap = await _fb.getDocs(_fb.query(_fb.collection(_fb.db, 'folio_projects'), _fb.limit(500)));
+    // THREE-source lookup so unpublished users (like Thomas's father
+    // after he signs in but before he publishes) are findable for
+    // comping. Sources:
+    //   1. folio_projects       — anyone with folios
+    //   2. folio_imprint_themes  — customized imprints
+    //   3. folio_user_settings   — every signed-in user
+    // Deduped by uid. Published authors sort first; bare signups last.
     const byUid = new Map();
+    const snap = await _fb.getDocs(_fb.query(_fb.collection(_fb.db, 'folio_projects'), _fb.limit(500)));
     snap.forEach(function(d){
       const data = d.data() || {};
       const uid = String(data.uid || '');
@@ -257,14 +264,38 @@ async function _loadAuthorList() {
       } else {
         const cur = byUid.get(uid);
         cur.count++;
-        // Prefer a real author name over "Unknown" if we see one later
         if (author && author !== 'Unknown' && cur.author === 'Unknown') cur.author = author;
       }
     });
+    const fromProjects = byUid.size;
+    // 2. folio_imprint_themes — customized imprints (doc id = uid)
+    try {
+      const themesSnap = await _fb.getDocs(_fb.query(_fb.collection(_fb.db, 'folio_imprint_themes'), _fb.limit(500)));
+      themesSnap.forEach(function(d){
+        const uid = String(d.id || '');
+        if (!uid || byUid.has(uid)) return;
+        const data = d.data() || {};
+        const author = String(data.authorName || data.displayName || 'Imprint author');
+        byUid.set(uid, { uid, author, sampleTitle: '(imprint customized — no folios yet)', count: 0 });
+      });
+    } catch (e) { console.warn('[admin/press] folio_imprint_themes list failed:', e.message); }
+    // 3. folio_user_settings — every signed-in user (doc id = uid)
+    try {
+      const settingsSnap = await _fb.getDocs(_fb.query(_fb.collection(_fb.db, 'folio_user_settings'), _fb.limit(500)));
+      settingsSnap.forEach(function(d){
+        const uid = String(d.id || '');
+        if (!uid || byUid.has(uid)) return;
+        byUid.set(uid, { uid, author: 'Signed-in user', sampleTitle: '(no folios or imprint yet — uid ' + uid.slice(0, 8) + '…)', count: 0 });
+      });
+    } catch (e) { console.warn('[admin/press] folio_user_settings list failed:', e.message); }
     _authorList = Array.from(byUid.values()).sort(function(a,b){
+      // Published authors first, then imprint-only, then bare signups.
+      const ac = a.count > 0 ? 0 : (a.author === 'Signed-in user' ? 2 : 1);
+      const bc = b.count > 0 ? 0 : (b.author === 'Signed-in user' ? 2 : 1);
+      if (ac !== bc) return ac - bc;
       return String(a.author).localeCompare(String(b.author));
     });
-    statusEl.textContent = '✅ ' + _authorList.length + ' authors loaded — type a name to filter';
+    statusEl.textContent = '✅ ' + _authorList.length + ' users loaded (' + fromProjects + ' with folios, ' + (_authorList.length - fromProjects) + ' signed-in only) — type a name or UID';
     statusEl.style.color = 'var(--accent-ui)';
   } catch (e) {
     statusEl.textContent = '⚠ Author list load failed: ' + (e.message || 'unknown');
