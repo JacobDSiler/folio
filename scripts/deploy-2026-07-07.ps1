@@ -144,6 +144,12 @@ try {
     # press/, and scripts/folio-push.ps1 stays uncommitted; Jacob can
     # review + commit those separately if desired.
     & git add .gitignore
+    # GitHub Pages runs Jekyll by default, which excludes every file whose
+    # name starts with '_'. That silently 404'd /admin/_shared.js in
+    # production and made /admin/boost's author-lookup widget invisible
+    # (FolioAdmin was undefined at runtime). Adding an empty .nojekyll
+    # tells GitHub Pages to skip Jekyll entirely so underscore files ship.
+    & git add .nojekyll
     # index.html is the main welcome/marketing page — it kept getting
     # dropped from this list, which is why deploys sometimes silently
     # skipped a batch when index.html was the only file changed. Added
@@ -233,6 +239,20 @@ Also in this batch:
   from the earlier VS Code truncation-recovery paste — 'Missing catch
   or finally after try' killed boot(), so the page hung on the
   'Checking sign-in…' placeholder forever. Removed the duplicate.
+- fix(GH Pages): add .nojekyll so /admin/_shared.js actually publishes.
+  GitHub Pages runs Jekyll by default and Jekyll excludes every file
+  whose name starts with '_'. That's why /admin/boost's author-lookup
+  widget was completely invisible in production — the FolioAdmin
+  script silently 404'd. .nojekyll disables Jekyll for the whole site
+  so any file we ship reaches the browser.
+- feat(admin/press): plan/comp indicator chip next to every author in
+  the search dropdown. After the author list loads, each author's
+  folio_user_settings/{uid}.pressSubscription is fetched (single-doc
+  reads, no LIST — safe) and classified into Free / Comp · Tier /
+  Paid · Tier / Expired · Tier / Cancelled, with a gold ✨ for founding
+  contributors. Batched 6 at a time; live-refreshes the open dropdown
+  as chips resolve. So Jacob can spot "already comped" or "already
+  paid" before wasting a click, and skip unnecessary grants.
 - fix(admin author lookup): the "Loading known authors…" widget was
   running three unfiltered LIST queries against folio_projects,
   folio_imprint_themes, and folio_user_settings. Firestore's rule

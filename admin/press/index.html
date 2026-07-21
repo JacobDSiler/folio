@@ -37,6 +37,19 @@ label{display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:10
 .author-suggestion .as-name{flex:1;font-weight:500;color:var(--text)}
 .author-suggestion .as-title{color:var(--hint);font-size:11px;font-style:italic}
 .author-suggestion .as-uid{color:var(--muted);font-family:ui-monospace,Menlo,monospace;font-size:10px}
+/* Plan chip in author dropdown — at-a-glance signal of current
+   subscription so Jacob can spot "already comped" or "already paid"
+   before wasting a click. Colors follow the console badge conventions
+   used elsewhere (--accent-ui green = active good, --danger red = ended,
+   muted = free/none). */
+.author-suggestion .as-plan{font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px;letter-spacing:.02em;white-space:nowrap;flex-shrink:0}
+.as-plan.plan-loading{background:transparent;color:var(--hint);font-weight:400;font-style:italic;padding:2px 4px}
+.as-plan.plan-free{background:#efe9dc;color:#7a6b52}
+.as-plan.plan-comp{background:#d1e7dd;color:#0f5132}
+.as-plan.plan-paid{background:#cfe2ff;color:#0a3d91}
+.as-plan.plan-expired{background:#f8e5c2;color:#7a5411}
+.as-plan.plan-cancelled{background:#f5d3d3;color:#8c1c1c}
+.as-plan.plan-founding{background:linear-gradient(135deg,#fff4b8,#ffd76b);color:#5c3d00;box-shadow:inset 0 0 0 .5px #d9a900}
 
 input,select{width:100%;font-size:13px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit}
 input:focus,select:focus{border-color:var(--accent-ui)}
@@ -315,14 +328,82 @@ async function _loadAuthorList() {
       if (ac !== bc) return ac - bc;
       return String(a.author).localeCompare(String(b.author));
     });
+    // Mark every author as "plan loading" so the dropdown shows a
+    // placeholder chip while we fetch each subscription doc.
+    _authorList.forEach(function(a){ a.plan = { kind: 'loading' }; });
     statusEl.innerHTML = '✅ ' + _authorList.length + ' users loaded (' + fromProjects + ' published, ' + (_authorList.length - fromProjects) + ' imprint-only) — type a name or UID. '
       + '<span style="color:var(--hint)">Signed-in users with no published folio &amp; no customized imprint won’t appear — paste their UID directly.</span>';
     statusEl.style.color = 'var(--accent-ui)';
+
+    // Fire-and-forget: enrich each author with their current Press
+    // subscription state. getDoc on folio_user_settings/{uid} is
+    // allowed by the rules per-user (single-doc read, not LIST), so
+    // it won't offline the SDK. Batched to 6 concurrent to be gentle.
+    _enrichAuthorPlans().catch(function(e){ console.warn('[admin/press] plan enrichment failed:', e); });
   } catch (e) {
     statusEl.textContent = '⚠ Author list load failed: ' + (e.message || 'unknown');
     statusEl.style.color = 'var(--danger)';
     console.error('[admin/press] author load failed', e);
   }
+}
+
+// Fetch each author's pressSubscription and re-render the dropdown if
+// it's currently open. Batched so ~50 authors doesn't fire 50 parallel
+// requests. Each getDoc is a single-document read → firestore rules
+// allow it for admin. Never triggers the LIST-permission-denied path.
+async function _enrichAuthorPlans() {
+  const BATCH = 6;
+  for (let i = 0; i < _authorList.length; i += BATCH) {
+    const batch = _authorList.slice(i, i + BATCH);
+    await Promise.all(batch.map(async function(a){
+      try {
+        const snap = await _fb.getDoc(_fb.doc(_fb.db, 'folio_user_settings', a.uid));
+        a.plan = _classifyPlan(snap.exists() ? (snap.data() || {}) : {});
+      } catch (e) {
+        a.plan = { kind: 'error', label: 'err' };
+      }
+    }));
+    // Live-refresh the dropdown if it's visible so chips pop in.
+    if (document.getElementById('authorSuggestions')?.style.display === 'block') {
+      try { _filterAuthors(); } catch (_) {}
+    }
+  }
+}
+
+// Classify a folio_user_settings doc into a plan chip.
+// Rules for what shows:
+//   • no pressSubscription           → Free
+//   • ACTIVE + COMP-prefixed subId   → Comp (tier)         [green]
+//   • ACTIVE + real paypalSubId      → Paid (tier)         [blue]
+//   • ACTIVE + expiresAt in past     → Expired (tier)      [amber]
+//   • CANCELLED                      → Cancelled           [red]
+//   • foundingContributor=true       → prepends a gold ⭐ Founding tag
+function _classifyPlan(settings) {
+  const sub = settings.pressSubscription;
+  if (!sub || !sub.status) return { kind: 'free', label: 'Free' };
+  const tier = String(sub.tier || '').toLowerCase();
+  const tierLabel = tier ? tier.charAt(0).toUpperCase() + tier.slice(1) : '';
+  const founding = !!sub.foundingContributor;
+  const isComp = String(sub.paypalSubscriptionId || '').indexOf('COMP-') === 0;
+  const expiresMs = sub.expiresAt ? Date.parse(sub.expiresAt) : NaN;
+  const expired = !isNaN(expiresMs) && expiresMs < Date.now();
+  if (sub.status === 'CANCELLED') {
+    return { kind: 'cancelled', label: 'Cancelled' + (tierLabel ? ' · ' + tierLabel : ''), founding };
+  }
+  if (sub.status === 'ACTIVE') {
+    if (expired) return { kind: 'expired', label: 'Expired · ' + tierLabel, founding };
+    if (isComp)  return { kind: 'comp',    label: 'Comp · '    + tierLabel, founding };
+    return             { kind: 'paid',    label: 'Paid · '    + tierLabel, founding };
+  }
+  return { kind: 'free', label: String(sub.status || 'Free') };
+}
+
+function _planChipHTML(plan) {
+  if (!plan) return '';
+  if (plan.kind === 'loading') return '<span class="as-plan plan-loading">…</span>';
+  const cls = 'plan-' + esc(plan.kind);
+  const founding = plan.founding ? '<span class="as-plan plan-founding" title="Founding contributor">✨</span> ' : '';
+  return founding + '<span class="as-plan ' + cls + '" title="Current Press subscription state">' + esc(plan.label) + '</span>';
 }
 
 window._filterAuthors = function() {
@@ -341,6 +422,7 @@ window._filterAuthors = function() {
     return '<div class="author-suggestion" onclick="_selectAuthor(\'' + escAttr(a.uid) + '\', \'' + escAttr(a.author) + '\')">' +
       '<div style="flex:1;min-width:0"><div class="as-name">' + esc(a.author) + '</div>' +
       '<div class="as-title">' + esc(a.sampleTitle || '') + ' · ' + a.count + ' folio' + (a.count === 1 ? '' : 's') + '</div></div>' +
+      _planChipHTML(a.plan) +
       '<div class="as-uid">' + esc(a.uid.slice(0, 12)) + '…</div>' +
     '</div>';
   }).join('') + (matches.length > cap.length ? '<div class="author-suggestion" style="justify-content:center;color:var(--hint);font-style:italic">…and ' + (matches.length - cap.length) + ' more — narrow your search</div>' : '');
