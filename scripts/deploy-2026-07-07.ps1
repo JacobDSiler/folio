@@ -233,6 +233,24 @@ Also in this batch:
   from the earlier VS Code truncation-recovery paste — 'Missing catch
   or finally after try' killed boot(), so the page hung on the
   'Checking sign-in…' placeholder forever. Removed the duplicate.
+- fix(admin author lookup): the "Loading known authors…" widget was
+  running three unfiltered LIST queries against folio_projects,
+  folio_imprint_themes, and folio_user_settings. Firestore's rule
+  engine cannot short-circuit isAdmin() for unbounded LIST queries,
+  so folio_projects and folio_user_settings returned
+  `permission-denied` — and a denied LIST puts the whole Firestore
+  SDK into offline mode, which is exactly what surfaced as the
+  "client is offline" error blocking the editor after sign-in.
+  Diagnosed live via Chrome MCP: `folio_projects` unfiltered →
+  permission-denied; `where('release.published', '==', true)` → 7
+  docs in 208ms. Rewrote both admin/press/_loadAuthorList and
+  admin/_shared.js mountAuthorLookup to use only queries the rules
+  can prove satisfiable: published-folios filter + world-readable
+  folio_imprint_themes. Dropped the folio_user_settings source —
+  admins paste UID directly for signed-in-but-unpublished users
+  (the input already existed for that path). Added fb.where to the
+  helpers passed from admin/boost and to mountAuthorLookup's arg
+  validation.
 "@
     $msg | Out-File -FilePath $msgPath -Encoding utf8 -NoNewline
 
