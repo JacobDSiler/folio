@@ -245,6 +245,24 @@ Also in this batch:
   widget was completely invisible in production — the FolioAdmin
   script silently 404'd. .nojekyll disables Jekyll for the whole site
   so any file we ship reaches the browser.
+- ui(mobile): editor UI tidy-up per Jacob's phone screenshot.
+  Three collisions:
+    1. Preview toolbar's 9+ controls overflowed off-screen with no
+       visible scroll affordance. Now flex-wraps to 2-3 rows on
+       mobile with a 52-px left gutter so the fixed hamburger has
+       dedicated space. Zoom slider gets min-width so it doesn't
+       collapse to a thumb-with-no-track when other controls wrap
+       around it.
+    2. On very narrow screens (<480 px) the ✏ Edit and 👁 Preview
+       as reader buttons collapse to icon-only via a ::before pseudo
+       element (title tooltips preserved).
+    3. Book page rendered at 864 px (150 % zoom · Trade 6×9″) is
+       wider than a 400-px phone viewport, clipping text off both
+       sides. New _mobileAutoFit() fires zoomFit() at boot + on
+       resize/orientation change so the page always fits. Belt-and-
+       braces: .book-page max-width:calc(100vw-16px) + preview-
+       scroller overflow-x:auto so manual override becomes a
+       horizontal pan instead of silent clipping.
 - ui(sidebar): auto-version snapshots collapsed under a closed
   <details> disclosure by default. Manual "📌 Save version" entries
   render inline as before; auto snapshots go under "Auto-saved

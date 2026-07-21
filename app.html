@@ -2102,6 +2102,57 @@
         font-size: 10px
       }
 
+      /* Toolbar redesign for phones (2026-07-21 Jacob feedback: UI
+         collisions and occlusions). The desktop layout stuffs 9+
+         controls on one row — on narrow screens they either overflow
+         off-screen (no visible scroll affordance) or crowd behind the
+         hamburger button. Fixes:
+           • flex-wrap the toolbar so it becomes 2-3 rows instead of
+             overflowing invisibly to the right;
+           • padding-left leaves a 48-px gutter so the fixed-position
+             hamburger sits in dedicated space (was covering the page-
+             size select);
+           • zoom slider gets a min-width so it doesn't collapse to a
+             thumb-with-no-track when other controls wrap around it. */
+      .preview-toolbar {
+        flex-wrap: wrap;
+        padding-left: 52px;
+        padding-right: 8px;
+        gap: 6px;
+        row-gap: 6px;
+        justify-content: flex-start;
+      }
+      .preview-toolbar .zoom-slider { min-width: 100px; flex: 1 1 100px; max-width: 160px; }
+      .preview-toolbar > * { flex-shrink: 0; }
+
+      /* On very narrow screens (< 480 px) also collapse the less
+         essential button labels to icon-only so the row count stays
+         reasonable. Tooltips (title="…") remain for accessibility. */
+      @media (max-width: 480px) {
+        .preview-toolbar #readerPreviewBtn { font-size: 0 !important; padding: 3px 8px !important; }
+        .preview-toolbar #readerPreviewBtn::before { content: '👁'; font-size: 13px; }
+        .preview-toolbar #editModeBtn { font-size: 0 !important; padding: 3px 8px !important; }
+        .preview-toolbar #editModeBtn::before { content: '✏'; font-size: 13px; }
+      }
+
+      /* CRITICAL: cap the rendered book page at the viewport width so
+         text doesn't get clipped by a fixed-size (e.g. 864 px at 150 %
+         zoom) page dropping off both sides of a 400-px phone. Instead
+         of scaling via CSS transform (which breaks click coordinates
+         + font rendering), we hint zoomFit() to fire once on mobile
+         if the current zoom would overflow — see _mobileAutoFit()
+         below. As a belt-and-braces visual fallback, force the page
+         and its content wrapper to max-width:100vw so the OVERFLOW
+         becomes horizontal-scroll rather than silent clipping. */
+      .book-page {
+        max-width: calc(100vw - 16px);
+      }
+      .preview-scroller {
+        padding: 60px 8px 40px;  /* extra top so first page clears the taller wrapping toolbar */
+        overflow-x: auto;         /* allow horizontal pan if user overrides fit */
+        -webkit-overflow-scrolling: touch;
+      }
+
       #scrollTopBtn,
       #scrollBottomBtn {
         right: 8px
@@ -14398,6 +14449,45 @@
       document.getElementById('zoomLabel').textContent = Math.round(_zoom) + '%';
       try { localStorage.setItem('folio_zoom', _zoom); } catch (e) { }
       renderPreview();
+    }
+
+    // Auto-fit on mobile so the page never renders wider than the
+    // viewport. Only fires when we detect a mobile viewport AND the
+    // current zoom would produce a page wider than available width.
+    // Runs once at boot + on every orientation change / resize past
+    // the mobile breakpoint. Never overrides a manual zoom by the
+    // user after boot (a session flag suppresses re-runs after any
+    // explicit zoom action).
+    let _mobileAutoFitDone = false;
+    function _mobileAutoFit() {
+      try {
+        if (window.innerWidth > 768) return;
+        const area = document.getElementById('previewArea');
+        if (!area || !area.clientWidth) return;
+        const [pwMM] = (typeof getPageDims === 'function') ? getPageDims() : [0];
+        if (!pwMM) return;
+        const naturalW = Math.round(pwMM * 3.7795);
+        const currentPageW = naturalW * (_zoom / 100);
+        // Only re-fit if the current page overflows OR we haven't
+        // auto-fit yet this session. The overflow check catches the
+        // case where the user switched from Trade to A4 (wider) and
+        // is now clipping on mobile without knowing why.
+        if (_mobileAutoFitDone && currentPageW <= area.clientWidth) return;
+        zoomFit();
+        _mobileAutoFitDone = true;
+      } catch (e) { /* fit is best-effort */ }
+    }
+    // Kick once after the initial render settles.
+    if (typeof window !== 'undefined') {
+      window.addEventListener('load', function(){ setTimeout(_mobileAutoFit, 400); });
+      // Re-fit on orientation change or when the viewport crosses
+      // the mobile breakpoint (tablet split view etc.). Debounced so
+      // we don't thrash renderPreview on every resize pixel.
+      let _mafT = null;
+      window.addEventListener('resize', function(){
+        clearTimeout(_mafT);
+        _mafT = setTimeout(function(){ _mobileAutoFitDone = false; _mobileAutoFit(); }, 250);
+      });
     }
 
     // Ctrl/Cmd + scroll to zoom
