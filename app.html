@@ -1830,6 +1830,13 @@
       color: rgba(255, 255, 255, 0.3)
     }
 
+    /* Rotate the ▶ caret on the auto-versions <details> when open so
+       it visually reads as an expand/collapse chevron rather than a
+       static bullet. Scoped tight so it only affects the version list. */
+    #verList details[open] > summary > span:first-child {
+      transform: rotate(90deg);
+    }
+
     /* Find & Replace hit highlighter — fixed-position rectangles
        overlaid on the matched substring after we center it in view.
        Pulses twice so the eye catches it, then auto-removes. */
@@ -10210,25 +10217,23 @@
     function _renderVersionList(list) {
       const el = document.getElementById('verList');
       if (!list.length) { el.innerHTML = '<p class="small-note" style="padding:.4rem 0">No versions yet — click Save version above to snapshot your work.</p>'; return; }
-      // Sort: manual "📌 Save version" entries first, then auto-versions
-      // by recency. Manual saves are user-intentional and rarer, so they
-      // deserve top billing. Auto-versions are the safety net below.
+      // Manual saves render inline (user-intentional, rare, deserve top
+      // billing). Auto-versions are the safety net — collapsed into a
+      // closed <details> so they don't drown the panel (2026-07-21
+      // Jacob: "autosaved versions need to stay inside a collapsed
+      // menu by default"). Same Restore + Delete buttons on both.
       const _manual = list.filter(v => !v.autoVersion && !String(v.id || '').startsWith('auto_'));
       const _autos = list.filter(v => v.autoVersion || String(v.id || '').startsWith('auto_'));
-      const _ordered = _manual.concat(_autos);
-      el.innerHTML = _ordered.map(v => {
+
+      function _renderCard(v, isAuto) {
         const d = v.savedAt ? new Date(v.savedAt.seconds * 1000).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
         const chs = v.state?.chapters?.filter(c => c.type !== 'toc').length ?? '?';
         const rawWC = v.state?.chapters ? v.state.chapters.reduce((s, c) => s + (c.content || '').trim().split(/\s+/).filter(x => x).length, 0) : 0;
         const wc = rawWC ? formatWC(rawWC) : '?';
-        // Auto-versions get a subtle grey badge + muted card so authors
-        // instantly see which are their intentional saves vs the safety
-        // net auto-snapshots. Same Restore + Delete buttons on both.
-        const _isAuto = v.autoVersion || String(v.id || '').startsWith('auto_');
-        const _autoBadge = _isAuto
+        const _autoBadge = isAuto
           ? '<span style="font-size:9px;padding:1px 6px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px;color:var(--hint);font-weight:400;letter-spacing:.02em">AUTO</span>'
           : '';
-        const _cardStyle = _isAuto
+        const _cardStyle = isAuto
           ? 'flex-direction:column;align-items:stretch;gap:4px;opacity:.85'
           : 'flex-direction:column;align-items:stretch;gap:4px';
         return `<div class="ver-card" style="${_cardStyle}">
@@ -10243,7 +10248,25 @@
         <span>${d}</span><span>${chs} ch</span><span>${wc} words</span>
       </div>
     </div>`;
-      }).join('');
+      }
+
+      const manualHTML = _manual.length
+        ? _manual.map(v => _renderCard(v, false)).join('')
+        : '<p class="small-note" style="padding:.3rem 0;color:var(--hint)">No manual saves yet — click Save version above to snapshot your work.</p>';
+
+      const autosHTML = _autos.length
+        ? `<details style="margin-top:8px;border-top:.5px dashed var(--border-mid);padding-top:8px">
+            <summary style="cursor:pointer;font-size:11px;color:var(--hint);padding:4px 0;user-select:none;list-style:none">
+              <span style="display:inline-block;transition:transform .15s ease;font-size:9px;margin-right:4px">▶</span>
+              Auto-saved snapshots (${_autos.length})
+            </summary>
+            <div style="margin-top:6px;display:flex;flex-direction:column;gap:6px">
+              ${_autos.map(v => _renderCard(v, true)).join('')}
+            </div>
+          </details>`
+        : '';
+
+      el.innerHTML = manualHTML + autosHTML;
     }
 
     async function _deleteVersion(vid, name) {
@@ -17731,16 +17754,22 @@
         if (taWM) { taWM.focus(); taWM.setSelectionRange(match.start, match.end); taWM.blur(); taWM.focus(); return; }
       }
 
-      // Navigate the preview to the chapter page containing the match,
-      // THEN zoom in on the exact paragraph that holds the match and
-      // center it in the viewport with a flash highlight so the eye
-      // lands on it immediately (bug reported 2026-07-21 — Jacob:
-      // "auto-scrolls to the found word, but I have no idea where
-      // that word actually is").
-      scrollToChapter(match.chId);
-      // scrollToChapter yields to a rAF for its own scroll; wait a
-      // beat longer, then locate the specific paragraph DOM node.
-      setTimeout(function(){ _frCenterMatchInPreview(match); }, 220);
+      // Skip scrollToChapter for content matches — it starts a
+      // competing smooth-scroll animation that races our own
+      // paragraph-centering scroll, so the browser lands somewhere
+      // in between. Instead, jump straight to the paragraph. Every
+      // chapter is already rendered inside #bookPreview so the DOM
+      // node exists regardless of current scroll position.
+      //
+      // Title matches (rare) need scrollToChapter because the title
+      // block is only anchored by [id="chap-<chId>"] on the page
+      // wrapper; give it 400 ms to settle before we take over.
+      if (match.field === 'title') {
+        scrollToChapter(match.chId);
+        setTimeout(function(){ _frCenterMatchInPreview(match); }, 400);
+      } else {
+        _frCenterMatchInPreview(match);
+      }
       // If writing mode is already open for this chapter, also select in textarea
       setTimeout(() => {
         if (match.field === 'content' && _writingChId === match.chId) {
@@ -17777,56 +17806,50 @@
         // 1. Locate the target DOM element.
         let el = null;
         if (match.field === 'title') {
-          // Chapter title lives on the title block inside the chapter's
-          // first page — anchor via the [id="chap-<chId>"] wrapper.
           const chapWrap = document.getElementById('chap-' + match.chId);
           if (chapWrap) el = chapWrap;
         } else {
-          // Content match — map raw-string offset to paragraph index.
+          // Map raw-string offset to paragraph index. Paragraphs are
+          // joined with '\n', so cursor advances by paraLen + 1 after
+          // each. Blank paragraphs (empty strings) contribute the
+          // single '\n' separator only.
           const paras = _paragraphsOf(ch.content);
           let cursor = 0, targetIdx = -1;
           for (let i = 0; i < paras.length; i++) {
             const paraLen = paras[i].length;
-            // Match falls inside this paragraph if start is within its span.
             if (match.start >= cursor && match.start <= cursor + paraLen) {
               targetIdx = i;
               break;
             }
-            cursor += paraLen + 1; // +1 for the '\n' separator
+            cursor += paraLen + 1;
           }
           if (targetIdx < 0) return;
           // Preview paragraphs are keyed by chId + paraIdx; pagination
-          // can produce continuation slices (para-cont class) for the
-          // same paraIdx across pages — pick the FIRST occurrence
-          // (that's where the match text begins).
+          // splits long paragraphs into a header + continuation (para-cont)
+          // slices on the following pages — pick the FIRST slice since
+          // that's where the match text begins.
           el = document.querySelector(
             '.preview-editable[data-chid="' + match.chId + '"][data-paraidx="' + targetIdx + '"]:not(.para-cont)'
           ) || document.querySelector(
             '.preview-editable[data-chid="' + match.chId + '"][data-paraidx="' + targetIdx + '"]'
           );
         }
-        if (!el) return;
+        if (!el) { console.warn('[find] target element not found for match', match); return; }
 
-        // 2. Scroll so el's midpoint sits at viewport midpoint.
-        //    scrollIntoView({block:'center'}) is close but doesn't
-        //    always center precisely in scrollable containers with
-        //    fixed toolbars — compute the offset ourselves.
-        const scroller = document.getElementById('previewScroller') || document.scrollingElement;
-        if (scroller && scroller !== document.scrollingElement) {
-          const rect = el.getBoundingClientRect();
-          const sRect = scroller.getBoundingClientRect();
-          const targetTop = scroller.scrollTop + (rect.top - sRect.top) - (scroller.clientHeight / 2) + (el.offsetHeight / 2);
-          scroller.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
-        } else {
-          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
+        // 2. Native scrollIntoView with block:'center' walks up the
+        //    ancestor chain and scrolls whichever ancestor is the real
+        //    overflow container — works no matter which element in the
+        //    editor layout is actually the scroller (previously we
+        //    guessed #previewScroller which has overflow:visible, so
+        //    manual scroll offset math landed nowhere).
+        el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
 
-        // 3. Flash a highlight on the actual matched text so the eye
-        //    lands on it. Uses <mark> wrapping ONLY the character span
-        //    that matched, restored after 1.6s so editing state is
-        //    unaffected. Falls back to whole-paragraph flash if we
-        //    can't safely locate the substring (e.g. drop-cap nesting).
-        _frFlashHighlight(el, match);
+        // 3. Flash the highlight AFTER the smooth-scroll animation has
+        //    finished, so the overlay rectangles are drawn at the
+        //    element's FINAL screen position rather than its pre-scroll
+        //    position. 500 ms comfortably covers Chrome's ~300 ms
+        //    smooth-scroll default even on long jumps.
+        setTimeout(function(){ _frFlashHighlight(el, match); }, 520);
       } catch (e) { console.warn('[find] center failed:', e); }
     }
 

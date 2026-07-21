@@ -245,6 +245,25 @@ Also in this batch:
   widget was completely invisible in production — the FolioAdmin
   script silently 404'd. .nojekyll disables Jekyll for the whole site
   so any file we ship reaches the browser.
+- ui(sidebar): auto-version snapshots collapsed under a closed
+  <details> disclosure by default. Manual "📌 Save version" entries
+  render inline as before; auto snapshots go under "Auto-saved
+  snapshots (N)" so they stop drowning the panel. Rotates a small ▶
+  caret when open. (Jacob 2026-07-21.)
+- fix(find & replace): NAVIGATION rewrite — the previous version
+  called scrollToChapter first (which starts a smooth scroll to the
+  chapter top) and then queued the paragraph-center scroll 220 ms
+  later, so the two animations raced and the browser landed
+  somewhere between them. Now for content matches we skip
+  scrollToChapter entirely and go straight to the target paragraph
+  via native scrollIntoView({block:'center'}) — that walks the
+  ancestor chain and scrolls whichever element is the real overflow
+  container (previous manual math targeted #previewScroller which
+  has overflow:visible and isn't actually the scroller). Highlight
+  overlay flash is delayed to 520 ms so the rects are drawn at the
+  paragraph's FINAL screen position rather than pre-scroll. Title
+  matches still use scrollToChapter (title block is only anchored
+  by [id=chap-<chId>]).
 - fix(find & replace): centered highlight on the actual match.
   Previously frJumpToCurrent called scrollToChapter which landed at
   the chapter top with no signal of where in that chapter the word
