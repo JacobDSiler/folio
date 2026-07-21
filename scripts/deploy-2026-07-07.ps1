@@ -207,16 +207,16 @@ of the paragraph pipeline:
    deleted. Root cause: ~30 rendering/export sites used the idiom
    ch.content.split('\n').filter(p => p.trim()) which dropped every
    empty line. Fixes:
-     - New canonical splitter _splitParas() preserves internal blanks
+     - New canonical splitter _paragraphsOf() preserves internal blanks
        up to a MAX_BLANK_RUN cap of 3
-     - All 33 call sites migrated to _splitParas via automated rewrite
+     - All 33 call sites migrated to _paragraphsOf via automated rewrite
      - Reader renders blank paragraphs as one-line editable spacers
      - Pagination measures blanks as lineH so page budgets stay honest
      - Enter key in preview editor now inserts a blank paragraph after
        the current one (was previously just calling .blur()); Backspace
        on an empty spacer paragraph deletes it and pulls the caret to
        the previous line. Feels like every other rich-text editor.
-     - _onParaBlur / _onEditBlur walk _splitParas so paraIdx stays
+     - _onParaBlur / _onEditBlur walk _paragraphsOf so paraIdx stays
        consistent between render and save-back
      - EPUB, XHTML, RTF, DOCX exports all emit visible blank paragraphs
 "@
