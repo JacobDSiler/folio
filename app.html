@@ -1652,6 +1652,33 @@
       margin-bottom: 20px
     }
 
+    /* Safety net for the page-bottom clipping bug. If the paginator ever
+       gives a page more content than its content area can hold, the
+       runtime watchdog (_fixOverflowingPages) tags it .page-overflowed
+       and we swap the invisible hard-clip for a visible fade + ellipsis
+       so readers see "the text continues on the next page" rather than
+       silently losing lines. Should never fire in normal operation. */
+    .page-content.page-overflowed {
+      -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent 100%);
+      mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent 100%);
+    }
+    .page-content.page-overflowed::after {
+      content: '…';
+      position: absolute;
+      bottom: 2px;
+      right: 4px;
+      font-size: 18px;
+      color: currentColor;
+      opacity: 0.55;
+      pointer-events: none;
+    }
+
+    /* Blank paragraph spacer — Thomas psalm separators + scene beats.
+       Editable, keeps a visible caret target so authors know they can
+       click into it and type. */
+    .preview-editable.preview-blank { outline: none; opacity: 0.9; }
+    .preview-editable.preview-blank:focus { outline: none; background: transparent; }
+
     /* Toast notifications */
     #toastContainer {
       position: fixed;
@@ -9413,8 +9440,8 @@
         const curr = body[i];
         const next = body[i + 1];
         if (!curr.content || !next.content) continue;
-        const currParas = curr.content.split('\n').filter(p => p.trim());
-        const nextParas = next.content.split('\n').filter(p => p.trim());
+        const currParas = _splitParas(curr.content);
+        const nextParas = _splitParas(next.content);
         if (!currParas.length || !nextParas.length) continue;
         // If last paragraph of curr matches first paragraph of next, remove from curr
         const lastOfCurr = currParas[currParas.length - 1].trim();
@@ -14179,6 +14206,39 @@
     function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') }
     function md(s) { return String(s || '').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>').replace(/\_\_(.+?)\_\_/g, '<strong>$1</strong>').replace(/\_(.+?)\_/g, '<em>$1</em>'); }
 
+    // ── _splitParas ──────────────────────────────────────────────────
+    // Canonical paragraph splitter for chapter/section .content. All
+    // render + export paths must use this so blank-line spacing that
+    // authors deliberately insert (e.g. between psalms, between scenes)
+    // survives the round-trip through the DOM. The old `.split('\n')
+    // .filter(p => p.trim())` idiom silently deleted every empty line,
+    // which is what Thomas reported on 2026-07-21 ("no matter how many
+    // spaces he put, they just didn't show up on the document").
+    //
+    // Rules:
+    //   • Preserve internal blank lines as empty strings — downstream
+    //     renderers turn them into visible <p>&nbsp;</p> spacers.
+    //   • Trim leading + trailing blank runs (they never help readers).
+    //   • Cap interior blank runs at MAX_BLANK_RUN so a stuck Enter key
+    //     or paste-from-Word chain of empties can't blow up page count
+    //     or trigger the clipping bug we just fixed.
+    // ───────────────────────────────────────────────────────────────
+    function _splitParas(content) {
+      if (content == null) return [];
+      const MAX_BLANK_RUN = 3;
+      const raw = String(content).split('\n');
+      let start = 0, end = raw.length;
+      while (start < end && !raw[start].trim()) start++;
+      while (end > start && !raw[end - 1].trim()) end--;
+      const out = [];
+      let blankRun = 0;
+      for (let i = start; i < end; i++) {
+        if (raw[i].trim()) { out.push(raw[i]); blankRun = 0; }
+        else if (blankRun < MAX_BLANK_RUN) { out.push(''); blankRun++; }
+      }
+      return out;
+    }
+
     function safeName(s) { return (s || 'book').replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase().slice(0, 60) }
     function downloadBlob(blob, filename) { const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000) }
     function setStatus(msg) { document.getElementById('statusBar').textContent = msg }
@@ -14324,6 +14384,49 @@
       }
     })();
 
+    // Watchdog for the clipping bug — walks every rendered page-content
+    // and checks whether real scrollHeight exceeds clientHeight. If a
+    // page is overflowing, tag it with .page-overflowed so readers get
+    // a fade + ellipsis rather than an invisible hard-clip, and log a
+    // one-liner in the console with chapter id + page number so we can
+    // tighten the paginator. Called on every renderPreview() paint.
+    function _fixOverflowingPages() {
+      const pages = document.querySelectorAll('#bookPreview .page-content');
+      let bad = 0;
+      pages.forEach((pc, i) => {
+        // ~4px slack for sub-pixel rounding — anything above is a real
+        // overflow, not just a rounding artifact.
+        const over = pc.scrollHeight - pc.clientHeight;
+        if (over > 4) {
+          pc.classList.add('page-overflowed');
+          bad++;
+          // Rate-limit console output — first 3 pages only, then a summary.
+          if (bad <= 3) {
+            const chap = pc.closest('[data-chapid]');
+            const chapId = chap ? chap.getAttribute('data-chapid') : '?';
+            console.warn(`[folio] page overflow: chapter=${chapId} page#${i + 1} over=${over}px scrollH=${pc.scrollHeight} clientH=${pc.clientHeight}`);
+          }
+        } else {
+          pc.classList.remove('page-overflowed');
+        }
+      });
+      if (bad > 3) console.warn(`[folio] …and ${bad - 3} more overflowed pages this render.`);
+    }
+
+    // Font-metrics gate. If a paginator runs before the body font swaps
+    // in, measurement uses the fallback font (wrong widths → wrong
+    // heights → clipped pages once the real font arrives). We wait once
+    // at boot; renderPreview() calls after that are safe.
+    let _fontsReady = false;
+    if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(() => {
+        _fontsReady = true;
+        try { if (typeof renderPreview === 'function') renderPreview(); } catch (e) {}
+      }).catch(() => { _fontsReady = true; });
+    } else {
+      _fontsReady = true;
+    }
+
     function renderPreview() {
       // Don't render while the loading spinner is showing — prevents 'Untitled' flash
       // Only block render if the loading spinner is actively showing
@@ -14412,7 +14515,7 @@
         }) : () => '';
         const ftr = showNums && pn > 2 ? `<div style="position:absolute;bottom:${Math.round(8 * MM)}px;left:0;right:0;text-align:center;font-family:${font};font-size:${pt(H_FOOTER)};color:${T.text}66">${pn}</div>` : '';
         const hdr = isFirst ? '' : _hdrFn(chTitle, pn);
-        return `<div class="book-page"${chapAttr} style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div style="position:absolute;top:${contentT}px;left:${mg}px;right:${mg}px;bottom:${contentB}px;overflow:hidden;display:block">${inner}</div></div>`;
+        return `<div class="book-page"${chapAttr} style="width:${pw}px;height:${ph}px;background:${T.bg};color:${T.text};${borderStyle}">${hdr}${ftr}<div class="page-content" style="position:absolute;top:${contentT}px;left:${mg}px;right:${mg}px;bottom:${contentB}px;overflow:hidden;display:block">${inner}</div></div>`;
       };
 
       // ── Inline-image rendering (Stage B) ────────────────────────────
@@ -14510,7 +14613,7 @@
           _estP += _tocPages;
           return;
         }
-        const _paras = ch.content.split('\n').filter(p => p.trim());
+        const _paras = _splitParas(ch.content);
         const _cW = pw - mg * 2;
         const _cH = ph - contentT - contentB;
         const _lH = fsize * ptScale * parseFloat(lspace);
@@ -14577,7 +14680,7 @@
 
         // ── Front / back matter ──
         if (ch.type === 'pre' || ch.type === 'post') {
-          const paras = ch.content.split('\n').filter(p => p.trim());
+          const paras = _splitParas(ch.content);
           const ps = paras.map(p => {
             if (p === '__SCENE_BREAK__') return `<div style="text-align:center;font-size:${pt(H_SCENE_BREAK)};color:${accent};margin:${mm(2)} 0;opacity:0.6">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
             const _fmi = _imgParseLine(p);
@@ -14599,7 +14702,7 @@
           const chNum = chapterNumber(_chCounter);
           const chImg = (chImgs && S.images.length > 1) ? _imgSrc(S.images[_chCounter % S.images.length]) : (chImgs && S.images.length === 1) ? _imgSrc(S.images[0]) : null;
           const titleBlock = (ch.title || chNum) ? `<div style="text-align:center;padding-top:${Math.round(8 * MM)}px;margin-bottom:${Math.round(10 * MM)}px">${chNum ? `<div style="font-family:${font};font-size:${pt(H_CHNUM)};letter-spacing:0.18em;text-transform:uppercase;color:${accent};margin-bottom:${mm(1.6)}">Chapter ${esc(String(chNum))}</div>` : ''} ${ch.title ? `<div style="font-family:'Playfair Display',Georgia,serif;font-size:${pt(H_CHAPTER)};font-weight:700;color:${T.text};line-height:1.3">${esc(_bindShortConnectors(ch.title))}</div>` : ''} ${chImg ? `<div style="margin:${mm(2)} auto;max-height:${mm(15.9)};text-align:center"><img src="${chImg}" style="max-height:${mm(15.9)};max-width:70%;object-fit:contain;opacity:0.8"></div>` : ''}<div style="font-size:${pt(H_ORN)};color:${accent};margin-top:${mm(1.6)};opacity:0.65">${esc(orn)}</div></div>` : '';
-          const paras = ch.content.split('\n').filter(p => p.trim());
+          const paras = _splitParas(ch.content);
           const contentW = pw - mg * 2;
           const contentH = ph - contentT - contentB;
           const lineH = fsize * ptScale * parseFloat(lspace);
@@ -14734,6 +14837,13 @@
           // estimate * lineH if measurement is unavailable). Always adds
           // the real margin-bottom so the paginator does not over-fill.
           function paraHeightPx(text, opts) {
+            // Blank paragraph → one line of vertical space + margin.
+            // Authors use these as intentional spacers (scene breaks,
+            // psalm separators). Must budget for the space or pagination
+            // undercounts and the last line of the page gets clipped.
+            if (text == null || (typeof text === 'string' && !text.trim())) {
+              return lineH + _paraMarginPx;
+            }
             const measured = measurePara(text, opts);
             if (measured != null) return measured + _paraMarginPx;
             const extraLines = (indentMode === '0') ? 0.6 : 0;
@@ -14777,18 +14887,29 @@
           // can accumulate to several px per page (worst at non-integer
           // zoom levels where toFixed rounding compounds).
           //
-          // Bumped from 0.5 lines → 1.2 lines on 2026-07-20 after Jacob
-          // reported paragraphs "split at the end of a page, and when I
-          // click in it I can navigate to the end of the paragraph and
-          // have it actually show on page." Symptom of overflow past
-          // the clipped content region: paragraph measurement said it
-          // fit, actual render was slightly taller, half-line slack
-          // wasn't enough to absorb the drift. One-and-a-bit line slack
-          // is roomier but far preferable to visually-clipped-but-
-          // navigable-to text (which looks like a rendering bug to
-          // readers). Worst-case cost: ~1 extra line of whitespace at
-          // page bottom in tight layouts.
-          const pageContentPx = contentH - Math.max(14, Math.ceil(lineH * 1.2));
+          // Bumped 0.5 → 1.2 → 2.5 lines on 2026-07-21 after Thomas
+          // reported clipping STILL happening on phone AND laptop in
+          // production. Root causes we've identified for drift between
+          // measurement and render:
+          //   • fonts not fully loaded when we measure (metrics change
+          //     when the real font swaps in — mostly cured by the
+          //     document.fonts.ready gate below, but not on every
+          //     browser).
+          //   • non-integer viewport widths on mobile → sub-pixel
+          //     rounding compounds across many wrapped lines.
+          //   • drop-cap float behaviour differs slightly between the
+          //     hidden mirror and the real page (drop-cap consumes
+          //     first-para width via CSS float, mirror can miss it).
+          //   • non-integer zoom levels compound toFixed rounding.
+          // 2.5 lines of slack costs at most ~2.5 lines of whitespace
+          // at page bottom (rare); the alternative is losing entire
+          // lines of PAID-CUSTOMER content off the bottom of the page,
+          // which is a completely unacceptable failure mode.
+          //
+          // Post-render overflow detection (see _fixOverflowingPages
+          // below) catches any residual drift and gives us a signal in
+          // the console so we can further tune this constant.
+          const pageContentPx = contentH - Math.max(28, Math.ceil(lineH * 2.5));
           // Normalise markdown horizontal rules to scene breaks
           const normParas = paras.map(p =>
             /^[-*_]{3,}$/.test(p.trim()) ? '__SCENE_BREAK__' : p);
@@ -15006,6 +15127,18 @@
       }); // end chapters.forEach
 
       document.getElementById('bookPreview').innerHTML = pagesHTML;
+      // Post-render overflow watchdog — safety net for the last-line
+      // clipping bug. Even with 2.5-line pagination slack + fonts.ready
+      // gate, occasional drift still slips through on odd zoom/mobile
+      // widths. This runs after the DOM has painted, walks every page,
+      // and if it finds content that overflows we (a) log details to
+      // the console with chapter + page markers so we can improve the
+      // measurer, and (b) apply a `.page-overflowed` class that swaps
+      // the ugly hard-clip for a fade-out plus a small "…" marker so
+      // readers know something continues on the next page rather than
+      // silently losing text. Absolutely last-resort — the goal is
+      // that this never fires; when it does, we know exactly where.
+      requestAnimationFrame(() => { try { _fixOverflowingPages(); } catch (e) { console.warn('overflow check:', e); } });
       const _wc = getWordCount();
       // Word-density page count — calibrated from real PDF measurement
       // 187 words/page at 13pt, 1.7 lspace, Trade 6x9, 18mm margins
@@ -15412,7 +15545,7 @@
           newPage();
           if (fm.title) { doc.setFont(PDF_FONT, 'bold'); doc.setFontSize(16); doc.setTextColor(...txR); doc.text(fm.title, pw / 2, 28, { align: 'center' }) }
           const startY = fm.title ? 42 : yStart;
-          const paras = fm.content.split('\n').filter(p => p.trim());
+          const paras = _splitParas(fm.content);
           flowParas(paras, startY, tw, mg);
           addPageNum();
         });
@@ -15511,7 +15644,7 @@
           doc.text('—  —  —', pw / 2, y, { align: 'center' });
           y += 8;
           setBody();
-          const paras = ch.content.split('\n').filter(p => p.trim());
+          const paras = _splitParas(ch.content);
           // Drop cap on first paragraph of chapters that have a title
           if (dropCap && paras.length && paras[0] !== '__SCENE_BREAK__' && !_imgParseLine(paras[0]) && (ch.title || cn)) {
             // Peel outer Gutenberg-style _..._ / *...* so the drop
@@ -15563,7 +15696,7 @@
           _pageBlank = false;
           if (bm.title) { doc.setFont(PDF_FONT, 'bold'); doc.setFontSize(16); doc.setTextColor(...txR); doc.text(bm.title, pw / 2, 28, { align: 'center' }) }
           const startY = bm.title ? 42 : yStart;
-          const paras = bm.content.split('\n').filter(p => p.trim());
+          const paras = _splitParas(bm.content);
           flowParas(paras, startY, tw, mg);
           addPageNum();
         });
@@ -15636,7 +15769,7 @@
         // Front matter
         frontMatter.forEach((fm, i) => {
           const fname = `front${String(i + 1).padStart(3, '0')}.xhtml`;
-          const body = `${fm.title ? `<h2 class="section-title">${esc(fm.title)}</h2>` : ''}` + fm.content.split('\n').filter(p => p.trim()).map(p => `<p>${md(esc(p))}</p>`).join('');
+          const body = `${fm.title ? `<h2 class="section-title">${esc(fm.title)}</h2>` : ''}` + _splitParas(fm.content).map(p => p.trim() ? `<p>${md(esc(p))}</p>` : `<p class="blank">&nbsp;</p>`).join('');
           oebps.file(fname, xhtmlWrap(fm.title || 'Front Matter', body));
           spineItems.push({ id: `front${i + 1}`, href: fname, label: fm.title || `Front Matter ${i + 1}` });
         });
@@ -15645,7 +15778,7 @@
         bodyChapters.forEach((ch, i) => {
           const cn = chapterNumber(i + 1);
           const label = cn ? `Chapter ${cn}${ch.title ? ' — ' + ch.title : ''}` : ch.title || `Chapter ${i + 1}`;
-          const paras = ch.content.split('\n').filter(p => p.trim());
+          const paras = _splitParas(ch.content);
           const bodyParas = paras.map((p, pi) => {
             const _eim = _imgParseLine(p);
             if (_eim) {
@@ -15670,7 +15803,7 @@
         // Back matter
         backMatter.forEach((bm, i) => {
           const fname = `back${String(i + 1).padStart(3, '0')}.xhtml`;
-          const body = `${bm.title ? `<h2 class="section-title">${esc(bm.title)}</h2>` : ''}` + bm.content.split('\n').filter(p => p.trim()).map(p => `<p>${md(esc(p))}</p>`).join('');
+          const body = `${bm.title ? `<h2 class="section-title">${esc(bm.title)}</h2>` : ''}` + _splitParas(bm.content).map(p => p.trim() ? `<p>${md(esc(p))}</p>` : `<p class="blank">&nbsp;</p>`).join('');
           oebps.file(fname, xhtmlWrap(bm.title || 'Back Matter', body));
           spineItems.push({ id: `back${i + 1}`, href: fname, label: bm.title || `Back Matter ${i + 1}` });
         });
@@ -15699,8 +15832,8 @@
         const spineItems = [{ id: 'title', href: 'title.html', label: 'Title Page' }];
         bodyChapters.forEach((ch, i) => {
           const cn = chapterNumber(i + 1); const label = cn ? `Chapter ${cn}${ch.title ? ' — ' + ch.title : ''}` : ch.title || `Chapter ${i + 1}`;
-          const paras = ch.content.split('\n').filter(p => p.trim());
-          const bodyHTML = paras.map((p, pi) => { const _eim = _imgParseLine(p); if (_eim) { const _im = _imgById(_eim.id); const _src = _im ? (_im.url || '') : ''; const _cap = _eim.caption || ''; return _src ? `<figure style="margin:1.2em 0;text-align:center"><img src="${esc(_src)}" alt="${esc(_cap)}" style="max-width:100%;height:auto">${_cap ? `<figcaption style="font-style:italic;color:#666;font-size:.92em;margin-top:.3em">${esc(_cap)}</figcaption>` : ''}</figure>` : `<p class="scene">[Image${_cap ? ': ' + esc(_cap) : ''}]</p>`; } if (p === '__SCENE_BREAK__') return `<p class="scene">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`; const noInd = pi === 0 || (pi > 0 && paras[pi - 1] === '__SCENE_BREAK__'); return `<p class="${noInd ? 'noind' : ''}">${md(esc(p))}</p>`; }).join('');
+          const paras = _splitParas(ch.content);
+          const bodyHTML = paras.map((p, pi) => { const _eim = _imgParseLine(p); if (_eim) { const _im = _imgById(_eim.id); const _src = _im ? (_im.url || '') : ''; const _cap = _eim.caption || ''; return _src ? `<figure style="margin:1.2em 0;text-align:center"><img src="${esc(_src)}" alt="${esc(_cap)}" style="max-width:100%;height:auto">${_cap ? `<figcaption style="font-style:italic;color:#666;font-size:.92em;margin-top:.3em">${esc(_cap)}</figcaption>` : ''}</figure>` : `<p class="scene">[Image${_cap ? ': ' + esc(_cap) : ''}]</p>`; } if (p === '__SCENE_BREAK__') return `<p class="scene">${esc(orn)} ${esc(orn)} ${esc(orn)}</p>`; if (!p.trim()) return `<p class="blank">&nbsp;</p>`; const noInd = pi === 0 || (pi > 0 && paras[pi - 1] === '__SCENE_BREAK__'); return `<p class="${noInd ? 'noind' : ''}">${md(esc(p))}</p>`; }).join('');
           const fname = `ch${String(i + 1).padStart(3, '0')}.html`;
           zip.file(fname, `<html><head><meta charset="UTF-8"/><title>${esc(label)}</title><link rel="stylesheet" href="style.css"/></head><body>${cn ? `<p class="chnum">Chapter ${esc(String(cn))}</p>` : ''}${ch.title ? `<h2 class="chtitle">${esc(ch.title)}</h2>` : ''}<p class="orn">${esc(orn)}</p>${bodyHTML}</body></html>`);
           spineItems.push({ id: `ch${i + 1}`, href: fname, label });
@@ -15753,7 +15886,7 @@
         if (dedic) { children.push(new Paragraph({ children: [new TextRun({ text: dedic, font: bodyFont, size: ptToHalfPt(12), italics: true, color: textMutedHex })], alignment: AlignmentType.CENTER, spacing: { before: mmToTwips(ph * 0.3), after: 0 } })); children.push(new Paragraph({ children: [new TextRun({ text: '', break: 1 })], pageBreakBefore: true })) }
         frontMatter.forEach(fm => {
           if (fm.title) children.push(new Paragraph({ children: [new TextRun({ text: fm.title, font: headFont, size: ptToHalfPt(18), bold: true, color: textHex })], alignment: AlignmentType.CENTER, spacing: { before: 480, after: 240 } }));
-          fm.content.split('\n').filter(p => p.trim()).forEach(p => children.push(bodyPara(p, true)));
+          _splitParas(fm.content).forEach(p => children.push(bodyPara(p, true)));
           children.push(new Paragraph({ children: [new PageBreak()] }));
         });
         bodyChapters.forEach((ch, ci) => {
@@ -15761,7 +15894,7 @@
           if (cn) children.push(new Paragraph({ children: [new TextRun({ text: 'CHAPTER ' + cn, font: bodyFont, size: ptToHalfPt(8.5), color: accentHex, allCaps: true, characterSpacing: 180 })], alignment: AlignmentType.CENTER, spacing: { before: 480, after: 120 } }));
           if (ch.title) children.push(new Paragraph({ children: [new TextRun({ text: ch.title, font: headFont, size: ptToHalfPt(18), bold: true, color: textHex })], alignment: AlignmentType.CENTER, spacing: { before: 0, after: 160 } }));
           children.push(new Paragraph({ children: [new TextRun({ text: orn, size: ptToHalfPt(13), color: accentHex })], alignment: AlignmentType.CENTER, spacing: { before: 80, after: 200 } }));
-          const paras = ch.content.split('\n').filter(p => p.trim());
+          const paras = _splitParas(ch.content);
           paras.forEach((p, pi) => {
             const _eim = _imgParseLine(p);
             if (_eim) {
@@ -15800,7 +15933,7 @@
         });
         backMatter.forEach((bm, bi) => {
           if (bm.title) children.push(new Paragraph({ children: [new TextRun({ text: bm.title, font: headFont, size: ptToHalfPt(18), bold: true, color: textHex })], alignment: AlignmentType.CENTER, spacing: { before: 480, after: 240 } }));
-          bm.content.split('\n').filter(p => p.trim()).forEach(p => children.push(bodyPara(p, true)));
+          _splitParas(bm.content).forEach(p => children.push(bodyPara(p, true)));
           if (bi < backMatter.length - 1) children.push(new Paragraph({ children: [new PageBreak()] }));
         });
         const footer = showNums ? new Footer({ children: [new Paragraph({ children: [new TextRun({ children: [PageNumber.CURRENT], font: bodyFont, size: ptToHalfPt(9), color: textMutedHex })], alignment: AlignmentType.CENTER })] }) : undefined;
@@ -15851,7 +15984,7 @@
         r += '{\\pard\\page\\par}\n';
         front.forEach(sec => {
           r += para(sec.title, { bold: true, center: true, size: 32, noInd: true, sb: 480, sa: 240 });
-          sec.content.split('\n').filter(p => p.trim()).forEach((p, pi) => {
+          _splitParas(sec.content).forEach((p, pi) => {
             const _eim = _imgParseLine(p);
             if (_eim) { r += para(rs('[Image' + (_eim.caption ? ': ' + _eim.caption : '') + ']'), { center: true, size: 18, color: 2, noInd: true, sb: 120, sa: 120 }); return; }
             if (p === '__SCENE_BREAK__') { r += para(rs(orn) + '   ' + rs(orn) + '   ' + rs(orn), { center: true, size: 20, color: 2, noInd: true, sb: 160, sa: 160 }); return; }
@@ -15866,7 +15999,7 @@
           if (cn) r += para('CHAPTER ' + cn, { center: true, size: 16, color: 2, noInd: true, sb: 480, sa: 120 });
           if (ch.title) r += para(ch.title, { bold: true, center: true, size: 36, noInd: true, sa: 160 });
           r += para(rs(orn), { center: true, size: 22, color: 2, noInd: true, sa: 200 });
-          const paras = ch.content.split('\n').filter(p => p.trim());
+          const paras = _splitParas(ch.content);
           paras.forEach((p, pi) => {
             const _eim = _imgParseLine(p);
             if (_eim) { r += para(rs('[Image' + (_eim.caption ? ': ' + _eim.caption : '') + ']'), { center: true, size: 18, color: 2, noInd: true, sb: 120, sa: 120 }); return; }
@@ -15878,7 +16011,7 @@
         });
         back.forEach(sec => {
           r += para(sec.title, { bold: true, center: true, size: 32, noInd: true, sb: 480, sa: 240 });
-          sec.content.split('\n').filter(p => p.trim()).forEach((p, pi) => {
+          _splitParas(sec.content).forEach((p, pi) => {
             const _eim = _imgParseLine(p);
             if (_eim) { r += para(rs('[Image' + (_eim.caption ? ': ' + _eim.caption : '') + ']'), { center: true, size: 18, color: 2, noInd: true, sb: 120, sa: 120 }); return; }
             if (p === '__SCENE_BREAK__') { r += para(rs(orn) + '   ' + rs(orn) + '   ' + rs(orn), { center: true, size: 20, color: 2, noInd: true, sb: 160, sa: 160 }); return; }
@@ -15920,7 +16053,7 @@
         // Front matter sections
         front.forEach(sec => {
           md += '## ' + sec.title + '\n\n';
-          sec.content.split('\n').filter(p => p.trim()).forEach(p => {
+          _splitParas(sec.content).forEach(p => {
             const _eim = _imgParseLine(p);
             if (_eim) { const _im = _imgById(_eim.id); const _src = _im ? (_im.url || '') : ''; const _cap = _eim.caption || ''; md += _src ? ('\n![' + _cap + '](' + _src + ')\n\n' + (_cap ? '*' + _cap + '*\n\n' : '')) : ('\n_[Image' + (_cap ? ': ' + _cap : '') + ']_\n\n'); return; }
             if (p === '__SCENE_BREAK__') { md += '\n' + orn + ' ' + orn + ' ' + orn + '\n\n'; return; }
@@ -15937,7 +16070,7 @@
           else if (cn) md += '# Chapter ' + cn + '\n\n';
           else if (ch.title) md += '# ' + ch.title + '\n\n';
           md += orn + '\n\n';
-          ch.content.split('\n').filter(p => p.trim()).forEach(p => {
+          _splitParas(ch.content).forEach(p => {
             const _eim = _imgParseLine(p);
             if (_eim) { const _im = _imgById(_eim.id); const _src = _im ? (_im.url || '') : ''; const _cap = _eim.caption || ''; md += _src ? ('\n![' + _cap + '](' + _src + ')\n\n' + (_cap ? '*' + _cap + '*\n\n' : '')) : ('\n_[Image' + (_cap ? ': ' + _cap : '') + ']_\n\n'); return; }
             if (p === '__SCENE_BREAK__') { md += '\n' + orn + ' ' + orn + ' ' + orn + '\n\n'; return; }
@@ -15947,7 +16080,7 @@
         // Back matter
         back.forEach(sec => {
           md += '---\n\n## ' + sec.title + '\n\n';
-          sec.content.split('\n').filter(p => p.trim()).forEach(p => {
+          _splitParas(sec.content).forEach(p => {
             const _eim = _imgParseLine(p);
             if (_eim) { const _im = _imgById(_eim.id); const _src = _im ? (_im.url || '') : ''; const _cap = _eim.caption || ''; md += _src ? ('\n![' + _cap + '](' + _src + ')\n\n' + (_cap ? '*' + _cap + '*\n\n' : '')) : ('\n_[Image' + (_cap ? ': ' + _cap : '') + ']_\n\n'); return; }
             if (p === '__SCENE_BREAK__') { md += '\n' + orn + ' ' + orn + ' ' + orn + '\n\n'; return; }
@@ -16058,7 +16191,7 @@
           } else {
             if (sec.title) h += '<h2 class="st">' + esc(sec.title) + '</h2>\n';
           }
-          const paras = sec.content.split('\n').filter(p => p.trim());
+          const paras = _splitParas(sec.content);
           paras.forEach((p, pi) => {
             const _eim = _imgParseLine(p);
             if (_eim) { const _im = _imgById(_eim.id); const _src = _im ? (_im.url || '') : ''; const _cap = _eim.caption || ''; h += _src ? ('<figure style="margin:1.2em 0;text-align:center"><img src="' + esc(_src) + '" alt="' + esc(_cap) + '" style="max-width:100%;height:auto">' + (_cap ? '<figcaption style="font-style:italic;color:#666;font-size:.92em;margin-top:.3em">' + esc(_cap) + '</figcaption>' : '') + '</figure>\n') : ('<p style="text-align:center;font-style:italic;color:#888">[Image' + (_cap ? ': ' + esc(_cap) : '') + ']</p>\n'); return; }
@@ -16114,7 +16247,7 @@
         // Front matter
         front.forEach(sec => {
           t += centre(sec.title.toUpperCase()) + '\n\n';
-          sec.content.split('\n').filter(p => p.trim()).forEach((p, pi) => {
+          _splitParas(sec.content).forEach((p, pi) => {
             const _eim = _imgParseLine(p);
             if (_eim) { const _cap = _eim.caption || ''; t += '\n    [Image' + (_cap ? ': ' + _cap : '') + ']\n\n'; return; }
             if (p === '__SCENE_BREAK__') { t += '\n    * * *\n\n'; return; }
@@ -16130,7 +16263,7 @@
           if (cn) t += centre('CHAPTER ' + cn) + '\n';
           if (ch.title) t += centre(ch.title) + '\n';
           t += '\n\n';
-          const paras = ch.content.split('\n').filter(p => p.trim());
+          const paras = _splitParas(ch.content);
           paras.forEach((p, pi) => {
             const _eim = _imgParseLine(p);
             if (_eim) { const _cap = _eim.caption || ''; t += '\n    [Image' + (_cap ? ': ' + _cap : '') + ']\n\n'; return; }
@@ -16143,7 +16276,7 @@
         // Back matter
         back.forEach(sec => {
           t += centre(sec.title.toUpperCase()) + '\n\n';
-          sec.content.split('\n').filter(p => p.trim()).forEach((p, pi) => {
+          _splitParas(sec.content).forEach((p, pi) => {
             const _eim = _imgParseLine(p);
             if (_eim) { const _cap = _eim.caption || ''; t += '\n    [Image' + (_cap ? ': ' + _cap : '') + ']\n\n'; return; }
             if (p === '__SCENE_BREAK__') { t += '\n    * * *\n\n'; return; }
@@ -16269,21 +16402,15 @@
 
       // Get new text — strip HTML, collapse whitespace
       const newText = el.innerText.replace(/\n+/g, ' ').trim();
-      const paras = ch.content.split('\n');
-
-      // paraIdx is the index in the filtered non-empty paras array
-      // Map back to original content array
-      let idx = 0, found = -1;
-      for (let i = 0; i < paras.length; i++) {
-        if (paras[i].trim()) {
-          if (idx === paraIdx) { found = i; break; }
-          idx++;
-        }
-      }
-      if (found === -1) return;
-      if (paras[found] === newText) return; // no change
-
-      paras[found] = newText;
+      // NB: post-2026-07-21 refactor — everything renders + walks
+      // paragraphs through _splitParas, so paraIdx is a direct index
+      // into that preserved-blanks list. Blank paragraphs stay blank
+      // on blur (nothing typed) so authors can insert scene spacers
+      // without them collapsing away.
+      const paras = _splitParas(ch.content);
+      if (paraIdx < 0 || paraIdx >= paras.length) return;
+      if (paras[paraIdx] === newText) return; // no change
+      paras[paraIdx] = newText;
       ch.content = paras.join('\n');
 
       // Update sidebar textarea if expanded
@@ -16334,13 +16461,12 @@
       const newText = el.innerText.replace(/\n/g, ' ').trim();
       if (!newText && el.dataset.original === '__SCENE_BREAK__') return;
 
-      // Rebuild the chapter content with the edited paragraph
-      const paras = ch.content.split('\n');
-      // Find the actual paragraph index in the original content
-      const contentParas = paras.filter(p => p.trim());
-      if (paraIdx < contentParas.length) {
-        contentParas[paraIdx] = newText;
-        ch.content = contentParas.join('\n');
+      // Post-2026-07-21: paragraphs walked via _splitParas everywhere
+      // so paraIdx is a direct index. Blank paragraphs preserved.
+      const paras = _splitParas(ch.content);
+      if (paraIdx >= 0 && paraIdx < paras.length) {
+        paras[paraIdx] = newText;
+        ch.content = paras.join('\n');
         updateChTitle(chId, ch.title); // triggers renderPreview via updateChContent
         _scheduleAutoSave();
         // Don't re-render immediately — let user keep editing nearby paragraphs
@@ -18494,7 +18620,7 @@
 
       // Front matter
       getFront().forEach(sec => {
-        const paras = (sec.content || '').split('\n').filter(p => p.trim());
+        const paras = _splitParas(sec.content);
         html += wrapPage(`${sec.title ? `<h2 class="st">${esc(sec.title)}</h2>` : ''}<div style="margin-top:1em">${renderParas(paras, sec.title, true)}</div>`, sec.title);
       });
       if (dedic) html += wrapPage(`<div style="display:flex;align-items:center;height:80%"><p style="font-style:italic;text-align:center;width:100%;opacity:.7">${esc(dedic)}</p></div>`);
@@ -18503,7 +18629,7 @@
       getChapters().forEach(ch => {
         chCounter++;
         const cn = chapterNumber(chCounter);
-        const paras = (ch.content || '').split('\n').filter(p => p.trim());
+        const paras = _splitParas(ch.content);
         const titleBlock = (cn || ch.title) ? `${cn ? `<p class="cn">Chapter ${esc(String(cn))}</p>` : ''}`
           + `${ch.title ? `<h2 class="ct">${esc(ch.title)}</h2>` : ''}<p class="orn">${esc(orn)}</p>` : '';
         html += wrapPage(`${titleBlock}<div style="margin-top:${titleBlock ? '1em' : '0'}">${renderParas(paras, ch.title, true)}</div>`, ch.title);
@@ -18511,7 +18637,7 @@
 
       // Back matter
       getBack().forEach(sec => {
-        const paras = (sec.content || '').split('\n').filter(p => p.trim());
+        const paras = _splitParas(sec.content);
         html += wrapPage(`${sec.title ? `<h2 class="st">${esc(sec.title)}</h2>` : ''}<div style="margin-top:1em">${renderParas(paras, sec.title, true)}</div>`, sec.title);
       });
 
@@ -25167,7 +25293,7 @@
     function _annParagraphText(chid, paraidx) {
       const ch = chapters.find(c => c.id === chid);
       if (!ch) return '';
-      const paras = (ch.content || '').split('\n').filter(p => p.trim());
+      const paras = _splitParas(ch.content);
       return paras[paraidx] || '';
     }
 
@@ -25800,7 +25926,7 @@
     function _bmSnippet(chid, paraidx) {
       const ch = chapters.find(c => c.id === chid);
       if (!ch) return '';
-      const paras = (ch.content || '').split('\n').filter(p => p.trim());
+      const paras = _splitParas(ch.content);
       const p = paras[paraidx] || '';
       // Strip markdown markers and trim to ~80 chars
       const clean = p.replace(/__IMG__.*$/, '[Image]').replace(/\*\*/g, '').replace(/\*/g, '').replace(/__SCENE_BREAK__/g, '...').trim();
@@ -27566,6 +27692,21 @@
 
       if (isSceneBreak) return `<div style="text-align:center;font-size:${pt(H_SCENE_BREAK)};color:${accentColor};margin:${mm(2)} 0;opacity:0.65">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
 
+      // Blank paragraph — author's intentional vertical whitespace
+      // (Thomas's psalm separators, scene beats, poetry stanza gaps).
+      // Rendered as an editable one-line spacer so authors can click
+      // in, hit Enter to keep adding blank lines, or type to convert
+      // it into a real paragraph.
+      if (!text || (typeof text === 'string' && !text.trim())) {
+        const _spacerH = pt(fsize) + ` * ${lspace}`; // rough — line-height * font-size
+        return `<p class="preview-editable preview-blank" data-chid="${chId}" data-paraidx="${paraIdx}" data-line-id="${lineId}"
+              contenteditable="${String(editMode)}" spellcheck="false"
+              onblur="if(_editMode)_onParaBlur(this)"
+              oncontextmenu="if(_editMode)_ctxOpen(event,this)"
+              onkeydown="if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();_insertBlankParaAfter(this)}else if(_editMode&&event.key==='Backspace'&&!this.innerText.trim()){event.preventDefault();_deleteBlankPara(this)}"
+              style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${textColor};margin:0;text-align:${justify};text-indent:0;margin-bottom:${indentMode === '0' ? mm(1.3) : '0'};min-height:${pt(fsize * parseFloat(lspace))};">&nbsp;</p>`;
+      }
+
       // Character-specific highlighting now happens at the QUOTE level,
       // not the paragraph level — see _charHighlightDialogue below. The
       // old per-paragraph border-left was dead code (assignments are
@@ -27598,9 +27739,79 @@
             contenteditable="${editable}" spellcheck="true"
             onblur="if(_editMode && !this.classList.contains('para-cont'))_onParaBlur(this)"
             oncontextmenu="if(_editMode && !this.classList.contains('para-cont'))_ctxOpen(event,this)"
-            onkeydown="if(_editMode&&!this.classList.contains('para-cont')&&event.key==='Tab'){event.preventDefault();const s=this.selectionStart??0,e=this.selectionEnd??0,t=this.innerText;document.execCommand('insertText',false,event.shiftKey?'':' '.repeat(4));}else if(_editMode&&!this.classList.contains('para-cont')&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.blur()}"
+            onkeydown="if(_editMode&&!this.classList.contains('para-cont')&&event.key==='Tab'){event.preventDefault();document.execCommand('insertText',false,event.shiftKey?'':' '.repeat(4));}else if(_editMode&&!this.classList.contains('para-cont')&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();_insertBlankParaAfter(this)}"
             style="${paraStyle} ${charColorStyle}">
             ${dc}</p>`;
+    }
+
+    // Insert a blank paragraph into the chapter content immediately
+    // after the paragraph the user hit Enter on. Fixes Thomas's report
+    // (2026-07-21): pressing Enter/Shift+Enter used to just blur — no
+    // way to add scene-separator whitespace short of editing the raw
+    // textarea. Now Enter reliably inserts one blank line and moves
+    // the cursor into it.
+    function _insertBlankParaAfter(el) {
+      try {
+        const chId = el.dataset.chid;
+        const paraIdx = parseInt(el.dataset.paraidx);
+        const ch = chapters.find(c => c.id === chId);
+        if (!ch) return;
+        // Flush any pending edits to the paragraph first.
+        const editedText = el.innerText.replace(/\n+/g, ' ').trim();
+        const paras = _splitParas(ch.content);
+        if (paraIdx < 0 || paraIdx >= paras.length) return;
+        paras[paraIdx] = editedText;
+        // Insert a blank line right after — capped internally by
+        // _splitParas' MAX_BLANK_RUN so autofire can't spam pages.
+        paras.splice(paraIdx + 1, 0, '');
+        ch.content = paras.join('\n');
+        _scheduleAutoSave();
+        // Re-render then park the caret in the new blank paragraph.
+        renderPreview();
+        setTimeout(() => {
+          const newEl = document.querySelector(
+            `.preview-editable[data-chid="${chId}"][data-paraidx="${paraIdx + 1}"]`
+          );
+          if (newEl) {
+            newEl.focus();
+            try {
+              const r = document.createRange(); r.selectNodeContents(newEl); r.collapse(true);
+              const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+            } catch (e) {}
+          }
+        }, 40);
+      } catch (e) { console.warn('_insertBlankParaAfter:', e); }
+    }
+
+    // Backspace at start of an empty spacer paragraph deletes it and
+    // pulls the caret back to the end of the previous paragraph. Feels
+    // natural, matches every rich-text editor.
+    function _deleteBlankPara(el) {
+      try {
+        const chId = el.dataset.chid;
+        const paraIdx = parseInt(el.dataset.paraidx);
+        const ch = chapters.find(c => c.id === chId);
+        if (!ch) return;
+        const paras = _splitParas(ch.content);
+        if (paraIdx <= 0 || paraIdx >= paras.length) return;
+        if (paras[paraIdx].trim()) return; // not blank — refuse
+        paras.splice(paraIdx, 1);
+        ch.content = paras.join('\n');
+        _scheduleAutoSave();
+        renderPreview();
+        setTimeout(() => {
+          const prev = document.querySelector(
+            `.preview-editable[data-chid="${chId}"][data-paraidx="${paraIdx - 1}"]`
+          );
+          if (prev) {
+            prev.focus();
+            try {
+              const r = document.createRange(); r.selectNodeContents(prev); r.collapse(false);
+              const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+            } catch (e) {}
+          }
+        }, 40);
+      } catch (e) { console.warn('_deleteBlankPara:', e); }
     }
 
     /* ═══════════════════════════════════════════════
@@ -27979,7 +28190,7 @@
       try {
         const ch = chapters.find(c => c.id === chapterId);
         if (!ch) throw new Error('Chapter not found');
-        const allParagraphs = ch.content.split('\n').filter(p => p.trim()); // Filter empty lines for correct paraIdx
+        const allParagraphs = _splitParas(ch.content); // Filter empty lines for correct paraIdx
         const text = allParagraphs[paraIdx];
         if (!text) throw new Error('Line is empty');
 
@@ -28102,7 +28313,7 @@
         return;
       }
 
-      const allParagraphs = chapter.content.split('\n').filter(p => p.trim());
+      const allParagraphs = _splitParas(chapter.content);
       const linesToGenerate = [];
 
       for (let i = 0; i < allParagraphs.length; i++) {
@@ -28821,7 +29032,7 @@
         const ch = chapters.find(c => c.id === chapterId);
         if (!ch) throw new Error('Chapter not found.');
 
-        const allParagraphs = ch.content.split('\n').filter(p => p.trim());
+        const allParagraphs = _splitParas(ch.content);
         const blobsToStitch = [];
         let missingAudio = 0;
         let totalStitchedDuration = 0;
