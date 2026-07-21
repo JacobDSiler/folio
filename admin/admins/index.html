@@ -224,10 +224,16 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
     });
     const all = bootstrap.concat(_roles.filter(function(r){ return !ADMIN_UIDS_BOOTSTRAP.includes(r.uid); }));
     if (!all.length) { list.innerHTML = '<div class="empty">No role docs yet — grant one above.</div>'; return; }
+    // NB: the button HTML uses double-quoted strings so we can embed
+    // apostrophes without escaping (fixed 2026-07-21 — the previous
+    // \\' escapes were interpreted as string-terminator + syntax error,
+    // which killed the entire <script> block and left the page blank).
     list.innerHTML = all.map(function(r){
       const badges = (r.roles || []).map(function(role){ return '<span class="badge ' + role + '">' + role + '</span>'; }).join('');
       const bootBadge = r.bootstrap ? '<span class="badge bootstrap">bootstrap</span>' : '';
-      const revokeBtn = r.bootstrap ? '<button class="ghost" disabled title="Bootstrap admins can\\'t be revoked from here — edit ADMIN_UIDS_BOOTSTRAP in source.">Locked</button>' : '<button class="danger" onclick="revokeRole(\\'' + r.uid + '\\')">Revoke</button>';
+      const revokeBtn = r.bootstrap
+        ? "<button class=\"ghost\" disabled title=\"Bootstrap admins can't be revoked from here — edit ADMIN_UIDS_BOOTSTRAP in source.\">Locked</button>"
+        : "<button class=\"danger\" onclick=\"revokeRole('" + esc(r.uid) + "')\">Revoke</button>";
       return '<div class="role-row">' +
         '<div style="flex:1">' +
           '<div class="name">' + esc(r.displayName || '(no display name)') + '</div>' +
