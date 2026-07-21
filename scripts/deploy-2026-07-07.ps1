@@ -170,6 +170,8 @@ try {
     & git add admin\_shared.js
     & git add docs\AUTH_UNAUTHORIZED_DOMAIN_FIX.md docs\STABILITY_PLAN.md
     & git add docs\TUTORIAL_STRATEGY.md
+    & git add docs\ADMIN_DIGEST_SETUP.md
+    & git add folio-email-worker.js
     & git add imprint\index.html
     & git add .githooks\pre-commit
     & git add policy\index.html
@@ -181,23 +183,42 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
-feat(admin): admin console + role management + shelf moderation scaffolding
+fix(reader): robust page-clipping + blank-paragraph persistence
 
-- /admin/ console landing with 6 tiles (boost, reviews, press, admins,
-  shelf coming soon, metrics coming soon)
-- /admin/admins/ grant + revoke admin/moderator roles via folio_roles/{uid}
-- Back-to-console nav links on existing admin pages
-- Firestore rules: isAdmin() unions bootstrap uid list with folio_roles
-  collection lookup; isModerator() helper added; folio_roles rules
-- Release modal: adult content self-declaration checkbox + "not allowed
-  on Folio" callout linking to /policy/ (page built next session)
-- app.html: hasAdultContent + shelfPendingModeration flags on publish;
-  every re-publish that touches shelf-visible fields re-enters queue
-- shelf.html: pending listings filtered from public feed; owner still
-  sees their own pending listing so nothing feels broken
-- docs/SHELF_MODERATION_DESIGN.md: spec for /admin/shelf/ moderator
-  dashboard + /policy/ page + owner nudges (next session)
-- docs/firebase-storage-cors.json: unblocks product-photo canvas
+Two Thomas-reported production bugs, both fixed with a single audit
+of the paragraph pipeline:
+
+1. Text clipping at page bottom (phone AND laptop, still hitting after
+   the 0.5-to-1.2-line slack bump on 2026-07-20). Root causes: fonts
+   not fully loaded at first paginate, sub-pixel drift on non-integer
+   viewports, drop-cap float behaviour mismatch. Fixes:
+     - Pagination slack bumped 1.2 to 2.5 lines (worst case: ~2 lines
+       whitespace at page bottom; alternative is losing paid-customer
+       content off the bottom which we do NOT accept)
+     - document.fonts.ready gate before first pagination (re-renders
+       once real fonts swap in)
+     - Post-render watchdog _fixOverflowingPages: walks every
+       .page-content, detects scrollHeight > clientHeight, tags with
+       .page-overflowed for a visible fade + ellipsis instead of an
+       invisible hard-clip, logs chapter+page to console so we can
+       diagnose any remaining drift
+
+2. Blank paragraphs (author scene-separators, psalm gaps) silently
+   deleted. Root cause: ~30 rendering/export sites used the idiom
+   ch.content.split('\n').filter(p => p.trim()) which dropped every
+   empty line. Fixes:
+     - New canonical splitter _splitParas() preserves internal blanks
+       up to a MAX_BLANK_RUN cap of 3
+     - All 33 call sites migrated to _splitParas via automated rewrite
+     - Reader renders blank paragraphs as one-line editable spacers
+     - Pagination measures blanks as lineH so page budgets stay honest
+     - Enter key in preview editor now inserts a blank paragraph after
+       the current one (was previously just calling .blur()); Backspace
+       on an empty spacer paragraph deletes it and pulls the caret to
+       the previous line. Feels like every other rich-text editor.
+     - _onParaBlur / _onEditBlur walk _splitParas so paraIdx stays
+       consistent between render and save-back
+     - EPUB, XHTML, RTF, DOCX exports all emit visible blank paragraphs
 "@
     $msg | Out-File -FilePath $msgPath -Encoding utf8 -NoNewline
 

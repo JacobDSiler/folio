@@ -422,6 +422,171 @@ function fsDecodeFields(fields) {
   return out;
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   ADMIN DAILY DIGEST — added 2026-07-20
+   ──────────────────────────────────────────────────────────────────
+   Scans folio_projects for release.shelfPendingModeration == true,
+   counts them, sends one email per address in ADMIN_DIGEST_EMAILS
+   (comma-separated Wrangler secret) with a link to /admin/shelf/.
+   Latched via folio_admin_digest_state/latch — max one send per 20h
+   regardless of how many times triggered.
+   ══════════════════════════════════════════════════════════════════ */
+async function runAdminDigest(env, opts) {
+  opts = opts || {};
+  const summary = { pending: 0, sent: 0, failed: 0, skipped: null, errors: [] };
+  if (!env.ADMIN_DIGEST_EMAILS) {
+    summary.skipped = 'ADMIN_DIGEST_EMAILS not configured';
+    return summary;
+  }
+  const recipients = String(env.ADMIN_DIGEST_EMAILS).split(',')
+    .map(function(s){ return s.trim(); })
+    .filter(function(s){ return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s); });
+  if (recipients.length === 0) {
+    summary.skipped = 'ADMIN_DIGEST_EMAILS had no valid addresses';
+    return summary;
+  }
+
+  const auth = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || auth.projectId;
+  if (!projectId) throw new Error('No Firestore project id for admin digest');
+  const now = Date.now();
+
+  // Latch check — skip if we sent within the last 20 hours (unless force=true)
+  const _latchUrl = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+    '/databases/(default)/documents/folio_admin_digest_state/latch';
+  if (!opts.force) {
+    try {
+      const r = await fetch(_latchUrl, { headers: { 'Authorization': 'Bearer ' + auth.token } });
+      if (r.ok) {
+        const data = await r.json().catch(function(){ return {}; });
+        const fields = data.fields || {};
+        const lastMs = fields.lastSentMs && Number(fields.lastSentMs.integerValue || fields.lastSentMs.doubleValue || 0);
+        if (lastMs && (now - lastMs) < (20 * 60 * 60 * 1000)) {
+          summary.skipped = 'latched — last sent ' + Math.round((now - lastMs) / (60*60*1000)) + 'h ago';
+          return summary;
+        }
+      }
+    } catch (e) { /* latch read failure is not fatal — proceed */ }
+  }
+
+  // Query folio_projects and count pending items. Also build a small
+  // preview list (top 5) with title + author for the email body.
+  const folios = await fsList(projectId, auth.token, 'folio_projects');
+  const pending = [];
+  for (const folio of folios) {
+    const release = folio.data && folio.data.release;
+    if (release && release.shelfPendingModeration === true && release.listOnShelf === true) {
+      pending.push({
+        id: folio.id,
+        title: (release.title || folio.data.name || 'Untitled').slice(0, 100),
+        author: (release.author || 'Unknown').slice(0, 80),
+        submittedAt: Number(release.shelfListedAt || 0),
+      });
+    }
+  }
+  pending.sort(function(a, b){ return (b.submittedAt || 0) - (a.submittedAt || 0); });
+  summary.pending = pending.length;
+
+  if (pending.length === 0 && !opts.force) {
+    summary.skipped = 'no pending items';
+    return summary;
+  }
+
+  // Build + send one email per recipient.
+  const appBase = allowedOrigins(env)[0] || DEFAULT_ORIGIN;
+  const html = buildAdminDigestEmail({ pending: pending, appBase: appBase, now: now });
+  const subject = pending.length === 1
+    ? '1 folio awaiting review on Folio'
+    : pending.length + ' folios awaiting review on Folio';
+
+  for (const to of recipients) {
+    try {
+      const r = await fetch(RESEND_API, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + env.RESEND_API_KEY,
+        },
+        body: JSON.stringify({
+          from: env.FROM_EMAIL || 'Folio <no-reply@onfolio.press>',
+          to: [to],
+          subject: subject,
+          html: html,
+        }),
+      });
+      if (r.ok) {
+        summary.sent++;
+      } else {
+        const err = await r.text().catch(function(){ return 'unknown'; });
+        summary.failed++;
+        summary.errors.push({ to: to, err: err.slice(0, 200) });
+      }
+    } catch (e) {
+      summary.failed++;
+      summary.errors.push({ to: to, err: (e && e.message) || 'network' });
+    }
+  }
+
+  // Write latch — best-effort. If it fails, worst case is a duplicate
+  // digest tomorrow; not a data-integrity concern.
+  try {
+    await fetch(_latchUrl, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + auth.token,
+      },
+      body: JSON.stringify({
+        fields: {
+          lastSentMs: { integerValue: String(now) },
+          lastPendingCount: { integerValue: String(pending.length) },
+          lastRecipients: { integerValue: String(recipients.length) },
+        },
+      }),
+    });
+  } catch (e) { /* non-fatal */ }
+
+  return summary;
+}
+
+function buildAdminDigestEmail(payload) {
+  const pending = payload.pending || [];
+  const appBase = payload.appBase || 'https://www.onfolio.press';
+  const shelfAdminUrl = appBase + '/admin/shelf/';
+  const rows = pending.slice(0, 10).map(function(p){
+    return '<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;font-family:Georgia,serif;font-size:15px;color:#1a1611">' +
+      esc(p.title) +
+      '</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-family:-apple-system,BlinkMacSystemFont,sans-serif;font-size:13px;color:#5a5347">' +
+      esc(p.author) +
+      '</td></tr>';
+  }).join('');
+  const overflow = pending.length > 10
+    ? '<p style="font-size:13px;color:#8a8174;margin:10px 0 0">…and ' + (pending.length - 10) + ' more.</p>'
+    : '';
+  return '<!doctype html><html><body style="margin:0;padding:24px;background:#faf7f1;font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;color:#1a1611">' +
+    '<div style="max-width:560px;margin:0 auto;background:#fff;border:.5px solid rgba(0,0,0,0.10);border-radius:12px;padding:28px 32px">' +
+    '<div style="font-family:\'Playfair Display\',Georgia,serif;font-size:22px;font-weight:600;margin:0 0 4px;color:#1a1611">' +
+    '<span style="color:#c98c2a">✨</span> Folio · Moderation queue</div>' +
+    '<p style="font-size:14.5px;color:#5a5347;margin:0 0 18px;line-height:1.55">' +
+    (pending.length === 1
+      ? 'One folio is waiting for you to review.'
+      : pending.length + ' folios are waiting for you to review.') +
+    '</p>' +
+    (pending.length > 0
+      ? '<table style="width:100%;border-collapse:collapse;margin:0 0 18px"><thead><tr>' +
+        '<th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:600;color:#8a8174;text-transform:uppercase;letter-spacing:.08em;border-bottom:.5px solid rgba(0,0,0,0.14)">Title</th>' +
+        '<th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:600;color:#8a8174;text-transform:uppercase;letter-spacing:.08em;border-bottom:.5px solid rgba(0,0,0,0.14)">Author</th>' +
+        '</tr></thead><tbody>' + rows + '</tbody></table>' + overflow
+      : '') +
+    '<div style="text-align:center;margin:22px 0 6px">' +
+    '<a href="' + esc(shelfAdminUrl) + '" style="display:inline-block;padding:11px 22px;background:#065f46;color:#fff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:500">Open the moderation queue →</a>' +
+    '</div>' +
+    '<p style="font-size:11px;color:#8a8174;margin:24px 0 0;line-height:1.55;text-align:center">' +
+    'You\'re receiving this because your email is in the Folio admin digest list. Sent max once per 20 hours regardless of activity.' +
+    '</p>' +
+    '</div></body></html>';
+}
+
 /* ── Firestore REST: list a collection (handles pagination) ───── */
 async function fsList(projectId, token, collPath) {
   const base = 'https://firestore.googleapis.com/v1/projects/' + projectId +
@@ -697,6 +862,31 @@ export default {
     // (API key, FROM_EMAIL, DKIM/SPF deliverability) without going
     // through the full Folio release flow. Stricter rate limit
     // (5/hr per IP) keeps it unattractive for abuse.
+    // ── Admin digest: manual trigger + cron-callable ───────────────
+    // GET /admin-digest?key=<ADMIN_DEBUG_TOKEN>[&force=1]
+    // Scans folio_projects for pending moderation items, sends one
+    // email per address in ADMIN_DIGEST_EMAILS. Latched to max 1 send
+    // per 20h (force=1 bypasses the latch). Also fires automatically
+    // from the scheduled() handler at the bottom of this file.
+    if (request.method === 'GET' && path === '/admin-digest') {
+      const key = url.searchParams.get('key') || '';
+      const expected = env.ADMIN_DEBUG_TOKEN || '';
+      if (!expected) {
+        return errorJson('Admin digest disabled — ADMIN_DEBUG_TOKEN not set', 403, request, env);
+      }
+      if (key !== expected) {
+        return errorJson('Unauthorized', 401, request, env);
+      }
+      const force = url.searchParams.get('force') === '1';
+      try {
+        const result = await runAdminDigest(env, { force: force });
+        return json({ ok: true, result: result }, 200, request, env);
+      } catch (e) {
+        return errorJson('Admin digest failed: ' + (e.message || 'unknown'),
+          502, request, env);
+      }
+    }
+
     if (request.method === 'GET' && path === '/test') {
       const to = url.searchParams.get('to') || '';
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
@@ -943,12 +1133,22 @@ export default {
   },
 
   // ── Scheduled (Cron Trigger) handler ─────────────────────
+  // Runs BOTH the serial-release notifier AND the admin moderation
+  // digest on each tick. Both are internally latched so a frequent
+  // cron schedule is safe — they'll no-op when there's nothing new.
   async scheduled(event, env, ctx) {
     try {
       const summary = await runCron(env);
-      console.log('[cron] scheduled tick OK', JSON.stringify(summary));
+      console.log('[cron] serial-release tick OK', JSON.stringify(summary));
     } catch (e) {
-      console.error('[cron] scheduled tick FAILED',
+      console.error('[cron] serial-release tick FAILED',
+        e && (e.stack || e.message || e));
+    }
+    try {
+      const digestSummary = await runAdminDigest(env, {});
+      console.log('[cron] admin-digest tick', JSON.stringify(digestSummary));
+    } catch (e) {
+      console.error('[cron] admin-digest tick FAILED',
         e && (e.stack || e.message || e));
     }
   },
