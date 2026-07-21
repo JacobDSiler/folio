@@ -219,6 +219,20 @@ of the paragraph pipeline:
      - _onParaBlur / _onEditBlur walk _paragraphsOf so paraIdx stays
        consistent between render and save-back
      - EPUB, XHTML, RTF, DOCX exports all emit visible blank paragraphs
+
+Also in this batch:
+- fix(app): rename _paragraphsOf helper to avoid identifier collision
+  with the pre-existing _splitParas array used by the manuscript split
+  editor (the collision produced 'Identifier already declared' and
+  killed the entire <script> block, blanking the whole app)
+- fix(admin/admins): renderRoles() used \\' escapes inside single-quoted
+  strings which closed the string prematurely and threw a SyntaxError
+  that killed the whole boot script, leaving the page body blank.
+  Rewrote button HTML with double-quoted strings + esc() on uid.
+- fix(admin/press): revokeSub() had a duplicated try{} block left over
+  from the earlier VS Code truncation-recovery paste — 'Missing catch
+  or finally after try' killed boot(), so the page hung on the
+  'Checking sign-in…' placeholder forever. Removed the duplicate.
 "@
     $msg | Out-File -FilePath $msgPath -Encoding utf8 -NoNewline
 

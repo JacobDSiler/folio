@@ -436,13 +436,6 @@ window.fillMyUid = function() {
         'pressSubscription.status': 'CANCELLED',
         'pressSubscription.cancelledAt': new Date().toISOString()
       });
-    setStatus('revokeStatus', 'Revoking…');
-    try {
-      const ref = _fb.doc(_fb.db, 'folio_user_settings', uid);
-      await _fb.updateDoc(ref, {
-        'pressSubscription.status': 'CANCELLED',
-        'pressSubscription.cancelledAt': new Date().toISOString()
-      });
       setStatus('revokeStatus', '✅ Revoked. User sees loss of features on next auth check.', 'ok');
       lookupCurrentSub();
     } catch (e) {
