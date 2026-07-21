@@ -1830,6 +1830,34 @@
       color: rgba(255, 255, 255, 0.3)
     }
 
+    /* Find & Replace hit highlighter — fixed-position rectangles
+       overlaid on the matched substring after we center it in view.
+       Pulses twice so the eye catches it, then auto-removes. */
+    .fr-hilite {
+      background: rgba(255, 214, 60, 0.55);
+      box-shadow: 0 0 0 2px rgba(255, 190, 20, 0.9), 0 4px 12px rgba(255, 180, 20, 0.35);
+      animation: fr-hilite-pulse 1.8s ease-out forwards;
+    }
+    @keyframes fr-hilite-pulse {
+      0%   { background: rgba(255, 214, 60, 0.85); transform: scale(1.08); }
+      15%  { background: rgba(255, 214, 60, 0.85); transform: scale(1.0); }
+      55%  { background: rgba(255, 214, 60, 0.55); transform: scale(1.0); }
+      100% { background: rgba(255, 214, 60, 0); box-shadow: 0 0 0 0 rgba(255, 190, 20, 0); }
+    }
+
+    /* Fallback pulse for paragraphs (title matches, or when substring
+       range calculation fails). Uses outline instead of background so
+       we don't clobber selection or dark-mode styling. */
+    .fr-pulse {
+      animation: fr-pulse-outline 1.8s ease-out forwards;
+      border-radius: 4px;
+    }
+    @keyframes fr-pulse-outline {
+      0%   { box-shadow: 0 0 0 4px rgba(255, 190, 20, 0.85); background: rgba(255, 214, 60, 0.20); }
+      55%  { box-shadow: 0 0 0 3px rgba(255, 190, 20, 0.55); background: rgba(255, 214, 60, 0.12); }
+      100% { box-shadow: 0 0 0 0 rgba(255, 190, 20, 0); background: transparent; }
+    }
+
     .fr-label {
       font-size: 10.5px;
       color: rgba(255, 255, 255, 0.5);
@@ -17703,9 +17731,16 @@
         if (taWM) { taWM.focus(); taWM.setSelectionRange(match.start, match.end); taWM.blur(); taWM.focus(); return; }
       }
 
-      // Navigate the preview to the chapter page containing the match.
-      // Do NOT open writing mode — find works in the formatted preview.
+      // Navigate the preview to the chapter page containing the match,
+      // THEN zoom in on the exact paragraph that holds the match and
+      // center it in the viewport with a flash highlight so the eye
+      // lands on it immediately (bug reported 2026-07-21 — Jacob:
+      // "auto-scrolls to the found word, but I have no idea where
+      // that word actually is").
       scrollToChapter(match.chId);
+      // scrollToChapter yields to a rAF for its own scroll; wait a
+      // beat longer, then locate the specific paragraph DOM node.
+      setTimeout(function(){ _frCenterMatchInPreview(match); }, 220);
       // If writing mode is already open for this chapter, also select in textarea
       setTimeout(() => {
         if (match.field === 'content' && _writingChId === match.chId) {
@@ -17726,6 +17761,167 @@
           if (ti) { ti.focus(); ti.setSelectionRange(match.start, match.end); }
         }
       }, 100);
+    }
+
+    // Find the DOM paragraph containing a match and scroll it to the
+    // vertical center of the viewport, then flash a highlight around
+    // the specific matched substring. Match offsets (match.start /
+    // match.end) index into the RAW chapter content string produced
+    // by paras.join('\n'), so we walk the paragraph array tracking a
+    // running character cursor to find which paragraph owns the offset.
+    function _frCenterMatchInPreview(match) {
+      try {
+        const ch = chapters.find(function(c){ return c.id === match.chId; });
+        if (!ch) return;
+
+        // 1. Locate the target DOM element.
+        let el = null;
+        if (match.field === 'title') {
+          // Chapter title lives on the title block inside the chapter's
+          // first page — anchor via the [id="chap-<chId>"] wrapper.
+          const chapWrap = document.getElementById('chap-' + match.chId);
+          if (chapWrap) el = chapWrap;
+        } else {
+          // Content match — map raw-string offset to paragraph index.
+          const paras = _paragraphsOf(ch.content);
+          let cursor = 0, targetIdx = -1;
+          for (let i = 0; i < paras.length; i++) {
+            const paraLen = paras[i].length;
+            // Match falls inside this paragraph if start is within its span.
+            if (match.start >= cursor && match.start <= cursor + paraLen) {
+              targetIdx = i;
+              break;
+            }
+            cursor += paraLen + 1; // +1 for the '\n' separator
+          }
+          if (targetIdx < 0) return;
+          // Preview paragraphs are keyed by chId + paraIdx; pagination
+          // can produce continuation slices (para-cont class) for the
+          // same paraIdx across pages — pick the FIRST occurrence
+          // (that's where the match text begins).
+          el = document.querySelector(
+            '.preview-editable[data-chid="' + match.chId + '"][data-paraidx="' + targetIdx + '"]:not(.para-cont)'
+          ) || document.querySelector(
+            '.preview-editable[data-chid="' + match.chId + '"][data-paraidx="' + targetIdx + '"]'
+          );
+        }
+        if (!el) return;
+
+        // 2. Scroll so el's midpoint sits at viewport midpoint.
+        //    scrollIntoView({block:'center'}) is close but doesn't
+        //    always center precisely in scrollable containers with
+        //    fixed toolbars — compute the offset ourselves.
+        const scroller = document.getElementById('previewScroller') || document.scrollingElement;
+        if (scroller && scroller !== document.scrollingElement) {
+          const rect = el.getBoundingClientRect();
+          const sRect = scroller.getBoundingClientRect();
+          const targetTop = scroller.scrollTop + (rect.top - sRect.top) - (scroller.clientHeight / 2) + (el.offsetHeight / 2);
+          scroller.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+        } else {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        // 3. Flash a highlight on the actual matched text so the eye
+        //    lands on it. Uses <mark> wrapping ONLY the character span
+        //    that matched, restored after 1.6s so editing state is
+        //    unaffected. Falls back to whole-paragraph flash if we
+        //    can't safely locate the substring (e.g. drop-cap nesting).
+        _frFlashHighlight(el, match);
+      } catch (e) { console.warn('[find] center failed:', e); }
+    }
+
+    // Overlay a floating highlight rectangle exactly on the matched
+    // substring using window.getSelection() to compute Range rects.
+    // Doesn't mutate the paragraph HTML (safer than <mark> injection
+    // when the paragraph is contenteditable + has drop-cap wraps).
+    function _frFlashHighlight(el, match) {
+      try {
+        // Build a text-only version of the paragraph so we can hunt
+        // the substring by offset.
+        const text = el.innerText || el.textContent || '';
+        if (match.field !== 'content') {
+          // Title — just flash the whole wrapper.
+          _frPulseElement(el);
+          return;
+        }
+        // Find the FIRST occurrence of the matched text inside the
+        // paragraph text — offsets in match.start/end index the raw
+        // content string, which may include leading para text this
+        // element doesn't render (drop cap split). Extract by string.
+        const needle = _frGetNeedleForMatch(match);
+        if (!needle) { _frPulseElement(el); return; }
+        const idx = text.toLowerCase().indexOf(needle.toLowerCase());
+        if (idx < 0) { _frPulseElement(el); return; }
+
+        // Walk text nodes to find the DOM Range for chars idx..idx+needle.length.
+        const range = _frRangeFromCharOffsets(el, idx, idx + needle.length);
+        if (!range) { _frPulseElement(el); return; }
+        const rects = range.getClientRects();
+        if (!rects.length) { _frPulseElement(el); return; }
+        _frShowOverlays(rects);
+      } catch (e) {
+        _frPulseElement(el);
+      }
+    }
+
+    function _frGetNeedleForMatch(match) {
+      const ch = chapters.find(function(c){ return c.id === match.chId; });
+      if (!ch) return '';
+      const src = match.field === 'title' ? (ch.title || '') : (ch.content || '');
+      return src.slice(match.start, match.end);
+    }
+
+    function _frRangeFromCharOffsets(root, startChar, endChar) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+      let charsSeen = 0, startNode = null, startOffset = 0, endNode = null, endOffset = 0;
+      let n;
+      while ((n = walker.nextNode())) {
+        const len = n.nodeValue.length;
+        if (!startNode && charsSeen + len >= startChar) {
+          startNode = n; startOffset = startChar - charsSeen;
+        }
+        if (charsSeen + len >= endChar) {
+          endNode = n; endOffset = endChar - charsSeen;
+          break;
+        }
+        charsSeen += len;
+      }
+      if (!startNode || !endNode) return null;
+      const r = document.createRange();
+      try {
+        r.setStart(startNode, Math.max(0, startOffset));
+        r.setEnd(endNode, Math.min(endNode.nodeValue.length, endOffset));
+        return r;
+      } catch (e) { return null; }
+    }
+
+    // Show fixed-position overlay rects that pulse over the match.
+    // Auto-remove after 1.8s.
+    function _frShowOverlays(rects) {
+      // Nuke any previous overlays.
+      document.querySelectorAll('.fr-hilite').forEach(function(x){ x.remove(); });
+      const layer = document.body;
+      const created = [];
+      for (let i = 0; i < rects.length; i++) {
+        const r = rects[i];
+        const d = document.createElement('div');
+        d.className = 'fr-hilite';
+        d.style.cssText =
+          'position:fixed;pointer-events:none;z-index:999999;' +
+          'left:' + (r.left - 3) + 'px;top:' + (r.top - 3) + 'px;' +
+          'width:' + (r.width + 6) + 'px;height:' + (r.height + 6) + 'px;' +
+          'border-radius:4px;';
+        layer.appendChild(d);
+        created.push(d);
+      }
+      setTimeout(function(){ created.forEach(function(d){ d.remove(); }); }, 1800);
+    }
+
+    // Fallback pulse — highlights the WHOLE paragraph when substring
+    // location fails (e.g. title matches, complex nested markup).
+    function _frPulseElement(el) {
+      el.classList.add('fr-pulse');
+      setTimeout(function(){ el.classList.remove('fr-pulse'); }, 1800);
     }
 
     function frNext() {

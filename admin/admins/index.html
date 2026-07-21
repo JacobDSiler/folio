@@ -54,6 +54,10 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
 .hidden{display:none !important}
 </style>
 <link rel="icon" type="image/png" href="/favicon.png">
+<!-- Shared admin helpers — needed for the author-lookup widget below.
+     GitHub Pages serves this only because we ship a root .nojekyll
+     (Jekyll excludes underscore-prefixed files by default). -->
+<script src="/admin/_shared.js"></script>
 </head>
 <body>
 <header class="admin-hdr">
@@ -82,8 +86,13 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
     <div class="card">
       <h2>Grant role</h2>
       <div class="sub">Paste a uid from Firebase Auth (or ask the person for theirs — visible in the editor sidebar footer's "signed in as").</div>
+      <!-- Author lookup slot — populated by FolioAdmin.mountAuthorLookup()
+           after admin auth is verified. Picking a suggestion auto-fills
+           the Target UID + Display name inputs below. -->
+      <div id="roleAuthorLookupSlot" style="margin-bottom:12px"></div>
+
       <label for="grantUid">Target user UID</label>
-      <input type="text" id="grantUid" placeholder="e.g., abc123def456ghi789..." autocomplete="off">
+      <input type="text" id="grantUid" placeholder="Auto-filled from the lookup above, or paste directly" autocomplete="off">
       <label for="grantDisplayName">Display name (optional — helps identify them in the list)</label>
       <input type="text" id="grantDisplayName" placeholder="e.g., 'Alex M. (co-editor)'" autocomplete="off" style="font-family:inherit">
       <label for="grantRole">Role</label>
@@ -135,6 +144,9 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
       _fb.deleteDoc = fsMod.deleteDoc;
       _fb.collection = fsMod.collection;
       _fb.getDocs = fsMod.getDocs;
+      _fb.query = fsMod.query;
+      _fb.where = fsMod.where;
+      _fb.limit = fsMod.limit;
       const cfg = { apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0", authDomain: "auth.jacobsiler.com", projectId: "miscellaneous-117e9", storageBucket: "miscellaneous-117e9.firebasestorage.app", messagingSenderId: "514858431339", appId: "1:514858431339:web:8b3acbe89966b45fe3922e" };
       const app = _fb.initializeApp(cfg);
       _fb.auth = _fb.getAuth(app);
@@ -179,6 +191,28 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
     }
       gate.classList.add('hidden'); body.classList.remove('hidden');
       loadRoles();
+      // Mount the author-search widget so admins can pick users by
+      // name instead of pasting UIDs. FolioAdmin comes from
+      // /admin/_shared.js; only gets defined if that script loaded.
+      if (typeof FolioAdmin !== 'undefined' && FolioAdmin.mountAuthorLookup && !document.getElementById('roleAuthorLookupSlot').dataset.mounted) {
+        try {
+          FolioAdmin.mountAuthorLookup({
+            container: document.getElementById('roleAuthorLookupSlot'),
+            db: _fb.db,
+            fb: { collection: _fb.collection, getDocs: _fb.getDocs, query: _fb.query, limit: _fb.limit, where: _fb.where },
+            label: 'Look up author by name',
+            placeholder: 'Start typing an author name…',
+            onSelect: function(uid, name) {
+              document.getElementById('grantUid').value = uid;
+              const dn = document.getElementById('grantDisplayName');
+              if (dn && !dn.value) dn.value = name || '';
+            }
+          });
+          document.getElementById('roleAuthorLookupSlot').dataset.mounted = '1';
+        } catch (e) { console.warn('[admins] mountAuthorLookup failed:', e); }
+      } else if (typeof FolioAdmin === 'undefined') {
+        console.warn('[admins] FolioAdmin not loaded — /admin/_shared.js probably 404d. Author lookup unavailable; paste UID directly.');
+      }
     } catch (e) {
       console.error('[admins] onAuthChange failed:', e);
       gate.classList.remove('hidden');

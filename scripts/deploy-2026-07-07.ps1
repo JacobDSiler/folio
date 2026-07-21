@@ -245,6 +245,24 @@ Also in this batch:
   widget was completely invisible in production — the FolioAdmin
   script silently 404'd. .nojekyll disables Jekyll for the whole site
   so any file we ship reaches the browser.
+- fix(find & replace): centered highlight on the actual match.
+  Previously frJumpToCurrent called scrollToChapter which landed at
+  the chapter top with no signal of where in that chapter the word
+  actually was. Now we map match.start (raw content offset) to the
+  containing paragraph via _paragraphsOf, scroll that paragraph to
+  the CENTER of the preview scroller (custom offset math because
+  scrollIntoView block:'center' undershoots inside our fixed
+  toolbar layout), then flash a fixed-position highlight overlay
+  built from Range.getClientRects() on the matched substring —
+  no DOM mutation of contenteditable paragraphs. Falls back to a
+  full-paragraph outline pulse for title matches or when substring
+  ranging fails.
+- feat(admin/admins): author search widget now on the Role Management
+  page too. Imports _shared.js, wires FolioAdmin.mountAuthorLookup
+  into a new roleAuthorLookupSlot right above the Target UID input,
+  and picking a suggestion auto-fills both the UID and the Display
+  name. Same safe queries as admin/press (published + world-readable
+  imprint themes).
 - feat(admin/press): plan/comp indicator chip next to every author in
   the search dropdown. After the author list loads, each author's
   folio_user_settings/{uid}.pressSubscription is fetched (single-doc
