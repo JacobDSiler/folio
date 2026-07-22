@@ -5956,10 +5956,17 @@
                when you actually need it. Native <details> means it
                works without JS, is keyboard-accessible (Enter/Space),
                and remembers its state within the session. -->
-          <details class="ms-panel">
+          <!-- Merged 2026-07-22 (Jacob feedback): the previous two-
+               panel layout (Import files + Import options) forced you
+               to expand a second collapsible just to pick chapter
+               detection or hit Split. Merged into one panel where the
+               drop zone sits at top and controls sit right underneath
+               so a first-time author sees the whole import flow at a
+               glance. Write / paste stays as its own second panel. -->
+          <details class="ms-panel" open>
             <summary class="ms-panel-summary">
               <span class="ms-panel-caret">▸</span>
-              <span class="ms-panel-label">📥 Import files</span>
+              <span class="ms-panel-label">📥 Import manuscript</span>
               <span class="ms-panel-hint">docx · txt · md · rtf</span>
             </summary>
             <div class="section" style="border-top:none;padding-top:12px">
@@ -5971,17 +5978,8 @@
               <input type="file" id="msInput" accept=".docx,.txt,.md,.rtf,.doc" multiple style="display:none"
                 onchange="handleFileImport(this)">
               <div class="file-chips" id="importedChips"></div>
-            </div>
-          </details>
 
-          <details class="ms-panel">
-            <summary class="ms-panel-summary">
-              <span class="ms-panel-caret">▸</span>
-              <span class="ms-panel-label">⚙ Import options</span>
-              <span class="ms-panel-hint">chapter detection · sort · advanced</span>
-            </summary>
-            <div class="section" style="border-top:none;padding-top:12px">
-              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px">
                 <label style="font-size:11.5px;font-weight:500;color:var(--text);margin:0">Chapter detection</label>
                 <button class="btn-sm btn-ghost" style="padding:4px 10px;font-size:11px" onclick="openSchemaModal()">⚙
                   Advanced</button>
@@ -6002,7 +6000,7 @@
                 <label>Sort order</label>
                 <select id="importSort" onchange="reClassifyAll()">
                   <option value="natural">Natural (01, 02, 03…)</option>
-                  <option value="filename">Filename A–Z</option>
+                  <option value="filename">Filename A-Z</option>
                   <option value="manual">Manual (drag to reorder)</option>
                 </select>
               </div>
@@ -6018,8 +6016,7 @@
                   👁 Split view
                 </button>
               </div>
-              <p class="small-note" style="margin-top:5px">Use "View full" to preview the whole manuscript without
-                splitting it into chapters.</p>
+              <p class="small-note" style="margin-top:5px">Use "Split view" to preview the whole manuscript and mark chapter breaks by eye.</p>
             </div>
           </details>
 
