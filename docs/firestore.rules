@@ -272,10 +272,12 @@ service cloud.firestore {
     // read those approved docs for the welcome-page testimonials scroll.
     match /reviews/{reviewId} {
       // Read: (a) publicly displayed reviews are readable by anyone;
-      //       (b) authors can always see their own submissions.
+      //       (b) authors can always see their own submissions;
+      //       (c) admins can read any review (moderation queue + metrics).
       allow read: if (resource.data.approvedForDisplay == true
                      && resource.data.allowMarketing == true)
-                  || isUser(resource.data.uid);
+                  || isUser(resource.data.uid)
+                  || isAdmin();
       // Create: must be signed in + submitting under your own uid.
       // Shape-lock keeps a rogue client from sneaking unexpected fields
       // (like pre-approving your own review).

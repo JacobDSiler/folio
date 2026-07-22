@@ -17889,7 +17889,15 @@
         if (!ch) return;
 
         // 1. Locate the target DOM element.
+        //    paraStartInContent tracks the character offset in ch.content
+        //    where the matched paragraph begins. Passed to the highlight
+        //    helper so it can compute expected-position-within-paragraph
+        //    and disambiguate multiple occurrences of the same needle
+        //    (e.g. paragraph "Corlan smiled at Corlan" — match #1 vs #2,
+        //    or bug 2026-07-22 where highlight consistently landed on
+        //    an earlier occurrence of the needle).
         let el = null;
+        let paraStartInContent = 0;
         if (match.field === 'title') {
           const chapWrap = document.getElementById('chap-' + match.chId);
           if (chapWrap) el = chapWrap;
@@ -17904,6 +17912,7 @@
             const paraLen = paras[i].length;
             if (match.start >= cursor && match.start <= cursor + paraLen) {
               targetIdx = i;
+              paraStartInContent = cursor;
               break;
             }
             cursor += paraLen + 1;
@@ -17934,40 +17943,117 @@
         //    element's FINAL screen position rather than its pre-scroll
         //    position. 500 ms comfortably covers Chrome's ~300 ms
         //    smooth-scroll default even on long jumps.
-        setTimeout(function(){ _frFlashHighlight(el, match); }, 520);
+        //    Third arg = paragraph's start position in ch.content, so
+        //    the highlight helper can pick the correct occurrence when
+        //    the paragraph contains the search term multiple times.
+        setTimeout(function(){ _frFlashHighlight(el, match, paraStartInContent); }, 520);
       } catch (e) { console.warn('[find] center failed:', e); }
     }
 
     // Overlay a floating highlight rectangle exactly on the matched
-    // substring using window.getSelection() to compute Range rects.
-    // Doesn't mutate the paragraph HTML (safer than <mark> injection
-    // when the paragraph is contenteditable + has drop-cap wraps).
-    function _frFlashHighlight(el, match) {
+    // substring. Old impl searched el.innerText (which collapses
+    // whitespace and applies CSS text-transforms) but then walked
+    // TreeWalker text nodes (raw, preserves every space) to build the
+    // Range — so any whitespace difference shifted the Range boundary
+    // and the highlight landed on the wrong word (bug 2026-07-22:
+    // search "corlan" 3/497 landed on "it. Tadh" ~10 chars before the
+    // real Corlan). New impl walks once, concatenates the raw text-
+    // node string, and searches THAT — so search offsets and Range
+    // offsets are guaranteed to reference the same character indices.
+    function _frFlashHighlight(el, match, paraStartInContent) {
       try {
-        // Build a text-only version of the paragraph so we can hunt
-        // the substring by offset.
-        const text = el.innerText || el.textContent || '';
         if (match.field !== 'content') {
-          // Title — just flash the whole wrapper.
+          // Title match — the title's DOM node isn't a single para;
+          // just flash the whole wrapper.
           _frPulseElement(el);
           return;
         }
-        // Find the FIRST occurrence of the matched text inside the
-        // paragraph text — offsets in match.start/end index the raw
-        // content string, which may include leading para text this
-        // element doesn't render (drop cap split). Extract by string.
         const needle = _frGetNeedleForMatch(match);
         if (!needle) { _frPulseElement(el); return; }
-        const idx = text.toLowerCase().indexOf(needle.toLowerCase());
-        if (idx < 0) { _frPulseElement(el); return; }
 
-        // Walk text nodes to find the DOM Range for chars idx..idx+needle.length.
-        const range = _frRangeFromCharOffsets(el, idx, idx + needle.length);
-        if (!range) { _frPulseElement(el); return; }
+        // Build the walked text + node-offset map in a single pass.
+        // segments[] is a list of { node, start, end } — start/end are
+        // character offsets in the concatenated string. Searching that
+        // concatenated string gives us an offset that maps 1:1 back to
+        // a (node, positionInNode) via the segments list.
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+        const segments = [];
+        let acc = '';
+        let n;
+        while ((n = walker.nextNode())) {
+          const v = n.nodeValue || '';
+          segments.push({ node: n, start: acc.length, end: acc.length + v.length });
+          acc += v;
+        }
+        if (!acc) { _frPulseElement(el); return; }
+
+        // Enumerate ALL occurrences of the needle in the walked text
+        // (not just the first). Then pick the occurrence whose position
+        // is CLOSEST to the expected position derived from match.start.
+        // This fixes the pathological cases:
+        //   • Same word appears multiple times in one paragraph
+        //     ("Corlan smiled at Corlan"). Old code always hit #1.
+        //   • Markdown emphasis characters (*, _) present in the raw
+        //     content but stripped from the rendered DOM — offsets
+        //     don't match exactly but stay close enough that
+        //     "closest" still picks the right one.
+        //   • Character-highlight <span> wrappers around dialogue add
+        //     no text but old innerText-vs-TreeWalker mismatch shifted
+        //     the range boundary; walked-text approach fixes that,
+        //     and closest-occurrence fixes the residual.
+        const needleLower = needle.toLowerCase();
+        const accLower = acc.toLowerCase();
+        const occurrences = [];
+        let searchFrom = 0;
+        while (true) {
+          const p = accLower.indexOf(needleLower, searchFrom);
+          if (p < 0) break;
+          occurrences.push(p);
+          searchFrom = p + 1;
+        }
+        if (!occurrences.length) { _frPulseElement(el); return; }
+
+        // Expected position within the paragraph = raw content offset
+        // minus the paragraph's start offset. Pick the walked-text
+        // occurrence whose position is closest to that expected value.
+        const expected = (typeof paraStartInContent === 'number')
+          ? Math.max(0, match.start - paraStartInContent)
+          : occurrences[0];
+        let idx = occurrences[0];
+        let bestDelta = Math.abs(idx - expected);
+        for (let i = 1; i < occurrences.length; i++) {
+          const d = Math.abs(occurrences[i] - expected);
+          if (d < bestDelta) { bestDelta = d; idx = occurrences[i]; }
+        }
+        const startOff = idx;
+        const endOff = idx + needle.length;
+
+        // Locate the segments that contain start and end.
+        let startNode = null, startInner = 0, endNode = null, endInner = 0;
+        for (const seg of segments) {
+          if (startNode == null && seg.end >= startOff) {
+            startNode = seg.node;
+            startInner = startOff - seg.start;
+          }
+          if (seg.end >= endOff) {
+            endNode = seg.node;
+            endInner = endOff - seg.start;
+            break;
+          }
+        }
+        if (!startNode || !endNode) { _frPulseElement(el); return; }
+
+        const range = document.createRange();
+        try {
+          range.setStart(startNode, Math.max(0, Math.min(startInner, startNode.nodeValue.length)));
+          range.setEnd(endNode, Math.max(0, Math.min(endInner, endNode.nodeValue.length)));
+        } catch (e) { _frPulseElement(el); return; }
+
         const rects = range.getClientRects();
         if (!rects.length) { _frPulseElement(el); return; }
         _frShowOverlays(rects);
       } catch (e) {
+        console.warn('[find] highlight failed:', e);
         _frPulseElement(el);
       }
     }
@@ -17977,30 +18063,6 @@
       if (!ch) return '';
       const src = match.field === 'title' ? (ch.title || '') : (ch.content || '');
       return src.slice(match.start, match.end);
-    }
-
-    function _frRangeFromCharOffsets(root, startChar, endChar) {
-      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
-      let charsSeen = 0, startNode = null, startOffset = 0, endNode = null, endOffset = 0;
-      let n;
-      while ((n = walker.nextNode())) {
-        const len = n.nodeValue.length;
-        if (!startNode && charsSeen + len >= startChar) {
-          startNode = n; startOffset = startChar - charsSeen;
-        }
-        if (charsSeen + len >= endChar) {
-          endNode = n; endOffset = endChar - charsSeen;
-          break;
-        }
-        charsSeen += len;
-      }
-      if (!startNode || !endNode) return null;
-      const r = document.createRange();
-      try {
-        r.setStart(startNode, Math.max(0, startOffset));
-        r.setEnd(endNode, Math.min(endNode.nodeValue.length, endOffset));
-        return r;
-      } catch (e) { return null; }
     }
 
     // Show fixed-position overlay rects that pulse over the match.
