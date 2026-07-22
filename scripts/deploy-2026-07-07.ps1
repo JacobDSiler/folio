@@ -248,6 +248,12 @@ Also in this batch:
   widget was completely invisible in production — the FolioAdmin
   script silently 404'd. .nojekyll disables Jekyll for the whole site
   so any file we ship reaches the browser.
+- fix(find & replace): highlight now waits for scroll to actually
+  stop rather than firing on a fixed 520 ms timer. Chrome smooth-
+  scroll takes 300 ms for short jumps and 1500+ ms across dozens
+  of pages, so long-distance finds pulsed and faded before the
+  paragraph arrived on screen. rAF-poll scrollTop; fire when it's
+  been stable for 3 consecutive frames, hard-cap 2500 ms.
 - fix(find & replace): highlight lands on the ACTUAL match now.
   Bug 2026-07-22: search "Corlan" 3/497 → highlight lands on "since"
   ~13 chars before the real Corlan. Two compounding issues:
