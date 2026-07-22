@@ -283,6 +283,18 @@ Also in this batch:
         position derived from match.start - paraStartInContent.
         Handles both duplicates and residual offset drift from
         markdown emphasis chars stripped by md().
+- feat(auth): every non-anonymous sign-in now writes a stub
+  folio_user_settings/{uid} doc with lastEmail + lastDisplayName +
+  signInAt. Previously the doc was only created when someone saved
+  an audio setting or a shelf entry — brand-new signups were
+  invisible to the admin /user-list endpoint until they DID
+  something. Now every sign-in is instantly trackable + comp-able.
+  Merge-write with a stable set of fields so subsequent sign-ins
+  refresh lastEmail without stomping other settings.
+- feat(user-list): endpoint returns email + displayName so admin
+  search can match on either. /admin/press dropdown now filters on
+  author name, uid, title, email, and Google display name — paste
+  any of them and the right user surfaces.
 - feat(user-list): server-side endpoint surfaces unpublished
   signed-in users so /admin/press can comp them before they publish
   and /admin/metrics can track total user growth. New GET /user-list

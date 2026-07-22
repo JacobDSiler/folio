@@ -1589,8 +1589,15 @@ async function handleUserList(request, env) {
           expiresAt: expiresAt,
         };
       }
+      // Email + display name written by the client on every sign-in
+      // via the ensure-settings-doc hook in app.html onAuthStateChanged.
+      // Lets admins search /admin/press by name AND email, not just uid.
+      if (data.lastEmail) b.email = String(data.lastEmail);
+      if (data.lastDisplayName) b.displayName = b.displayName || String(data.lastDisplayName);
       b.updatedAt = data.updatedAt && data.updatedAt.toDate ? data.updatedAt.toDate().toISOString()
                   : (typeof data.updatedAt === 'string' ? data.updatedAt : null);
+      b.signInAt  = data.signInAt && data.signInAt.toDate ? data.signInAt.toDate().toISOString()
+                  : (typeof data.signInAt === 'string' ? data.signInAt : null);
     }
 
     // 2. Projects — count folios + published folios per uid.

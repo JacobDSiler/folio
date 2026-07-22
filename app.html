@@ -207,6 +207,24 @@
           }
         } catch (_) {}
 
+        // Ensure a folio_user_settings/{uid} doc exists as soon as
+        // the user is authenticated (non-anonymous). Without this, a
+        // brand-new signup never appears in the admin /user-list
+        // endpoint until they save an audio setting or a shelf entry,
+        // which means Jacob can't find them to comp them. Merge-only
+        // write with a stable field so it's idempotent — subsequent
+        // sign-ins don't overwrite anything.
+        try {
+          if (!user.isAnonymous && window._fb && window._db && user.uid) {
+            const _ref = window._fb.doc(window._db, 'folio_user_settings', user.uid);
+            window._fb.setDoc(_ref, {
+              signInAt: window._fb.serverTimestamp(),
+              lastEmail: user.email || null,
+              lastDisplayName: user.displayName || null,
+            }, { merge: true }).catch(function(){ /* silent — best effort */ });
+          }
+        } catch (_) {}
+
 
         // 🔍 Detect anonymous → Google upgrade.
         //   In-memory case  : we held an anon user, now have a google user
@@ -6485,6 +6503,13 @@
                   <div id="authEmail"
                     style="font-size:10.5px;color:var(--hint);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
                   </div>
+                  <!-- Click-to-copy UID — needed when a Folio admin
+                       asks for it (e.g. to apply a comp). Kept small
+                       + monospace so it reads as a technical detail
+                       rather than something to worry about. -->
+                  <div id="authUidLine" onclick="_copyMyUid()" title="Click to copy your Folio UID"
+                    style="display:none;font-size:10px;color:var(--muted);font-family:ui-monospace,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;margin-top:1px">
+                  </div>
                 </div>
                 <button onclick="signOutUser()"
                   style="font-size:10.5px;color:var(--hint);background:none;border:none;cursor:pointer;padding:3px 6px;border-radius:4px;font-family:var(--sans)"
@@ -7668,6 +7693,13 @@
         document.getElementById('authEmail').textContent = 'Anonymous — tap below to save permanently';
         document.getElementById('authAvatarFallback').textContent = name.slice(0, 2).toUpperCase();
         document.getElementById('authAvatarFallback').style.background = color;
+        try {
+          const _uidEl = document.getElementById('authUidLine');
+          if (_uidEl && user && user.uid) {
+            _uidEl.textContent = 'uid ' + user.uid.slice(0, 12) + '… (tap to copy)';
+            _uidEl.style.display = '';
+          }
+        } catch (_) {}
       } else {
         // Signed in with Google (or other real provider)
         document.getElementById('authSignedOut').style.display = 'none';
@@ -7679,6 +7711,13 @@
         const photo = gp.photoURL || user.photoURL || '';
         document.getElementById('authName').textContent = displayName;
         document.getElementById('authEmail').textContent = email;
+        try {
+          const _uidEl = document.getElementById('authUidLine');
+          if (_uidEl && user && user.uid) {
+            _uidEl.textContent = 'uid ' + user.uid.slice(0, 12) + '… (tap to copy)';
+            _uidEl.style.display = '';
+          }
+        } catch (_) {}
         if (photo) {
           document.getElementById('authAvatar').src = photo;
           document.getElementById('authAvatar').style.display = '';
@@ -23390,6 +23429,23 @@
     // the email worker aggregates into folio_projects/{id}/metrics/
     // daily_YYYYMMDD docs read by the author + admin dashboards.
     // Rejects gracefully on any error — never blocks the caller.
+    // Click-to-copy the full UID from the sidebar. Useful when a Folio
+    // admin asks the user for their uid (e.g. to apply a comp). Shows
+    // a small toast on success, silent fallback if clipboard is denied.
+    window._copyMyUid = async function _copyMyUid() {
+      try {
+        const uid = window._uid || (window._user && window._user.uid) || '';
+        if (!uid) { if (typeof toastWarning === 'function') toastWarning('Not signed in yet.'); return; }
+        try {
+          await navigator.clipboard.writeText(uid);
+          if (typeof toastSuccess === 'function') toastSuccess('UID copied — paste into Messenger / email.');
+        } catch (e) {
+          // Fallback: show in a prompt so the user can Ctrl+C.
+          try { window.prompt('Copy your Folio UID:', uid); } catch (_) {}
+        }
+      } catch (_) {}
+    };
+
     window._folioTrack = function _folioTrack(kind, folioId, extra) {
       try {
         if (!kind || !folioId) return;

@@ -370,13 +370,21 @@ async function _loadAuthorList() {
             fromServerOnly++;
             byUid.set(u.uid, {
               uid: u.uid,
-              author: u.displayName || 'Signed-in user',
+              author: u.displayName || u.email || 'Signed-in user',
               sampleTitle: u.folioCount
                 ? '(' + u.folioCount + ' folio' + (u.folioCount === 1 ? '' : 's') + ', none published)'
-                : '(signed in — no folios yet)',
+                : (u.email ? '(' + u.email + ')' : '(signed in — no folios yet)'),
               count: 0,
               _fromServer: true,
+              _email: u.email || '',
+              _displayName: u.displayName || '',
             });
+          } else {
+            // Merge email + displayName even if we already had this uid
+            // from another source, so search-by-email works everywhere.
+            const cur = byUid.get(u.uid);
+            if (u.email && !cur._email) cur._email = u.email;
+            if (u.displayName && !cur._displayName) cur._displayName = u.displayName;
           }
         }
       }
@@ -480,7 +488,9 @@ window._filterAuthors = function() {
     ? _authorList.filter(function(a){
         return a.author.toLowerCase().indexOf(q) >= 0
             || a.uid.toLowerCase().indexOf(q) >= 0
-            || (a.sampleTitle || '').toLowerCase().indexOf(q) >= 0;
+            || (a.sampleTitle || '').toLowerCase().indexOf(q) >= 0
+            || (a._email || '').toLowerCase().indexOf(q) >= 0
+            || (a._displayName || '').toLowerCase().indexOf(q) >= 0;
       })
     : _authorList;
   const cap = matches.slice(0, 40);
