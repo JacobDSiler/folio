@@ -6729,6 +6729,25 @@
             </div>
           </div>
 
+          <!-- ══════════════════════════════════════════════════════════
+               Reviewer suggestions — populated by _sugRefresh() with
+               pending edits from anyone you gave an editor/collab
+               share link. Each reviewer's save lives in
+               folio_projects/{id}/suggestions/{their-uid}. Owner
+               reviews per-chapter changes, Accept (copies suggested
+               text into master) or Reject (removes the suggestion).
+               ══════════════════════════════════════════════════════════ -->
+          <div class="section" id="sugSection" style="display:none">
+            <div class="section-title" style="display:flex;align-items:center;gap:6px">
+              <span>Reviewer suggestions</span>
+              <span id="sugCountBadge" style="display:none;background:var(--accent-ui);color:#fff;font-size:10px;font-weight:600;padding:1px 7px;border-radius:10px">0</span>
+              <button class="btn-sm btn-ghost" style="margin-left:auto;padding:2px 8px;font-size:10.5px" onclick="_sugRefresh()">↻</button>
+            </div>
+            <div id="sugList">
+              <p class="small-note" style="padding:.4rem 0;color:var(--hint)">Loading suggestions…</p>
+            </div>
+          </div>
+
         </div><!-- /tab-project -->
 
         <!-- ══════════════════════════════════════════════════════════
@@ -10468,6 +10487,340 @@
         _deserialise(_stateLoaded);
         setStatus('Version restored ✓');
       }
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       Reviewer suggestions — owner-side review UI
+       ────────────────────────────────────────────────────────────────
+       When someone with an editor/collab share link edits chapter
+       text and hits save, the client diverts their write to
+       folio_projects/{id}/suggestions/{their-uid} rather than
+       overwriting body/main. This function loads all pending
+       suggestions for the currently-open folio, decompresses each,
+       and renders a per-reviewer card with per-chapter Accept /
+       Reject buttons. Accept copies the reviewer's chapter text into
+       your master chapters array and saves. Reject just deletes the
+       suggestion doc.
+       ══════════════════════════════════════════════════════════════ */
+    let _sugCache = {};   // { suggesterUid: { name, when, chapters: {chId: {text, title}}, raw } }
+
+    async function _sugRefresh() {
+      const section = document.getElementById('sugSection');
+      const list = document.getElementById('sugList');
+      const badge = document.getElementById('sugCountBadge');
+      if (!section || !list) return;
+      if (!window._fb || !window._db || !_projId || !window._uid) {
+        section.style.display = 'none';
+        return;
+      }
+      // Not the owner? Don't show anything.
+      try {
+        if (typeof _loadedFolioOwnerUid !== 'undefined' && _loadedFolioOwnerUid && _loadedFolioOwnerUid !== window._uid) {
+          section.style.display = 'none';
+          return;
+        }
+      } catch (_) {}
+
+      list.innerHTML = '<p class="small-note" style="padding:.4rem 0;color:var(--hint)">Loading…</p>';
+      _sugCache = {};
+      try {
+        const snap = await window._fb.getDocs(
+          window._fb.query(
+            window._fb.collection(window._db, 'folio_projects', _projId, 'suggestions'),
+            window._fb.limit(50)
+          )
+        );
+        if (snap.empty || snap.size === 0) {
+          section.style.display = ''; // still show, so authors know it exists
+          badge.style.display = 'none';
+          list.innerHTML = '<p class="small-note" style="padding:.4rem 0;color:var(--hint)">No pending suggestions. Share an editor link for a trusted reviewer, and their edits will land here for your review.</p>';
+          return;
+        }
+
+        // Decompress + summarise each suggestion doc.
+        const reviewers = [];
+        const promises = [];
+        snap.forEach(d => promises.push(_sugDecodeDoc(d.id, d.data() || {}).then(r => { if (r) reviewers.push(r); })));
+        await Promise.all(promises);
+
+        // Sort newest first.
+        reviewers.sort((a, b) => (b.when || 0) - (a.when || 0));
+
+        // Count total chapters with changes across all reviewers.
+        let totalChanges = 0;
+        reviewers.forEach(r => { totalChanges += Object.keys(r.changedChapters || {}).length; });
+
+        section.style.display = '';
+        if (totalChanges > 0) {
+          badge.textContent = String(totalChanges);
+          badge.style.display = '';
+        } else {
+          badge.style.display = 'none';
+        }
+
+        list.innerHTML = reviewers.map(r => _sugRenderReviewerCard(r)).join('') ||
+          '<p class="small-note" style="padding:.4rem 0;color:var(--hint)">No text differences from any reviewer.</p>';
+      } catch (e) {
+        console.warn('[suggestions] load failed:', e);
+        list.innerHTML = '<p class="small-note" style="padding:.4rem 0;color:var(--danger)">Load failed: ' + esc(e.message || 'unknown') + '</p>';
+      }
+    }
+
+    async function _sugDecodeDoc(suggesterUid, data) {
+      try {
+        let state = null;
+        if (data.state_gz && _supportsCompressionStream()) {
+          try {
+            const json = await _gunzipFromBase64(data.state_gz);
+            state = JSON.parse(json);
+          } catch (e) { console.warn('[suggestions] gunzip failed:', e); }
+        }
+        if (!state && data.state) state = data.state;
+        if (!state || !Array.isArray(state.chapters)) return null;
+
+        // Build a map of master chapters for comparison.
+        const masterByCh = {};
+        (chapters || []).forEach(c => { if (c && c.id) masterByCh[c.id] = c; });
+
+        // Find changed chapters: title or content differs from master.
+        const changed = {};
+        state.chapters.forEach(sc => {
+          if (!sc || !sc.id) return;
+          const m = masterByCh[sc.id];
+          if (!m) return; // reviewer touched a chapter that no longer exists — skip
+          const cChanged = (m.content || '') !== (sc.content || '');
+          const tChanged = (m.title || '') !== (sc.title || '');
+          if (cChanged || tChanged) {
+            changed[sc.id] = {
+              title: sc.title || '',
+              masterTitle: m.title || '',
+              content: sc.content || '',
+              masterContent: m.content || '',
+              titleChanged: tChanged,
+              contentChanged: cChanged,
+            };
+          }
+        });
+
+        const when = typeof data.timestamp === 'number' ? data.timestamp : 0;
+        const name = String(data.suggestedBy || data.role || 'Reviewer').slice(0, 40);
+        const record = {
+          suggesterUid,
+          name,
+          when,
+          role: String(data.role || 'editor'),
+          changedChapters: changed,
+        };
+        _sugCache[suggesterUid] = record;
+        return record;
+      } catch (e) {
+        console.warn('[suggestions] decode failed for', suggesterUid, e);
+        return null;
+      }
+    }
+
+    function _sugRenderReviewerCard(r) {
+      const chIds = Object.keys(r.changedChapters);
+      const when = r.when ? new Date(r.when).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—';
+      const chList = chIds.length
+        ? chIds.map(chId => {
+            const c = r.changedChapters[chId];
+            const label = esc(c.title || c.masterTitle || 'Untitled chapter');
+            const flags = (c.titleChanged ? '<span title="Title changed" style="font-size:9px;color:var(--accent-ui)">T</span> ' : '') +
+                          (c.contentChanged ? '<span title="Text changed" style="font-size:9px;color:var(--accent-ui)">C</span>' : '');
+            const preview = _sugChangeSummary(c);
+            return '<div class="sug-ch" style="border-top:.5px dotted var(--border);padding:6px 0">' +
+              '<div style="display:flex;align-items:center;justify-content:space-between;gap:6px">' +
+                '<div style="min-width:0;flex:1"><div style="font-size:12px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + label + ' ' + flags + '</div>' +
+                '<div style="font-size:10.5px;color:var(--hint)">' + preview + '</div></div>' +
+                '<div style="display:flex;gap:4px;flex-shrink:0">' +
+                  '<button class="btn-sm" style="padding:3px 8px;font-size:10.5px" onclick="_sugPreview(\'' + escAttr(r.suggesterUid) + '\',\'' + escAttr(chId) + '\')">Preview</button>' +
+                  '<button class="btn-sm" style="padding:3px 8px;font-size:10.5px;background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)" onclick="_sugAccept(\'' + escAttr(r.suggesterUid) + '\',\'' + escAttr(chId) + '\')">Accept</button>' +
+                '</div>' +
+              '</div>' +
+            '</div>';
+          }).join('')
+        : '<p class="small-note" style="padding:.4rem 0;margin:0;color:var(--hint)">No text changes vs. current master.</p>';
+      return '<div class="sug-card" style="background:var(--surface);border:.5px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">' +
+          '<div><span style="font-weight:600;font-size:12.5px">' + esc(r.name) + '</span> <span style="font-size:10.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.02em;margin-left:6px">' + esc(r.role) + '</span></div>' +
+          '<button class="btn-sm btn-ghost" title="Dismiss all suggestions from this reviewer" style="padding:2px 8px;font-size:10.5px;color:#c44" onclick="_sugRejectAll(\'' + escAttr(r.suggesterUid) + '\')">Reject all</button>' +
+        '</div>' +
+        '<div style="font-size:10.5px;color:var(--hint);margin-bottom:2px">Sent ' + esc(when) + ' &middot; ' + chIds.length + ' chapter' + (chIds.length === 1 ? '' : 's') + ' changed</div>' +
+        chList +
+      '</div>';
+    }
+
+    // Quick single-line summary of what changed in a chapter (added/
+    // removed word counts). Cheap word-diff — good enough for the
+    // sidebar. The Preview modal shows the full side-by-side.
+    function _sugChangeSummary(c) {
+      const master = String(c.masterContent || '').trim().split(/\s+/).filter(Boolean);
+      const suggested = String(c.content || '').trim().split(/\s+/).filter(Boolean);
+      const delta = suggested.length - master.length;
+      const bits = [];
+      if (c.titleChanged) bits.push('title');
+      if (delta > 0) bits.push('+' + delta + ' words');
+      else if (delta < 0) bits.push(delta + ' words');
+      else if (c.contentChanged) bits.push('text tweaks');
+      return bits.join(' · ') || 'unchanged';
+    }
+
+    // Preview modal — side-by-side (or stacked on narrow screens) with
+    // the master content on the left, suggested on the right. Also
+    // exposes an Accept button so authors can review + apply in one
+    // step without closing.
+    window._sugPreview = function _sugPreview(suggesterUid, chId) {
+      const r = _sugCache[suggesterUid];
+      if (!r) return;
+      const c = r.changedChapters[chId];
+      if (!c) return;
+      const overlay = document.createElement('div');
+      overlay.className = 'sug-preview-overlay';
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(10,8,5,0.55);backdrop-filter:blur(3px);z-index:9998;display:flex;align-items:center;justify-content:center;padding:24px';
+      overlay.onclick = e => { if (e.target === overlay) overlay.remove(); };
+      const inner = document.createElement('div');
+      inner.style.cssText = 'background:var(--surface);border-radius:12px;max-width:1100px;width:100%;max-height:92vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,0.4)';
+      inner.innerHTML =
+        '<div style="padding:14px 18px;border-bottom:.5px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">' +
+          '<div style="flex:1;min-width:200px">' +
+            '<div style="font-family:\'Playfair Display\',Georgia,serif;font-size:17px;font-weight:600">' + esc(c.title || c.masterTitle || 'Untitled') + '</div>' +
+            '<div style="font-size:11px;color:var(--hint);margin-top:2px">Suggested by ' + esc(r.name) + ' &middot; ' + _sugChangeSummary(c) + '</div>' +
+          '</div>' +
+          '<button class="btn-sm" style="padding:6px 14px;font-size:12px;background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)" onclick="_sugAccept(\'' + escAttr(suggesterUid) + '\',\'' + escAttr(chId) + '\',true)">Accept this chapter</button>' +
+          '<button class="btn-sm btn-ghost" style="padding:6px 12px;font-size:12px" onclick="this.closest(\'.sug-preview-overlay\').remove()">Close</button>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0;overflow:hidden;flex:1">' +
+          '<div style="padding:14px 18px;overflow-y:auto;border-right:.5px solid var(--border);background:#fafaf7">' +
+            '<div style="font-size:10.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Your current version</div>' +
+            (c.titleChanged ? '<div style="font-weight:600;font-size:14px;margin-bottom:8px">' + esc(c.masterTitle) + '</div>' : '') +
+            '<div style="font-size:13px;line-height:1.7;white-space:pre-wrap;font-family:Georgia,serif">' + esc(c.masterContent) + '</div>' +
+          '</div>' +
+          '<div style="padding:14px 18px;overflow-y:auto;background:#fdfef7">' +
+            '<div style="font-size:10.5px;color:var(--accent-ui);text-transform:uppercase;letter-spacing:.04em;margin-bottom:6px">Suggested version</div>' +
+            (c.titleChanged ? '<div style="font-weight:600;font-size:14px;margin-bottom:8px">' + esc(c.title) + '</div>' : '') +
+            '<div style="font-size:13px;line-height:1.7;white-space:pre-wrap;font-family:Georgia,serif">' + esc(c.content) + '</div>' +
+          '</div>' +
+        '</div>';
+      overlay.appendChild(inner);
+      document.body.appendChild(overlay);
+    };
+
+    // Accept: copy the suggested chapter content into the master
+    // chapters array, save, and remove that chapter from the reviewer's
+    // suggestion doc (so it doesn't re-appear on refresh). If it was
+    // the last remaining chapter, delete the whole suggestion doc.
+    window._sugAccept = async function _sugAccept(suggesterUid, chId, closeOverlay) {
+      try {
+        const r = _sugCache[suggesterUid];
+        if (!r) return;
+        const c = r.changedChapters[chId];
+        if (!c) return;
+        // Update master chapter.
+        const master = (chapters || []).find(x => x && x.id === chId);
+        if (!master) { toastWarning('Chapter no longer exists in your folio.'); return; }
+        master.content = c.content;
+        if (c.titleChanged) master.title = c.title;
+        // Save master.
+        try {
+          if (typeof saveFolio === 'function') await saveFolio();
+          else if (typeof _writeFolioCloud === 'function') await _writeFolioCloud(_projId, (typeof _projName === 'string' ? _projName : ''), {});
+        } catch (e) { console.warn('[suggestions] master save failed after accept:', e); }
+        // Re-render preview.
+        try { if (typeof renderPreview === 'function') renderPreview(); } catch (_) {}
+        // Remove this chapter from the local cache + rewrite the
+        // reviewer's suggestion doc without it.
+        delete r.changedChapters[chId];
+        await _sugPersistPruned(suggesterUid, r, chId);
+        toastSuccess('Accepted "' + (c.title || c.masterTitle || 'chapter') + '" — merged into your folio.');
+        // Refresh UI + close preview overlay if requested.
+        if (closeOverlay) {
+          const ov = document.querySelector('.sug-preview-overlay');
+          if (ov) ov.remove();
+        }
+        _sugRefresh();
+      } catch (e) {
+        console.error('[suggestions] accept failed:', e);
+        toastError('Accept failed: ' + (e.message || 'unknown'));
+      }
+    };
+
+    window._sugRejectAll = async function _sugRejectAll(suggesterUid) {
+      const r = _sugCache[suggesterUid];
+      const name = r ? r.name : 'this reviewer';
+      if (!confirm('Reject ALL suggestions from ' + name + '? This deletes their suggestion copy. They can re-save from their editor link.')) return;
+      try {
+        await window._fb.deleteDoc(window._fb.doc(window._db, 'folio_projects', _projId, 'suggestions', suggesterUid));
+        toastInfo('Rejected all suggestions from ' + name);
+        _sugRefresh();
+      } catch (e) {
+        toastError('Reject failed: ' + (e.message || 'unknown'));
+      }
+    };
+
+    // After accepting a single chapter, we want the reviewer's doc to
+    // stop showing that chapter as changed. Simplest reliable approach:
+    // pull the doc, delete just that chapter from the state.chapters
+    // array (so it matches master), rewrite. If nothing changed remains,
+    // delete the doc entirely.
+    async function _sugPersistPruned(suggesterUid, r, acceptedChId) {
+      try {
+        const remaining = Object.keys(r.changedChapters);
+        if (remaining.length === 0) {
+          await window._fb.deleteDoc(window._fb.doc(window._db, 'folio_projects', _projId, 'suggestions', suggesterUid));
+          return;
+        }
+        // Fetch the raw doc + state so we can rewrite state.chapters[chId].content = master's.
+        const ref = window._fb.doc(window._db, 'folio_projects', _projId, 'suggestions', suggesterUid);
+        const snap = await window._fb.getDoc(ref);
+        if (!snap.exists()) return;
+        const data = snap.data() || {};
+        let state = null;
+        if (data.state_gz && _supportsCompressionStream()) {
+          try { state = JSON.parse(await _gunzipFromBase64(data.state_gz)); } catch (_) {}
+        }
+        if (!state && data.state) state = data.state;
+        if (!state || !Array.isArray(state.chapters)) return;
+        // Overwrite that chapter in the reviewer's copy with master
+        // content so a diff next time doesn't re-surface it.
+        const master = (chapters || []).find(x => x && x.id === acceptedChId);
+        if (master) {
+          for (const sc of state.chapters) {
+            if (sc && sc.id === acceptedChId) {
+              sc.content = master.content;
+              sc.title = master.title;
+              break;
+            }
+          }
+        }
+        // Rewrite the suggestion doc with pruned state.
+        const stateJson = JSON.stringify(state);
+        let payload = { ...data, timestamp: Date.now() };
+        if (typeof CompressionStream !== 'undefined') {
+          try {
+            const bytes = new TextEncoder().encode(stateJson);
+            const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
+            const buf = await new Response(stream).arrayBuffer();
+            const u8 = new Uint8Array(buf);
+            let bin = '';
+            for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+            payload.state_gz = btoa(bin);
+            delete payload.state;
+          } catch (e) { payload.state = state; delete payload.state_gz; }
+        } else {
+          payload.state = state;
+          delete payload.state_gz;
+        }
+        await window._fb.setDoc(ref, payload);
+      } catch (e) {
+        console.warn('[suggestions] prune failed:', e);
+      }
+    }
+
+    // Auto-refresh when a folio finishes loading (owners only — the
+    // function self-guards for owner check inside).
+    if (typeof window !== 'undefined') {
+      window.addEventListener('folio-loaded', function() { setTimeout(_sugRefresh, 700); });
     }
 
     /* ── Delete project ──

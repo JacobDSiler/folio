@@ -283,6 +283,26 @@ Also in this batch:
         position derived from match.start - paraStartInContent.
         Handles both duplicates and residual offset drift from
         markdown emphasis chars stripped by md().
+- feat(editor suggestions): full owner review flow shipped.
+  When someone with an editor/collab share link edits the manuscript
+  and hits save, their edits divert to
+  folio_projects/{id}/suggestions/{their-uid} rather than clobbering
+  body/main. Owner sees a new "Reviewer suggestions" panel on the
+  Folio tab with:
+    - Live badge showing pending-change count across all reviewers
+    - Per-reviewer card with name, role, timestamp, and Reject-all
+    - Per-chapter row with one-line change summary
+      (title/added-N-words/removed-N-words/text-tweaks)
+    - "Preview" opens a full side-by-side modal (master left,
+      suggested right) with an Accept-this-chapter button
+    - "Accept" copies the reviewer's chapter content into your
+      master chapters array, saves, and prunes just that chapter
+      from the reviewer's suggestion doc (so it stops appearing on
+      refresh). Deletes the whole reviewer doc when nothing changed
+      remains.
+  Firestore rule added for folio_projects/{id}/suggestions/{uid}:
+  create/update by suggester (stamped with suggestedByUid); read by
+  owner + suggester; delete by owner or suggester.
 - feat(events pipeline): full ingestion + rollup infrastructure
   for time-series metrics. Three moving parts landed together:
     1. Paywall worker: POST /event validates + stamps + writes to

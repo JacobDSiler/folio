@@ -204,6 +204,30 @@ service cloud.firestore {
                       || isUser(resource.data.uid);
       }
 
+      // ── Editor suggestions (non-destructive) ─────────────────────
+      // When a share-link user with 'editor' or 'collab' role edits
+      // the manuscript, their save is diverted to this subcollection
+      // rather than overwriting the owner's body/main. The owner reviews
+      // pending suggestions in the sidebar and clicks Accept per chapter
+      // to merge them. One doc per reviewer uid — a fresh save from the
+      // same reviewer just overwrites their own suggestion doc.
+      //
+      // Rules:
+      //   Create/update: reviewer writes under their own uid (stamped
+      //                  in suggestedByUid on the payload).
+      //   Read:          reviewer sees their own; owner sees all.
+      //   Delete:        owner (accept/reject cleans up) or reviewer.
+      match /suggestions/{suggesterUid} {
+        allow read:  if isUser(parentUid(id))
+                    || isUser(suggesterUid)
+                    || isUser(resource.data.suggestedByUid);
+        allow create, update: if isUser(suggesterUid)
+                    && isUser(request.resource.data.suggestedByUid);
+        allow delete: if isUser(parentUid(id))
+                    || isUser(suggesterUid)
+                    || isUser(resource.data.suggestedByUid);
+      }
+
       // Subscribers — the serial-release email list.
       match /subscribers/{sid} {
         // Anyone may CREATE a subscriber doc — that's the public
