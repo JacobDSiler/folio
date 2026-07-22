@@ -887,6 +887,25 @@ export default {
       }
     }
 
+    // GET /metrics-rollup?key=<ADMIN_DEBUG_TOKEN>[&day=YYYYMMDD]
+    // Manual trigger for the daily metrics rollup. Same auth pattern
+    // as /admin-digest. ?day= forces a specific day rollup (idempotent
+    // — safe to re-run); without ?day= it advances from the latch.
+    if (request.method === 'GET' && path === '/metrics-rollup') {
+      const key = url.searchParams.get('key') || '';
+      const expected = env.ADMIN_DEBUG_TOKEN || '';
+      if (!expected) return errorJson('Metrics rollup disabled — ADMIN_DEBUG_TOKEN not set', 403, request, env);
+      if (key !== expected) return errorJson('Unauthorized', 401, request, env);
+      const day = (url.searchParams.get('day') || '').trim();
+      try {
+        const result = await runMetricsRollup(env, day ? { force: true, day: day } : {});
+        return json({ ok: true, result: result }, 200, request, env);
+      } catch (e) {
+        return errorJson('Metrics rollup failed: ' + (e.message || 'unknown'),
+          502, request, env);
+      }
+    }
+
     if (request.method === 'GET' && path === '/test') {
       const to = url.searchParams.get('to') || '';
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
@@ -1133,9 +1152,11 @@ export default {
   },
 
   // ── Scheduled (Cron Trigger) handler ─────────────────────
-  // Runs BOTH the serial-release notifier AND the admin moderation
-  // digest on each tick. Both are internally latched so a frequent
-  // cron schedule is safe — they'll no-op when there's nothing new.
+  // Runs THREE jobs on each tick:
+  //   1. serial-release notifier (chapter unlock emails)
+  //   2. admin moderation digest
+  //   3. metrics daily rollup (folio_events → per-folio metrics/daily_*)
+  // All three are internally latched — safe to run on any cron cadence.
   async scheduled(event, env, ctx) {
     try {
       const summary = await runCron(env);
@@ -1151,5 +1172,307 @@ export default {
       console.error('[cron] admin-digest tick FAILED',
         e && (e.stack || e.message || e));
     }
+    try {
+      const rollupSummary = await runMetricsRollup(env, {});
+      console.log('[cron] metrics-rollup tick', JSON.stringify(rollupSummary));
+    } catch (e) {
+      console.error('[cron] metrics-rollup tick FAILED',
+        e && (e.stack || e.message || e));
+    }
   },
 };
+
+/* ══════════════════════════════════════════════════════════════════
+   Metrics daily rollup
+   ────────────────────────────────────────────────────────────────────
+   Aggregates yesterday's rows from folio_events into per-folio summary
+   docs at folio_projects/{folioId}/metrics/daily_YYYYMMDD.
+
+   Latch: folio_metrics_rollup_state/latch tracks the last-rolled-up
+   date (UTC). We roll up any UTC day between last+1 and yesterday
+   inclusive, up to MAX_DAYS_PER_TICK per invocation.
+
+   Query strategy: folio_events doc ids are prefixed with YYYYMMDD_,
+   so a startAt/endBefore filter on __name__ selects a whole day
+   without needing a Firestore index on the ts field.
+
+   Rollup fields written per folio per day:
+     day:                 'YYYYMMDD'
+     folioId:             string
+     views:               number of 'view' events
+     chapter_opens:       number of 'chapter_open' events
+     chapter_open_by_id:  map<chapterId, count>
+     read_completes:      number of 'read_complete' events
+     paywall_hits:        number of 'paywall_hit' events
+     purchases:           number of 'purchase' events
+     purchase_amount:     sum of meta.amount for purchase events
+     tips:                number of 'tip' events
+     tip_amount:          sum of meta.amount for tip events
+     countries:           map<countryCode, count>
+     referrers:           map<host, count>    (top 20 kept)
+     computedAt:          ISO timestamp
+   ══════════════════════════════════════════════════════════════════ */
+const _METRICS_MAX_DAYS_PER_TICK = 3;
+
+async function runMetricsRollup(env, opts) {
+  opts = opts || {};
+  const force = !!opts.force;
+  const auth = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || auth.projectId;
+  if (!projectId) return { skipped: 'no project id' };
+
+  // Determine days to roll up.
+  const todayUtc = _ymdUtc(new Date());
+  const yesterdayUtc = _ymdUtc(new Date(Date.now() - 86_400_000));
+
+  let lastRolled = null;
+  try {
+    const latch = await fsGetDoc(projectId, auth.token,
+      'folio_metrics_rollup_state/latch');
+    if (latch && latch.lastRolledDay) lastRolled = String(latch.lastRolledDay);
+  } catch (e) { /* first-run — no latch yet */ }
+
+  const daysToRoll = [];
+  if (force && opts.day) {
+    daysToRoll.push(String(opts.day));
+  } else {
+    // Walk from (lastRolled + 1) to yesterday inclusive.
+    let cursor = lastRolled ? _addDaysYmd(lastRolled, 1) : yesterdayUtc;
+    while (cursor <= yesterdayUtc && daysToRoll.length < _METRICS_MAX_DAYS_PER_TICK) {
+      daysToRoll.push(cursor);
+      cursor = _addDaysYmd(cursor, 1);
+    }
+  }
+  if (!daysToRoll.length) return { skipped: 'nothing to roll up', lastRolled: lastRolled };
+
+  const results = { daysRolled: 0, folioDaysWritten: 0, errors: [], lastRolled: lastRolled };
+  for (const day of daysToRoll) {
+    try {
+      const perFolio = await _rollupDay(projectId, auth.token, day);
+      // Write one rollup doc per folio touched today.
+      for (const folioId of Object.keys(perFolio)) {
+        try {
+          await _writeMetricsDoc(projectId, auth.token, folioId, day, perFolio[folioId]);
+          results.folioDaysWritten++;
+        } catch (e) {
+          results.errors.push({ folioId, day, msg: e.message });
+        }
+      }
+      results.daysRolled++;
+      results.lastRolled = day;
+    } catch (e) {
+      results.errors.push({ day, msg: e.message });
+      // Don't advance latch on failure — retry next tick.
+      break;
+    }
+  }
+  // Advance the latch to the last day we successfully rolled up.
+  if (results.lastRolled && results.lastRolled !== lastRolled) {
+    try {
+      await fsWriteDoc(projectId, auth.token,
+        'folio_metrics_rollup_state/latch',
+        { lastRolledDay: results.lastRolled, updatedAt: new Date().toISOString() });
+    } catch (e) { results.errors.push({ msg: 'latch write: ' + e.message }); }
+  }
+  return results;
+}
+
+// Query folio_events by __name__ prefix range for one YYYYMMDD, then
+// bucket by folioId + event kind. Returns { folioId: { views: N, ... } }.
+async function _rollupDay(projectId, token, day) {
+  const perFolio = Object.create(null);
+  // Use the runQuery endpoint with a __name__ range filter. Doc ids
+  // start with 'YYYYMMDD_<millis>_<rand>' so we bracket by that prefix.
+  const url = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+              '/databases/(default)/documents:runQuery';
+  // We use pageSize via limit; if a day has >1000 events we paginate
+  // via startAfter — most days won't come close.
+  let lastDocName = null;
+  const PAGE = 1000;
+  let safety = 0;
+  while (safety++ < 50) {
+    const body = {
+      structuredQuery: {
+        from: [{ collectionId: 'folio_events' }],
+        where: {
+          compositeFilter: {
+            op: 'AND',
+            filters: [
+              { fieldFilter: {
+                  field: { fieldPath: '__name__' },
+                  op: 'GREATER_THAN_OR_EQUAL',
+                  value: { referenceValue: 'projects/' + projectId +
+                    '/databases/(default)/documents/folio_events/' + day + '_' } } },
+              { fieldFilter: {
+                  field: { fieldPath: '__name__' },
+                  op: 'LESS_THAN',
+                  value: { referenceValue: 'projects/' + projectId +
+                    '/databases/(default)/documents/folio_events/' + day + '`' } } },
+            ]
+          }
+        },
+        orderBy: [{ field: { fieldPath: '__name__' }, direction: 'ASCENDING' }],
+        limit: PAGE,
+      }
+    };
+    if (lastDocName) {
+      body.structuredQuery.startAt = {
+        values: [{ referenceValue: lastDocName }],
+        before: false,
+      };
+    }
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      throw new Error('runQuery ' + r.status + ': ' + JSON.stringify(err));
+    }
+    const rows = await r.json();
+    if (!Array.isArray(rows) || !rows.length) break;
+    let seenAny = false;
+    for (const row of rows) {
+      if (!row.document) continue;
+      seenAny = true;
+      lastDocName = row.document.name;
+      const f = fsDecodeFields(row.document.fields || {});
+      const folioId = f.folioId;
+      if (!folioId) continue;
+      const bucket = perFolio[folioId] || (perFolio[folioId] = _emptyRollup());
+      const kind = f.kind;
+      switch (kind) {
+        case 'view':          bucket.views++; break;
+        case 'chapter_open':
+          bucket.chapter_opens++;
+          if (f.chapterId) bucket.chapter_open_by_id[f.chapterId] =
+            (bucket.chapter_open_by_id[f.chapterId] || 0) + 1;
+          break;
+        case 'read_complete': bucket.read_completes++; break;
+        case 'paywall_hit':   bucket.paywall_hits++; break;
+        case 'purchase': {
+          bucket.purchases++;
+          const amt = _amountFromMeta(f.metaJson);
+          if (amt) bucket.purchase_amount += amt;
+          break;
+        }
+        case 'tip': {
+          bucket.tips++;
+          const amt = _amountFromMeta(f.metaJson);
+          if (amt) bucket.tip_amount += amt;
+          break;
+        }
+      }
+      if (f.geo) bucket.countries[f.geo] = (bucket.countries[f.geo] || 0) + 1;
+      if (f.referrer) bucket.referrers[f.referrer] = (bucket.referrers[f.referrer] || 0) + 1;
+    }
+    if (!seenAny || rows.length < PAGE) break;
+  }
+  // Truncate referrers to top 20 to keep the rollup doc small.
+  for (const folioId of Object.keys(perFolio)) {
+    perFolio[folioId].referrers = _topN(perFolio[folioId].referrers, 20);
+  }
+  return perFolio;
+}
+
+function _emptyRollup() {
+  return {
+    views: 0, chapter_opens: 0, chapter_open_by_id: {}, read_completes: 0,
+    paywall_hits: 0, purchases: 0, purchase_amount: 0, tips: 0, tip_amount: 0,
+    countries: {}, referrers: {},
+  };
+}
+function _amountFromMeta(metaJson) {
+  if (!metaJson) return 0;
+  try { const o = JSON.parse(metaJson); return Number(o && o.amount) || 0; }
+  catch (e) { return 0; }
+}
+function _topN(obj, n) {
+  const entries = Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n);
+  const out = {};
+  for (const [k, v] of entries) out[k] = v;
+  return out;
+}
+function _ymdUtc(d) {
+  return d.getUTCFullYear() + String(d.getUTCMonth() + 1).padStart(2, '0') +
+         String(d.getUTCDate()).padStart(2, '0');
+}
+function _addDaysYmd(ymd, n) {
+  const y = +ymd.slice(0, 4), m = +ymd.slice(4, 6) - 1, d = +ymd.slice(6, 8);
+  const dt = new Date(Date.UTC(y, m, d));
+  dt.setUTCDate(dt.getUTCDate() + n);
+  return _ymdUtc(dt);
+}
+
+async function _writeMetricsDoc(projectId, token, folioId, day, r) {
+  const url = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+              '/databases/(default)/documents/folio_projects/' +
+              encodeURIComponent(folioId) + '/metrics/daily_' + day;
+  const fields = {
+    day: { stringValue: day },
+    folioId: { stringValue: folioId },
+    views: { integerValue: String(r.views) },
+    chapter_opens: { integerValue: String(r.chapter_opens) },
+    read_completes: { integerValue: String(r.read_completes) },
+    paywall_hits: { integerValue: String(r.paywall_hits) },
+    purchases: { integerValue: String(r.purchases) },
+    purchase_amount: { doubleValue: r.purchase_amount },
+    tips: { integerValue: String(r.tips) },
+    tip_amount: { doubleValue: r.tip_amount },
+    chapter_open_by_id: { mapValue: { fields: _numMapToFields(r.chapter_open_by_id) } },
+    countries: { mapValue: { fields: _numMapToFields(r.countries) } },
+    referrers: { mapValue: { fields: _numMapToFields(r.referrers) } },
+    computedAt: { timestampValue: new Date().toISOString() },
+  };
+  // PATCH creates or overwrites — safe to re-run (idempotent per day).
+  const rsp = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  });
+  if (!rsp.ok) {
+    const err = await rsp.json().catch(() => ({}));
+    throw new Error('metrics doc write ' + rsp.status + ': ' + JSON.stringify(err));
+  }
+}
+function _numMapToFields(obj) {
+  const out = {};
+  for (const k of Object.keys(obj)) {
+    out[k] = { integerValue: String(obj[k]) };
+  }
+  return out;
+}
+
+// Small helpers reused by rollup — mirror fsPatchEmailedThrough's style.
+async function fsGetDoc(projectId, token, path) {
+  const url = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+              '/databases/(default)/documents/' + path;
+  const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
+  if (r.status === 404) return null;
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error('getDoc ' + path + ' failed: ' +
+    ((data.error && data.error.message) || r.status));
+  return fsDecodeFields(data.fields || {});
+}
+async function fsWriteDoc(projectId, token, path, data) {
+  const url = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+              '/databases/(default)/documents/' + path;
+  const fields = {};
+  for (const k of Object.keys(data)) {
+    const v = data[k];
+    if (typeof v === 'string') fields[k] = { stringValue: v };
+    else if (typeof v === 'number') fields[k] = Number.isInteger(v)
+      ? { integerValue: String(v) } : { doubleValue: v };
+    else if (typeof v === 'boolean') fields[k] = { booleanValue: v };
+  }
+  const rsp = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  });
+  if (!rsp.ok) {
+    const err = await rsp.json().catch(() => ({}));
+    throw new Error('writeDoc ' + path + ' failed: ' + JSON.stringify(err));
+  }
+}

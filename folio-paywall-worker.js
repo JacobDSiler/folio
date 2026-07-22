@@ -1391,6 +1391,137 @@ async function handleViewRecord(request, env) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
+   POST /event — analytics ingestion for the metrics dashboards.
+   ────────────────────────────────────────────────────────────────────
+   Client fires-and-forgets via navigator.sendBeacon. Worker validates,
+   stamps ts + geo + optional uid, writes to folio_events collection
+   via the service account (bypasses client rules, which deny direct
+   client writes to this collection).
+
+   Body shape:
+     { kind, folioId, chapterId?, meta? }
+
+   Recognized kinds (whitelist — reject others to prevent stuffing):
+     view           → reader opened the folio
+     chapter_open   → reader clicked into a chapter
+     read_complete  → reader reached the last chapter
+     paywall_hit    → paywall lock modal rendered for a paid chapter
+     purchase       → reader completed a paid-release purchase
+     tip            → reader sent a tip
+     boost_click    → owner started a boost checkout
+
+   Auto-attached:
+     ts             — server timestamp
+     geo            — Cloudflare cf-ipcountry (2-letter code)
+     referrer       — Referer header (host+path only, no query string)
+     uid            — extracted from Authorization: Bearer <JWT> if valid
+
+   Meta size cap: 512 bytes serialized. Keeps a malicious client from
+   ballooning our Firestore storage bill.
+
+   Daily rollup cron (folio-email-worker.js runCron) walks yesterday's
+   events and writes folio_projects/{folioId}/metrics/daily_YYYYMMDD
+   summary docs. Raw events auto-expire after 90 days via Firestore
+   TTL policy (see docs/METRICS_PLAN.md).
+   ══════════════════════════════════════════════════════════════════ */
+const _EVENT_KINDS = new Set([
+  'view', 'chapter_open', 'read_complete', 'paywall_hit',
+  'purchase', 'tip', 'boost_click',
+]);
+
+async function handleEvent(request, env) {
+  if (!env.GCP_SERVICE_ACCOUNT) {
+    return errorJson('Firestore service account not configured', 500, request, env);
+  }
+  let body;
+  try { body = await request.json(); }
+  catch (e) { return errorJson('Bad JSON body', 400, request, env); }
+
+  const kind = String((body && body.kind) || '').trim();
+  const folioId = String((body && body.folioId) || '').trim();
+  if (!_EVENT_KINDS.has(kind)) return errorJson('Unknown event kind', 400, request, env);
+  if (!folioId || folioId.length > 200) return errorJson('Missing/invalid folioId', 400, request, env);
+
+  const chapterId = body && body.chapterId ? String(body.chapterId).slice(0, 100) : null;
+  let meta = null;
+  if (body && body.meta && typeof body.meta === 'object') {
+    try {
+      const serialized = JSON.stringify(body.meta);
+      if (serialized.length > 512) return errorJson('meta too large (512 byte cap)', 400, request, env);
+      meta = body.meta;
+    } catch (e) { /* ignore malformed meta */ }
+  }
+
+  // Extract uid from paywall JWT if present. Doesn't error if missing —
+  // anonymous reads are legitimate events.
+  let uid = null;
+  try {
+    const authHdr = request.headers.get('Authorization') || '';
+    const token = authHdr.replace(/^Bearer\s+/i, '').trim();
+    if (token && env.PAYWALL_JWT_SECRET) {
+      const v = await verifyJWT(token, env.PAYWALL_JWT_SECRET);
+      if (v && v.ok && v.payload && v.payload.uid) uid = String(v.payload.uid);
+    }
+  } catch (e) { /* anonymous is fine */ }
+
+  // Geo from Cloudflare edge, referrer sanitized to host+path only.
+  const geo = String(request.headers.get('cf-ipcountry') || '').slice(0, 4).toUpperCase() || null;
+  let referrer = null;
+  try {
+    const raw = request.headers.get('referer') || request.headers.get('Referer') || '';
+    if (raw) {
+      const u = new URL(raw);
+      referrer = (u.hostname + u.pathname).slice(0, 200);
+    }
+  } catch (e) { /* invalid referer, skip */ }
+
+  // Build the Firestore document. All values wrapped in the typed-value
+  // envelope Firestore's REST API expects.
+  const nowIso = new Date().toISOString();
+  const fields = {
+    kind:     { stringValue: kind },
+    folioId:  { stringValue: folioId },
+    ts:       { timestampValue: nowIso },
+  };
+  if (chapterId) fields.chapterId = { stringValue: chapterId };
+  if (uid)       fields.uid       = { stringValue: uid };
+  if (geo)       fields.geo       = { stringValue: geo };
+  if (referrer)  fields.referrer  = { stringValue: referrer };
+  if (meta) {
+    // Encode meta as JSON string — the daily rollup cron re-parses.
+    // Keeps the doc schema flat + avoids per-key type wrapping.
+    fields.metaJson = { stringValue: JSON.stringify(meta) };
+  }
+
+  try {
+    const acc = await getAccessToken(env);
+    const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+    // Doc id: <YYYYMMDD>_<millis>_<random> so rollup queries can range
+    // by prefix and doc ids are sortable by time.
+    const day = nowIso.slice(0, 10).replace(/-/g, '');
+    const rand = Math.random().toString(36).slice(2, 8);
+    const docId = day + '_' + Date.now() + '_' + rand;
+    const url = 'https://firestore.googleapis.com/v1/projects/' + pid +
+                '/databases/(default)/documents/folio_events?documentId=' + encodeURIComponent(docId);
+    const r = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Bearer ' + acc.token,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ fields }),
+    });
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      return errorJson('Firestore write failed: ' + ((data.error && data.error.message) || r.status), 502, request, env);
+    }
+    return json({ ok: true }, 200, request, env);
+  } catch (e) {
+    return errorJson('Event write failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════
    FOLIO PRESS — recurring subscription tier via PayPal Subscriptions
    ────────────────────────────────────────────────────────────────────
    Three tiers: Free (nothing to do here), Indie ($5/mo or $50/yr),
@@ -2325,6 +2456,7 @@ export default {
     if (path === '/boost-webhook'  && request.method === 'POST') return handleBoostWebhook(request, env);
     if (path === '/boost-slots'    && request.method === 'GET')  return handleBoostSlots(request, env);
     if (path === '/view-record'    && request.method === 'POST') return handleViewRecord(request, env);
+    if (path === '/event'          && request.method === 'POST') return handleEvent(request, env);
     if (path === '/press-subscribe' && request.method === 'POST') return handlePressSubscribe(request, env);
     if (path === '/press-return'    && request.method === 'GET')  return handlePressReturn(request, env);
     if (path === '/press-webhook'   && request.method === 'POST') return handlePressWebhook(request, env);

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Ship the 2026-07-07 batch (admin console + role management + shelf
     moderation scaffolding) to production.
@@ -150,14 +150,14 @@ try {
     # (FolioAdmin was undefined at runtime). Adding an empty .nojekyll
     # tells GitHub Pages to skip Jekyll entirely so underscore files ship.
     & git add .nojekyll
-    # index.html is the main welcome/marketing page — it kept getting
+    # index.html is the main welcome/marketing page -- it kept getting
     # dropped from this list, which is why deploys sometimes silently
     # skipped a batch when index.html was the only file changed. Added
     # 2026-07-17 after "your branch is up to date with origin/main"
     # errors traced back here.
     & git add index.html
     & git add app.html shelf.html
-    # Product photo templates — the .psdt files themselves stay in
+    # Product photo templates -- the .psdt files themselves stay in
     # Firebase Storage (gitignored), but manifest.json IS tracked so
     # the app knows which templates exist and where their metadata
     # lives. Untracked manifest = photos page shows an empty catalog.
@@ -239,13 +239,13 @@ Also in this batch:
   that killed the whole boot script, leaving the page body blank.
   Rewrote button HTML with double-quoted strings + esc() on uid.
 - fix(admin/press): revokeSub() had a duplicated try{} block left over
-  from the earlier VS Code truncation-recovery paste — 'Missing catch
+  from the earlier VS Code truncation-recovery paste -- 'Missing catch
   or finally after try' killed boot(), so the page hung on the
-  'Checking sign-in…' placeholder forever. Removed the duplicate.
+  'Checking sign-in...' placeholder forever. Removed the duplicate.
 - fix(GH Pages): add .nojekyll so /admin/_shared.js actually publishes.
   GitHub Pages runs Jekyll by default and Jekyll excludes every file
   whose name starts with '_'. That's why /admin/boost's author-lookup
-  widget was completely invisible in production — the FolioAdmin
+  widget was completely invisible in production -- the FolioAdmin
   script silently 404'd. .nojekyll disables Jekyll for the whole site
   so any file we ship reaches the browser.
 - fix(find & replace): pick the correct continuation slice when a
@@ -253,7 +253,7 @@ Also in this batch:
   slice + one or more .para-cont slices, all sharing data-paraidx.
   Old code always picked the head (:not(.para-cont)). If the match
   lived in the middle/tail, the needle wasn't in the head's walked
-  text so we fell back to pulsing the whole head slice — which on
+  text so we fell back to pulsing the whole head slice -- which on
   screen appeared as an unrelated short paragraph like "quarter-
   inch." (screenshot 2026-07-22: searching "Tarin" pulsed
   "quarter-inch." because "Tarin" was in a continuation slice on a
@@ -269,11 +269,11 @@ Also in this batch:
   paragraph arrived on screen. rAF-poll scrollTop; fire when it's
   been stable for 3 consecutive frames, hard-cap 2500 ms.
 - fix(find & replace): highlight lands on the ACTUAL match now.
-  Bug 2026-07-22: search "Corlan" 3/497 → highlight lands on "since"
+  Bug 2026-07-22: search "Corlan" 3/497 -> highlight lands on "since"
   ~13 chars before the real Corlan. Two compounding issues:
     (a) old code searched el.innerText (whitespace-collapsed, CSS-
         transformed) then walked TreeWalker text nodes (raw) to build
-        the Range — any whitespace or transform difference shifted
+        the Range -- any whitespace or transform difference shifted
         boundaries. Fixed by walking ONCE, building the searchable
         string from the same text nodes so search offsets and Range
         offsets reference identical char indices.
@@ -283,18 +283,59 @@ Also in this batch:
         position derived from match.start - paraStartInContent.
         Handles both duplicates and residual offset drift from
         markdown emphasis chars stripped by md().
+- feat(events pipeline): full ingestion + rollup infrastructure
+  for time-series metrics. Three moving parts landed together:
+    1. Paywall worker: POST /event validates + stamps + writes to
+       folio_events collection. Attaches server timestamp, Cloudflare
+       cf-ipcountry geo, sanitized Referer, and extracts reader uid
+       from paywall JWT if present. Kind whitelist (view, chapter_
+       open, read_complete, paywall_hit, purchase, tip, boost_click)
+       -- unknown kinds rejected. 512-byte meta size cap. Doc id
+       prefixed YYYYMMDD_ so rollup queries range by __name__.
+    2. Client tracker: window._folioTrack(kind, folioId, extra) in
+       app.html. Uses navigator.sendBeacon (or fetch keepalive with
+       auth) so it doesn't block page unload. 5-second per-key dedupe
+       so scroll storms don't flood. Call sites installed for view
+       (reader boot), chapter_open + read_complete (reader chapter
+       jump). Purchase / tip / boost_click sites to come via their
+       existing success handlers.
+    3. Email worker: runMetricsRollup() daily cron pass. Latched
+       at folio_metrics_rollup_state/latch so cron cadence is safe;
+       rolls up to 3 days per tick. Uses runQuery with __name__
+       range on folio_events (no composite index needed). Aggregates
+       per folio into folio_projects/{id}/metrics/daily_YYYYMMDD
+       docs (views - chapter_opens - chapter_open_by_id map - read_
+       completes - paywall_hits - purchases - purchase_amount -
+       tips - tip_amount - countries - top-20 referrers - computedAt).
+       New GET /metrics-rollup?key=<token>[&day=YYYYMMDD] endpoint
+       for manual trigger/backfill.
+- rules(folio_events + metrics subcollection):
+    folio_events                     -> read/write: if false (worker only)
+    folio_projects/{id}/metrics/{d}  -> read: owner OR admin; write: false
+- feat(author metrics): sparklines + drop-off + geo + referrers now
+  populate from the rollup docs when they exist. 30-day sparkline
+  and per-chapter drop-off render for Indie+; top countries + top
+  referrers render for Imprint. Rendered as inline SVG / flexbox
+  bars -- no Chart.js dependency added to the editor bundle. Falls
+  back gracefully to "activates with event tracking" placeholder
+  text on days with no rollup data.
+- fix(deploy script): "nothing to commit" (all local changes already
+  on origin) no longer treated as fatal. Prints a gray note and
+  continues to git push in case origin was behind for some reason.
+  Real commit failures (with staged/unstaged changes) still abort
+  and dump git status --short so you can see what's dirty.
 - feat(author metrics): new sidebar tab in the editor next to
   Manuscript / Book / Audio / ☁ Folio. Content varies by Press tier
   per the pricing-page contract:
-    Free    → basic 2×2 grid (Views · Subscribers · Reviews · Annots)
+    Free    -> basic 2×2 grid (Views - Subscribers - Reviews - Annots)
               plus live publish-state pill (Published / Pending
               moderation / Featured Xh left / Adult flag) and gold
               upsell tiles pointing to Indie + Imprint unlocks.
-    Indie   → same basic grid + 30-day sparkline slot + per-chapter
+    Indie   -> same basic grid + 30-day sparkline slot + per-chapter
               drop-off slot (both marked "activates with event
               tracking" until Task #18 ships) + Imprint upsell for
               geo + referrers.
-    Imprint → everything unlocked; the two Imprint-only slots (Top
+    Imprint -> everything unlocked; the two Imprint-only slots (Top
               countries, Top referrers) replace the upsells.
   All counts today are REAL live reads: viewCount from the folio
   doc, subcollection sizes for subscribers + annotations, filtered
@@ -308,7 +349,7 @@ Also in this batch:
   pending shelf moderation, adult-flagged, currently featured, all-
   time viewCount sum. Revenue: buckets published-authors by tier
   (paid Imprint / paid Indie / comped Imprint / comped Indie / free)
-  via per-uid getDoc against folio_user_settings — batched 6
+  via per-uid getDoc against folio_user_settings -- batched 6
   concurrent. Health: reviews pending vs approved (needs the reviews
   rule update below), last admin digest timestamp. Recent activity:
   8 most recently-published folios with pending/adult/featured
@@ -319,7 +360,7 @@ Also in this batch:
     - Indie now: 30-day view sparkline + per-chapter drop-off
       ("reader engagement" fundamentals).
     - Imprint now: everything Indie plus geo + referrers
-      ("marketing analytics" — where to invest).
+      ("marketing analytics" -- where to invest).
   This is a deliberate commitment upsell: Free proves the count,
   Indie proves the engagement pattern, Imprint proves where to
   invest marketing. Copy updated on /press/ tier cards.
@@ -333,7 +374,7 @@ Also in this batch:
   Root cause of Thomas's Introduction cramming everything onto one
   page then getting hidden by the .page-overflowed fade: renderPreview
   had a special-case branch for type=='pre'||'post' that dumped ALL
-  paragraphs into a single pageWrap call and returned early — the
+  paragraphs into a single pageWrap call and returned early -- the
   full paginator (measure + slice + multi-page flow) was chapter-only.
   Routed pre/post through the same paginator; guarded chapter-only
   bits (chapter number, chapter image) behind an isBodyChapter flag
@@ -349,10 +390,10 @@ Also in this batch:
        dedicated space. Zoom slider gets min-width so it doesn't
        collapse to a thumb-with-no-track when other controls wrap
        around it.
-    2. On very narrow screens (<480 px) the ✏ Edit and 👁 Preview
+    2. On very narrow screens (<480 px) the  Edit and  Preview
        as reader buttons collapse to icon-only via a ::before pseudo
        element (title tooltips preserved).
-    3. Book page rendered at 864 px (150 % zoom · Trade 6×9″) is
+    3. Book page rendered at 864 px (150 % zoom - Trade 6×9″) is
        wider than a 400-px phone viewport, clipping text off both
        sides. New _mobileAutoFit() fires zoomFit() at boot + on
        resize/orientation change so the page always fits. Belt-and-
@@ -360,17 +401,17 @@ Also in this batch:
        scroller overflow-x:auto so manual override becomes a
        horizontal pan instead of silent clipping.
 - ui(sidebar): auto-version snapshots collapsed under a closed
-  <details> disclosure by default. Manual "📌 Save version" entries
+  <details> disclosure by default. Manual " Save version" entries
   render inline as before; auto snapshots go under "Auto-saved
   snapshots (N)" so they stop drowning the panel. Rotates a small ▶
   caret when open. (Jacob 2026-07-21.)
-- fix(find & replace): NAVIGATION rewrite — the previous version
+- fix(find & replace): NAVIGATION rewrite -- the previous version
   called scrollToChapter first (which starts a smooth scroll to the
   chapter top) and then queued the paragraph-center scroll 220 ms
   later, so the two animations raced and the browser landed
   somewhere between them. Now for content matches we skip
   scrollToChapter entirely and go straight to the target paragraph
-  via native scrollIntoView({block:'center'}) — that walks the
+  via native scrollIntoView({block:'center'}) -- that walks the
   ancestor chain and scrolls whichever element is the real overflow
   container (previous manual math targeted #previewScroller which
   has overflow:visible and isn't actually the scroller). Highlight
@@ -386,7 +427,7 @@ Also in this batch:
   the CENTER of the preview scroller (custom offset math because
   scrollIntoView block:'center' undershoots inside our fixed
   toolbar layout), then flash a fixed-position highlight overlay
-  built from Range.getClientRects() on the matched substring —
+  built from Range.getClientRects() on the matched substring --
   no DOM mutation of contenteditable paragraphs. Falls back to a
   full-paragraph outline pulse for title matches or when substring
   ranging fails.
@@ -399,25 +440,25 @@ Also in this batch:
 - feat(admin/press): plan/comp indicator chip next to every author in
   the search dropdown. After the author list loads, each author's
   folio_user_settings/{uid}.pressSubscription is fetched (single-doc
-  reads, no LIST — safe) and classified into Free / Comp · Tier /
-  Paid · Tier / Expired · Tier / Cancelled, with a gold ✨ for founding
+  reads, no LIST -- safe) and classified into Free / Comp - Tier /
+  Paid - Tier / Expired - Tier / Cancelled, with a gold * for founding
   contributors. Batched 6 at a time; live-refreshes the open dropdown
   as chips resolve. So Jacob can spot "already comped" or "already
   paid" before wasting a click, and skip unnecessary grants.
-- fix(admin author lookup): the "Loading known authors…" widget was
+- fix(admin author lookup): the "Loading known authors..." widget was
   running three unfiltered LIST queries against folio_projects,
   folio_imprint_themes, and folio_user_settings. Firestore's rule
   engine cannot short-circuit isAdmin() for unbounded LIST queries,
   so folio_projects and folio_user_settings returned
-  `permission-denied` — and a denied LIST puts the whole Firestore
+  `permission-denied` -- and a denied LIST puts the whole Firestore
   SDK into offline mode, which is exactly what surfaced as the
   "client is offline" error blocking the editor after sign-in.
-  Diagnosed live via Chrome MCP: `folio_projects` unfiltered →
-  permission-denied; `where('release.published', '==', true)` → 7
+  Diagnosed live via Chrome MCP: `folio_projects` unfiltered ->
+  permission-denied; `where('release.published', '==', true)` -> 7
   docs in 208ms. Rewrote both admin/press/_loadAuthorList and
   admin/_shared.js mountAuthorLookup to use only queries the rules
   can prove satisfiable: published-folios filter + world-readable
-  folio_imprint_themes. Dropped the folio_user_settings source —
+  folio_imprint_themes. Dropped the folio_user_settings source --
   admins paste UID directly for signed-in-but-unpublished users
   (the input already existed for that path). Added fb.where to the
   helpers passed from admin/boost and to mountAuthorLookup's arg
@@ -426,10 +467,29 @@ Also in this batch:
     $msg | Out-File -FilePath $msgPath -Encoding utf8 -NoNewline
 
     & git commit -F $msgPath
-    if ($LASTEXITCODE -ne 0) { Write-Host "git commit failed (exit $LASTEXITCODE)." -ForegroundColor Red; Stop-Here $LASTEXITCODE }
+    if ($LASTEXITCODE -ne 0) {
+        # Distinguish "nothing to commit" (benign -- everything is already
+        # committed and probably already pushed) from a real failure.
+        # Real failures leave uncommitted changes in `git status`.
+        $porcelain = (& git status --porcelain 2>$null) -join ""
+        if ([string]::IsNullOrWhiteSpace($porcelain)) {
+            Write-Host "  Nothing new to commit -- working tree already matches HEAD." -ForegroundColor Gray
+            Write-Host "  Continuing to push in case origin is behind." -ForegroundColor Gray
+        } else {
+            Write-Host "git commit failed (exit $LASTEXITCODE)." -ForegroundColor Red
+            Write-Host "Uncommitted changes:" -ForegroundColor Yellow
+            & git status --short
+            Stop-Here $LASTEXITCODE
+        }
+    }
 
     & git push
-    if ($LASTEXITCODE -ne 0) { Write-Host "git push failed (exit $LASTEXITCODE)." -ForegroundColor Red; Stop-Here $LASTEXITCODE }
+    if ($LASTEXITCODE -ne 0) {
+        # 'Everything up-to-date' also returns 0 for push, so a non-zero
+        # here is a real failure (network, auth, non-fast-forward, etc.).
+        Write-Host "git push failed (exit $LASTEXITCODE)." -ForegroundColor Red
+        Stop-Here $LASTEXITCODE
+    }
 
     Write-Host ""
     Write-Host "All deployed. GitHub Pages publishes in ~30-60 seconds." -ForegroundColor Green
