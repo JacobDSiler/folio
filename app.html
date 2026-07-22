@@ -11198,6 +11198,141 @@
       statusEl.textContent = active
         ? ('Loaded · ' + (tier === 'imprint' ? 'Imprint tier — all metrics unlocked' : 'Indie tier — reader engagement unlocked'))
         : 'Loaded · Free tier — view count only. Upgrade for engagement + marketing analytics.';
+
+      // If author is on a paid tier, load the last 30 days of rollup
+      // docs and render the time-series slots. Best-effort — if no
+      // rollup docs exist yet, leaves the "activates with event
+      // tracking" placeholders in place.
+      if (active && (tier === 'indie' || tier === 'imprint')) {
+        _mxLoadTimeSeries(tier).catch(function(e){ console.warn('[metrics] time-series load failed:', e); });
+      }
+    }
+
+    // Load the last 30 daily rollup docs for this folio and render
+    // the tier-appropriate visualisations. Free-form SVG rendering —
+    // keeps the metrics tab dependency-free (no Chart.js in the editor
+    // bundle just for a sparkline).
+    async function _mxLoadTimeSeries(tier) {
+      if (!window._db || !window._fb || !_projId) return;
+      const fb = window._fb, db = window._db;
+      // Compute the last 30 UTC day ids (YYYYMMDD).
+      const days = [];
+      const now = new Date();
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i));
+        days.push(d.getUTCFullYear() + String(d.getUTCMonth() + 1).padStart(2, '0') + String(d.getUTCDate()).padStart(2, '0'));
+      }
+      // Firestore doesn't support IN queries on doc ids in a subcollection
+      // conveniently, so fire N getDocs in parallel (batched). Each
+      // is a single-doc read — admin/owner rule allows.
+      const rollups = new Array(days.length).fill(null);
+      const BATCH = 6;
+      for (let i = 0; i < days.length; i += BATCH) {
+        const batch = days.slice(i, i + BATCH);
+        await Promise.all(batch.map(async (day, k) => {
+          try {
+            const snap = await fb.getDoc(fb.doc(db, 'folio_projects', _projId, 'metrics', 'daily_' + day));
+            if (snap.exists()) rollups[i + k] = snap.data();
+          } catch (e) { /* missing days are normal */ }
+        }));
+      }
+
+      // 30-day sparkline — Indie + Imprint see this.
+      _mxRenderSparkline(rollups, days);
+      // Per-chapter drop-off — Indie + Imprint.
+      _mxRenderDropoff(rollups);
+      // Imprint-only: geo + referrers.
+      if (tier === 'imprint') {
+        _mxRenderGeo(rollups);
+        _mxRenderReferrers(rollups);
+      }
+    }
+
+    function _mxRenderSparkline(rollups, days) {
+      const host = document.getElementById('mxSparkline');
+      if (!host) return;
+      const views = rollups.map(r => r ? (r.views || 0) : 0);
+      const total = views.reduce((a, b) => a + b, 0);
+      if (total === 0) return; // leave placeholder text
+      const max = Math.max.apply(null, views);
+      const W = 260, H = 40, pad = 2;
+      const step = (W - pad * 2) / (views.length - 1);
+      const yFor = v => H - pad - (v / max) * (H - pad * 2);
+      const pts = views.map((v, i) => (pad + i * step).toFixed(1) + ',' + yFor(v).toFixed(1)).join(' ');
+      const lastDay = days[days.length - 1];
+      const lastFmt = lastDay.slice(0, 4) + '-' + lastDay.slice(4, 6) + '-' + lastDay.slice(6, 8);
+      host.innerHTML =
+        '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:' + H + 'px" preserveAspectRatio="none">' +
+        '<polyline fill="none" stroke="var(--accent-ui)" stroke-width="1.5" points="' + pts + '"/>' +
+        '</svg>' +
+        '<div style="font-size:10px;color:var(--hint);margin-top:2px">' + total + ' views last 30 days · through ' + lastFmt + '</div>';
+    }
+
+    function _mxRenderDropoff(rollups) {
+      const host = document.getElementById('mxDropoff');
+      if (!host) return;
+      // Aggregate chapter_open_by_id across all days.
+      const perCh = Object.create(null);
+      for (const r of rollups) {
+        if (!r || !r.chapter_open_by_id) continue;
+        for (const chId of Object.keys(r.chapter_open_by_id)) {
+          perCh[chId] = (perCh[chId] || 0) + (r.chapter_open_by_id[chId] || 0);
+        }
+      }
+      // Order by manuscript chapter order (chapters is the state array).
+      const chapterList = (typeof getChapters === 'function' ? getChapters() : [])
+        .filter(c => c && c.type === 'chapter');
+      if (!chapterList.length) return;
+      const bars = chapterList.map(c => ({ id: c.id, title: c.title || 'Ch ' + (chapterList.indexOf(c) + 1), n: perCh[c.id] || 0 }));
+      const max = Math.max.apply(null, bars.map(b => b.n)) || 1;
+      if (max === 0) return; // leave placeholder
+      host.innerHTML = '<div style="display:flex;align-items:flex-end;gap:2px;height:50px">' +
+        bars.map(b => {
+          const h = Math.max(2, Math.round((b.n / max) * 48));
+          const pct = Math.round((b.n / max) * 100);
+          return '<div title="' + esc(b.title) + ' — ' + b.n + ' opens (' + pct + '% of peak)" style="flex:1;background:var(--accent-ui);height:' + h + 'px;border-radius:1px;opacity:' + (0.4 + 0.6 * (b.n / max)).toFixed(2) + '"></div>';
+        }).join('') +
+        '</div>' +
+        '<div style="font-size:10px;color:var(--hint);margin-top:4px">Ch 1 → last · relative reader opens</div>';
+    }
+
+    function _mxRenderGeo(rollups) {
+      const host = document.getElementById('mxGeo');
+      if (!host) return;
+      const merged = Object.create(null);
+      for (const r of rollups) {
+        if (!r || !r.countries) continue;
+        for (const cc of Object.keys(r.countries)) {
+          merged[cc] = (merged[cc] || 0) + (r.countries[cc] || 0);
+        }
+      }
+      const rows = Object.entries(merged).sort((a, b) => b[1] - a[1]).slice(0, 6);
+      if (!rows.length) return; // leave placeholder
+      const total = rows.reduce((s, r) => s + r[1], 0);
+      host.innerHTML = rows.map(([cc, n]) => {
+        const pct = Math.round((n / total) * 100);
+        return '<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0"><span>' + esc(cc || '??') + '</span><span style="color:var(--hint)">' + n + ' · ' + pct + '%</span></div>';
+      }).join('');
+    }
+
+    function _mxRenderReferrers(rollups) {
+      const host = document.getElementById('mxReferrers');
+      if (!host) return;
+      const merged = Object.create(null);
+      for (const r of rollups) {
+        if (!r || !r.referrers) continue;
+        for (const ref of Object.keys(r.referrers)) {
+          merged[ref] = (merged[ref] || 0) + (r.referrers[ref] || 0);
+        }
+      }
+      const rows = Object.entries(merged).sort((a, b) => b[1] - a[1]).slice(0, 6);
+      if (!rows.length) return; // leave placeholder
+      host.innerHTML = rows.map(([ref, n]) =>
+        '<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0;gap:8px">' +
+          '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px">' + esc(ref) + '</span>' +
+          '<span style="color:var(--hint);flex-shrink:0">' + n + '</span>' +
+        '</div>'
+      ).join('');
     }
 
     function _mxNum(n) {
@@ -21982,6 +22117,10 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ folioId: _loadedFolioId }),
           }).catch(function(){ /* silent — view counting shouldn't affect UX */ });
+          // Also fire a 'view' event for the time-series pipeline. Legacy
+          // /view-record above is still authoritative for the folio doc's
+          // all-time viewCount; events feed sparkline/geo/referrer rollups.
+          try { window._folioTrack && window._folioTrack('view', _loadedFolioId); } catch (_) {}
         }
       } catch (_) {}
 
@@ -22882,6 +23021,76 @@
 
     const PAYWALL_WORKER_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
 
+    // ── window._folioTrack — analytics event tracker ─────────────────
+    // Fire-and-forget events for the metrics pipeline. Uses
+    // navigator.sendBeacon when available (survives page unload) with
+    // a fetch() fallback for browsers that block sendBeacon on
+    // non-standard content types.
+    //
+    // Call sites:
+    //   • Reader boot → 'view' (fired next to /view-record)
+    //   • Chapter change in reader → 'chapter_open' with chapterId
+    //   • Paywall lock modal renders → 'paywall_hit' with chapterId
+    //   • Reader lands on last chapter → 'read_complete'
+    //   • Purchase completes → 'purchase' with meta.amount
+    //   • Tip completes → 'tip' with meta.amount
+    //   • Boost checkout starts → 'boost_click' with meta.tier
+    //
+    // Worker sanitizes + writes to folio_events; daily rollup cron on
+    // the email worker aggregates into folio_projects/{id}/metrics/
+    // daily_YYYYMMDD docs read by the author + admin dashboards.
+    // Rejects gracefully on any error — never blocks the caller.
+    window._folioTrack = function _folioTrack(kind, folioId, extra) {
+      try {
+        if (!kind || !folioId) return;
+        // Client-side dedupe: same (kind, folioId, chapterId) fired
+        // within 5 s is almost certainly a re-render, not a real
+        // second event. Prevents chapter_open storms on scroll snap.
+        const key = kind + ':' + folioId + ':' + ((extra && extra.chapterId) || '');
+        const nowMs = Date.now();
+        window._folioTrackDedupe = window._folioTrack.__dedupe = window._folioTrack.__dedupe || {};
+        const last = window._folioTrack.__dedupe[key] || 0;
+        if (nowMs - last < 5000) return;
+        window._folioTrack.__dedupe[key] = nowMs;
+
+        const body = {
+          kind: String(kind),
+          folioId: String(folioId),
+        };
+        if (extra && extra.chapterId) body.chapterId = String(extra.chapterId);
+        if (extra && extra.meta) body.meta = extra.meta;
+
+        const payload = JSON.stringify(body);
+        const url = PAYWALL_WORKER_URL + '/event';
+
+        // Try to attach paywall JWT if we have one for this folio, so
+        // the worker can associate the event with a specific reader.
+        let authHeader = null;
+        try {
+          const token = localStorage.getItem('folioPaywallToken_' + folioId);
+          if (token) authHeader = 'Bearer ' + token;
+        } catch (_) {}
+
+        // sendBeacon can't set custom headers, so we can only use it
+        // when there's no auth token. With a token, fall through to
+        // fetch() with keepalive:true.
+        if (!authHeader && typeof navigator !== 'undefined' && navigator.sendBeacon) {
+          const blob = new Blob([payload], { type: 'application/json' });
+          try { navigator.sendBeacon(url, blob); return; } catch (_) { /* fall through */ }
+        }
+        try {
+          fetch(url, {
+            method: 'POST',
+            headers: authHeader
+              ? { 'Content-Type': 'application/json', 'Authorization': authHeader }
+              : { 'Content-Type': 'application/json' },
+            body: payload,
+            keepalive: true,
+          }).catch(function(){});
+        } catch (_) {}
+      } catch (e) { /* never let analytics break the app */ }
+    };
+
     // ═══ Press subscription state — cached + async lookup ═══════════════
     //   window._pressSubCache   — { active, tier, period, boostDiscountPct, boostDiscountLabel }
     //   window._pressSubCacheAt — timestamp of last refresh
@@ -23551,6 +23760,10 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ folioId: _loadedFolioId }),
           }).catch(function(){ /* silent — view counting shouldn't affect UX */ });
+          // Also fire a 'view' event for the time-series pipeline. Legacy
+          // /view-record above is still authoritative for the folio doc's
+          // all-time viewCount; events feed sparkline/geo/referrer rollups.
+          try { window._folioTrack && window._folioTrack('view', _loadedFolioId); } catch (_) {}
         }
       } catch (_) {}
         return;
@@ -23601,6 +23814,10 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ folioId: _loadedFolioId }),
           }).catch(function(){ /* silent — view counting shouldn't affect UX */ });
+          // Also fire a 'view' event for the time-series pipeline. Legacy
+          // /view-record above is still authoritative for the folio doc's
+          // all-time viewCount; events feed sparkline/geo/referrer rollups.
+          try { window._folioTrack && window._folioTrack('view', _loadedFolioId); } catch (_) {}
         }
       } catch (_) {}
     }
@@ -24129,6 +24346,27 @@
       const bp = document.getElementById('bookPreview');
       const scroller = document.getElementById('previewArea');
       if (!bp || !scroller) return;
+
+      // Fire a 'chapter_open' event for the metrics pipeline (reader
+      // mode only — the editor jumps around freely and would flood
+      // events). Dedupe inside _folioTrack means fast successive jumps
+      // to the same chapter emit only one event.
+      try {
+        if (typeof _readerMode !== 'undefined' && _readerMode &&
+            typeof _loadedFolioId !== 'undefined' && _loadedFolioId &&
+            typeof window._folioTrack === 'function') {
+          window._folioTrack('chapter_open', _loadedFolioId, { chapterId: chid });
+          // If this is the last chapter, fire 'read_complete' too so
+          // the metrics rollup can compute completion rate.
+          try {
+            const _chs = (typeof getChapters === 'function') ? getChapters() : [];
+            const _lastCh = _chs.filter(c => c && c.type === 'chapter').slice(-1)[0];
+            if (_lastCh && _lastCh.id === chid) {
+              window._folioTrack('read_complete', _loadedFolioId, { chapterId: chid });
+            }
+          } catch (_) {}
+        }
+      } catch (_) {}
 
       // If this chapter is a serial-locked one, don't jump — toast the
       // unlock date and stay put. Reader mode only — editor doesn't

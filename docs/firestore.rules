@@ -346,6 +346,28 @@ service cloud.firestore {
       allow read, update, delete: if isUser(resource.data.uid);
     }
 
+    // ── Analytics events ────────────────────────────────────────────
+    // Written ONLY by the paywall worker's /event endpoint via its
+    // service account (which bypasses these rules). Clients have zero
+    // access — no read, no write, ever. This keeps events immutable
+    // to the browser (readers can't fake purchase events, authors
+    // can't stuff their own view counts) and keeps the rules simple
+    // because no per-doc gating logic is needed. The daily rollup
+    // cron in folio-email-worker.js also uses the service account.
+    match /folio_events/{eventId} {
+      allow read, write: if false;
+    }
+
+    // ── Metrics rollup docs (per-folio subcollection) ───────────────
+    // Written by the daily rollup cron (service account, bypasses).
+    // Read by folio owners (for the author Metrics tab) and admins
+    // (for the platform dashboard). LIST is provably satisfiable for
+    // both because the parent-doc lookup binds the owner uid.
+    match /folio_projects/{id}/metrics/{doc} {
+      allow read:  if isUser(parentUid(id)) || isAdmin();
+      allow write: if false;
+    }
+
     // Anything not matched above is denied by default.
   }
 }
