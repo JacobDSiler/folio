@@ -248,6 +248,20 @@ Also in this batch:
   widget was completely invisible in production — the FolioAdmin
   script silently 404'd. .nojekyll disables Jekyll for the whole site
   so any file we ship reaches the browser.
+- fix(find & replace): pick the correct continuation slice when a
+  paragraph is split across pages. Long paragraphs render as a head
+  slice + one or more .para-cont slices, all sharing data-paraidx.
+  Old code always picked the head (:not(.para-cont)). If the match
+  lived in the middle/tail, the needle wasn't in the head's walked
+  text so we fell back to pulsing the whole head slice — which on
+  screen appeared as an unrelated short paragraph like "quarter-
+  inch." (screenshot 2026-07-22: searching "Tarin" pulsed
+  "quarter-inch." because "Tarin" was in a continuation slice on a
+  later page). Now we enumerate all slices, walk each in DOM order
+  tracking cumulative text length, and pick the slice whose range
+  covers match.start - paraStartInContent. Also shift
+  paraStartInContent so the highlight helper's offset math
+  references the CHOSEN slice's start, not the whole paragraph's.
 - fix(find & replace): highlight now waits for scroll to actually
   stop rather than firing on a fixed 520 ms timer. Chrome smooth-
   scroll takes 300 ms for short jumps and 1500+ ms across dozens
@@ -269,6 +283,24 @@ Also in this batch:
         position derived from match.start - paraStartInContent.
         Handles both duplicates and residual offset drift from
         markdown emphasis chars stripped by md().
+- feat(author metrics): new sidebar tab in the editor next to
+  Manuscript / Book / Audio / ☁ Folio. Content varies by Press tier
+  per the pricing-page contract:
+    Free    → basic 2×2 grid (Views · Subscribers · Reviews · Annots)
+              plus live publish-state pill (Published / Pending
+              moderation / Featured Xh left / Adult flag) and gold
+              upsell tiles pointing to Indie + Imprint unlocks.
+    Indie   → same basic grid + 30-day sparkline slot + per-chapter
+              drop-off slot (both marked "activates with event
+              tracking" until Task #18 ships) + Imprint upsell for
+              geo + referrers.
+    Imprint → everything unlocked; the two Imprint-only slots (Top
+              countries, Top referrers) replace the upsells.
+  All counts today are REAL live reads: viewCount from the folio
+  doc, subcollection sizes for subscribers + annotations, filtered
+  reviews query for review count + avg rating. Reuses window.pressSub()
+  as the tier gate (same helper the boost UI uses) so no new
+  subscription plumbing.
 - feat(admin/metrics): platform dashboard live at /admin/metrics/.
   Three sections shipping today, all using only queries firestore
   rules can prove satisfiable (no unbounded LIST). Content: published

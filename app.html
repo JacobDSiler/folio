@@ -1830,6 +1830,41 @@
       color: rgba(255, 255, 255, 0.3)
     }
 
+    /* Metrics tab tiles — sidebar-scale so 4 fit in a 2×2 grid. */
+    .mx-tile {
+      background: var(--surface);
+      border: .5px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .mx-label { font-size: 10px; color: var(--hint); text-transform: uppercase; letter-spacing: .04em; }
+    .mx-value { font-family: 'Playfair Display', Georgia, serif; font-size: 20px; font-weight: 600; color: var(--text); line-height: 1.1; }
+    .mx-sub   { font-size: 10px; color: var(--muted); }
+    .mx-upsell {
+      background: linear-gradient(135deg, #fff4b8 0%, #fef3d6 100%);
+      border: .5px solid #e0c47f;
+      border-radius: 10px;
+      padding: 12px 14px;
+      color: #5c3d00;
+    }
+    .mx-upsell-btn {
+      display: inline-block;
+      background: var(--text);
+      color: var(--surface);
+      text-decoration: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 11.5px;
+      font-weight: 600;
+    }
+    .mx-upsell-btn.mx-upsell-imprint {
+      background: linear-gradient(135deg, #6b4a25, #a07032);
+    }
+    .mx-upsell-btn:hover { opacity: 0.9; }
+
     /* Rotate the ▶ caret on the auto-versions <details> when open so
        it visually reads as an expand/collapse chevron rather than a
        static bullet. Scoped tight so it only affects the version list. */
@@ -5890,6 +5925,7 @@
         <button class="tab-btn" onclick="switchTab('book',this)">Book</button>
         <button class="tab-btn" onclick="switchTab('audio',this)">Audio</button>
         <button class="tab-btn" onclick="switchTab('folio',this)">☁ Folio</button>
+        <button class="tab-btn" onclick="switchTab('metrics',this)" title="How this folio is performing">📊 Metrics</button>
       </div>
       <script>
         /* Pair to the head-block bootRestoreTab — once the buttons exist,
@@ -6697,6 +6733,103 @@
           </div>
 
         </div><!-- /tab-project -->
+
+        <!-- ══════════════════════════════════════════════════════════
+             Metrics tab — how this folio is performing. Content varies
+             by author's Press tier per the pricing-page contract at
+             /press/ (Free = view count only; Indie = engagement charts;
+             Imprint = adds geo + referrers). See docs/METRICS_PLAN.md.
+             The section-header sub-styling matches other sidebar tabs.
+             ══════════════════════════════════════════════════════════ -->
+        <div id="tab-metrics" style="display:none">
+          <div class="section">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:16px">📊</span>
+                <span style="font-size:13px;font-weight:600">Folio metrics</span>
+              </div>
+              <button id="mxRefreshBtn" class="btn-sm btn-ghost" style="padding:2px 9px;font-size:10.5px" onclick="_mxRefresh()">↻ Refresh</button>
+            </div>
+            <p class="small-note" style="margin:0 0 12px;font-size:11px;color:var(--hint)" id="mxStatus">Sign in and load a folio to see metrics.</p>
+          </div>
+
+          <!-- Basic (all tiers) ─────────────────────────────────── -->
+          <div class="section" id="mxBasicSection" style="display:none">
+            <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">
+              <div class="mx-tile">
+                <div class="mx-label">Views</div>
+                <div class="mx-value" id="mxViews">—</div>
+                <div class="mx-sub">all-time</div>
+              </div>
+              <div class="mx-tile">
+                <div class="mx-label">Subscribers</div>
+                <div class="mx-value" id="mxSubs">—</div>
+                <div class="mx-sub">newsletter list</div>
+              </div>
+              <div class="mx-tile">
+                <div class="mx-label">Reviews</div>
+                <div class="mx-value" id="mxReviews">—</div>
+                <div class="mx-sub" id="mxReviewsAvg">avg rating</div>
+              </div>
+              <div class="mx-tile">
+                <div class="mx-label">Annotations</div>
+                <div class="mx-value" id="mxAnnotations">—</div>
+                <div class="mx-sub">highlights + notes</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Publish status pill ───────────────────────────────── -->
+          <div class="section" id="mxStatusSection" style="display:none">
+            <div class="mx-tile" style="grid-column:span 2">
+              <div class="mx-label">Right now</div>
+              <div id="mxPublishState" style="font-size:12px;color:var(--text);line-height:1.55"></div>
+            </div>
+          </div>
+
+          <!-- Indie unlock — 30-day sparkline + drop-off ──────────── -->
+          <div class="section" id="mxIndieLocked" style="display:none">
+            <div class="mx-upsell">
+              <div style="font-weight:600;font-size:12.5px;margin-bottom:4px">📈 Reader engagement</div>
+              <div style="font-size:11px;color:var(--hint);line-height:1.5;margin-bottom:8px">30-day view sparkline and per-chapter drop-off chart — see where readers land, where they stop.</div>
+              <a href="/press/" class="mx-upsell-btn">Unlock with Indie or Imprint →</a>
+            </div>
+          </div>
+          <div class="section" id="mxIndieUnlocked" style="display:none">
+            <div class="mx-tile" style="grid-column:span 2">
+              <div class="mx-label">30-day views</div>
+              <div id="mxSparkline" style="height:44px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--hint);font-style:italic">time-series activates once event tracking ships (Task #18)</div>
+            </div>
+            <div class="mx-tile" style="grid-column:span 2;margin-top:8px">
+              <div class="mx-label">Per-chapter drop-off</div>
+              <div id="mxDropoff" style="min-height:60px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--hint);font-style:italic">activates with event tracking</div>
+            </div>
+          </div>
+
+          <!-- Imprint unlock — geo + referrers ──────────────────── -->
+          <div class="section" id="mxImprintLocked" style="display:none">
+            <div class="mx-upsell">
+              <div style="font-weight:600;font-size:12.5px;margin-bottom:4px">🌍 Marketing analytics</div>
+              <div style="font-size:11px;color:var(--hint);line-height:1.5;margin-bottom:8px">Top countries + referrers so you know where to invest marketing spend.</div>
+              <a href="/press/" class="mx-upsell-btn mx-upsell-imprint">Unlock with Imprint →</a>
+            </div>
+          </div>
+          <div class="section" id="mxImprintUnlocked" style="display:none">
+            <div class="mx-tile" style="grid-column:span 2">
+              <div class="mx-label">Top countries</div>
+              <div id="mxGeo" style="min-height:60px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--hint);font-style:italic">activates with event tracking</div>
+            </div>
+            <div class="mx-tile" style="grid-column:span 2;margin-top:8px">
+              <div class="mx-label">Top referrers</div>
+              <div id="mxReferrers" style="min-height:60px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--hint);font-style:italic">activates with event tracking</div>
+            </div>
+          </div>
+
+          <div class="section" style="padding-top:8px;font-size:10.5px;color:var(--hint);line-height:1.5">
+            Metrics update as your folio is read + reviewed + shared. Numbers here are the same ones you'd see on <a href="/admin/metrics/" style="color:var(--hint)" id="mxAdminLink">the platform dashboard</a> if you're an admin.
+          </div>
+        </div>
+
       </div><!-- /sidebar-scroll -->
 
       <!-- Export -->
@@ -10887,9 +11020,10 @@
       book: ['tab-details', 'tab-design', 'tab-type', 'tab-images'],
       audio: ['tab-audio'],
       folio: ['tab-project'],
+      metrics: ['tab-metrics'],
     };
     var _ALL_TAB_DIVS = ['tab-import', 'tab-chapters', 'tab-details', 'tab-design',
-      'tab-type', 'tab-audio', 'tab-images', 'tab-project'];
+      'tab-type', 'tab-audio', 'tab-images', 'tab-project', 'tab-metrics'];
 
     /* Legacy-id shim. Old call sites pass switchTab('chapters', ...),
        switchTab('project', ...), etc. Map each to its new group so
@@ -10923,8 +11057,154 @@
       var activeBtn = (typeof _tabBtnFor === 'function' ? _tabBtnFor(id) : null) || btn;
       if (activeBtn) activeBtn.classList.add('active');
       if (id === 'manuscript') { try { renderChapterList(); } catch (e) { } }
+      if (id === 'metrics') { try { _mxRefresh(); } catch (e) { console.warn('[metrics] refresh failed:', e); } }
       // Remember the choice so a refresh lands on the same tab.
       try { localStorage.setItem('folio_lastTab', id); } catch (e) { }
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // Metrics tab — hydrates from Firestore (viewCount + subcollection
+    // counts + reviews query for this folio) and shows tier-gated
+    // sections per the pricing-page contract.
+    //   Free    → basic counts + upsell to Indie
+    //   Indie   → basic counts + engagement chart placeholders + upsell
+    //             to Imprint for marketing analytics
+    //   Imprint → everything unlocked
+    // Time-series charts (sparkline, drop-off, geo, referrers) show as
+    // "activates with event tracking" placeholders until Task #18 ships
+    // the folio_events pipeline. The rest is real, live data today.
+    // ══════════════════════════════════════════════════════════════════
+    async function _mxRefresh() {
+      const statusEl = document.getElementById('mxStatus');
+      const basic = document.getElementById('mxBasicSection');
+      const statusSec = document.getElementById('mxStatusSection');
+      const indieLocked = document.getElementById('mxIndieLocked');
+      const indieUnlocked = document.getElementById('mxIndieUnlocked');
+      const imprintLocked = document.getElementById('mxImprintLocked');
+      const imprintUnlocked = document.getElementById('mxImprintUnlocked');
+
+      if (!window._db || !window._fb || !window._uid || !_projId) {
+        statusEl.textContent = 'Sign in and load a folio to see metrics.';
+        [basic, statusSec, indieLocked, indieUnlocked, imprintLocked, imprintUnlocked].forEach(el => { if (el) el.style.display = 'none'; });
+        return;
+      }
+
+      // Figure out tier via the same helper the rest of the app uses.
+      let tier = null, active = false;
+      try {
+        const sub = (typeof window.pressSub === 'function') ? window.pressSub() : null;
+        if (sub && sub.active) { active = true; tier = String(sub.tier || '').toLowerCase(); }
+      } catch (e) { /* treat as free */ }
+      // Trigger a refresh in the background if the cache is empty so the
+      // next open lands with fresh data — but don't block this render.
+      if (!window._pressSubCache && typeof window.refreshPressSubscription === 'function') {
+        window.refreshPressSubscription().catch(function(){});
+      }
+
+      // Section visibility per tier
+      basic.style.display = '';
+      statusSec.style.display = '';
+      if (active && (tier === 'indie' || tier === 'imprint')) {
+        indieUnlocked.style.display = '';
+        indieLocked.style.display = 'none';
+      } else {
+        indieUnlocked.style.display = 'none';
+        indieLocked.style.display = '';
+      }
+      if (active && tier === 'imprint') {
+        imprintUnlocked.style.display = '';
+        imprintLocked.style.display = 'none';
+      } else {
+        imprintUnlocked.style.display = 'none';
+        imprintLocked.style.display = '';
+      }
+
+      statusEl.textContent = 'Loading…';
+
+      // Show the admin-metrics link only if the current user is on the
+      // bootstrap admin list — otherwise strip the anchor entirely.
+      try {
+        const adminLink = document.getElementById('mxAdminLink');
+        const ADMIN_UIDS = ['x9AgFZ7O8WVz2UVtyO4ggWKNfc73', 'Y1bO4mc8aAclkbRNIYXyez8i7Rj2'];
+        if (adminLink && !ADMIN_UIDS.includes(window._uid)) {
+          adminLink.replaceWith(document.createTextNode('the platform dashboard'));
+        }
+      } catch (_) {}
+
+      const fb = window._fb, db = window._db;
+      const results = { views: 0, subs: 0, reviews: 0, ratingAvg: null, annotations: 0, publishState: 'not published' };
+
+      // 1. Read the folio doc for viewCount + release state.
+      try {
+        const snap = await fb.getDoc(fb.doc(db, 'folio_projects', _projId));
+        if (snap.exists()) {
+          const data = snap.data() || {};
+          results.views = data.viewCount || 0;
+          const rel = data.release || {};
+          const parts = [];
+          if (rel.published) parts.push('<span style="color:var(--accent-ui);font-weight:600">Published</span>');
+          else parts.push('<span style="color:var(--hint)">Not published yet</span>');
+          if (rel.listOnShelf && rel.shelfPendingModeration) parts.push('<span style="color:#7a5411">Pending shelf moderation</span>');
+          else if (rel.listOnShelf) parts.push('On the public Shelf');
+          const fu = rel.featuredUntil;
+          const fuMs = fu ? (typeof fu === 'number' ? fu : (fu.seconds ? fu.seconds * 1000 : Date.parse(fu))) : 0;
+          if (fuMs && fuMs > Date.now()) {
+            const hrs = Math.round((fuMs - Date.now()) / 3_600_000);
+            parts.push('<span style="color:#a07032;font-weight:600">✨ Featured</span> — ' + hrs + ' h left');
+          }
+          if (rel.hasAdultContent) parts.push('<span style="color:#8c1c1c">Adult content flag</span>');
+          results.publishState = parts.join(' · ') || 'not published';
+        }
+      } catch (e) { console.warn('[metrics] folio doc read failed:', e); }
+
+      // 2. Subscribers subcollection (count only).
+      try {
+        const snap = await fb.getDocs(fb.query(fb.collection(db, 'folio_projects', _projId, 'subscribers'), fb.limit(500)));
+        results.subs = snap.size;
+      } catch (e) { /* subscribers list may be owner-restricted; leave as 0 */ }
+
+      // 3. Annotations subcollection.
+      try {
+        const snap = await fb.getDocs(fb.query(fb.collection(db, 'folio_projects', _projId, 'annotations'), fb.limit(500)));
+        results.annotations = snap.size;
+      } catch (e) { /* fine, leave 0 */ }
+
+      // 4. Reviews for this folio (top-level collection, filtered).
+      try {
+        const snap = await fb.getDocs(fb.query(
+          fb.collection(db, 'reviews'),
+          fb.where('boostFolioId', '==', _projId),
+          fb.limit(200)
+        ));
+        let ratedSum = 0, ratedN = 0;
+        snap.forEach(function(d){
+          results.reviews++;
+          const r = (d.data() || {}).rating;
+          if (typeof r === 'number' && r > 0) { ratedSum += r; ratedN++; }
+        });
+        if (ratedN) results.ratingAvg = (ratedSum / ratedN);
+      } catch (e) { /* leave 0 */ }
+
+      // Render.
+      document.getElementById('mxViews').textContent = _mxNum(results.views);
+      document.getElementById('mxSubs').textContent = _mxNum(results.subs);
+      document.getElementById('mxReviews').textContent = _mxNum(results.reviews);
+      document.getElementById('mxReviewsAvg').textContent = results.ratingAvg
+        ? ('★ ' + results.ratingAvg.toFixed(1) + ' avg')
+        : (results.reviews ? 'no ratings yet' : 'no reviews yet');
+      document.getElementById('mxAnnotations').textContent = _mxNum(results.annotations);
+      document.getElementById('mxPublishState').innerHTML = results.publishState;
+
+      statusEl.textContent = active
+        ? ('Loaded · ' + (tier === 'imprint' ? 'Imprint tier — all metrics unlocked' : 'Indie tier — reader engagement unlocked'))
+        : 'Loaded · Free tier — view count only. Upgrade for engagement + marketing analytics.';
+    }
+
+    function _mxNum(n) {
+      if (n == null) return '—';
+      if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+      if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+      return String(n);
     }
 
     /* Find the .tab-btn whose onclick targets a specific tab id.
@@ -17918,15 +18198,48 @@
             cursor += paraLen + 1;
           }
           if (targetIdx < 0) return;
-          // Preview paragraphs are keyed by chId + paraIdx; pagination
-          // splits long paragraphs into a header + continuation (para-cont)
-          // slices on the following pages — pick the FIRST slice since
-          // that's where the match text begins.
-          el = document.querySelector(
-            '.preview-editable[data-chid="' + match.chId + '"][data-paraidx="' + targetIdx + '"]:not(.para-cont)'
-          ) || document.querySelector(
+          // Preview paragraphs are keyed by chId + paraIdx; the
+          // paginator can split ONE long paragraph across multiple
+          // pages, producing a head slice + one or more .para-cont
+          // slices, all sharing data-paraidx. The match can be inside
+          // ANY of those slices.
+          //
+          // We know match.start - paraStartInContent = the character
+          // offset of the match within the paragraph. Walk each slice
+          // in DOM order accumulating text length; the slice whose
+          // cumulative range covers that offset is the one to
+          // highlight (bug 2026-07-22: searching "Tarin" landed on
+          // "quarter-inch." — the tail of the head slice on a page
+          // BEFORE the continuation slice that actually contained
+          // "Tarin". Head was picked because :not(.para-cont) matched
+          // first, but the needle was in the continuation.)
+          const slices = document.querySelectorAll(
             '.preview-editable[data-chid="' + match.chId + '"][data-paraidx="' + targetIdx + '"]'
           );
+          if (!slices.length) return;
+          const offsetInPara = Math.max(0, match.start - paraStartInContent);
+          let acc = 0;
+          for (const s of slices) {
+            const t = (s.innerText || s.textContent || '');
+            const len = t.length;
+            if (offsetInPara <= acc + len) { el = s; break; }
+            acc += len;
+          }
+          if (!el) {
+            // Fallback: offset was past every slice's cumulative
+            // length (can happen with markdown-stripped-char drift).
+            // Take the last slice and recompute acc to point at its
+            // starting position within the paragraph.
+            el = slices[slices.length - 1];
+            acc = 0;
+            for (let i = 0; i < slices.length - 1; i++) {
+              acc += (slices[i].innerText || slices[i].textContent || '').length;
+            }
+          }
+          // Shift paraStartInContent so it points at where the chosen
+          // slice starts in the original chapter content. The highlight
+          // helper uses this to compute expected-offset-within-slice.
+          paraStartInContent = paraStartInContent + acc;
         }
         if (!el) { console.warn('[find] target element not found for match', match); return; }
 
