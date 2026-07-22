@@ -253,6 +253,41 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
   };
   window.doSignOut = async function() { try { await _fb.signOut(_fb.auth); } catch (_) {} };
   let _authorList = [];  // [{ uid, author, title, count }]
+  const _PAYWALL_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
+
+  // Fetch the full signed-in user roster from the paywall worker. Requires
+  // the ADMIN_DEBUG_TOKEN — cached in localStorage after first paste so
+  // admins don't have to re-enter it. Silently returns [] if no token
+  // is set (the client-side sources still populate the dropdown; this
+  // just adds the "signed in but no folio yet" users on top).
+  async function _fetchServerUserList() {
+    const token = (localStorage.getItem('folio_admin_debug_token') || '').trim();
+    if (!token) return [];
+    try {
+      const r = await fetch(_PAYWALL_URL + '/user-list?key=' + encodeURIComponent(token));
+      if (r.status === 401) {
+        console.warn('[admin/press] ADMIN_DEBUG_TOKEN rejected — clearing cached token');
+        localStorage.removeItem('folio_admin_debug_token');
+        return [];
+      }
+      const data = await r.json().catch(function(){ return null; });
+      if (!data || !data.ok || !Array.isArray(data.users)) return [];
+      return data.users;
+    } catch (e) {
+      console.warn('[admin/press] /user-list fetch failed:', e && e.message);
+      return [];
+    }
+  }
+
+  window._promptAdminToken = function _promptAdminToken() {
+    const cur = localStorage.getItem('folio_admin_debug_token') || '';
+    const next = prompt('Paste the ADMIN_DEBUG_TOKEN so this page can surface signed-in users who haven\'t published yet.\n\n' +
+      '(Stored in this browser only — never sent anywhere except the paywall worker.)', cur);
+    if (next == null) return;
+    if (next.trim() === '') { localStorage.removeItem('folio_admin_debug_token'); }
+    else { localStorage.setItem('folio_admin_debug_token', next.trim()); }
+    _loadAuthorList();
+  };
 
 async function _loadAuthorList() {
   const statusEl = document.getElementById('authorLookupStatus');
@@ -321,18 +356,49 @@ async function _loadAuthorList() {
       });
     } catch (e) { console.warn('[admin/press] folio_imprint_themes list failed:', e.message); }
 
+    // 3. Server-side /user-list — surfaces signed-in users who
+    //    haven't published or customized yet. Requires the admin debug
+    //    token (cached in localStorage after first paste). Falls back
+    //    gracefully to just the two client-side sources if no token.
+    let fromServerOnly = 0;
+    try {
+      const serverUsers = await _fetchServerUserList();
+      if (serverUsers && serverUsers.length) {
+        for (const u of serverUsers) {
+          if (!u || !u.uid) continue;
+          if (!byUid.has(u.uid)) {
+            fromServerOnly++;
+            byUid.set(u.uid, {
+              uid: u.uid,
+              author: u.displayName || 'Signed-in user',
+              sampleTitle: u.folioCount
+                ? '(' + u.folioCount + ' folio' + (u.folioCount === 1 ? '' : 's') + ', none published)'
+                : '(signed in — no folios yet)',
+              count: 0,
+              _fromServer: true,
+            });
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('[admin/press] server user-list unavailable:', e && e.message);
+    }
+
     _authorList = Array.from(byUid.values()).sort(function(a,b){
-      // Published authors first, then imprint-only.
-      const ac = a.count > 0 ? 0 : 1;
-      const bc = b.count > 0 ? 0 : 1;
+      // Published authors first, then imprint-only, then bare signups.
+      const ac = a.count > 0 ? 0 : (a._fromServer ? 2 : 1);
+      const bc = b.count > 0 ? 0 : (b._fromServer ? 2 : 1);
       if (ac !== bc) return ac - bc;
       return String(a.author).localeCompare(String(b.author));
     });
     // Mark every author as "plan loading" so the dropdown shows a
     // placeholder chip while we fetch each subscription doc.
     _authorList.forEach(function(a){ a.plan = { kind: 'loading' }; });
-    statusEl.innerHTML = '✅ ' + _authorList.length + ' users loaded (' + fromProjects + ' published, ' + (_authorList.length - fromProjects) + ' imprint-only) — type a name or UID. '
-      + '<span style="color:var(--hint)">Signed-in users with no published folio &amp; no customized imprint won’t appear — paste their UID directly.</span>';
+    const notPublished = _authorList.length - fromProjects;
+    statusEl.innerHTML = '✅ ' + _authorList.length + ' users loaded (' + fromProjects + ' published, ' + notPublished + ' unpublished) — type a name or UID. '
+      + (fromServerOnly === 0 && !localStorage.getItem('folio_admin_debug_token')
+        ? '<a href="#" onclick="event.preventDefault();_promptAdminToken()" style="color:var(--accent-ui);text-decoration:underline">Paste ADMIN_DEBUG_TOKEN</a> to also see signed-in users with no folios yet.'
+        : '');
     statusEl.style.color = 'var(--accent-ui)';
 
     // Fire-and-forget: enrich each author with their current Press
