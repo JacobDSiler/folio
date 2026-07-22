@@ -280,6 +280,24 @@
         recent.push({ id: f.id, title: rel.title || f.name || '(untitled)', author: rel.author || 'Unknown', publishedMs, pending: rel.shelfPendingModeration, adult: rel.hasAdultContent, featuredUntil: fUntil });
       });
 
+      // Signed-in users comes from the server user-list endpoint.
+      if (_serverUsers) {
+        setMetric('contentGrid', 'Signed-in users', _serverUsers.length.toLocaleString(),
+          _serverUsers.length + ' total accounts');
+      } else {
+        // Show a click-to-configure prompt in the tile subtitle.
+        const grid = document.getElementById('contentGrid');
+        for (const cell of grid.querySelectorAll('.metric')) {
+          const lbl = cell.querySelector('.metric-label');
+          if (lbl && lbl.textContent.toLowerCase().indexOf('signed-in') >= 0) {
+            cell.classList.remove('loading');
+            cell.querySelector('.metric-value').innerHTML = '<a href="#" onclick="event.preventDefault();_promptAdminToken()" style="color:var(--accent-ui);font-size:14px;font-family:inherit;text-decoration:underline">Configure</a>';
+            const sub = cell.querySelector('.metric-sub');
+            if (sub) sub.textContent = 'paste ADMIN_DEBUG_TOKEN';
+            break;
+          }
+        }
+      }
       setMetric('contentGrid', 'Published folios', _publishedFolios.length);
       setMetric('contentGrid', 'Unique authors', unique.size);
       setMetric('contentGrid', 'Pending moderation', pending);
@@ -337,18 +355,46 @@
   }
 
   // ── Revenue section ─────────────────────────────────────────
-  // Batch-fetches folio_user_settings for each unique published-author uid
-  // (single-doc reads → firestore admin-read rule allows them).
+  // Preferred: use _serverUsers (from /user-list) so we count ALL
+  // signed-in users including those who haven't published a folio yet.
+  // Fallback: batch-fetch folio_user_settings only for published-author
+  // uids — subset of ground truth but still admin-safe.
   async function loadRevenue() {
     document.querySelectorAll('#revenueGrid .metric').forEach(m => m.classList.add('loading'));
     try {
-      if (!_publishedFolios.length) {
-        // Trigger content load first if we haven't yet.
-        await loadContent();
-      }
-      const uids = Array.from(new Set(_publishedFolios.map(f => f.uid).filter(Boolean)));
       const buckets = { paidImprint: 0, paidIndie: 0, compImprint: 0, compIndie: 0, free: 0, expired: 0, cancelled: 0 };
-      // Batched to 6 concurrent.
+
+      if (_serverUsers) {
+        // Fast path — one classify per user, no Firestore round-trips.
+        for (const u of _serverUsers) {
+          const sub = u.pressSubscription;
+          const kind = _classifyPlan(sub ? {
+            status: sub.status,
+            tier: sub.tier,
+            paypalSubscriptionId: sub.isComp ? 'COMP-x' : 'PAY-x',
+            expiresAt: sub.expiresAt,
+            foundingContributor: sub.isFounding,
+          } : null);
+          if (kind === 'paid-imprint') buckets.paidImprint++;
+          else if (kind === 'paid-indie') buckets.paidIndie++;
+          else if (kind === 'comp-imprint') buckets.compImprint++;
+          else if (kind === 'comp-indie') buckets.compIndie++;
+          else if (kind === 'expired') buckets.expired++;
+          else if (kind === 'cancelled') buckets.cancelled++;
+          else buckets.free++;
+        }
+        setMetric('revenueGrid', 'Paid Imprint',    buckets.paidImprint,    'across all users');
+        setMetric('revenueGrid', 'Paid Indie',      buckets.paidIndie,      'across all users');
+        setMetric('revenueGrid', 'Comped Imprint',  buckets.compImprint,    'across all users');
+        setMetric('revenueGrid', 'Comped Indie',    buckets.compIndie,      'across all users');
+        setMetric('revenueGrid', 'Free tier',       buckets.free + buckets.expired + buckets.cancelled,
+          buckets.expired ? (buckets.expired + ' expired · ' + buckets.cancelled + ' cancelled included') : 'across all users');
+        return;
+      }
+
+      // Fallback path — published-authors only.
+      if (!_publishedFolios.length) { await loadContent(); }
+      const uids = Array.from(new Set(_publishedFolios.map(f => f.uid).filter(Boolean)));
       const BATCH = 6;
       for (let i = 0; i < uids.length; i += BATCH) {
         const batch = uids.slice(i, i + BATCH);
@@ -367,11 +413,12 @@
           } catch (e) { buckets.free++; /* treat lookup fail as free */ }
         }));
       }
-      setMetric('revenueGrid', 'Paid Imprint',    buckets.paidImprint);
-      setMetric('revenueGrid', 'Paid Indie',      buckets.paidIndie);
-      setMetric('revenueGrid', 'Comped Imprint',  buckets.compImprint);
-      setMetric('revenueGrid', 'Comped Indie',    buckets.compIndie);
-      setMetric('revenueGrid', 'Free tier',       buckets.free + buckets.expired + buckets.cancelled);
+      setMetric('revenueGrid', 'Paid Imprint',    buckets.paidImprint,    'published authors only');
+      setMetric('revenueGrid', 'Paid Indie',      buckets.paidIndie,      'published authors only');
+      setMetric('revenueGrid', 'Comped Imprint',  buckets.compImprint,    'published authors only');
+      setMetric('revenueGrid', 'Comped Indie',    buckets.compIndie,      'published authors only');
+      setMetric('revenueGrid', 'Free tier',       buckets.free + buckets.expired + buckets.cancelled,
+        'published authors only');
     } catch (e) {
       console.error('[metrics] revenue load failed:', e);
       document.querySelectorAll('#revenueGrid .metric').forEach(m => {
@@ -443,7 +490,50 @@
     return Math.round(diff / 86_400_000) + ' d ago';
   }
 
+  // Fetch the server user list once per page load (cached across
+  // Content + Revenue sections). Requires ADMIN_DEBUG_TOKEN in
+  // localStorage — offer a paste prompt if missing.
+  async function _fetchServerUserList() {
+    const token = (localStorage.getItem('folio_admin_debug_token') || '').trim();
+    if (!token) {
+      _serverUsers = null;
+      return null;
+    }
+    try {
+      const r = await fetch(PAYWALL_URL + '/user-list?key=' + encodeURIComponent(token));
+      if (r.status === 401) {
+        console.warn('[metrics] ADMIN_DEBUG_TOKEN rejected — clearing cached token');
+        localStorage.removeItem('folio_admin_debug_token');
+        _serverUsers = null;
+        return null;
+      }
+      const data = await r.json().catch(function(){ return null; });
+      if (!data || !data.ok || !Array.isArray(data.users)) {
+        _serverUsers = null;
+        return null;
+      }
+      _serverUsers = data.users;
+      return _serverUsers;
+    } catch (e) {
+      console.warn('[metrics] /user-list fetch failed:', e && e.message);
+      _serverUsers = null;
+      return null;
+    }
+  }
+
+  window._promptAdminToken = function _promptAdminToken() {
+    const cur = localStorage.getItem('folio_admin_debug_token') || '';
+    const next = prompt('Paste the ADMIN_DEBUG_TOKEN so this page can count signed-in users + all-plan revenue buckets.\n\n' +
+      '(Stored in this browser only — never sent anywhere except the paywall worker.)', cur);
+    if (next == null) return;
+    if (next.trim() === '') { localStorage.removeItem('folio_admin_debug_token'); }
+    else { localStorage.setItem('folio_admin_debug_token', next.trim()); }
+    loadAll();
+  };
+
   async function loadAll() {
+    // Fetch server user list first so Content + Revenue can both consume it.
+    await _fetchServerUserList();
     await loadContent();
     // These two are cheap enough to auto-fire once.
     loadRevenue();
