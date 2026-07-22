@@ -245,6 +245,18 @@ Also in this batch:
   widget was completely invisible in production — the FolioAdmin
   script silently 404'd. .nojekyll disables Jekyll for the whole site
   so any file we ship reaches the browser.
+- fix(paginator): FRONT-MATTER and BACK-MATTER now paginate.
+  Root cause of Thomas's Introduction cramming everything onto one
+  page then getting hidden by the .page-overflowed fade: renderPreview
+  had a special-case branch for type=='pre'||'post' that dumped ALL
+  paragraphs into a single pageWrap call and returned early — the
+  full paginator (measure + slice + multi-page flow) was chapter-only.
+  Routed pre/post through the same paginator; guarded chapter-only
+  bits (chapter number, chapter image) behind an isBodyChapter flag
+  so front matter still displays without "Chapter N" prefix. The
+  overflow watchdog + fade become the last-resort safety net they
+  were always meant to be, not the primary "gee this section is long"
+  failure mode.
 - ui(mobile): editor UI tidy-up per Jacob's phone screenshot.
   Three collisions:
     1. Preview toolbar's 9+ controls overflowed off-screen with no
