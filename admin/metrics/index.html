@@ -99,8 +99,9 @@
       Content <button class="refresh" onclick="loadContent()">↻ Refresh</button>
     </div>
     <div class="metric-grid" id="contentGrid">
+      <div class="metric loading accent"><div class="metric-label">Signed-in users</div><div class="metric-value">…</div><div class="metric-sub">requires ADMIN_DEBUG_TOKEN</div></div>
       <div class="metric loading"><div class="metric-label">Published folios</div><div class="metric-value">…</div></div>
-      <div class="metric loading"><div class="metric-label">Unique authors</div><div class="metric-value">…</div></div>
+      <div class="metric loading"><div class="metric-label">Unique authors</div><div class="metric-value">…</div><div class="metric-sub">with a published folio</div></div>
       <div class="metric loading"><div class="metric-label">Customized imprints</div><div class="metric-value">…</div></div>
       <div class="metric loading"><div class="metric-label">Founding contributors</div><div class="metric-value">…</div></div>
       <div class="metric loading warn"><div class="metric-label">Pending moderation</div><div class="metric-value">…</div></div>
@@ -151,9 +152,11 @@
 
 <script>
   const ADMIN_UIDS_BOOTSTRAP = ['x9AgFZ7O8WVz2UVtyO4ggWKNfc73', 'Y1bO4mc8aAclkbRNIYXyez8i7Rj2'];
+  const PAYWALL_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
   let _fb = {};
   let _user = null;
   let _publishedFolios = [];   // cached across sections
+  let _serverUsers = null;     // populated by _fetchServerUserList when token available
 
   async function boot() {
     try {

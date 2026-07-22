@@ -1522,6 +1522,158 @@ async function handleEvent(request, env) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
+   GET /user-list?key=<ADMIN_DEBUG_TOKEN>
+   ────────────────────────────────────────────────────────────────────
+   Returns every user who has signed into Folio at least once, plus:
+     • folioCount           — total folio_projects docs with their uid
+     • publishedCount       — subset marked release.published == true
+     • hasCustomizedImprint — bool (imprint theme doc exists)
+     • displayName          — from imprint theme if present, else null
+     • pressSubscription    — { status, tier, isComp, isFounding, expiresAt } or null
+     • updatedAt            — ISO string, from folio_user_settings
+
+   Why this endpoint exists:
+     Firestore rules deny client LIST on folio_user_settings (rule is
+     per-doc isUser/isAdmin, which the LIST engine can't statically
+     prove). So the client-side author-lookup on /admin/press/ only
+     surfaces authors who've PUBLISHED a folio or CUSTOMIZED an
+     imprint. This endpoint uses the service account (bypasses client
+     rules) to return the full universe so admins can comp brand-new
+     signups too.
+
+   Also powers the "Total signed-in users" metric on /admin/metrics/.
+
+   Auth: same ADMIN_DEBUG_TOKEN as /admin-digest + /metrics-rollup.
+   Data limit: capped at 2000 users per response (~2 kB per user).
+   ══════════════════════════════════════════════════════════════════ */
+async function handleUserList(request, env) {
+  const url = new URL(request.url);
+  const key = url.searchParams.get('key') || '';
+  const expected = env.ADMIN_DEBUG_TOKEN || '';
+  if (!expected) return errorJson('User list disabled — ADMIN_DEBUG_TOKEN not set', 403, request, env);
+  if (key !== expected) return errorJson('Unauthorized', 401, request, env);
+
+  try {
+    const acc = await getAccessToken(env);
+    const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+    const [settings, projects, themes] = await Promise.all([
+      _plList(acc.token, pid, 'folio_user_settings', 2000),
+      _plList(acc.token, pid, 'folio_projects', 2000),
+      _plList(acc.token, pid, 'folio_imprint_themes', 2000),
+    ]);
+
+    // Build a per-uid buckets map.
+    const byUid = Object.create(null);
+    const _touch = (uid) => {
+      if (!byUid[uid]) byUid[uid] = {
+        uid, folioCount: 0, publishedCount: 0,
+        hasCustomizedImprint: false, displayName: null,
+        pressSubscription: null, updatedAt: null,
+      };
+      return byUid[uid];
+    };
+
+    // 1. Settings — establishes the signed-in universe.
+    for (const s of settings) {
+      const b = _touch(s.id);
+      const data = s.data || {};
+      const sub = data.pressSubscription;
+      if (sub && sub.status) {
+        const isComp = String(sub.paypalSubscriptionId || '').indexOf('COMP-') === 0;
+        const expiresAt = sub.expiresAt || null;
+        b.pressSubscription = {
+          status: String(sub.status),
+          tier: String(sub.tier || '').toLowerCase(),
+          isComp: isComp,
+          isFounding: !!sub.foundingContributor,
+          expiresAt: expiresAt,
+        };
+      }
+      b.updatedAt = data.updatedAt && data.updatedAt.toDate ? data.updatedAt.toDate().toISOString()
+                  : (typeof data.updatedAt === 'string' ? data.updatedAt : null);
+    }
+
+    // 2. Projects — count folios + published folios per uid.
+    for (const p of projects) {
+      const uid = String((p.data && p.data.uid) || '');
+      if (!uid) continue;
+      const b = _touch(uid);
+      b.folioCount++;
+      const rel = p.data && p.data.release;
+      if (rel && rel.published) b.publishedCount++;
+    }
+
+    // 3. Imprint themes — display name + customization flag.
+    for (const t of themes) {
+      const uid = String(t.id || '');
+      if (!uid) continue;
+      const b = _touch(uid);
+      b.hasCustomizedImprint = true;
+      const dn = String((t.data && (t.data.authorName || t.data.displayName)) || '').trim();
+      if (dn) b.displayName = dn;
+      // Themes can also carry foundingContributor flag independently of pressSubscription
+      if (t.data && t.data.foundingContributor && b.pressSubscription) {
+        b.pressSubscription.isFounding = true;
+      }
+    }
+
+    const list = Object.values(byUid);
+    // Order: paid subs first, then comps, then anyone with published folios, then rest.
+    // Within each group, most-recently-updated first.
+    list.sort((a, b) => {
+      const rankA = _plRank(a), rankB = _plRank(b);
+      if (rankA !== rankB) return rankA - rankB;
+      const ua = a.updatedAt ? Date.parse(a.updatedAt) : 0;
+      const ub = b.updatedAt ? Date.parse(b.updatedAt) : 0;
+      return ub - ua;
+    });
+
+    return json({
+      ok: true,
+      count: list.length,
+      users: list,
+    }, 200, request, env);
+  } catch (e) {
+    return errorJson('User list failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+}
+
+function _plRank(u) {
+  const sub = u.pressSubscription;
+  if (sub && sub.status === 'ACTIVE' && !sub.isComp) return 0; // paid
+  if (sub && sub.status === 'ACTIVE' && sub.isComp)  return 1; // comp
+  if (u.publishedCount > 0)                          return 2; // published free
+  if (u.folioCount > 0)                              return 3; // has folios, none published
+  if (u.hasCustomizedImprint)                        return 4; // customized only
+  return 5;                                                    // bare signup
+}
+
+// Firestore REST list helper — paginates with pageToken until done or
+// hardCap is reached. Returns [{ id, data }] with typed values decoded.
+async function _plList(token, projectId, collPath, hardCap) {
+  const out = [];
+  let pageToken = '';
+  let safety = 0;
+  const base = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+               '/databases/(default)/documents/' + collPath;
+  while (safety++ < 50) {
+    const url = base + '?pageSize=300' +
+                (pageToken ? '&pageToken=' + encodeURIComponent(pageToken) : '');
+    const r = await fetch(url, { headers: { 'Authorization': 'Bearer ' + token } });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error('list ' + collPath + ': ' + ((data.error && data.error.message) || r.status));
+    for (const d of (data.documents || [])) {
+      const id = (d.name || '').split('/').pop();
+      out.push({ id: id, data: fsDecodeFields(d.fields || {}) });
+      if (out.length >= hardCap) return out;
+    }
+    pageToken = data.nextPageToken || '';
+    if (!pageToken) break;
+  }
+  return out;
+}
+
+/* ══════════════════════════════════════════════════════════════════
    FOLIO PRESS — recurring subscription tier via PayPal Subscriptions
    ────────────────────────────────────────────────────────────────────
    Three tiers: Free (nothing to do here), Indie ($5/mo or $50/yr),
@@ -2457,6 +2609,7 @@ export default {
     if (path === '/boost-slots'    && request.method === 'GET')  return handleBoostSlots(request, env);
     if (path === '/view-record'    && request.method === 'POST') return handleViewRecord(request, env);
     if (path === '/event'          && request.method === 'POST') return handleEvent(request, env);
+    if (path === '/user-list'      && request.method === 'GET')  return handleUserList(request, env);
     if (path === '/press-subscribe' && request.method === 'POST') return handlePressSubscribe(request, env);
     if (path === '/press-return'    && request.method === 'GET')  return handlePressReturn(request, env);
     if (path === '/press-webhook'   && request.method === 'POST') return handlePressWebhook(request, env);
