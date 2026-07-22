@@ -17938,16 +17938,69 @@
         //    manual scroll offset math landed nowhere).
         el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
 
-        // 3. Flash the highlight AFTER the smooth-scroll animation has
-        //    finished, so the overlay rectangles are drawn at the
-        //    element's FINAL screen position rather than its pre-scroll
-        //    position. 500 ms comfortably covers Chrome's ~300 ms
-        //    smooth-scroll default even on long jumps.
-        //    Third arg = paragraph's start position in ch.content, so
-        //    the highlight helper can pick the correct occurrence when
-        //    the paragraph contains the search term multiple times.
-        setTimeout(function(){ _frFlashHighlight(el, match, paraStartInContent); }, 520);
+        // 3. Fire the highlight ONCE scrolling actually stops. Fixed
+        //    delay didn't work — Chrome's smooth-scroll takes 300 ms
+        //    for a short jump and 1500+ ms for a jump across dozens
+        //    of pages. Jacob 2026-07-22: "highlight doesn't last long
+        //    enough for the auto scroll to reach it if it is a
+        //    substantial length of the book between the start and the
+        //    destination". So instead we rAF-poll the scroll container
+        //    and fire when scrollTop has been stable for 3 consecutive
+        //    frames (Chrome fires no scroll-complete event). Hard-cap
+        //    at 2500 ms for pathological cases.
+        _frWaitForScrollStable(function(){
+          _frFlashHighlight(el, match, paraStartInContent);
+        });
       } catch (e) { console.warn('[find] center failed:', e); }
+    }
+
+    // rAF-poll the closest scrollable ancestor's scrollTop until it
+    // stops changing for STABLE_FRAMES consecutive frames, then fire
+    // callback. Handles any scroll distance because it just watches
+    // for movement stopping rather than guessing timing.
+    function _frWaitForScrollStable(cb) {
+      const STABLE_FRAMES = 3;    // ~50 ms at 60 fps
+      const HARD_TIMEOUT_MS = 2500; // pathological upper bound
+      // Find the nearest scrollable ancestor (window if none in flow).
+      function findScroller() {
+        const cands = [
+          document.getElementById('previewScroller'),
+          document.querySelector('.preview-area'),
+          document.scrollingElement,
+          document.body
+        ].filter(Boolean);
+        for (const c of cands) {
+          if (c === document.scrollingElement || c === document.body) return document.scrollingElement || document.body;
+          const cs = getComputedStyle(c);
+          if ((cs.overflowY === 'auto' || cs.overflowY === 'scroll') && c.scrollHeight > c.clientHeight) return c;
+        }
+        return document.scrollingElement || document.body;
+      }
+      const scroller = findScroller();
+      let stableCount = 0;
+      let prev = scroller.scrollTop;
+      const started = performance.now();
+      function tick() {
+        const now = scroller.scrollTop;
+        if (now === prev) {
+          stableCount++;
+          if (stableCount >= STABLE_FRAMES) { cb(); return; }
+        } else {
+          stableCount = 0;
+          prev = now;
+        }
+        if (performance.now() - started > HARD_TIMEOUT_MS) { cb(); return; }
+        requestAnimationFrame(tick);
+      }
+      // First frame: capture baseline THEN start ticking (scrollIntoView
+      // hasn't necessarily begun by the time we're called synchronously
+      // right after it — one rAF delay lets the browser register the
+      // scroll intent so 'stable' means 'stopped', not 'never started').
+      requestAnimationFrame(function(){
+        prev = scroller.scrollTop;
+        stableCount = 0;
+        requestAnimationFrame(tick);
+      });
     }
 
     // Overlay a floating highlight rectangle exactly on the matched
