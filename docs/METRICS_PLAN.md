@@ -29,6 +29,41 @@ reads.
 
 ---
 
+## Tier gating (baked in from day one)
+
+The pricing page at `/press/` already commits us to specific analytics
+per tier. The gate is binary — the "Metrics" tab renders differently
+based on `pressSubscription.status === 'ACTIVE' && tier in {indie, imprint}`:
+
+| Tier | Metrics they see |
+|---|---|
+| **Free** | View count line item per folio + upsell chip pointing to
+Indie / Imprint. Not a dashboard — one number and an unlock CTA. |
+| **Indie** | Total views + subscribers + reviews + annotations, **30-day
+sparkline**, **per-chapter drop-off chart**. The "am I keeping readers?"
+fundamentals. |
+| **Imprint** | Everything Indie has PLUS **top referrers** and **top
+countries**. The "where should I invest marketing?" advanced signals.
+Also gets any new metric we ship first (Imprint early-access flag). |
+
+Splitting geo + referrers into Imprint is a deliberate commitment upsell
+— Free proves the count exists, Indie proves the engagement pattern,
+Imprint proves where to invest. Pricing page copy at `/press/` needs to
+move "geo, referrers" out of the Indie bullet and into the Imprint
+bullet (currently lumped into Indie).
+
+The gate reuses the `pressSub()` helper already used elsewhere in
+`app.html`. No new subscription plumbing.
+
+Free users hitting a locked chart get the same "Unlock with Press →"
+CTA the imprint customize drawer uses, so the upsell UX is consistent.
+
+Data is captured for EVERY folio regardless of author tier — we're
+gating the *display* not the *collection*. That way if a Free author
+upgrades later, their prior 30 days of history is already there.
+
+---
+
 ## Author metrics (the "how's my folio doing" tab)
 
 **Where it lives.** New Manuscript/Book/Audio/Folio sibling tab named

@@ -182,6 +182,9 @@ try {
     & git add .githooks\pre-commit
     & git add policy\index.html
     & git add admin\shelf\index.html
+    & git add admin\metrics\index.html
+    & git add press\index.html
+    & git add docs\METRICS_PLAN.md
     & git add folio-paywall-worker.js
     & git add scripts\deploy-2026-07-07.ps1 scripts\deploy-2026-07-07.cmd
 
@@ -245,6 +248,49 @@ Also in this batch:
   widget was completely invisible in production — the FolioAdmin
   script silently 404'd. .nojekyll disables Jekyll for the whole site
   so any file we ship reaches the browser.
+- fix(find & replace): highlight lands on the ACTUAL match now.
+  Bug 2026-07-22: search "Corlan" 3/497 → highlight lands on "since"
+  ~13 chars before the real Corlan. Two compounding issues:
+    (a) old code searched el.innerText (whitespace-collapsed, CSS-
+        transformed) then walked TreeWalker text nodes (raw) to build
+        the Range — any whitespace or transform difference shifted
+        boundaries. Fixed by walking ONCE, building the searchable
+        string from the same text nodes so search offsets and Range
+        offsets reference identical char indices.
+    (b) even after (a), a paragraph containing multiple occurrences
+        of the needle always got the FIRST hit. Now enumerate all
+        occurrences and pick the one CLOSEST to the expected
+        position derived from match.start - paraStartInContent.
+        Handles both duplicates and residual offset drift from
+        markdown emphasis chars stripped by md().
+- feat(admin/metrics): platform dashboard live at /admin/metrics/.
+  Three sections shipping today, all using only queries firestore
+  rules can prove satisfiable (no unbounded LIST). Content: published
+  folio count, unique authors, imprint themes, founding contributors,
+  pending shelf moderation, adult-flagged, currently featured, all-
+  time viewCount sum. Revenue: buckets published-authors by tier
+  (paid Imprint / paid Indie / comped Imprint / comped Indie / free)
+  via per-uid getDoc against folio_user_settings — batched 6
+  concurrent. Health: reviews pending vs approved (needs the reviews
+  rule update below), last admin digest timestamp. Recent activity:
+  8 most recently-published folios with pending/adult/featured
+  badges. Follow-up noted inline: subscription counts among
+  UNPUBLISHED subscribers need a /subscription-counts endpoint on
+  the paywall worker (service account bypasses client rules).
+- feat(pricing): revised Indie vs Imprint analytics ladder.
+    - Indie now: 30-day view sparkline + per-chapter drop-off
+      ("reader engagement" fundamentals).
+    - Imprint now: everything Indie plus geo + referrers
+      ("marketing analytics" — where to invest).
+  This is a deliberate commitment upsell: Free proves the count,
+  Indie proves the engagement pattern, Imprint proves where to
+  invest marketing. Copy updated on /press/ tier cards.
+- rule(reviews): allow read now includes || isAdmin() so the
+  moderation queue + metrics dashboard can list pending reviews
+  reliably. Was working incidentally when all reviews happened to
+  match the (approvedForDisplay && allowMarketing) clause but broke
+  as soon as pending items arrived.
+- docs/METRICS_PLAN.md updated with the revised tier gating.
 - fix(paginator): FRONT-MATTER and BACK-MATTER now paginate.
   Root cause of Thomas's Introduction cramming everything onto one
   page then getting hidden by the .page-overflowed fade: renderPreview

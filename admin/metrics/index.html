@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Folio Admin — Platform metrics</title>
+<link rel="stylesheet" href="/press/press.css">
+<style>
+  :root {
+    --bg: #f7f2e6;
+    --surface: #fffdf8;
+    --text: #2b2418;
+    --hint: #7a6d5b;
+    --muted: #a0917a;
+    --border: rgba(60,45,25,0.1);
+    --border-mid: rgba(60,45,25,0.2);
+    --accent-ui: #065f46;
+    --danger: #b13c3c;
+  }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif; margin: 0; }
+  .admin-hdr { padding: 14px 22px; border-bottom: .5px solid var(--border); background: var(--surface); }
+  .admin-hdr-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .admin-brand { font-family: 'Playfair Display', Georgia, serif; font-size: 20px; margin: 0; }
+  .admin-brand .accent { color: var(--accent-ui); font-size: 18px; margin-right: 4px; }
+  .admin-hdr-actions { display: flex; align-items: center; gap: 14px; font-size: 12.5px; color: var(--muted); }
+  .admin-hdr-actions a { color: var(--accent-ui); text-decoration: none; }
+  .admin-hdr-actions button { padding: 5px 12px; border-radius: 6px; border: .5px solid var(--border-mid); background: var(--surface); color: var(--text); cursor: pointer; font-size: 12px; }
+  .admin-wrap { max-width: 1080px; margin: 0 auto; padding: 26px 22px 48px; }
+  .admin-h1 { font-family: 'Playfair Display', Georgia, serif; font-size: 30px; margin: 0 0 6px; }
+  .admin-lead { color: var(--muted); font-size: 13.5px; margin: 0 0 24px; }
+  .auth-gate { padding: 34px; background: var(--surface); border-radius: 12px; border: .5px solid var(--border); text-align: center; }
+  .auth-gate.hidden { display: none; }
+  #adminBody.hidden { display: none; }
+
+  .metric-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; margin-bottom: 24px; }
+  .metric {
+    background: var(--surface); border: .5px solid var(--border); border-radius: 10px;
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 4px;
+  }
+  .metric-label { font-size: 11.5px; color: var(--hint); text-transform: uppercase; letter-spacing: .04em; }
+  .metric-value { font-family: 'Playfair Display', Georgia, serif; font-size: 28px; font-weight: 600; color: var(--text); line-height: 1.1; }
+  .metric-sub   { font-size: 11.5px; color: var(--muted); }
+  .metric.accent .metric-value { color: var(--accent-ui); }
+  .metric.warn   .metric-value { color: #b56a1f; }
+  .metric.danger .metric-value { color: var(--danger); }
+  .metric.loading .metric-value { color: var(--muted); font-style: italic; font-size: 18px; }
+
+  .section-h2 { font-family: 'Playfair Display', Georgia, serif; font-size: 20px; margin: 32px 0 12px; display: flex; align-items: center; gap: 10px; }
+  .section-h2 .refresh { font-size: 11px; padding: 4px 10px; border-radius: 6px; border: .5px solid var(--border-mid); background: var(--surface); cursor: pointer; color: var(--hint); }
+  .section-h2 .refresh:hover { color: var(--text); }
+
+  .table { background: var(--surface); border: .5px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .table-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; padding: 10px 14px; border-bottom: .5px dotted var(--border); align-items: center; font-size: 12.5px; }
+  .table-row:last-child { border-bottom: none; }
+  .table-row .title { font-weight: 500; }
+  .table-row .meta  { color: var(--muted); font-size: 11px; }
+  .table-row .badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: var(--bg); color: var(--hint); font-weight: 600; letter-spacing: .02em; }
+  .table-row .badge.pending { background: #f8e5c2; color: #7a5411; }
+  .table-row .badge.adult   { background: #f5d3d3; color: #8c1c1c; }
+  .table-row .badge.featured { background: #ffe8a0; color: #6f5000; }
+  .table-empty { padding: 24px; text-align: center; color: var(--hint); font-size: 12.5px; font-style: italic; }
+
+  .note { font-size: 12px; color: var(--hint); padding: 12px 14px; background: var(--surface); border-left: 3px solid var(--accent-ui); border-radius: 6px; margin: 12px 0; }
+</style>
+<link rel="icon" type="image/png" href="/favicon.png">
+<!-- Shared admin helpers — needed for esc/escAttr + author lookup if
+     we add it later. .nojekyll at the repo root ensures GH Pages ships
+     underscore-prefixed files. -->
+<script src="/admin/_shared.js"></script>
+</head>
+<body>
+
+<header class="admin-hdr">
+  <div class="admin-hdr-row">
+    <h1 class="admin-brand"><span class="accent">📊</span> Folio Admin — Metrics</h1>
+    <div class="admin-hdr-actions">
+      <a href="/admin/">← Console</a>
+      <a href="/shelf.html">Shelf</a>
+      <span id="signedInAs"></span>
+      <button id="signOutBtn" class="hidden" onclick="doSignOut()">Sign out</button>
+    </div>
+  </div>
+</header>
+
+<div class="admin-wrap">
+  <div id="authGate" class="auth-gate">
+    <h2 style="font-family:'Playfair Display',Georgia,serif;font-size:22px;margin:0 0 10px" id="gateTitle">Checking sign-in…</h2>
+    <p style="color:var(--muted);font-size:13px;margin:0 0 20px" id="gateBody">If you're already signed in on Folio, this will resolve in a second.</p>
+    <button class="primary hidden" id="gateSignInBtn" onclick="doSignIn()" style="padding:8px 18px;border-radius:8px;border:none;background:var(--accent-ui);color:#fff;cursor:pointer">Sign in with Google</button>
+    <div class="status err" id="authStatus" style="margin-top:14px;color:var(--danger);font-size:12px"></div>
+  </div>
+
+  <div id="adminBody" class="hidden">
+    <h1 class="admin-h1">Platform metrics</h1>
+    <p class="admin-lead">Aggregate health of the platform. Refreshes on demand — refresh manually rather than polling so we don't burn Firestore reads.</p>
+
+    <!-- ── Content section ─────────────────────────────────────── -->
+    <div class="section-h2">
+      Content <button class="refresh" onclick="loadContent()">↻ Refresh</button>
+    </div>
+    <div class="metric-grid" id="contentGrid">
+      <div class="metric loading"><div class="metric-label">Published folios</div><div class="metric-value">…</div></div>
+      <div class="metric loading"><div class="metric-label">Unique authors</div><div class="metric-value">…</div></div>
+      <div class="metric loading"><div class="metric-label">Customized imprints</div><div class="metric-value">…</div></div>
+      <div class="metric loading"><div class="metric-label">Founding contributors</div><div class="metric-value">…</div></div>
+      <div class="metric loading warn"><div class="metric-label">Pending moderation</div><div class="metric-value">…</div></div>
+      <div class="metric loading danger"><div class="metric-label">Adult-flagged</div><div class="metric-value">…</div></div>
+      <div class="metric loading accent"><div class="metric-label">Featured right now</div><div class="metric-value">…</div></div>
+      <div class="metric loading"><div class="metric-label">Total shelf views</div><div class="metric-value">…</div><div class="metric-sub">all-time viewCount sum</div></div>
+    </div>
+
+    <!-- ── Revenue section ─────────────────────────────────────── -->
+    <div class="section-h2">
+      Revenue <button class="refresh" onclick="loadRevenue()">↻ Refresh</button>
+    </div>
+    <div class="metric-grid" id="revenueGrid">
+      <div class="metric loading accent"><div class="metric-label">Paid Imprint subs</div><div class="metric-value">…</div><div class="metric-sub">among published authors</div></div>
+      <div class="metric loading accent"><div class="metric-label">Paid Indie subs</div><div class="metric-value">…</div><div class="metric-sub">among published authors</div></div>
+      <div class="metric loading"><div class="metric-label">Comped Imprint</div><div class="metric-value">…</div></div>
+      <div class="metric loading"><div class="metric-label">Comped Indie</div><div class="metric-value">…</div></div>
+      <div class="metric loading"><div class="metric-label">Free tier authors</div><div class="metric-value">…</div><div class="metric-sub">among published authors</div></div>
+    </div>
+    <div class="note">
+      <strong>Note.</strong> Subscription counts here reflect authors who have
+      <em>published a folio</em>, since Firestore rules don't let us list all
+      user-settings docs without a filter. To include Press subscribers who
+      signed up but haven't published yet, we'll add a server-side
+      <code>/subscription-counts</code> endpoint on the paywall worker
+      (uses the service account to bypass client rules) — follow-up task.
+    </div>
+
+    <!-- ── Health & moderation ─────────────────────────────────── -->
+    <div class="section-h2">
+      Health &amp; moderation <button class="refresh" onclick="loadHealth()">↻ Refresh</button>
+    </div>
+    <div class="metric-grid" id="healthGrid">
+      <div class="metric loading warn"><div class="metric-label">Reviews pending approval</div><div class="metric-value">…</div><a href="/admin/reviews/" style="color:var(--accent-ui);font-size:11px;text-decoration:none">Open queue →</a></div>
+      <div class="metric loading accent"><div class="metric-label">Reviews approved</div><div class="metric-value">…</div><div class="metric-sub">total displayed on shelf</div></div>
+      <div class="metric loading"><div class="metric-label">Last admin digest sent</div><div class="metric-value" style="font-size:14px;font-family:inherit">…</div><div class="metric-sub">from /admin-digest latch</div></div>
+    </div>
+
+    <!-- ── Recent activity ─────────────────────────────────────── -->
+    <div class="section-h2">
+      Recently published <button class="refresh" onclick="loadContent()">↻ Refresh</button>
+    </div>
+    <div class="table" id="recentTable">
+      <div class="table-empty">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const ADMIN_UIDS_BOOTSTRAP = ['x9AgFZ7O8WVz2UVtyO4ggWKNfc73', 'Y1bO4mc8aAclkbRNIYXyez8i7Rj2'];
+  let _fb = {};
+  let _user = null;
+  let _publishedFolios = [];   // cached across sections
+
+  async function boot() {
+    try {
+      const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const authMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+      const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      _fb.initializeApp = appMod.initializeApp;
+      _fb.getAuth = authMod.getAuth;
+      _fb.GoogleAuthProvider = authMod.GoogleAuthProvider;
+      _fb.signInWithPopup = authMod.signInWithPopup;
+      _fb.signOut = authMod.signOut;
+      _fb.onAuthStateChanged = authMod.onAuthStateChanged;
+      _fb.setPersistence = authMod.setPersistence;
+      _fb.browserLocalPersistence = authMod.browserLocalPersistence;
+      _fb.getFirestore = fsMod.getFirestore;
+      _fb.doc = fsMod.doc;
+      _fb.getDoc = fsMod.getDoc;
+      _fb.collection = fsMod.collection;
+      _fb.getDocs = fsMod.getDocs;
+      _fb.query = fsMod.query;
+      _fb.where = fsMod.where;
+      _fb.limit = fsMod.limit;
+      const cfg = {
+        apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",
+        authDomain: "auth.jacobsiler.com",
+        projectId: "miscellaneous-117e9",
+        storageBucket: "miscellaneous-117e9.firebasestorage.app",
+        messagingSenderId: "514858431339",
+        appId: "1:514858431339:web:8b3acbe89966b45fe3922e"
+      };
+      const app = _fb.initializeApp(cfg);
+      _fb.auth = _fb.getAuth(app);
+      _fb.db = _fb.getFirestore(app);
+      try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
+      catch (e) { console.warn('[metrics] persistence set failed:', e.message); }
+      _fb.onAuthStateChanged(_fb.auth, onAuthChange);
+    } catch (e) {
+      console.error('[metrics] boot failed:', e);
+      document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown');
+    }
+  }
+
+  function onAuthChange(u) {
+    _user = u;
+    const gate = document.getElementById('authGate');
+    const body = document.getElementById('adminBody');
+    const gateTitle = document.getElementById('gateTitle');
+    const gateBody = document.getElementById('gateBody');
+    const gateBtn = document.getElementById('gateSignInBtn');
+    if (!u) {
+      gateTitle.textContent = 'Sign in required';
+      gateBody.innerHTML = 'Admin-only. Locked to bootstrap uids in <code>firestore.rules</code>.';
+      gateBtn.classList.remove('hidden');
+      gate.classList.remove('hidden'); body.classList.add('hidden');
+      document.getElementById('signOutBtn').classList.add('hidden');
+      document.getElementById('signedInAs').textContent = '';
+      return;
+    }
+    document.getElementById('signedInAs').textContent = u.email || u.uid;
+    document.getElementById('signOutBtn').classList.remove('hidden');
+    if (!ADMIN_UIDS_BOOTSTRAP.includes(u.uid)) {
+      gateTitle.textContent = 'Not an admin';
+      gateBody.textContent = '';
+      gateBtn.classList.add('hidden');
+      gate.classList.remove('hidden'); body.classList.add('hidden');
+      document.getElementById('authStatus').textContent = 'Signed in as ' + (u.email || u.uid) + ' — uid ' + u.uid + ' not on admin allowlist.';
+      return;
+    }
+    gate.classList.add('hidden'); body.classList.remove('hidden');
+    loadAll();
+  }
+
+  window.doSignIn = async function() { try { await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider()); } catch (e) { document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown'); } };
+  window.doSignOut = async function() { try { await _fb.signOut(_fb.auth); } catch (_) {} };
+
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }
+
+  function setMetric(gridId, labelSubstr, value, sub) {
+    const grid = document.getElementById(gridId);
+    if (!grid) return;
+    const cells = grid.querySelectorAll('.metric');
+    for (const cell of cells) {
+      const lbl = cell.querySelector('.metric-label');
+      if (lbl && lbl.textContent.toLowerCase().indexOf(labelSubstr.toLowerCase()) >= 0) {
+        cell.classList.remove('loading');
+        cell.querySelector('.metric-value').textContent = value == null ? '—' : String(value);
+        if (sub && cell.querySelector('.metric-sub')) cell.querySelector('.metric-sub').textContent = sub;
+        return;
+      }
+    }
+  }
+
+  // ── Content section ─────────────────────────────────────────
+  async function loadContent() {
+    // Reset loading state
+    document.querySelectorAll('#contentGrid .metric').forEach(m => m.classList.add('loading'));
+    document.getElementById('recentTable').innerHTML = '<div class="table-empty">Loading…</div>';
+    try {
+      const snap = await _fb.getDocs(_fb.query(
+        _fb.collection(_fb.db, 'folio_projects'),
+        _fb.where('release.published', '==', true),
+        _fb.limit(1000)
+      ));
+      _publishedFolios = [];
+      snap.forEach(d => _publishedFolios.push({ id: d.id, ...d.data() }));
+
+      const now = Date.now();
+      let unique = new Set();
+      let pending = 0, adult = 0, featured = 0, totalViews = 0;
+      const recent = [];
+      _publishedFolios.forEach(f => {
+        if (f.uid) unique.add(f.uid);
+        const rel = f.release || {};
+        if (rel.shelfPendingModeration) pending++;
+        if (rel.hasAdultContent) adult++;
+        const fUntil = _asMs(rel.featuredUntil);
+        if (fUntil && fUntil > now) featured++;
+        totalViews += (f.viewCount || 0);
+        // Track recent — sort after
+        const publishedMs = _asMs(rel.publishedAt) || _asMs(f.updatedAt) || 0;
+        recent.push({ id: f.id, title: rel.title || f.name || '(untitled)', author: rel.author || 'Unknown', publishedMs, pending: rel.shelfPendingModeration, adult: rel.hasAdultContent, featuredUntil: fUntil });
+      });
+
+      setMetric('contentGrid', 'Published folios', _publishedFolios.length);
+      setMetric('contentGrid', 'Unique authors', unique.size);
+      setMetric('contentGrid', 'Pending moderation', pending);
+      setMetric('contentGrid', 'Adult-flagged', adult);
+      setMetric('contentGrid', 'Featured', featured);
+      setMetric('contentGrid', 'Total shelf views', totalViews.toLocaleString());
+
+      // Also fetch imprint themes for the customized + founding counts.
+      try {
+        const themesSnap = await _fb.getDocs(_fb.query(_fb.collection(_fb.db, 'folio_imprint_themes'), _fb.limit(1000)));
+        let themes = 0, founding = 0;
+        themesSnap.forEach(d => {
+          themes++;
+          if ((d.data() || {}).foundingContributor) founding++;
+        });
+        setMetric('contentGrid', 'Customized imprints', themes);
+        setMetric('contentGrid', 'Founding contributors', founding);
+      } catch (e) {
+        console.warn('[metrics] themes list failed:', e.message);
+        setMetric('contentGrid', 'Customized imprints', '?');
+        setMetric('contentGrid', 'Founding contributors', '?');
+      }
+
+      // Recently-published table (top 8 by publishedAt)
+      recent.sort((a, b) => b.publishedMs - a.publishedMs);
+      const top = recent.slice(0, 8);
+      const table = document.getElementById('recentTable');
+      if (!top.length) {
+        table.innerHTML = '<div class="table-empty">No published folios yet.</div>';
+      } else {
+        table.innerHTML = top.map(r => {
+          const when = r.publishedMs ? new Date(r.publishedMs).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+          const badges =
+            (r.pending ? '<span class="badge pending">pending</span> ' : '') +
+            (r.adult ? '<span class="badge adult">adult</span> ' : '') +
+            (r.featuredUntil && r.featuredUntil > now ? '<span class="badge featured">featured</span> ' : '');
+          return `<div class="table-row">
+            <div>
+              <div class="title">${esc(r.title)}</div>
+              <div class="meta">${esc(r.author)} · <span style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px">${esc(r.id.slice(0, 24))}…</span></div>
+            </div>
+            <div>${badges}</div>
+            <div class="meta">${when}</div>
+          </div>`;
+        }).join('');
+      }
+    } catch (e) {
+      console.error('[metrics] content load failed:', e);
+      document.querySelectorAll('#contentGrid .metric').forEach(m => {
+        m.classList.remove('loading');
+        m.querySelector('.metric-value').textContent = 'err';
+      });
+      document.getElementById('recentTable').innerHTML = '<div class="table-empty" style="color:var(--danger)">Content load failed: ' + esc(e.message || 'unknown') + '</div>';
+    }
+  }
+
+  // ── Revenue section ─────────────────────────────────────────
+  // Batch-fetches folio_user_settings for each unique published-author uid
+  // (single-doc reads → firestore admin-read rule allows them).
+  async function loadRevenue() {
+    document.querySelectorAll('#revenueGrid .metric').forEach(m => m.classList.add('loading'));
+    try {
+      if (!_publishedFolios.length) {
+        // Trigger content load first if we haven't yet.
+        await loadContent();
+      }
+      const uids = Array.from(new Set(_publishedFolios.map(f => f.uid).filter(Boolean)));
+      const buckets = { paidImprint: 0, paidIndie: 0, compImprint: 0, compIndie: 0, free: 0, expired: 0, cancelled: 0 };
+      // Batched to 6 concurrent.
+      const BATCH = 6;
+      for (let i = 0; i < uids.length; i += BATCH) {
+        const batch = uids.slice(i, i + BATCH);
+        await Promise.all(batch.map(async uid => {
+          try {
+            const snap = await _fb.getDoc(_fb.doc(_fb.db, 'folio_user_settings', uid));
+            const sub = snap.exists() ? (snap.data().pressSubscription || null) : null;
+            const kind = _classifyPlan(sub);
+            if (kind === 'paid-imprint') buckets.paidImprint++;
+            else if (kind === 'paid-indie') buckets.paidIndie++;
+            else if (kind === 'comp-imprint') buckets.compImprint++;
+            else if (kind === 'comp-indie') buckets.compIndie++;
+            else if (kind === 'expired') buckets.expired++;
+            else if (kind === 'cancelled') buckets.cancelled++;
+            else buckets.free++;
+          } catch (e) { buckets.free++; /* treat lookup fail as free */ }
+        }));
+      }
+      setMetric('revenueGrid', 'Paid Imprint',    buckets.paidImprint);
+      setMetric('revenueGrid', 'Paid Indie',      buckets.paidIndie);
+      setMetric('revenueGrid', 'Comped Imprint',  buckets.compImprint);
+      setMetric('revenueGrid', 'Comped Indie',    buckets.compIndie);
+      setMetric('revenueGrid', 'Free tier',       buckets.free + buckets.expired + buckets.cancelled);
+    } catch (e) {
+      console.error('[metrics] revenue load failed:', e);
+      document.querySelectorAll('#revenueGrid .metric').forEach(m => {
+        m.classList.remove('loading');
+        m.querySelector('.metric-value').textContent = 'err';
+      });
+    }
+  }
+
+  function _classifyPlan(sub) {
+    if (!sub || !sub.status) return 'free';
+    const tier = String(sub.tier || '').toLowerCase();
+    const isComp = String(sub.paypalSubscriptionId || '').indexOf('COMP-') === 0;
+    const expiresMs = sub.expiresAt ? Date.parse(sub.expiresAt) : NaN;
+    const expired = !isNaN(expiresMs) && expiresMs < Date.now();
+    if (sub.status === 'CANCELLED') return 'cancelled';
+    if (sub.status !== 'ACTIVE') return 'free';
+    if (expired) return 'expired';
+    if (isComp) return tier === 'imprint' ? 'comp-imprint' : 'comp-indie';
+    return tier === 'imprint' ? 'paid-imprint' : 'paid-indie';
+  }
+
+  // ── Health section ──────────────────────────────────────────
+  async function loadHealth() {
+    document.querySelectorAll('#healthGrid .metric').forEach(m => m.classList.add('loading'));
+    try {
+      const snap = await _fb.getDocs(_fb.query(_fb.collection(_fb.db, 'reviews'), _fb.limit(500)));
+      let pending = 0, approved = 0;
+      snap.forEach(d => {
+        const data = d.data() || {};
+        if (data.approvedForDisplay) approved++;
+        else pending++;
+      });
+      setMetric('healthGrid', 'Reviews pending', pending);
+      setMetric('healthGrid', 'Reviews approved', approved);
+    } catch (e) {
+      console.warn('[metrics] reviews list failed:', e.message);
+      setMetric('healthGrid', 'Reviews pending', 'err');
+      setMetric('healthGrid', 'Reviews approved', 'err');
+    }
+    // Digest latch — single-doc read (admin allowed).
+    try {
+      const snap = await _fb.getDoc(_fb.doc(_fb.db, 'folio_admin_digest_state', 'latch'));
+      if (snap.exists()) {
+        const d = snap.data() || {};
+        const ms = d.lastSentMs || 0;
+        setMetric('healthGrid', 'Last admin digest', ms ? _relativeTime(ms) : 'never');
+      } else {
+        setMetric('healthGrid', 'Last admin digest', 'never');
+      }
+    } catch (e) {
+      setMetric('healthGrid', 'Last admin digest', 'err');
+    }
+  }
+
+  // ── Helpers ─────────────────────────────────────────────────
+  function _asMs(v) {
+    if (v == null) return 0;
+    if (typeof v === 'number') return v;
+    if (typeof v.seconds === 'number') return v.seconds * 1000;
+    if (typeof v === 'string') { const t = Date.parse(v); return isNaN(t) ? 0 : t; }
+    return 0;
+  }
+  function _relativeTime(ms) {
+    const diff = Date.now() - ms;
+    if (diff < 60_000) return 'just now';
+    if (diff < 3_600_000) return Math.round(diff / 60_000) + ' min ago';
+    if (diff < 86_400_000) return Math.round(diff / 3_600_000) + ' h ago';
+    return Math.round(diff / 86_400_000) + ' d ago';
+  }
+
+  async function loadAll() {
+    await loadContent();
+    // These two are cheap enough to auto-fire once.
+    loadRevenue();
+    loadHealth();
+  }
+
+  boot();
+</script>
+</body>
+</html>
