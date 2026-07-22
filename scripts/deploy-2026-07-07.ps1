@@ -283,6 +283,22 @@ Also in this batch:
         position derived from match.start - paraStartInContent.
         Handles both duplicates and residual offset drift from
         markdown emphasis chars stripped by md().
+- feat(user-list): server-side endpoint surfaces unpublished
+  signed-in users so /admin/press can comp them before they publish
+  and /admin/metrics can track total user growth. New GET /user-list
+  ?key=<ADMIN_DEBUG_TOKEN> on the paywall worker lists all
+  folio_user_settings via service account (bypasses the LIST rule
+  that denies clients), cross-references folio_projects for per-uid
+  folio + published counts, and folio_imprint_themes for display
+  names + founding-contributor flag. Returns compact JSON sorted
+  paid-first, comp-second, published-third, then everyone else.
+  /admin/press picks it up and merges those users into the search
+  dropdown (labelled "signed in, no folios yet") when the ADMIN_
+  DEBUG_TOKEN is cached in localStorage; offers a click-to-paste
+  prompt if missing. /admin/metrics adds a "Signed-in users" tile
+  in the Content section and switches Revenue buckets to count
+  ALL users, not just published ones — so Jacob sees his actual
+  growth curve and full subscription-tier distribution.
 - feat(editor suggestions): full owner review flow shipped.
   When someone with an editor/collab share link edits the manuscript
   and hits save, their edits divert to
