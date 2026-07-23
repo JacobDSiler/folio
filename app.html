@@ -2214,6 +2214,64 @@
       .export-section {
         padding: 6px 10px
       }
+
+      /* Editor toolbar dividers add visual clutter when the toolbar
+         is already wrapping to multiple rows. Hide them below 768px
+         so the row transitions read as natural breaks (Jacob 2026-07-22). */
+      .preview-toolbar .tb-divider { display: none !important; }
+
+      /* Reader bar collapse on mobile. Original layout stuffed 11+
+         controls in a single row that assumed 900+ px. On a 360-px
+         phone the chapter picker (max-width 220 px) alone consumed
+         over half the width, hiding Aa / notes / audio / menu off-
+         screen (Jacob 2026-07-22 screenshot). Fix:
+           • cap chapter picker at 130 px so it takes its share, not
+             more
+           • shrink title font + hide subtitle so the title never
+             elbows the icons
+           • move the less-used icon buttons into the ☰ menu on
+             narrow screens (tour, pron, bookmarks, audio) — the
+             reader can still reach them via the menu without them
+             cluttering the top-line
+           • flex-wrap:nowrap keeps everything on one row; the
+             horizontal-scroll fallback catches overflow if labels
+             happen to be extra long. */
+      #readerBar {
+        gap: 6px;
+        padding: 0 8px;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+      #readerBar select {
+        max-width: 130px !important;
+        font-size: 11px !important;
+        padding: 4px 20px 4px 8px !important;
+      }
+      #readerBar .rd-title {
+        font-size: 12px !important;
+        max-width: 90px;
+      }
+      #readerBar .rd-sub { display: none !important; }
+      /* Compact button padding + strip labels so every control is
+         icon-only. All controls stay reachable — overflow-x:auto on
+         the bar catches anything that still doesn't fit and it can
+         be reached with a horizontal swipe. Tour is hidden because
+         first-time-only guidance shouldn't occupy scarce mobile
+         real estate (users can trigger it from the ☰ menu later
+         if we surface it there). */
+      #readerBar button { padding: 4px 8px !important; font-size: 11px !important; }
+      #readerBar #rdBack { padding: 4px 8px !important; font-size: 0 !important; }
+      #readerBar #rdBack::before { content: '\2190'; font-size: 15px; } /* left arrow */
+      #readerBar #rdShelfLink {
+        padding: 4px 8px !important;
+        font-size: 11px !important;
+      }
+      #readerBar #rdShelfLink span:last-child { display: none; } /* icon only */
+      #readerBar #rdTourBtn { display: none !important; }
+      #readerBar #rdTourBtn + * { margin-left: 0 !important; }
+      /* Make sure the row height stays tight so the bar doesn't grow
+         when everything wraps. */
+      #readerBar { min-height: 46px; }
     }
 
     @media print {
@@ -7161,7 +7219,7 @@
             style="font-size:10px;padding:3px 7px;border-radius:5px;border:1px solid rgba(255,255,255,0.3);background:rgba(255,255,255,0.12);color:#f0ebe0;cursor:pointer;font-family:var(--sans);white-space:nowrap;line-height:1.2">in</button>
         </div>
         <!-- Divider -->
-        <span style="width:1px;height:16px;background:rgba(255,255,255,0.2);flex-shrink:0"></span>
+        <span class="tb-divider" style="width:1px;height:16px;background:rgba(255,255,255,0.2);flex-shrink:0"></span>
         <!-- Zoom controls -->
         <button class="zoom-btn" onclick="zoomStep(-1)" title="Zoom out">−</button>
         <input type="range" class="zoom-slider" id="zoomSlider" min="20" max="200" value="75"
@@ -7170,7 +7228,7 @@
         <span class="zoom-label" id="zoomLabel">75%</span>
         <button class="zoom-fit-btn" onclick="zoomFit()">Fit</button>
         <button class="zoom-fit-btn" onclick="setZoom(100)">100%</button>
-        <span style="width:1px;height:16px;background:rgba(255,255,255,0.2);flex-shrink:0"></span>
+        <span class="tb-divider" style="width:1px;height:16px;background:rgba(255,255,255,0.2);flex-shrink:0"></span>
         <button id="editModeBtn" class="zoom-fit-btn" onclick="toggleEditMode()"
           title="Click paragraphs in the preview to edit them directly"
           style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">✏ Edit</button>

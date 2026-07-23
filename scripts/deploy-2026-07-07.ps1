@@ -283,6 +283,19 @@ Also in this batch:
         position derived from match.start - paraStartInContent.
         Handles both duplicates and residual offset drift from
         markdown emphasis chars stripped by md().
+- ui(mobile round 2): reader bar and editor toolbar tidy-up.
+  Reader bar: chapter picker was allowed max-width 220px which on
+  a 360px phone consumed most of the row and pushed Aa/notes/audio/
+  menu off-screen (Jacob 2026-07-22 screenshot). Now on <=768px:
+  chapter picker capped at 130px, title font shrunk + max-width 90px
+  with subtitle hidden, all buttons icon-only (Shelf text label
+  dropped, Back button collapses to a left-arrow glyph via
+  ::before), Tour button hidden entirely (still reachable from the
+  menu later), overflow-x:auto as a safety net if anything still
+  overflows so nothing becomes unreachable.
+  Editor toolbar: the two vertical | dividers now tagged with
+  .tb-divider and hidden below 768px so the toolbar wrapping
+  reads as natural row breaks rather than cluttered visual noise.
 - feat(auth): every non-anonymous sign-in now writes a stub
   folio_user_settings/{uid} doc with lastEmail + lastDisplayName +
   signInAt. Previously the doc was only created when someone saved
