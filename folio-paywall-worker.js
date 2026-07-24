@@ -1760,16 +1760,59 @@ async function _hmacHex(secret, message) {
   return hex;
 }
 
-/* Verify a Firebase ID token via Google's Identity Toolkit. Returns
-   the uid if valid, null if not. Cached JWKS via edge cache (5 min). */
+/* Verify a Firebase ID token via Identity Toolkit's :lookup endpoint,
+   auth'd with the public Firebase Web API key (the same key that
+   ships in every client — the Firebase config in app.html).
+   Returns the user's uid if the token is valid + not expired, else null.
+   The endpoint validates the token's signature + expiry + audience on
+   Google's side, so we don't need to import JWKS + verify RS256 here.
+
+   Falls back to env.FIREBASE_WEB_API_KEY if set (lets us rotate the
+   key without a code deploy); otherwise uses the hard-coded default.
+   The key is intentionally NOT a secret — treating it as one is a
+   common misconception. Firebase security lives in the rules layer,
+   not in the key. */
+const _FIREBASE_WEB_API_KEY_DEFAULT = 'AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0';
 async function _verifyFirebaseIdToken(idToken, env) {
   try {
-    // Decode header + payload without validating (we validate below).
+    if (!idToken || typeof idToken !== 'string') return null;
     const parts = idToken.split('.');
     if (parts.length !== 3) return null;
-    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
-    // Use the Firebase Auth REST API's :lookup endpoint — validates the
-    // token AND returns full user record in one call.
+    const apiKey = env.FIREBASE_WEB_API_KEY || _FIREBASE_WEB_API_KEY_DEFAULT;
+    const r = await fetch(
+      'https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + encodeURIComponent(apiKey),
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      }
+    );
+    if (!r.ok) {
+      // Surface the actual error into the worker log so future 401s
+      // are diagnosable without another round-trip.
+      const err = await r.text().catch(() => '');
+      console.warn('[verifyIdToken] lookup failed', r.status, err.slice(0, 300));
+      return null;
+    }
+    const data = await r.json().catch(() => null);
+    if (!data || !Array.isArray(data.users) || !data.users[0]) return null;
+    return data.users[0].localId || null;
+  } catch (e) {
+    console.warn('[verifyIdToken] threw:', e && e.message);
+    return null;
+  }
+}
+
+/* Look up a Firebase user's email by uid. This one DOES need the
+   service-account OAuth token because it queries by uid (a privileged
+   operation — you can't get someone's email just because you have
+   their uid unless you're the project admin). The endpoint path
+   differs from the client-key variant above: it uses the
+   /projects/{pid}/accounts:lookup form. Falls back to null on any
+   error so callers can carry on without the owner-notification
+   email (the sale still gets recorded). */
+async function _firebaseUserEmail(uid, env) {
+  try {
     const auth = await getAccessToken(env);
     const pid = env.FIRESTORE_PROJECT_ID || auth.projectId;
     const r = await fetch(
@@ -1777,32 +1820,21 @@ async function _verifyFirebaseIdToken(idToken, env) {
       {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + auth.token, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
+        body: JSON.stringify({ localId: [uid] }),
       }
     );
-    if (!r.ok) return null;
+    if (!r.ok) {
+      const err = await r.text().catch(() => '');
+      console.warn('[firebaseUserEmail] lookup failed', r.status, err.slice(0, 300));
+      return null;
+    }
     const data = await r.json().catch(() => null);
     if (!data || !Array.isArray(data.users) || !data.users[0]) return null;
-    return data.users[0].localId || null;
-  } catch (e) { return null; }
-}
-
-/* Look up a Firebase user's email by uid via the Identity Toolkit. */
-async function _firebaseUserEmail(uid, env) {
-  const auth = await getAccessToken(env);
-  const pid = env.FIRESTORE_PROJECT_ID || auth.projectId;
-  const r = await fetch(
-    'https://identitytoolkit.googleapis.com/v1/projects/' + pid + '/accounts:lookup',
-    {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + auth.token, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ localId: [uid] }),
-    }
-  );
-  if (!r.ok) return null;
-  const data = await r.json().catch(() => null);
-  if (!data || !Array.isArray(data.users) || !data.users[0]) return null;
-  return data.users[0].email || null;
+    return data.users[0].email || null;
+  } catch (e) {
+    console.warn('[firebaseUserEmail] threw:', e && e.message);
+    return null;
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════
