@@ -21963,6 +21963,33 @@
       if (panel) { panel.style.display = 'none'; panel.setAttribute('aria-hidden', 'true'); }
     }
 
+    // ── In-modal help drawer for Option C+ vendor setup ───────────
+    window._rlToggleHelp = function _rlToggleHelp() {
+      const el = document.getElementById('rlAutoHelp');
+      if (!el) return;
+      el.style.display = (el.style.display === 'none' || !el.style.display) ? '' : 'none';
+    };
+
+    window._rlHelpTab = function _rlHelpTab(vendor) {
+      const vendors = ['kofi', 'payhip', 'paypal'];
+      for (const v of vendors) {
+        const body = document.getElementById('rlHelpBody' + v.charAt(0).toUpperCase() + v.slice(1));
+        const tab = document.getElementById('rlHelpTab' + v.charAt(0).toUpperCase() + v.slice(1));
+        if (body) body.style.display = (v === vendor) ? '' : 'none';
+        if (tab) {
+          if (v === vendor) {
+            tab.style.background = 'var(--accent-ui)';
+            tab.style.color = '#fff';
+            tab.style.fontWeight = '500';
+          } else {
+            tab.style.background = 'var(--surface)';
+            tab.style.color = 'var(--text)';
+            tab.style.fontWeight = 'normal';
+          }
+        }
+      }
+    };
+
     // ── Auto-deliver vendor-webhook config (Option C+) ────────────
     // Owner picks a vendor + pastes its webhook secret. We POST to the
     // paywall worker's /vendor-config with a Firebase ID token so the
@@ -31543,9 +31570,87 @@
             </summary>
             <div style="margin-top:10px;padding:12px;background:#fdfaf3;border:.5px solid #e8d9a8;border-radius:8px">
               <p style="font-size:11.5px;color:#5c3d00;line-height:1.55;margin:0 0 10px">
-                Connect a payment vendor's webhook. When someone buys, Folio auto-emails them a one-click unlock link
+                Connect a payment vendor. When someone buys, Folio auto-emails them a one-click unlock link
                 (no code to paste) and notifies you of the sale. Supports Ko-fi, Payhip, and PayPal.
+                <a href="#" onclick="event.preventDefault();_rlToggleHelp()" style="color:#8b5a12;text-decoration:underline;font-weight:600">Show me exactly what to do &rarr;</a>
               </p>
+
+              <!-- Beginner-friendly step-by-step. Hidden by default,
+                   opens on demand. Each tab is a specific vendor with
+                   exact click paths, no jargon. Explicit "you can't
+                   break anything" language, written for authors, not
+                   developers. Update this content whenever a vendor
+                   changes their dashboard layout. -->
+              <div id="rlAutoHelp" style="display:none;margin:0 0 12px;padding:12px;background:#fff;border:.5px solid var(--border-mid);border-radius:8px">
+                <div style="display:flex;gap:4px;margin-bottom:10px;border-bottom:.5px solid var(--border-mid);padding-bottom:8px">
+                  <button type="button" onclick="_rlHelpTab('kofi')" id="rlHelpTabKofi" class="rl-help-tab-active" style="padding:5px 12px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--accent-ui);color:#fff;font-size:11.5px;cursor:pointer;font-weight:500">Ko-fi</button>
+                  <button type="button" onclick="_rlHelpTab('payhip')" id="rlHelpTabPayhip" style="padding:5px 12px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);font-size:11.5px;cursor:pointer">Payhip</button>
+                  <button type="button" onclick="_rlHelpTab('paypal')" id="rlHelpTabPaypal" style="padding:5px 12px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);font-size:11.5px;cursor:pointer">PayPal</button>
+                </div>
+
+                <!-- Ko-fi walkthrough — simplest of the three -->
+                <div id="rlHelpBodyKofi" class="rl-help-body">
+                  <p style="font-size:11.5px;color:var(--text);line-height:1.6;margin:0 0 10px"><strong>The Ko-fi way — easiest to set up.</strong> You&rsquo;ll create a shop product on Ko-fi, then connect it to Folio. Ko-fi handles the money, Folio handles delivering the book. You can&rsquo;t break anything by clicking around — just follow along.</p>
+                  <ol style="font-size:12px;color:var(--text);line-height:1.7;padding-left:22px;margin:0 0 10px">
+                    <li><strong>Sign up (or log in) at <a href="https://ko-fi.com" target="_blank" rel="noopener" style="color:var(--accent-ui)">ko-fi.com</a></strong>. Free — no monthly fee. Ko-fi takes 0% on the Free plan (5% on Ko-fi Gold).</li>
+                    <li><strong>Set up your payout method</strong> under <em>More &rarr; Account Settings &rarr; Payments</em>. Connect PayPal or Stripe so you can actually get paid.</li>
+                    <li><strong>Create a shop product</strong>: click <em>More &rarr; Shop &rarr; + Add Item</em>. Fill in:
+                      <ul style="margin:4px 0 4px 0;padding-left:20px">
+                        <li>Title = your folio&rsquo;s title</li>
+                        <li>Price = whatever you want to charge</li>
+                        <li>Description = a short blurb</li>
+                        <li>Delivery = "I&rsquo;ll deliver this manually" (Folio handles the actual delivery)</li>
+                      </ul>
+                      Click Save. You&rsquo;re now on the product page.</li>
+                    <li><strong>Copy the product URL from your browser&rsquo;s address bar.</strong> It looks like <code style="background:var(--bg);padding:1px 5px;border-radius:3px;font-size:11px">https://ko-fi.com/s/xxxxxxxxxx</code>. Paste it into the <em>Checkout URL</em> field above.</li>
+                    <li><strong>Find your webhook token</strong>: go to <em>More &rarr; Account Settings &rarr; API/Webhooks</em>. At the top there&rsquo;s a <strong>Verification Token</strong> — a long random string. Copy it. Paste it in the <em>Webhook secret</em> field above.</li>
+                    <li>Click <strong>Save + get webhook URL</strong>. Folio gives you back a webhook URL.</li>
+                    <li><strong>Back in Ko-fi&rsquo;s API/Webhooks page</strong>, paste that URL into the <em>Webhook URL</em> field and click Save.</li>
+                    <li><strong>Done.</strong> Buy your own product once to test — you&rsquo;ll get the unlock email within a minute. Refund yourself in Ko-fi afterward if you don&rsquo;t want to keep the sale.</li>
+                  </ol>
+                  <p style="font-size:11px;color:var(--hint);line-height:1.5;margin:8px 0 0"><strong>Where things live in Ko-fi:</strong> everything is under the <em>More</em> button (top-right of ko-fi.com when signed in). The product URL is what you see in your browser when viewing your own product page.</p>
+                </div>
+
+                <!-- Payhip walkthrough -->
+                <div id="rlHelpBodyPayhip" class="rl-help-body" style="display:none">
+                  <p style="font-size:11.5px;color:var(--text);line-height:1.6;margin:0 0 10px"><strong>The Payhip way — good for a proper shop feel.</strong> Payhip is closer to Gumroad in style. It takes 5% + Stripe/PayPal processing on the free plan (0% on paid plans starting at $29/mo).</p>
+                  <ol style="font-size:12px;color:var(--text);line-height:1.7;padding-left:22px;margin:0 0 10px">
+                    <li><strong>Sign up at <a href="https://payhip.com" target="_blank" rel="noopener" style="color:var(--accent-ui)">payhip.com</a></strong>.</li>
+                    <li><strong>Connect a payout method</strong> under <em>Settings &rarr; Payments</em> — Stripe and/or PayPal.</li>
+                    <li><strong>Create a digital product</strong>: click <em>Products &rarr; Add Product &rarr; Digital</em>. Title, description, price. For the file, upload a plain-text placeholder or a "thanks for buying" PDF — Folio delivers the actual book.</li>
+                    <li>Once saved, click <strong>View Product</strong>. Copy the URL from your browser. Paste into the <em>Checkout URL</em> field above.</li>
+                    <li><strong>Find your webhook signing secret</strong>: go to <em>Settings &rarr; Site Integration &rarr; Instant Payment Notification (IPN)</em>. You&rsquo;ll see a <strong>Signing Secret</strong> field. Copy it. Paste it in the <em>Webhook secret</em> field above.</li>
+                    <li>Click <strong>Save + get webhook URL</strong> — Folio gives you a URL.</li>
+                    <li>Back in Payhip&rsquo;s IPN settings, paste that URL into the <em>Notification URL</em> field. Save.</li>
+                    <li><strong>Test-buy your own product</strong>, refund via Payhip afterward.</li>
+                  </ol>
+                  <p style="font-size:11px;color:var(--hint);line-height:1.5;margin:8px 0 0"><strong>If you can&rsquo;t find the Signing Secret</strong>, look under <em>Settings &rarr; Advanced &rarr; API</em>. Payhip has moved this around a few times.</p>
+                </div>
+
+                <!-- PayPal walkthrough -->
+                <div id="rlHelpBodyPaypal" class="rl-help-body" style="display:none">
+                  <p style="font-size:11.5px;color:var(--text);line-height:1.6;margin:0 0 10px"><strong>The PayPal way — most flexible, most steps.</strong> PayPal isn&rsquo;t a shop platform, so we&rsquo;re using PayPal.me + their developer webhooks. The buyer clicks PayPal.me, sends you the exact price, and PayPal notifies Folio to send the unlock. Zero platform fees (only PayPal&rsquo;s payment processing).</p>
+                  <ol style="font-size:12px;color:var(--text);line-height:1.7;padding-left:22px;margin:0 0 10px">
+                    <li><strong>Set up a PayPal.me link</strong> if you don&rsquo;t have one — go to <a href="https://paypal.me" target="_blank" rel="noopener" style="color:var(--accent-ui)">paypal.me</a> and grab a handle. Your checkout URL becomes something like <code style="background:var(--bg);padding:1px 5px;border-radius:3px;font-size:11px">https://paypal.me/yourhandle/9.99</code> (with the amount at the end). Paste into <em>Checkout URL</em> above.</li>
+                    <li><strong>Go to the PayPal Developer Dashboard</strong> at <a href="https://developer.paypal.com/dashboard/applications/live" target="_blank" rel="noopener" style="color:var(--accent-ui)">developer.paypal.com/dashboard/applications/live</a>. You may need to accept the developer terms once.</li>
+                    <li><strong>Create an app</strong>: click <em>Apps &amp; Credentials &rarr; Create App</em>. Name it "Folio Delivery" or similar. Type = "Merchant".</li>
+                    <li>Open the app you just created. Scroll to <strong>Webhooks</strong> at the bottom. Click <em>Add Webhook</em>.</li>
+                    <li>You&rsquo;ll need Folio&rsquo;s webhook URL first, so:
+                      <ul style="margin:4px 0 4px 0;padding-left:20px">
+                        <li>Pop back to Folio, in the vendor dropdown above pick <em>PayPal</em>, leave the secret empty for a moment, click <em>Save + get webhook URL</em> — you&rsquo;ll get a URL you can use.</li>
+                      </ul>
+                    </li>
+                    <li>Back in PayPal&rsquo;s webhook form: paste Folio&rsquo;s URL. For <em>Event types</em>, tick <strong>Payment sale completed</strong> and <strong>Checkout order approved</strong>. Save.</li>
+                    <li>PayPal shows you a <strong>Webhook ID</strong> (a long random string). Copy it. Paste it back into Folio&rsquo;s <em>Webhook secret</em> field. Click <em>Save + get webhook URL</em> again — this time it saves properly.</li>
+                    <li><strong>Test with a small PayPal.me transfer to yourself.</strong> Refund via PayPal afterward.</li>
+                  </ol>
+                  <p style="font-size:11px;color:var(--hint);line-height:1.5;margin:8px 0 0"><strong>PayPal quirk:</strong> the developer dashboard has two modes — Sandbox (fake money) and Live (real). Make sure you&rsquo;re in Live for real sales. Tab is at the top-right.</p>
+                </div>
+
+                <p style="font-size:11px;color:var(--hint);line-height:1.55;margin:12px 0 0;padding-top:10px;border-top:.5px dashed var(--border-mid)">
+                  <strong>You can&rsquo;t break anything doing this.</strong> If you get stuck, click <em>Disable</em> above to remove the config and start over. Nothing you set here affects your existing folio content — it&rsquo;s all about how buyers get unlock emails.
+                </p>
+              </div>
 
               <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Vendor</label>
               <select id="rlAutoVendor"

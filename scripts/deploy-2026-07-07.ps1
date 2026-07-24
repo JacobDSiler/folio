@@ -283,6 +283,21 @@ Also in this batch:
         position derived from match.start - paraStartInContent.
         Handles both duplicates and residual offset drift from
         markdown emphasis chars stripped by md().
+- feat(deploy script): now runs wrangler deploy for both workers
+  after the git push. Graceful skip if wrangler isn't on PATH; per-
+  worker skip if that worker's toml isn't present locally
+  (email worker's wrangler-email.toml is gitignored because it may
+  carry env-specific bindings). A single deploy-script run now
+  publishes site + workers together.
+- feat(paid-folio help): in-modal walkthrough drawer with per-vendor
+  click-by-click setup. "Show me exactly what to do" link opens
+  tabbed guides for Ko-fi / Payhip / PayPal — each tells the author
+  EXACTLY where to click (Ko-fi's Verification Token under More >
+  Account Settings > API/Webhooks, Payhip's Signing Secret under
+  Settings > Site Integration > IPN, PayPal's Webhook ID from
+  developer.paypal.com after adding a webhook). Written for authors
+  not developers — no jargon, "you can't break anything" language,
+  explicit "where does this live in the vendor's dashboard" hints.
 - feat(spacing): new line-break marker syntax [-N-] renders as N
   blank lines. [-] = 1 line, [--] = 2, [-----] = 5, any N. Bracketed
   so it can't collide with markdown horizontal-rule scene-breaks.
@@ -595,6 +610,51 @@ Also in this batch:
         # here is a real failure (network, auth, non-fast-forward, etc.).
         Write-Host "git push failed (exit $LASTEXITCODE)." -ForegroundColor Red
         Stop-Here $LASTEXITCODE
+    }
+
+    # -- 6. Cloudflare Workers (paywall + email) ----------------------
+    # Deploys BOTH workers after the git push so any code that shipped
+    # to GitHub Pages this batch matches the worker code Cloudflare
+    # runs. Skipped gracefully if wrangler isn't on PATH; skipped for
+    # a specific worker if its wrangler config isn't present locally.
+    # ----------------------------------------------------------------
+    Write-Host ""
+    Write-Host "-- Cloudflare Workers deploy --" -ForegroundColor Cyan
+    $wrangler = Get-Command wrangler -ErrorAction SilentlyContinue
+    if (-not $wrangler) { $wrangler = Get-Command wrangler.cmd -ErrorAction SilentlyContinue }
+    if (-not $wrangler) {
+        Write-Host "wrangler CLI not on PATH." -ForegroundColor Yellow
+        Write-Host "  Install with:  npm install -g wrangler" -ForegroundColor Yellow
+        Write-Host "  Then deploy the workers manually:" -ForegroundColor Yellow
+        Write-Host "     wrangler deploy --config wrangler.toml" -ForegroundColor Yellow
+        Write-Host "     wrangler deploy --config wrangler-email.toml" -ForegroundColor Yellow
+    } else {
+        # Paywall worker — always deploy (wrangler.toml is tracked).
+        if (Test-Path "wrangler.toml") {
+            Write-Host "  wrangler deploy (paywall) ..." -ForegroundColor Cyan
+            & $wrangler.Source deploy --config wrangler.toml
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  wrangler deploy (paywall) failed (exit $LASTEXITCODE)." -ForegroundColor Red
+                Stop-Here $LASTEXITCODE
+            }
+        } else {
+            Write-Host "  wrangler.toml missing — skipping paywall worker." -ForegroundColor Yellow
+        }
+        # Email worker — deploy only if its config is present locally.
+        # wrangler-email.toml is gitignored (may carry cron triggers +
+        # binding hints specific to Jacob's environment), so it's not
+        # tracked but it's expected to exist on the dev machine.
+        if (Test-Path "wrangler-email.toml") {
+            Write-Host "  wrangler deploy (email) ..." -ForegroundColor Cyan
+            & $wrangler.Source deploy --config wrangler-email.toml
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "  wrangler deploy (email) failed (exit $LASTEXITCODE)." -ForegroundColor Red
+                Stop-Here $LASTEXITCODE
+            }
+        } else {
+            Write-Host "  wrangler-email.toml not found locally — skipping email worker." -ForegroundColor Yellow
+            Write-Host "  If you meant to deploy it, run:  wrangler deploy --config wrangler-email.toml" -ForegroundColor Yellow
+        }
     }
 
     Write-Host ""
