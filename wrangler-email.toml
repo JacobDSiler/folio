@@ -1,0 +1,38 @@
+name = "folio-email"
+main = "folio-email-worker.js"
+compatibility_date = "2025-01-01"
+
+# Cron trigger fires the scheduled() handler in the worker. Currently
+# runs three jobs on each tick (safe — all internally latched):
+#   1. Serial-release chapter emails (runCron)
+#   2. Admin moderation digest (runAdminDigest, latched at 20h)
+#   3. Metrics daily rollup (runMetricsRollup, latched at last-rolled day)
+# Once per hour is plenty — nothing here is latency-sensitive.
+[triggers]
+crons = ["0 * * * *"]
+
+# Secrets — set via `wrangler secret put NAME --config wrangler-email.toml`:
+#
+#   Required:
+#     RESEND_API_KEY           API key from resend.com
+#     FROM_EMAIL               e.g. "Folio <notifications@onfolio.press>"
+#     GCP_SERVICE_ACCOUNT      JSON service account for Firestore access
+#     ADMIN_DEBUG_TOKEN        long random string, gates /admin-digest
+#                              + /metrics-rollup manual trigger endpoints
+#
+#   Optional:
+#     ADMIN_DIGEST_EMAILS      comma-separated list of admin addresses
+#                              to receive the daily moderation digest
+#     FIRESTORE_PROJECT_ID     override for multi-project setups; usually
+#                              inferred from GCP_SERVICE_ACCOUNT
+#     APP_PATH                 default "/app.html" — for building
+#                              reader URLs in cron-sent emails
+#     INTERNAL_WORKER_SECRET   shared with the paywall worker's
+#                              EMAIL_WORKER_SECRET binding — gates the
+#                              /send-unlock endpoint that the paywall
+#                              worker calls when a vendor webhook fires
+
+# Public env vars (add them here rather than as secrets when the value
+# isn't sensitive — showing up in this file is fine for these).
+# [vars]
+# APP_PATH = "/app.html"
