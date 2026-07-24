@@ -21938,7 +21938,7 @@
           const _unCo2 = document.getElementById('rlUnlockCode');
           if (_coUrl2) _coUrl2.value = '';
           if (_unCo2) _unCo2.value = '';
-          try { _rlSetProvider('gumroad'); } catch (e) { }
+          try { _rlSetProvider('custom'); } catch (e) { }
           if (priceField2) priceField2.value = '';
           if (currField2) currField2.value = 'USD';
           if (audioChk2) audioChk2.checked = false;
@@ -24126,13 +24126,13 @@
       const hint = document.getElementById('rlProvHint');
       if (hint) {
         hint.textContent = (which === 'custom')
-          ? 'Use ANY payment vendor (PayPal, Stripe, Ko-fi, Lemon Squeezy…). After someone pays, email them the unlock code; they paste it on the paywall.'
-          : 'Buyers verify automatically through Gumroad\'s license API.';
+          ? 'Ko-fi, Payhip, PayPal, Stripe, Lemon Squeezy — any vendor with a checkout URL. Add auto-delivery below and Folio emails the unlock link on your behalf.'
+          : 'Buyers verify automatically through Gumroad\'s license API. Requires a Gumroad account with the product set up + license keys enabled.';
       }
       _rlProvider = which;
     }
     window._rlSetProvider = _rlSetProvider;
-    let _rlProvider = 'gumroad';
+    let _rlProvider = 'custom';
 
     /* Build the "Buy" URL for the reader. Branches on release.provider:
          - custom:   release.checkoutUrl (whatever the author pasted)
@@ -31521,15 +31521,15 @@
         <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 6px">How are you
           taking payment?</label>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+          <button type="button" id="rlProvCustom" onclick="_rlSetProvider('custom')" class="rl-prov"
+            style="flex:1;min-width:140px;padding:8px;border-radius:7px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Any vendor
+            <span style="opacity:.6;font-weight:400">(recommended)</span></button>
           <button type="button" id="rlProvGumroad" onclick="_rlSetProvider('gumroad')" class="rl-prov"
             style="flex:1;min-width:140px;padding:8px;border-radius:7px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Gumroad
             <span style="opacity:.6;font-weight:400">(auto-verify)</span></button>
-          <button type="button" id="rlProvCustom" onclick="_rlSetProvider('custom')" class="rl-prov"
-            style="flex:1;min-width:140px;padding:8px;border-radius:7px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Custom
-            URL <span style="opacity:.6;font-weight:400">(any vendor)</span></button>
         </div>
         <p id="rlProvHint" style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:0 0 10px">
-          Buyers verify automatically through Gumroad's license API.
+          Ko-fi, Payhip, PayPal, Stripe, Lemon Squeezy — any vendor with a checkout URL. Add auto-delivery below and Folio emails the unlock link on your behalf.
         </p>
 
         <!-- Gumroad sub-fields (default) -->

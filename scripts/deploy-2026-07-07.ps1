@@ -283,6 +283,14 @@ Also in this batch:
         position derived from match.start - paraStartInContent.
         Handles both duplicates and residual offset drift from
         markdown emphasis chars stripped by md().
+- ui(release modal): payment provider order swapped. "Any vendor
+  (recommended)" now the default + first button; Gumroad moved to
+  second position. Fresh new releases default to Custom + Auto-
+  deliver; existing folios keep whichever provider they were saved
+  with. Provider hint copy rewritten to lead with the vendors it
+  supports (Ko-fi, Payhip, PayPal, Stripe, Lemon Squeezy) rather
+  than the generic "any vendor" abstraction, so authors immediately
+  see recognisable brand names.
 - feat(deploy script): now runs wrangler deploy for both workers
   after the git push. Graceful skip if wrangler isn't on PATH; per-
   worker skip if that worker's toml isn't present locally
