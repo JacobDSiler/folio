@@ -283,6 +283,51 @@ Also in this batch:
         position derived from match.start - paraStartInContent.
         Handles both duplicates and residual offset drift from
         markdown emphasis chars stripped by md().
+- feat(spacing): new line-break marker syntax [-N-] renders as N
+  blank lines. [-] = 1 line, [--] = 2, [-----] = 5, any N. Bracketed
+  so it can't collide with markdown horizontal-rule scene-breaks.
+  Paginator budgets N x lineH for the marker; preview renders it
+  as a monospace centered spacer at 35% opacity in edit mode, fully
+  invisible in reader mode. Closes Thomas's "I want to control the
+  space between Psalms" request without needing rich text.
+- feat(paid folios — Option C+): full vendor-webhook auto-delivery
+  of unlock codes. Owner picks a vendor (Ko-fi, Payhip, or PayPal),
+  pastes its webhook secret in the release modal, gets back a per-
+  folio webhook URL to paste into the vendor's dashboard. On any
+  purchase:
+    1. Vendor POSTs to /vendor-webhook/{folioId} on the paywall
+       worker with the sale details.
+    2. Worker validates the vendor-specific signature (Ko-fi's
+       verification_token, Payhip's HMAC-SHA256, PayPal Webhooks V2
+       verify-signature endpoint), extracts buyer email + amount +
+       order id.
+    3. Mints a per-purchase JWT unlock token signed with the
+       existing PAYWALL_JWT_SECRET.
+    4. Calls the email worker's new /send-unlock endpoint (auth via
+       shared X-Internal-Secret) which sends two Resend emails:
+         a. Buyer gets a one-click unlock link:
+            /app.html?read=<folioId>&pwToken=<jwt> — clicking it
+            stores the token in localStorage automatically, no code
+            paste, no friction, works on any device.
+         b. Owner gets a sale notification with amount + buyer
+            email + vendor.
+    5. Sale recorded under folio_projects/{id}/paid_sales/{ts_uuid}
+       for revenue metrics.
+  Vendor config stored in folio_vendor_webhooks/{folioId} —
+  worker-only via service account, never exposed to clients (the
+  secret would let anyone forge a purchase).
+  New client-side URL-token pickup: on reader boot, if ?pwToken=
+  is in the URL, decode + verify release matches + stash in
+  localStorage + strip from URL bar (so shared URLs don't leak the
+  token).
+  New env bindings needed on the paywall worker:
+    EMAIL_WORKER_URL     = https://folio-email.jacobsiler.workers.dev
+    EMAIL_WORKER_SECRET  = <random 32+ char string, same on both>
+  And on the email worker:
+    INTERNAL_WORKER_SECRET = <same value>
+- rule(folio_vendor_webhooks): worker-only (allow r/w if false).
+- rule(folio_projects/{id}/paid_sales/{d}): owner + admin read,
+  worker-only write.
 - ui(mobile round 2): reader bar and editor toolbar tidy-up.
   Reader bar: chapter picker was allowed max-width 220px which on
   a 360px phone consumed most of the row and pushed Aa/notes/audio/

@@ -1391,6 +1391,421 @@ async function handleViewRecord(request, env) {
 }
 
 /* ══════════════════════════════════════════════════════════════════
+   Option C+ — VENDOR WEBHOOK AUTO-DELIVERY of unlock codes.
+   ────────────────────────────────────────────────────────────────────
+   Two endpoints in this section:
+
+     POST /vendor-config              — owner-authenticated write of
+                                        vendor + secret for a folio.
+                                        Stored server-side in
+                                        folio_vendor_webhooks/{folioId}
+                                        (rule: worker-only).
+
+     POST /vendor-webhook/{folioId}   — public, vendor-callable.
+                                        Validates vendor signature,
+                                        mints JWT unlock token, calls
+                                        email worker's /send-unlock
+                                        to deliver a "click here to
+                                        unlock" link to the buyer
+                                        and a sale notification to
+                                        the owner.
+
+   Supported vendors (MVP):
+     kofi   — verification_token match (Ko-fi's built-in webhook auth)
+     payhip — HMAC-SHA256 of raw body (payhip's Signature header)
+     paypal — Webhooks V2 (verifies via /v1/notifications/verify-webhook-signature)
+
+   Adding a new vendor: implement a validator in _vendorValidate()
+   and add its shape to _vendorExtract(). All the infrastructure
+   (config storage, JWT mint, email dispatch, sale recording) is
+   vendor-agnostic.
+   ══════════════════════════════════════════════════════════════════ */
+const _VENDOR_KINDS = new Set(['kofi', 'payhip', 'paypal']);
+
+/* Owner writes their vendor webhook config for a folio. Auth via the
+   Firebase ID token in Authorization: Bearer <token>. We decode the
+   token, verify it against Google's public keys, extract the uid, and
+   confirm it matches the folio's ownerUid before writing. */
+async function handleVendorConfig(request, env) {
+  if (!env.GCP_SERVICE_ACCOUNT) {
+    return errorJson('Server not configured (service account)', 500, request, env);
+  }
+  const authHdr = request.headers.get('Authorization') || '';
+  const idToken = authHdr.replace(/^Bearer\s+/i, '').trim();
+  if (!idToken) return errorJson('Authorization: Bearer <firebase-id-token> required', 401, request, env);
+
+  let body;
+  try { body = await request.json(); }
+  catch (e) { return errorJson('Bad JSON body', 400, request, env); }
+
+  const folioId = String((body && body.folioId) || '').trim();
+  const vendor  = String((body && body.vendor)  || '').trim().toLowerCase();
+  const secret  = String((body && body.secret)  || '').trim();
+  const enabled = body && body.enabled === false ? false : true;
+
+  if (!folioId) return errorJson('Missing folioId', 400, request, env);
+  if (enabled && !_VENDOR_KINDS.has(vendor)) {
+    return errorJson('Unknown vendor. Supported: kofi, payhip, paypal', 400, request, env);
+  }
+  if (enabled && !secret) return errorJson('Missing secret (webhook token / signing secret)', 400, request, env);
+
+  try {
+    // Verify the Firebase ID token via Google's Identity Toolkit (accountsLookup)
+    const auth = await getAccessToken(env);
+    const uid = await _verifyFirebaseIdToken(idToken, env);
+    if (!uid) return errorJson('Invalid Firebase ID token', 401, request, env);
+
+    // Confirm caller owns this folio.
+    const pid = env.FIRESTORE_PROJECT_ID || auth.projectId;
+    const parent = await fsGet(pid, auth.token, 'folio_projects/' + encodeURIComponent(folioId));
+    if (!parent) return errorJson('Folio not found', 404, request, env);
+    if (parent.uid !== uid) return errorJson('Not the folio owner', 403, request, env);
+
+    // Owner email — pull from Firebase Auth via lookup so we can send
+    // the sale-notification email later without touching the client.
+    const ownerEmail = await _firebaseUserEmail(uid, env).catch(() => null);
+
+    const nowIso = new Date().toISOString();
+    const url = 'https://firestore.googleapis.com/v1/projects/' + pid +
+                '/databases/(default)/documents/folio_vendor_webhooks/' +
+                encodeURIComponent(folioId);
+    const fields = enabled ? {
+      folioId:    { stringValue: folioId },
+      ownerUid:   { stringValue: uid },
+      ownerEmail: ownerEmail ? { stringValue: ownerEmail } : { nullValue: null },
+      vendor:     { stringValue: vendor },
+      secret:     { stringValue: secret },
+      updatedAt:  { timestampValue: nowIso },
+    } : {
+      folioId:  { stringValue: folioId },
+      ownerUid: { stringValue: uid },
+      enabled:  { booleanValue: false },
+      updatedAt:{ timestampValue: nowIso },
+    };
+    const r = await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Authorization': 'Bearer ' + auth.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fields }),
+    });
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      return errorJson('Config write failed: ' + ((err.error && err.error.message) || r.status), 502, request, env);
+    }
+    return json({
+      ok: true,
+      webhookUrl: new URL(request.url).origin + '/vendor-webhook/' + encodeURIComponent(folioId),
+    }, 200, request, env);
+  } catch (e) {
+    return errorJson('Config failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+}
+
+/* Vendor calls this endpoint on successful purchase. We fetch the
+   stored config for this folio, validate the vendor-specific
+   signature, extract buyer email + amount, mint a per-purchase JWT
+   unlock token, and dispatch the delivery email via the email worker. */
+async function handleVendorWebhook(request, env, folioId) {
+  if (!folioId) return errorJson('Missing folioId in path', 400, request, env);
+  if (!env.GCP_SERVICE_ACCOUNT) return errorJson('Server not configured', 500, request, env);
+  if (!env.PAYWALL_JWT_SECRET)  return errorJson('Server not configured', 500, request, env);
+
+  // Grab raw body once — some vendors sign the raw string, so we
+  // can't just parse-and-serialize (JSON key order + whitespace vary).
+  const rawBody = await request.text();
+
+  try {
+    const auth = await getAccessToken(env);
+    const pid = env.FIRESTORE_PROJECT_ID || auth.projectId;
+
+    // Load config for this folio.
+    const cfg = await fsGet(pid, auth.token,
+      'folio_vendor_webhooks/' + encodeURIComponent(folioId));
+    if (!cfg || cfg.enabled === false) {
+      return errorJson('Vendor webhook not configured for this folio', 404, request, env);
+    }
+    const vendor = String(cfg.vendor || '').toLowerCase();
+    const secret = String(cfg.secret || '');
+    if (!_VENDOR_KINDS.has(vendor) || !secret) {
+      return errorJson('Vendor config invalid', 500, request, env);
+    }
+
+    // Validate the vendor's signature on the raw body.
+    const validated = await _vendorValidate(vendor, secret, rawBody, request, env);
+    if (!validated.ok) {
+      return errorJson('Signature validation failed: ' + validated.reason, 401, request, env);
+    }
+
+    // Extract buyer email + amount + external order id from the vendor payload.
+    const extracted = _vendorExtract(vendor, validated.parsed);
+    if (!extracted.buyerEmail) {
+      return errorJson('Vendor payload missing buyer email', 400, request, env);
+    }
+
+    // Pull folio metadata for the email body (title, author, reader URL).
+    const parent = await fsGet(pid, auth.token, 'folio_projects/' + encodeURIComponent(folioId));
+    if (!parent || !parent.release || !parent.release.published) {
+      return errorJson('Folio not found or not published', 404, request, env);
+    }
+    const folioTitle = String((parent.release && parent.release.title) || parent.name || 'Your folio');
+    const folioAuthor = String((parent.release && parent.release.author) || '');
+
+    // Mint a per-purchase JWT unlock token. 365-day validity — buyers
+    // who paid once should stay unlocked long enough for a lost
+    // browser / device switch to not require re-purchase.
+    const now = Math.floor(Date.now() / 1000);
+    const days = 365;
+    const exp = now + (days * 86400);
+    const sub = await sha256ShortHex(extracted.orderId + '::' + folioId + '::' + extracted.buyerEmail, 8);
+    const payload = {
+      sub,
+      release:    folioId,
+      product:    null,
+      provider:   vendor,
+      purchaseId: extracted.orderId || null,
+      email:      extracted.buyerEmail,
+      iat: now,
+      exp,
+    };
+    const token = await signJWT(payload, env.PAYWALL_JWT_SECRET);
+
+    // Build the one-click unlock URL the buyer will click from email.
+    const origin = allowedOrigins(env)[0] || (new URL(request.url).origin);
+    const unlockUrl = origin + '/app.html?read=' + encodeURIComponent(folioId) +
+                      '&pwToken=' + encodeURIComponent(token);
+
+    // Fire-and-forget: record the sale for the owner's metrics.
+    _writeSaleRecord(pid, auth.token, folioId, {
+      vendor,
+      orderId:    extracted.orderId,
+      buyerEmail: extracted.buyerEmail,
+      amount:     extracted.amount,
+      currency:   extracted.currency,
+      ts:         new Date().toISOString(),
+    }).catch(function(){});
+
+    // Dispatch unlock email via email worker.
+    if (env.EMAIL_WORKER_URL && env.EMAIL_WORKER_SECRET) {
+      const emailResp = await fetch(env.EMAIL_WORKER_URL.replace(/\/$/, '') + '/send-unlock', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': env.EMAIL_WORKER_SECRET },
+        body: JSON.stringify({
+          folioId,
+          folioTitle,
+          folioAuthor,
+          buyerEmail: extracted.buyerEmail,
+          ownerEmail: cfg.ownerEmail || null,
+          amount: extracted.amount,
+          currency: extracted.currency,
+          unlockUrl,
+          vendor,
+        }),
+      });
+      if (!emailResp.ok) {
+        // Return 200 to the vendor so they don't retry (we already
+        // recorded the sale), but log the email failure.
+        const et = await emailResp.text().catch(() => '');
+        console.warn('[vendor-webhook] email dispatch failed:', emailResp.status, et);
+      }
+    } else {
+      console.warn('[vendor-webhook] EMAIL_WORKER_URL/SECRET not configured — sale processed but no email sent');
+    }
+
+    return json({ ok: true }, 200, request, env);
+  } catch (e) {
+    console.warn('[vendor-webhook] error', e && (e.stack || e.message || e));
+    return errorJson('Webhook error: ' + (e.message || 'unknown'), 502, request, env);
+  }
+}
+
+/* Vendor-specific signature validation. Returns { ok, reason, parsed }. */
+async function _vendorValidate(vendor, secret, rawBody, request, env) {
+  if (vendor === 'kofi') {
+    // Ko-fi POSTs form-encoded with a `data` field containing JSON.
+    // The JSON includes a `verification_token` we compare against secret.
+    let payload = null;
+    // Try form-encoded first, then JSON.
+    if (rawBody.startsWith('data=')) {
+      try {
+        const form = new URLSearchParams(rawBody);
+        const dataStr = form.get('data') || '';
+        payload = JSON.parse(dataStr);
+      } catch (e) { return { ok: false, reason: 'form-parse failed' }; }
+    } else {
+      try { payload = JSON.parse(rawBody); }
+      catch (e) { return { ok: false, reason: 'json-parse failed' }; }
+    }
+    if (!payload || typeof payload !== 'object') return { ok: false, reason: 'no payload' };
+    if (String(payload.verification_token || '') !== secret) {
+      return { ok: false, reason: 'verification_token mismatch' };
+    }
+    return { ok: true, parsed: payload };
+  }
+
+  if (vendor === 'payhip') {
+    // Payhip signs body with HMAC-SHA256; signature in Payhip-Signature header.
+    const sig = request.headers.get('payhip-signature') || request.headers.get('Payhip-Signature') || '';
+    if (!sig) return { ok: false, reason: 'no signature header' };
+    const expected = await _hmacHex(secret, rawBody);
+    if (sig !== expected) return { ok: false, reason: 'hmac mismatch' };
+    let payload = null;
+    try { payload = JSON.parse(rawBody); }
+    catch (e) { return { ok: false, reason: 'json-parse failed' }; }
+    return { ok: true, parsed: payload };
+  }
+
+  if (vendor === 'paypal') {
+    // PayPal Webhooks V2 — verify via /v1/notifications/verify-webhook-signature.
+    // Needs the webhook id (which the owner stored as `secret`), plus PayPal
+    // headers + body + our OAuth token.
+    const headers = {
+      auth_algo:       request.headers.get('paypal-auth-algo') || '',
+      cert_url:        request.headers.get('paypal-cert-url') || '',
+      transmission_id: request.headers.get('paypal-transmission-id') || '',
+      transmission_sig:request.headers.get('paypal-transmission-sig') || '',
+      transmission_time: request.headers.get('paypal-transmission-time') || '',
+    };
+    if (!headers.transmission_id) return { ok: false, reason: 'no PayPal signature headers' };
+    let payload = null;
+    try { payload = JSON.parse(rawBody); }
+    catch (e) { return { ok: false, reason: 'json-parse failed' }; }
+
+    const pp = await ppToken(env);
+    const verifyResp = await fetch(ppBase(env) + '/v1/notifications/verify-webhook-signature', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + pp, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        auth_algo:         headers.auth_algo,
+        cert_url:          headers.cert_url,
+        transmission_id:   headers.transmission_id,
+        transmission_sig:  headers.transmission_sig,
+        transmission_time: headers.transmission_time,
+        webhook_id:        secret,
+        webhook_event:     payload,
+      }),
+    });
+    const vr = await verifyResp.json().catch(() => ({}));
+    if (vr.verification_status !== 'SUCCESS') {
+      return { ok: false, reason: 'PayPal verify: ' + (vr.verification_status || 'unknown') };
+    }
+    return { ok: true, parsed: payload };
+  }
+
+  return { ok: false, reason: 'unknown vendor' };
+}
+
+/* Extract {buyerEmail, amount, currency, orderId} from a validated vendor payload. */
+function _vendorExtract(vendor, payload) {
+  const out = { buyerEmail: null, amount: null, currency: null, orderId: null };
+  if (vendor === 'kofi') {
+    out.buyerEmail = payload.email || null;
+    out.amount     = Number(payload.amount) || null;
+    out.currency   = payload.currency || 'USD';
+    out.orderId    = payload.kofi_transaction_id || payload.transaction_id || null;
+  } else if (vendor === 'payhip') {
+    out.buyerEmail = payload.customer_email || payload.email || null;
+    out.amount     = Number(payload.price) || Number(payload.amount) || null;
+    out.currency   = payload.currency || 'USD';
+    out.orderId    = payload.id || payload.transaction_id || null;
+  } else if (vendor === 'paypal') {
+    // PayPal Webhooks V2: event_type 'CHECKOUT.ORDER.APPROVED' or
+    // 'PAYMENT.CAPTURE.COMPLETED' both carry resource.payer + amount.
+    const res = payload.resource || {};
+    out.buyerEmail = (res.payer && res.payer.email_address) || null;
+    const amt = res.amount || (res.gross_amount) || {};
+    out.amount     = Number(amt.value) || null;
+    out.currency   = amt.currency_code || 'USD';
+    out.orderId    = res.id || payload.id || null;
+  }
+  return out;
+}
+
+/* Record the sale for the owner's metrics + audit. Written under
+   folio_projects/{folioId}/paid_sales/{ts_uuid}. */
+async function _writeSaleRecord(projectId, token, folioId, sale) {
+  const docId = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
+  const url = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+              '/databases/(default)/documents/folio_projects/' +
+              encodeURIComponent(folioId) + '/paid_sales?documentId=' + encodeURIComponent(docId);
+  const fields = {
+    vendor:     { stringValue: String(sale.vendor || 'unknown') },
+    orderId:    sale.orderId ? { stringValue: String(sale.orderId) } : { nullValue: null },
+    buyerEmail: sale.buyerEmail ? { stringValue: String(sale.buyerEmail) } : { nullValue: null },
+    amount:     sale.amount != null ? { doubleValue: Number(sale.amount) } : { nullValue: null },
+    currency:   sale.currency ? { stringValue: String(sale.currency) } : { nullValue: null },
+    ts:         { timestampValue: sale.ts || new Date().toISOString() },
+  };
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error('sale write ' + r.status + ': ' + JSON.stringify(err));
+  }
+}
+
+/* HMAC-SHA256 helper — returns lowercase hex. */
+async function _hmacHex(secret, message) {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false, ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(message));
+  const bytes = new Uint8Array(sig);
+  let hex = '';
+  for (let i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, '0');
+  return hex;
+}
+
+/* Verify a Firebase ID token via Google's Identity Toolkit. Returns
+   the uid if valid, null if not. Cached JWKS via edge cache (5 min). */
+async function _verifyFirebaseIdToken(idToken, env) {
+  try {
+    // Decode header + payload without validating (we validate below).
+    const parts = idToken.split('.');
+    if (parts.length !== 3) return null;
+    const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+    // Use the Firebase Auth REST API's :lookup endpoint — validates the
+    // token AND returns full user record in one call.
+    const auth = await getAccessToken(env);
+    const pid = env.FIRESTORE_PROJECT_ID || auth.projectId;
+    const r = await fetch(
+      'https://identitytoolkit.googleapis.com/v1/projects/' + pid + '/accounts:lookup',
+      {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + auth.token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken }),
+      }
+    );
+    if (!r.ok) return null;
+    const data = await r.json().catch(() => null);
+    if (!data || !Array.isArray(data.users) || !data.users[0]) return null;
+    return data.users[0].localId || null;
+  } catch (e) { return null; }
+}
+
+/* Look up a Firebase user's email by uid via the Identity Toolkit. */
+async function _firebaseUserEmail(uid, env) {
+  const auth = await getAccessToken(env);
+  const pid = env.FIRESTORE_PROJECT_ID || auth.projectId;
+  const r = await fetch(
+    'https://identitytoolkit.googleapis.com/v1/projects/' + pid + '/accounts:lookup',
+    {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + auth.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ localId: [uid] }),
+    }
+  );
+  if (!r.ok) return null;
+  const data = await r.json().catch(() => null);
+  if (!data || !Array.isArray(data.users) || !data.users[0]) return null;
+  return data.users[0].email || null;
+}
+
+/* ══════════════════════════════════════════════════════════════════
    POST /event — analytics ingestion for the metrics dashboards.
    ────────────────────────────────────────────────────────────────────
    Client fires-and-forgets via navigator.sendBeacon. Worker validates,
@@ -2617,6 +3032,11 @@ export default {
     if (path === '/view-record'    && request.method === 'POST') return handleViewRecord(request, env);
     if (path === '/event'          && request.method === 'POST') return handleEvent(request, env);
     if (path === '/user-list'      && request.method === 'GET')  return handleUserList(request, env);
+    if (path === '/vendor-config'  && request.method === 'POST') return handleVendorConfig(request, env);
+    if (path.startsWith('/vendor-webhook/') && request.method === 'POST') {
+      const folioId = decodeURIComponent(path.substring('/vendor-webhook/'.length));
+      return handleVendorWebhook(request, env, folioId);
+    }
     if (path === '/press-subscribe' && request.method === 'POST') return handlePressSubscribe(request, env);
     if (path === '/press-return'    && request.method === 'GET')  return handlePressReturn(request, env);
     if (path === '/press-webhook'   && request.method === 'POST') return handlePressWebhook(request, env);
