@@ -392,6 +392,25 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── Vendor webhook config (Option C+ auto-delivery) ─────────
+    // Stores each folio's payment-vendor webhook secret + type. Written
+    // only by the paywall worker's /vendor-config endpoint via service
+    // account (which bypasses these rules). NEVER exposed to clients —
+    // the secret would let anyone forge a purchase notification.
+    match /folio_vendor_webhooks/{folioId} {
+      allow read, write: if false;
+    }
+
+    // ── Paid-sales log per folio (Option C+ audit trail) ────────
+    // Written by the paywall worker on every validated vendor webhook.
+    // Read by folio owner + admins for revenue metrics; write is
+    // service-account only (worker records the sale after signature
+    // validation, clients never touch it directly).
+    match /folio_projects/{id}/paid_sales/{saleId} {
+      allow read:  if isUser(parentUid(id)) || isAdmin();
+      allow write: if false;
+    }
+
     // Anything not matched above is denied by default.
   }
 }

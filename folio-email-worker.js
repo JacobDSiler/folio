@@ -260,6 +260,55 @@ async function checkRateLimit(request, opts) {
 }
 
 /* ── Resend call ──────────────────────────────────────────────── */
+/* ── Unlock email templates (Option C+ auto-delivery) ─────────── */
+function _esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'})[c]); }
+function _fmtAmount(amount, currency) {
+  if (amount == null) return '';
+  const c = String(currency || 'USD').toUpperCase();
+  return c + ' ' + Number(amount).toFixed(2);
+}
+function _buildBuyerUnlockHtml(o) {
+  const amt = _fmtAmount(o.amount, o.currency);
+  return `<!doctype html><html><body style="font-family:Georgia,serif;max-width:560px;margin:0 auto;padding:24px;color:#2b2418;background:#fdfaf3">
+  <h1 style="font-family:'Playfair Display',Georgia,serif;font-size:24px;margin:0 0 12px">Thanks for your purchase</h1>
+  <p style="font-size:15px;line-height:1.55;margin:0 0 18px">You bought <strong>${_esc(o.folioTitle)}</strong>${o.folioAuthor ? ' by ' + _esc(o.folioAuthor) : ''}${amt ? ' for ' + _esc(amt) : ''}. Your unlock link is below — clicking it opens the folio and remembers you on this device.</p>
+  <p style="margin:22px 0"><a href="${_esc(o.unlockUrl)}" style="display:inline-block;background:#065f46;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600;font-size:14px">Unlock &amp; start reading &rarr;</a></p>
+  <p style="font-size:13px;color:#7a6d5b;line-height:1.55;margin:22px 0 8px">Keep this email — the same link works on any browser or device. If you sign in with Google, the unlock also follows your account.</p>
+  <p style="font-size:12px;color:#a0917a;line-height:1.55;margin:20px 0 0">Sent by <a href="https://onfolio.press" style="color:#a0917a">Folio</a> on the author&rsquo;s behalf.</p>
+  </body></html>`;
+}
+function _buildBuyerUnlockText(o) {
+  const amt = _fmtAmount(o.amount, o.currency);
+  return 'Thanks for your purchase\n\n' +
+    'You bought "' + o.folioTitle + '"' + (o.folioAuthor ? ' by ' + o.folioAuthor : '') +
+    (amt ? ' for ' + amt : '') + '.\n\n' +
+    'Unlock link: ' + o.unlockUrl + '\n\n' +
+    'Keep this email — the same link works on any browser or device.\n\n' +
+    'Sent by Folio (onfolio.press) on the author\'s behalf.';
+}
+function _buildOwnerSaleHtml(o) {
+  const amt = _fmtAmount(o.amount, o.currency);
+  return `<!doctype html><html><body style="font-family:Georgia,serif;max-width:560px;margin:0 auto;padding:24px;color:#2b2418;background:#fdfaf3">
+  <h1 style="font-family:'Playfair Display',Georgia,serif;font-size:22px;margin:0 0 12px">You made a sale ✨</h1>
+  <p style="font-size:15px;line-height:1.55;margin:0 0 12px"><strong>${_esc(o.folioTitle)}</strong> was purchased via ${_esc(o.vendor || 'a vendor')}.</p>
+  <ul style="font-size:14px;line-height:1.8;color:#5a4a30;padding-left:20px;margin:0 0 14px">
+    ${amt ? '<li>Amount: <strong>' + _esc(amt) + '</strong></li>' : ''}
+    <li>Buyer email: ${_esc(o.buyerEmail || '—')}</li>
+    <li>Delivered: Folio emailed the buyer their unlock link.</li>
+  </ul>
+  <p style="font-size:13px;color:#7a6d5b;line-height:1.55;margin:16px 0 0">Sale recorded under this folio&rsquo;s paid-sales log. View it any time in the Metrics tab of your editor.</p>
+  </body></html>`;
+}
+function _buildOwnerSaleText(o) {
+  const amt = _fmtAmount(o.amount, o.currency);
+  return 'You made a sale\n\n' +
+    '"' + o.folioTitle + '" was purchased via ' + (o.vendor || 'a vendor') + '.\n' +
+    (amt ? 'Amount: ' + amt + '\n' : '') +
+    'Buyer email: ' + (o.buyerEmail || '—') + '\n' +
+    'Delivered: Folio emailed the buyer their unlock link.\n\n' +
+    'View sales in the Metrics tab of your editor.';
+}
+
 async function sendViaResend(env, payload) {
   if (!env.RESEND_API_KEY) {
     throw new Error('RESEND_API_KEY not configured');
@@ -891,6 +940,84 @@ export default {
     // Manual trigger for the daily metrics rollup. Same auth pattern
     // as /admin-digest. ?day= forces a specific day rollup (idempotent
     // — safe to re-run); without ?day= it advances from the latch.
+    // POST /send-unlock — internal endpoint called by the paywall
+    // worker's /vendor-webhook flow. Sends two emails: the buyer gets
+    // a one-click unlock link, the owner gets a sale notification.
+    // Auth via shared secret in X-Internal-Secret header (matches
+    // env.INTERNAL_WORKER_SECRET here + EMAIL_WORKER_SECRET on the
+    // paywall side).
+    if (request.method === 'POST' && path === '/send-unlock') {
+      const hdrSecret = request.headers.get('x-internal-secret') || request.headers.get('X-Internal-Secret') || '';
+      if (!env.INTERNAL_WORKER_SECRET) {
+        return errorJson('send-unlock disabled — INTERNAL_WORKER_SECRET not set', 403, request, env);
+      }
+      if (hdrSecret !== env.INTERNAL_WORKER_SECRET) {
+        return errorJson('Unauthorized', 401, request, env);
+      }
+      let body;
+      try { body = await request.json(); }
+      catch (e) { return errorJson('Bad JSON body', 400, request, env); }
+      const {
+        folioId, folioTitle, folioAuthor,
+        buyerEmail, ownerEmail,
+        amount, currency, unlockUrl, vendor,
+      } = body || {};
+      if (!buyerEmail || !unlockUrl || !folioTitle) {
+        return errorJson('Missing required fields (buyerEmail, unlockUrl, folioTitle)', 400, request, env);
+      }
+      const summary = { buyerSent: false, ownerSent: false, errors: [] };
+
+      // 1. Buyer email — the unlock link.
+      try {
+        const buyerSubject = 'Your unlock link for "' + folioTitle + '"';
+        const buyerHtml = _buildBuyerUnlockHtml({ folioTitle, folioAuthor, unlockUrl, amount, currency });
+        const buyerText = _buildBuyerUnlockText({ folioTitle, folioAuthor, unlockUrl, amount, currency });
+        const r = await fetch(RESEND_API, {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + env.RESEND_API_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            from: env.FROM_EMAIL,
+            to: [buyerEmail],
+            subject: buyerSubject,
+            html: buyerHtml,
+            text: buyerText,
+          }),
+        });
+        if (r.ok) summary.buyerSent = true;
+        else {
+          const et = await r.text().catch(() => '');
+          summary.errors.push('buyer: ' + r.status + ' ' + et.slice(0, 200));
+        }
+      } catch (e) { summary.errors.push('buyer: ' + e.message); }
+
+      // 2. Owner notification email (if we know their email).
+      if (ownerEmail) {
+        try {
+          const ownerSubject = 'You sold "' + folioTitle + '"' + (amount ? (' — ' + (currency || 'USD') + ' ' + amount) : '');
+          const ownerHtml = _buildOwnerSaleHtml({ folioTitle, folioAuthor, buyerEmail, amount, currency, vendor });
+          const ownerText = _buildOwnerSaleText({ folioTitle, folioAuthor, buyerEmail, amount, currency, vendor });
+          const r = await fetch(RESEND_API, {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + env.RESEND_API_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              from: env.FROM_EMAIL,
+              to: [ownerEmail],
+              subject: ownerSubject,
+              html: ownerHtml,
+              text: ownerText,
+            }),
+          });
+          if (r.ok) summary.ownerSent = true;
+          else {
+            const et = await r.text().catch(() => '');
+            summary.errors.push('owner: ' + r.status + ' ' + et.slice(0, 200));
+          }
+        } catch (e) { summary.errors.push('owner: ' + e.message); }
+      }
+
+      return json({ ok: true, summary }, 200, request, env);
+    }
+
     if (request.method === 'GET' && path === '/metrics-rollup') {
       const key = url.searchParams.get('key') || '';
       const expected = env.ADMIN_DEBUG_TOKEN || '';

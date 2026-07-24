@@ -15170,6 +15170,32 @@
     function esc(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;') }
     function md(s) { return String(s || '').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>').replace(/\_\_(.+?)\_\_/g, '<strong>$1</strong>').replace(/\_(.+?)\_/g, '<em>$1</em>'); }
 
+    // ── Line-break marker [-N-] ──────────────────────────────────
+    // Authors deliberately insert vertical space by typing a paragraph
+    // consisting of N dashes wrapped in square brackets — e.g. [-]
+    // for one blank line, [---] for three, [--------] for eight.
+    // Number of dashes = number of blank lines rendered. Any N.
+    //
+    // Design choice: bracketed so it can't collide with markdown's
+    // horizontal-rule syntax (--- ___ ***) which the paginator already
+    // treats as scene breaks. Bracketed markers are unambiguous — the
+    // author has to be intentional about typing them, so they never
+    // fire accidentally.
+    //
+    // Rendering path:
+    //   • _breakMarkerN(text) returns N if the paragraph is a marker
+    //     else 0.
+    //   • Paginator budgets N × lineH of vertical space for it.
+    //   • _apRenderPreviewParagraph outputs a <div> with min-height
+    //     N × lineH so the space is visible + editable-around.
+    //   • Exports (RTF/DOCX/EPUB) convert to N empty paragraphs.
+    // ───────────────────────────────────────────────────────────
+    function _breakMarkerN(text) {
+      if (!text || typeof text !== 'string') return 0;
+      const m = /^\[(-+)\]$/.exec(text.trim());
+      return m ? m[1].length : 0;
+    }
+
     // ── _paragraphsOf ────────────────────────────────────────────────
     // Canonical paragraph splitter for chapter/section .content. All
     // render + export paths must use this so blank-line spacing that
@@ -15933,6 +15959,8 @@
           // of a chapter that has a title block).
           const paraHeights = normParas.map((p, i) => {
             if (p === '__SCENE_BREAK__') return sceneBreakHeightPx();
+            const _brN = _breakMarkerN(p);
+            if (_brN > 0) return Math.max(1, _brN) * lineH;
             const _phm = _imgParseLine(p);
             if (_phm) return _imgMeasureHeight(_phm, contentW, contentH);
             const isFirstOfChapter = (i === 0 && !!(ch.title || chNum));
@@ -15943,6 +15971,21 @@
             if (p === '__SCENE_BREAK__') {
               const needed = paraHeights[origIdx];
               if (usedPx + needed > pageContentPx && currentPage.length > 0) flushPage();
+              currentPage.push(p);
+              usedPx += needed;
+              return;
+            }
+            // Line-break marker [-N-] — atomic block of N × lineH.
+            // If it wouldn't fit at end of page, flush and skip it
+            // entirely (don't want a bare gap at top of next page).
+            if (_breakMarkerN(p) > 0) {
+              const needed = paraHeights[origIdx];
+              if (usedPx + needed > pageContentPx) {
+                // Silently swallow at page boundary — the page break
+                // is already all the vertical space the reader needs.
+                if (currentPage.length > 0) flushPage();
+                return;
+              }
               currentPage.push(p);
               usedPx += needed;
               return;
@@ -21920,6 +21963,106 @@
       if (panel) { panel.style.display = 'none'; panel.setAttribute('aria-hidden', 'true'); }
     }
 
+    // ── Auto-deliver vendor-webhook config (Option C+) ────────────
+    // Owner picks a vendor + pastes its webhook secret. We POST to the
+    // paywall worker's /vendor-config with a Firebase ID token so the
+    // worker can confirm ownership. On success, worker returns the
+    // per-folio webhook URL the owner must paste into the vendor's
+    // dashboard.
+    window._rlSaveVendorConfig = async function _rlSaveVendorConfig() {
+      const vendor = (document.getElementById('rlAutoVendor').value || '').trim();
+      const secret = (document.getElementById('rlAutoSecret').value || '').trim();
+      const statusEl = document.getElementById('rlAutoStatus');
+      const urlBox = document.getElementById('rlAutoWebhookUrlBox');
+      if (!vendor) {
+        statusEl.textContent = 'Pick a vendor first.';
+        statusEl.style.color = '#c04040';
+        return;
+      }
+      if (!secret) {
+        statusEl.textContent = 'Paste the webhook secret from your vendor\'s settings.';
+        statusEl.style.color = '#c04040';
+        return;
+      }
+      if (!_projId) {
+        statusEl.textContent = 'Save the folio to the cloud first.';
+        statusEl.style.color = '#c04040';
+        return;
+      }
+      if (!window._user || window._user.isAnonymous) {
+        statusEl.textContent = 'Sign in with Google first.';
+        statusEl.style.color = '#c04040';
+        return;
+      }
+      statusEl.textContent = 'Saving…';
+      statusEl.style.color = 'var(--hint)';
+      try {
+        const idToken = await window._user.getIdToken();
+        const r = await fetch(PAYWALL_WORKER_URL + '/vendor-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+          body: JSON.stringify({ folioId: _projId, vendor, secret, enabled: true }),
+        });
+        const data = await r.json().catch(function(){ return {}; });
+        if (!r.ok || !data.ok) {
+          statusEl.textContent = 'Save failed: ' + (data.error || r.status);
+          statusEl.style.color = '#c04040';
+          return;
+        }
+        statusEl.textContent = '✓ Saved. Paste the webhook URL below into your ' + vendor + ' webhook settings.';
+        statusEl.style.color = 'var(--accent-ui)';
+        if (data.webhookUrl) {
+          document.getElementById('rlAutoWebhookUrl').textContent = data.webhookUrl;
+          urlBox.style.display = '';
+        }
+      } catch (e) {
+        statusEl.textContent = 'Save failed: ' + (e.message || 'unknown');
+        statusEl.style.color = '#c04040';
+      }
+    };
+
+    window._rlDisableVendorConfig = async function _rlDisableVendorConfig() {
+      const statusEl = document.getElementById('rlAutoStatus');
+      const urlBox = document.getElementById('rlAutoWebhookUrlBox');
+      if (!confirm('Disable auto-delivery for this folio? Buyers will need the shared unlock code again.')) return;
+      if (!window._user || !_projId) return;
+      try {
+        const idToken = await window._user.getIdToken();
+        const r = await fetch(PAYWALL_WORKER_URL + '/vendor-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+          body: JSON.stringify({ folioId: _projId, enabled: false }),
+        });
+        const data = await r.json().catch(function(){ return {}; });
+        if (!r.ok || !data.ok) {
+          statusEl.textContent = 'Disable failed: ' + (data.error || r.status);
+          statusEl.style.color = '#c04040';
+          return;
+        }
+        statusEl.textContent = '✓ Auto-delivery disabled.';
+        statusEl.style.color = 'var(--hint)';
+        urlBox.style.display = 'none';
+        document.getElementById('rlAutoVendor').value = '';
+        document.getElementById('rlAutoSecret').value = '';
+      } catch (e) {
+        statusEl.textContent = 'Disable failed: ' + (e.message || 'unknown');
+        statusEl.style.color = '#c04040';
+      }
+    };
+
+    window._rlCopyWebhookUrl = async function _rlCopyWebhookUrl() {
+      const el = document.getElementById('rlAutoWebhookUrl');
+      const flash = document.getElementById('rlAutoWebhookCopied');
+      const url = el && el.textContent;
+      if (!url) return;
+      try {
+        await navigator.clipboard.writeText(url);
+        if (flash) { flash.style.display = ''; setTimeout(function(){ flash.style.display = 'none'; }, 1800); }
+      } catch (e) {
+        try { window.prompt('Copy this webhook URL:', url); } catch (_) {}
+      }
+    };
+
     function _rlSetStatus(msg, color) {
       const s = document.getElementById('rlStatus');
       if (s) {
@@ -23795,6 +23938,48 @@
     function _pwTokenKey(releaseId) {
       return 'folio_paywall_' + (releaseId || 'unknown');
     }
+
+    // ── URL-param unlock (Option C+ auto-delivery emails) ─────────
+    // Buyers who receive an unlock email from Folio click a link like
+    //   /app.html?read=<folioId>&pwToken=<jwt>
+    // On boot we detect pwToken, stash it in localStorage under the
+    // same key /verify uses, then strip the param from the URL so the
+    // token doesn't sit in the address bar (and doesn't get shared if
+    // the reader copies the URL). Runs once per page load at the top
+    // of the reader-mode boot.
+    (function _pwUrlTokenPickup() {
+      try {
+        const p = new URLSearchParams(window.location.search);
+        const token = p.get('pwToken');
+        const releaseId = p.get('read');
+        if (!token || !releaseId) return;
+        // Decode payload (unverified — we still trust the server's
+        // signature; local decode is just for exp + release checks).
+        let parts, payload;
+        try {
+          parts = token.split('.');
+          if (parts.length !== 3) return;
+          payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+        } catch (e) { return; }
+        if (!payload || payload.release !== releaseId) return;
+        // Store under the same key /verify uses.
+        try {
+          localStorage.setItem('folio_paywall_' + releaseId, JSON.stringify({
+            token: token,
+            expiresAt: payload.exp || null,
+            email: payload.email || null,
+            savedAt: Date.now(),
+          }));
+        } catch (e) {}
+        // Strip pwToken from the URL so the address bar doesn't
+        // display it. Keep the read + any other params.
+        try {
+          p.delete('pwToken');
+          const clean = window.location.pathname + (p.toString() ? ('?' + p.toString()) : '') + window.location.hash;
+          window.history.replaceState({}, '', clean);
+        } catch (e) {}
+      } catch (e) { /* silent */ }
+    })();
 
     function _pwGetToken(releaseId) {
       try {
@@ -29126,6 +29311,21 @@
 
       if (isSceneBreak) return `<div style="text-align:center;font-size:${pt(H_SCENE_BREAK)};color:${accentColor};margin:${mm(2)} 0;opacity:0.65">${esc(orn)} ${esc(orn)} ${esc(orn)}</div>`;
 
+      // Line-break marker [-N-] — render N × lineH of vertical space.
+      // Kept editable so authors can click into the marker and change
+      // the count (add / remove dashes). Uses monospace so a mis-typed
+      // marker is visually obvious. Hidden in reader mode (opacity 0)
+      // so readers only see the whitespace, not the marker syntax.
+      const _breakN = _breakMarkerN(text);
+      if (_breakN > 0) {
+        const spacerH = _breakN * fsize * parseFloat(lspace);
+        return `<p class="preview-editable preview-break" data-chid="${chId}" data-paraidx="${paraIdx}" data-line-id="${lineId}"
+              contenteditable="${String(editMode)}" spellcheck="false"
+              onblur="if(_editMode)_onParaBlur(this)"
+              oncontextmenu="if(_editMode)_ctxOpen(event,this)"
+              style="font-family:ui-monospace,Menlo,monospace;font-size:${pt(fsize * 0.72)};color:${accentColor};opacity:${editMode ? '0.35' : '0'};margin:0;text-align:center;text-indent:0;height:${pt(spacerH)};line-height:${pt(spacerH)};user-select:${editMode ? 'text' : 'none'}">${esc(text)}</p>`;
+      }
+
       // Blank paragraph — author's intentional vertical whitespace
       // (Thomas's psalm separators, scene beats, poetry stanza gaps).
       // Rendered as an editable one-line spacer so authors can click
@@ -31330,6 +31530,59 @@
             unlock the book for 30 days. Pick anything memorable but not guessable — change it occasionally if you
             suspect a leak.
           </p>
+
+          <!-- Option C+ auto-delivery — vendor webhook wires payment
+               notifications directly to Folio, which mints a per-buyer
+               unlock URL and emails it automatically. No manual email
+               step for the author. Requires setting a webhook on the
+               vendor's side (paste the URL Folio gives you back). -->
+          <details style="margin-top:14px;border-top:.5px dashed var(--border-mid);padding-top:10px" id="rlAutoDeliverDetails">
+            <summary style="cursor:pointer;font-size:12.5px;font-weight:600;color:var(--text);user-select:none;list-style:none">
+              <span style="display:inline-block;transition:transform .15s;font-size:9px;margin-right:5px">▶</span>
+              Auto-deliver unlock links (skip the manual email step)
+            </summary>
+            <div style="margin-top:10px;padding:12px;background:#fdfaf3;border:.5px solid #e8d9a8;border-radius:8px">
+              <p style="font-size:11.5px;color:#5c3d00;line-height:1.55;margin:0 0 10px">
+                Connect a payment vendor's webhook. When someone buys, Folio auto-emails them a one-click unlock link
+                (no code to paste) and notifies you of the sale. Supports Ko-fi, Payhip, and PayPal.
+              </p>
+
+              <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Vendor</label>
+              <select id="rlAutoVendor"
+                style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:8px">
+                <option value="">— off (use manual code above) —</option>
+                <option value="kofi">Ko-fi — verification token</option>
+                <option value="payhip">Payhip — HMAC signing secret</option>
+                <option value="paypal">PayPal — Webhook ID (Webhooks V2)</option>
+              </select>
+
+              <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">
+                Webhook secret <span style="opacity:.7">(from your vendor's webhook settings)</span>
+              </label>
+              <input type="password" id="rlAutoSecret" autocomplete="new-password"
+                placeholder="Ko-fi verification token, Payhip HMAC secret, or PayPal webhook id"
+                style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:8px;font-family:ui-monospace,Menlo,monospace">
+
+              <div style="display:flex;gap:6px;margin-top:6px">
+                <button type="button" id="rlAutoSaveBtn" onclick="_rlSaveVendorConfig()"
+                  style="font-size:12px;padding:6px 14px;border-radius:7px;border:none;background:var(--accent-ui);color:#fff;cursor:pointer;font-weight:500">
+                  Save + get webhook URL
+                </button>
+                <button type="button" id="rlAutoDisableBtn" onclick="_rlDisableVendorConfig()"
+                  style="font-size:12px;padding:6px 12px;border-radius:7px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">
+                  Disable
+                </button>
+              </div>
+
+              <div id="rlAutoStatus" style="font-size:11px;color:var(--hint);margin-top:8px;line-height:1.55"></div>
+
+              <div id="rlAutoWebhookUrlBox" style="display:none;margin-top:10px;padding:10px;background:var(--bg);border:.5px dashed var(--border-mid);border-radius:6px">
+                <div style="font-size:10.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">Paste this into your vendor's webhook URL field</div>
+                <code id="rlAutoWebhookUrl" style="font-size:11px;font-family:ui-monospace,Menlo,monospace;color:var(--text);word-break:break-all;display:block;padding:6px 8px;background:var(--surface);border-radius:4px;cursor:pointer" onclick="_rlCopyWebhookUrl()"></code>
+                <div id="rlAutoWebhookCopied" style="font-size:10px;color:var(--accent-ui);margin-top:4px;display:none">Copied to clipboard ✓</div>
+              </div>
+            </div>
+          </details>
 
           <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:8px 0 4px">CTA button text
             <span style="opacity:.6;font-weight:400">(optional — overrides default)</span></label>
