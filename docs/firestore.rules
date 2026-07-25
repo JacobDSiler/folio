@@ -401,6 +401,16 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // ── Owner-level vendor config (multi-tenant Option C+) ──────
+    // One doc per Folio account (keyed by ownerUid) holding each
+    // vendor's webhook secret. Written only by the paywall worker's
+    // /vendor-owner-config endpoint via service account. Never
+    // client-readable — knowing another owner's secret would let an
+    // attacker forge purchase notifications on their behalf.
+    match /folio_vendor_owner_configs/{ownerUid} {
+      allow read, write: if false;
+    }
+
     // ── Paid-sales log per folio (Option C+ audit trail) ────────
     // Written by the paywall worker on every validated vendor webhook.
     // Read by folio owner + admins for revenue metrics; write is

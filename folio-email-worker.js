@@ -947,16 +947,30 @@ export default {
     // env.INTERNAL_WORKER_SECRET here + EMAIL_WORKER_SECRET on the
     // paywall side).
     if (request.method === 'POST' && path === '/send-unlock') {
+      console.log('[send-unlock] hit — checking env bindings',
+        { hasResendKey: !!env.RESEND_API_KEY, hasFromEmail: !!env.FROM_EMAIL,
+          hasInternalSecret: !!env.INTERNAL_WORKER_SECRET });
       const hdrSecret = request.headers.get('x-internal-secret') || request.headers.get('X-Internal-Secret') || '';
       if (!env.INTERNAL_WORKER_SECRET) {
+        console.warn('[send-unlock] INTERNAL_WORKER_SECRET not set on email worker');
         return errorJson('send-unlock disabled — INTERNAL_WORKER_SECRET not set', 403, request, env);
       }
       if (hdrSecret !== env.INTERNAL_WORKER_SECRET) {
+        console.warn('[send-unlock] shared secret mismatch — paywall\'s EMAIL_WORKER_SECRET != email worker\'s INTERNAL_WORKER_SECRET');
         return errorJson('Unauthorized', 401, request, env);
+      }
+      if (!env.RESEND_API_KEY) {
+        console.warn('[send-unlock] RESEND_API_KEY not set — cannot send email');
+        return errorJson('Email disabled — RESEND_API_KEY not set', 500, request, env);
+      }
+      if (!env.FROM_EMAIL) {
+        console.warn('[send-unlock] FROM_EMAIL not set — cannot send email');
+        return errorJson('Email disabled — FROM_EMAIL not set', 500, request, env);
       }
       let body;
       try { body = await request.json(); }
       catch (e) { return errorJson('Bad JSON body', 400, request, env); }
+      console.log('[send-unlock] body parsed', { folioId: body && body.folioId, buyerEmail: body && body.buyerEmail, hasOwnerEmail: !!(body && body.ownerEmail) });
       const {
         folioId, folioTitle, folioAuthor,
         buyerEmail, ownerEmail,
@@ -972,6 +986,7 @@ export default {
         const buyerSubject = 'Your unlock link for "' + folioTitle + '"';
         const buyerHtml = _buildBuyerUnlockHtml({ folioTitle, folioAuthor, unlockUrl, amount, currency });
         const buyerText = _buildBuyerUnlockText({ folioTitle, folioAuthor, unlockUrl, amount, currency });
+        console.log('[send-unlock] posting buyer email to Resend', { to: buyerEmail, from: env.FROM_EMAIL });
         const r = await fetch(RESEND_API, {
           method: 'POST',
           headers: { 'Authorization': 'Bearer ' + env.RESEND_API_KEY, 'Content-Type': 'application/json' },
@@ -983,12 +998,18 @@ export default {
             text: buyerText,
           }),
         });
-        if (r.ok) summary.buyerSent = true;
-        else {
+        if (r.ok) {
+          summary.buyerSent = true;
+          console.log('[send-unlock] buyer email OK');
+        } else {
           const et = await r.text().catch(() => '');
+          console.warn('[send-unlock] buyer email FAILED', r.status, et.slice(0, 300));
           summary.errors.push('buyer: ' + r.status + ' ' + et.slice(0, 200));
         }
-      } catch (e) { summary.errors.push('buyer: ' + e.message); }
+      } catch (e) {
+        console.warn('[send-unlock] buyer email threw:', e && e.message);
+        summary.errors.push('buyer: ' + e.message);
+      }
 
       // 2. Owner notification email (if we know their email).
       if (ownerEmail) {

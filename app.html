@@ -21752,6 +21752,15 @@
             _rlRefreshSignedTeaserCount();
         } catch (e) { console.warn('[signed-teaser] modal-open refresh:', e); }
       }, 80);
+      // Vendor auto-delivery: preload the owner-level config so the
+      // vendor picker can show "already connected" state when the user
+      // opens the auto-delivery drawer. Fire-and-forget — the modal
+      // opens fine without it, and _rlOnVendorPick will fill in when
+      // ready.
+      setTimeout(() => {
+        try { if (typeof window._rlLoadVendorOwnerConfig === 'function') window._rlLoadVendorOwnerConfig(); }
+        catch (e) { console.warn('[vendor-config] preload:', e); }
+      }, 120);
 
       // Hydrate fields from current folio metadata + existing release
       const titleField = document.getElementById('rlTitleField');
@@ -21996,6 +22005,71 @@
     // worker can confirm ownership. On success, worker returns the
     // per-folio webhook URL the owner must paste into the vendor's
     // dashboard.
+    // ── Multi-tenant vendor auto-delivery ─────────────────────────
+    // Vendor secrets are stored ONCE per account (not per folio), so a
+    // single Ko-fi/Payhip/PayPal connection covers every paid folio the
+    // owner releases. On save we POST to /vendor-owner-config; the same
+    // webhook URL is reused across folios. The legacy /vendor-config
+    // per-folio flow stays alive on the worker for any folios that were
+    // configured before this rollout — but new configs use the
+    // account-wide path.
+    // Cache the owner's current connection state — populated by
+    // _rlLoadVendorOwnerConfig on modal open.
+    window._rlVendorOwnerCfg = null;
+
+    window._rlLoadVendorOwnerConfig = async function _rlLoadVendorOwnerConfig() {
+      window._rlVendorOwnerCfg = null;
+      if (!window._user || window._user.isAnonymous) return;
+      try {
+        const idToken = await window._user.getIdToken();
+        const r = await fetch(PAYWALL_WORKER_URL + '/vendor-owner-config', {
+          method: 'GET',
+          headers: { 'Authorization': 'Bearer ' + idToken },
+        });
+        if (!r.ok) return;
+        const data = await r.json().catch(function(){ return {}; });
+        if (data && data.ok) {
+          window._rlVendorOwnerCfg = data.vendors || {};
+          // Reflect current state in the modal if it's open.
+          if (typeof _rlOnVendorPick === 'function') _rlOnVendorPick();
+        }
+      } catch (_) { /* silent — modal still works without preload */ }
+    };
+
+    // Called on vendor dropdown change + right after preload finishes.
+    // If the selected vendor is already connected on the account, show
+    // the "already connected" state (webhook URL + secret placeholder
+    // instead of required input).
+    window._rlOnVendorPick = function _rlOnVendorPick() {
+      const vSel = document.getElementById('rlAutoVendor');
+      const secretEl = document.getElementById('rlAutoSecret');
+      const statusEl = document.getElementById('rlAutoStatus');
+      const urlBox = document.getElementById('rlAutoWebhookUrlBox');
+      const urlEl = document.getElementById('rlAutoWebhookUrl');
+      if (!vSel) return;
+      const vendor = (vSel.value || '').trim();
+      const cfg = (window._rlVendorOwnerCfg && window._rlVendorOwnerCfg[vendor]) || null;
+      if (!vendor) {
+        if (statusEl) { statusEl.textContent = ''; statusEl.style.color = 'var(--hint)'; }
+        if (urlBox) urlBox.style.display = 'none';
+        if (secretEl) { secretEl.placeholder = 'Ko-fi verification token, Payhip HMAC secret, or PayPal webhook id'; secretEl.value = ''; }
+        return;
+      }
+      if (cfg && cfg.configured) {
+        if (statusEl) {
+          statusEl.textContent = '✓ ' + vendor + ' is already connected on your account. Paste a new secret only if you want to rotate it.';
+          statusEl.style.color = 'var(--accent-ui)';
+        }
+        if (secretEl) { secretEl.placeholder = '(keep current secret — leave blank)'; secretEl.value = ''; }
+        if (urlEl && cfg.webhookUrl) urlEl.textContent = cfg.webhookUrl;
+        if (urlBox && cfg.webhookUrl) urlBox.style.display = '';
+      } else {
+        if (statusEl) { statusEl.textContent = 'Paste your ' + vendor + ' webhook secret below, then Save.'; statusEl.style.color = 'var(--hint)'; }
+        if (secretEl) { secretEl.placeholder = 'Ko-fi verification token, Payhip HMAC secret, or PayPal webhook id'; secretEl.value = ''; }
+        if (urlBox) urlBox.style.display = 'none';
+      }
+    };
+
     window._rlSaveVendorConfig = async function _rlSaveVendorConfig() {
       const vendor = (document.getElementById('rlAutoVendor').value || '').trim();
       const secret = (document.getElementById('rlAutoSecret').value || '').trim();
@@ -22006,18 +22080,26 @@
         statusEl.style.color = '#c04040';
         return;
       }
-      if (!secret) {
-        statusEl.textContent = 'Paste the webhook secret from your vendor\'s settings.';
-        statusEl.style.color = '#c04040';
-        return;
-      }
-      if (!_projId) {
-        statusEl.textContent = 'Save the folio to the cloud first.';
-        statusEl.style.color = '#c04040';
-        return;
-      }
       if (!window._user || window._user.isAnonymous) {
         statusEl.textContent = 'Sign in with Google first.';
+        statusEl.style.color = '#c04040';
+        return;
+      }
+      // If this vendor is already connected on the account and the user
+      // left the secret blank, treat it as "no change needed" — just
+      // re-show the existing webhook URL.
+      const existing = (window._rlVendorOwnerCfg && window._rlVendorOwnerCfg[vendor]) || null;
+      if (!secret && existing && existing.configured) {
+        statusEl.textContent = '✓ ' + vendor + ' already connected — no changes needed. Copy the webhook URL below into your ' + vendor + ' settings if you haven\'t yet.';
+        statusEl.style.color = 'var(--accent-ui)';
+        if (existing.webhookUrl) {
+          document.getElementById('rlAutoWebhookUrl').textContent = existing.webhookUrl;
+          urlBox.style.display = '';
+        }
+        return;
+      }
+      if (!secret) {
+        statusEl.textContent = 'Paste the webhook secret from your vendor\'s settings.';
         statusEl.style.color = '#c04040';
         return;
       }
@@ -22025,10 +22107,10 @@
       statusEl.style.color = 'var(--hint)';
       try {
         const idToken = await window._user.getIdToken();
-        const r = await fetch(PAYWALL_WORKER_URL + '/vendor-config', {
+        const r = await fetch(PAYWALL_WORKER_URL + '/vendor-owner-config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
-          body: JSON.stringify({ folioId: _projId, vendor, secret, enabled: true }),
+          body: JSON.stringify({ vendor, secret, enabled: true }),
         });
         const data = await r.json().catch(function(){ return {}; });
         if (!r.ok || !data.ok) {
@@ -22036,11 +22118,16 @@
           statusEl.style.color = '#c04040';
           return;
         }
-        statusEl.textContent = '✓ Saved. Paste the webhook URL below into your ' + vendor + ' webhook settings.';
+        statusEl.textContent = '✓ Saved. This ' + vendor + ' connection now covers every paid folio in your account. Paste the URL below into your ' + vendor + ' webhook settings.';
         statusEl.style.color = 'var(--accent-ui)';
         if (data.webhookUrl) {
           document.getElementById('rlAutoWebhookUrl').textContent = data.webhookUrl;
           urlBox.style.display = '';
+        }
+        // Refresh cache so the "already connected" state is accurate
+        // if the user re-opens the vendor picker.
+        if (typeof window._rlLoadVendorOwnerConfig === 'function') {
+          window._rlLoadVendorOwnerConfig();
         }
       } catch (e) {
         statusEl.textContent = 'Save failed: ' + (e.message || 'unknown');
@@ -22049,30 +22136,39 @@
     };
 
     window._rlDisableVendorConfig = async function _rlDisableVendorConfig() {
+      const vendor = (document.getElementById('rlAutoVendor').value || '').trim();
       const statusEl = document.getElementById('rlAutoStatus');
       const urlBox = document.getElementById('rlAutoWebhookUrlBox');
-      if (!confirm('Disable auto-delivery for this folio? Buyers will need the shared unlock code again.')) return;
-      if (!window._user || !_projId) return;
+      if (!vendor) {
+        statusEl.textContent = 'Pick a vendor to disable, then click Disable.';
+        statusEl.style.color = '#c04040';
+        return;
+      }
+      if (!confirm('Disconnect ' + vendor + ' from your Folio account? This affects every paid folio you have set up with ' + vendor + '. Buyers will fall back to needing the shared unlock code.')) return;
+      if (!window._user) return;
       try {
         const idToken = await window._user.getIdToken();
-        const r = await fetch(PAYWALL_WORKER_URL + '/vendor-config', {
+        const r = await fetch(PAYWALL_WORKER_URL + '/vendor-owner-config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
-          body: JSON.stringify({ folioId: _projId, enabled: false }),
+          body: JSON.stringify({ vendor, enabled: false }),
         });
         const data = await r.json().catch(function(){ return {}; });
         if (!r.ok || !data.ok) {
-          statusEl.textContent = 'Disable failed: ' + (data.error || r.status);
+          statusEl.textContent = 'Disconnect failed: ' + (data.error || r.status);
           statusEl.style.color = '#c04040';
           return;
         }
-        statusEl.textContent = '✓ Auto-delivery disabled.';
+        statusEl.textContent = '✓ ' + vendor + ' disconnected from your account.';
         statusEl.style.color = 'var(--hint)';
         urlBox.style.display = 'none';
         document.getElementById('rlAutoVendor').value = '';
         document.getElementById('rlAutoSecret').value = '';
+        if (typeof window._rlLoadVendorOwnerConfig === 'function') {
+          window._rlLoadVendorOwnerConfig();
+        }
       } catch (e) {
-        statusEl.textContent = 'Disable failed: ' + (e.message || 'unknown');
+        statusEl.textContent = 'Disconnect failed: ' + (e.message || 'unknown');
         statusEl.style.color = '#c04040';
       }
     };
@@ -24663,6 +24759,18 @@
         _ctaBlurbOut +
         '</div>' +
         '</div>' +
+        // "Just bought this?" reassurance banner — buyers who click
+        // through from the vendor's own confirmation email (Ko-fi, PayPal,
+        // etc.) land here between the moment of purchase and the moment
+        // Folio's unlock email arrives (~30-60s). Without this banner
+        // they see the paywall and think "wait, I paid, where's my
+        // book?" This tells them exactly what's happening.
+        (_isCustom
+          ? '<div class="pwpc-just-bought" style="margin-top:14px;padding:10px 12px;background:#fff8e1;border:.5px solid #f0d080;border-radius:8px;font-size:12px;color:#7a5411;line-height:1.55">' +
+              '<strong>Just bought this?</strong> Your unlock link is on its way — check your inbox within 60 seconds. ' +
+              'Click the link in that email and this book unlocks automatically.' +
+            '</div>'
+          : '') +
         '<div class="pwpc-have">' +
         '<div class="pwpc-have-lbl">' + (_isCustom ? 'Have an unlock code? Paste it here:' : 'Already bought? Paste your license key:') + '</div>' +
         '<div class="pwpc-row2">' +
@@ -31570,8 +31678,9 @@
             </summary>
             <div style="margin-top:10px;padding:12px;background:#fdfaf3;border:.5px solid #e8d9a8;border-radius:8px">
               <p style="font-size:11.5px;color:#5c3d00;line-height:1.55;margin:0 0 10px">
-                Connect a payment vendor. When someone buys, Folio auto-emails them a one-click unlock link
-                (no code to paste) and notifies you of the sale. Supports Ko-fi, Payhip, and PayPal.
+                Connect a payment vendor <strong>once for your account</strong>. When someone buys any of your paid folios,
+                Folio auto-emails them a one-click unlock link (no code to paste) and notifies you of the sale.
+                Supports Ko-fi, Payhip, and PayPal.
                 <a href="#" onclick="event.preventDefault();_rlToggleHelp()" style="color:#8b5a12;text-decoration:underline;font-weight:600">Show me exactly what to do &rarr;</a>
               </p>
 
@@ -31652,8 +31761,12 @@
                 </p>
               </div>
 
+              <p style="font-size:11px;color:var(--hint);line-height:1.55;margin:0 0 10px;padding:8px 10px;background:var(--bg);border-left:2px solid var(--accent-ui);border-radius:0 4px 4px 0">
+                <strong style="color:var(--text)">Account-wide setup.</strong> Connecting a vendor here saves the webhook secret once for your Folio account. Every paid folio you release using that vendor uses the same webhook URL — no need to reconfigure per book.
+              </p>
+
               <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Vendor</label>
-              <select id="rlAutoVendor"
+              <select id="rlAutoVendor" onchange="_rlOnVendorPick && _rlOnVendorPick()"
                 style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:8px">
                 <option value="">— off (use manual code above) —</option>
                 <option value="kofi">Ko-fi — verification token</option>
