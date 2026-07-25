@@ -192,6 +192,63 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat(paid folios): multi-tenant vendor auto-delivery
+
+Vendor webhook secrets are now stored ONCE per Folio account rather
+than once per folio. Previously an author with two Ko-fi-backed
+folios needed two Ko-fi accounts (Ko-fi only lets you set one
+webhook URL per account). Now:
+
+  - One /vendor-owner-config doc per account
+    (folio_vendor_owner_configs/{ownerUid}) with { vendors: { kofi:
+    { secret, ownerEmail, updatedAt }, payhip: {...}, paypal: {...} } }
+  - Three new fixed webhook URLs — /kofi-webhook, /payhip-webhook,
+    /paypal-webhook — that any vendor purchase routes to
+  - Webhook lookup:
+      Ko-fi   -> owner identified by matching verification_token in
+                 the payload against configured kofi.secret
+      Payhip  -> HMAC signature enumerated against every configured
+                 payhip.secret; first match wins
+      PayPal  -> PayPal verify-signature endpoint called with each
+                 configured paypal webhook_id; first SUCCESS wins
+  - Folio matching (after owner is known):
+      Ko-fi   -> shop_items[0].direct_link_code slug matched to the
+                 /s/{slug} tail of release.checkoutUrl
+      Payhip  -> product_link / product_id matched into checkoutUrl
+      PayPal  -> reference_id / item name matched into checkoutUrl
+                 (PayPal.me is ident-poor; if only one paid folio
+                 exists for the owner, we fall through to it)
+    If no folio matches, we log and return 200 so the vendor doesn't
+    retry — sale is real, routing is manual until the release URL
+    is fixed.
+  - Legacy /vendor-webhook/{folioId} endpoint stays live for
+    backwards compat: folios already configured that way keep firing
+    through the old per-folio config.
+
+Client changes (app.html, release modal):
+  - Save writes to /vendor-owner-config (no folioId). "Account-wide
+    setup" callout at the top of the auto-delivery drawer.
+  - On modal open, GET /vendor-owner-config preloads which vendors
+    are already connected. Picking a vendor that's already connected
+    shows "✓ already connected on your account — paste new secret
+    only to rotate" + reveals the webhook URL box immediately.
+  - Disable now says "disconnect from account" (was "disable for
+    this folio") with a warning that it affects every paid folio
+    using that vendor.
+
+Firestore rules:
+  - folio_vendor_owner_configs/{ownerUid} — read/write: if false
+    (worker-only via service account, same pattern as folio_vendor_
+    webhooks/{folioId}).
+
+No new env bindings or secrets required — reuses GCP_SERVICE_ACCOUNT,
+PAYWALL_JWT_SECRET, EMAIL_WORKER binding, and (from PayPal) the
+existing paypal_client_id / paypal_client_secret pair.
+
+---
+
+Previous batch — kept in commit history:
+
 fix(reader): robust page-clipping + blank-paragraph persistence
 
 Two Thomas-reported production bugs, both fixed with a single audit

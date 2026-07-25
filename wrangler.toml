@@ -2,6 +2,17 @@ name = "folio-paywall"
 main = "folio-paywall-worker.js"
 compatibility_date = "2025-01-01"
 
+# Service binding to the email worker — required so the paywall's
+# /vendor-webhook flow can call /send-unlock on the email worker
+# without going through Cloudflare's edge routing (which returns
+# 404 / error 1042 on same-account worker-to-worker HTTPS fetches).
+# The binding routes directly through Cloudflare's internal network
+# — faster and doesn't need DNS/TLS. In the worker code, call via
+# env.EMAIL_WORKER.fetch(...) instead of fetch('https://...').
+[[services]]
+binding = "EMAIL_WORKER"
+service = "folio-email"
+
 # Secrets (PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_MODE,
 # PAYPAL_WEBHOOK_ID, PAYPAL_PLAN_INDIE_MONTHLY, PAYPAL_PLAN_INDIE_YEARLY,
 # PAYPAL_PLAN_IMPRINT_MONTHLY, PAYPAL_PLAN_IMPRINT_YEARLY,
