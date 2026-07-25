@@ -1587,7 +1587,12 @@ async function handleVendorWebhook(request, env, folioId) {
     // back to a hardcoded default because it's not sensitive (just the
     // URL of the sibling worker). Only EMAIL_WORKER_SECRET is a real
     // secret that must be set via wrangler secret put.
-    const _emailWorkerUrl = env.EMAIL_WORKER_URL || 'https://folio-email.jacobsiler.workers.dev';
+    // NB: default hostname MUST match Jacob's Cloudflare account
+    // subdomain — 'jacobdsiler.workers.dev' (with the 'd'), not
+    // 'jacobsiler'. Earlier typo produced a 530/1016 "Origin DNS
+    // error" on every send-unlock attempt. Set EMAIL_WORKER_URL as a
+    // secret to override without a code change.
+    const _emailWorkerUrl = env.EMAIL_WORKER_URL || 'https://folio-email.jacobdsiler.workers.dev';
     if (env.EMAIL_WORKER_SECRET) {
       const emailResp = await fetch(_emailWorkerUrl.replace(/\/$/, '') + '/send-unlock', {
         method: 'POST',
