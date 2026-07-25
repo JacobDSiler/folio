@@ -1583,9 +1583,13 @@ async function handleVendorWebhook(request, env, folioId) {
       ts:         new Date().toISOString(),
     }).catch(function(){});
 
-    // Dispatch unlock email via email worker.
-    if (env.EMAIL_WORKER_URL && env.EMAIL_WORKER_SECRET) {
-      const emailResp = await fetch(env.EMAIL_WORKER_URL.replace(/\/$/, '') + '/send-unlock', {
+    // Dispatch unlock email via email worker. EMAIL_WORKER_URL falls
+    // back to a hardcoded default because it's not sensitive (just the
+    // URL of the sibling worker). Only EMAIL_WORKER_SECRET is a real
+    // secret that must be set via wrangler secret put.
+    const _emailWorkerUrl = env.EMAIL_WORKER_URL || 'https://folio-email.jacobsiler.workers.dev';
+    if (env.EMAIL_WORKER_SECRET) {
+      const emailResp = await fetch(_emailWorkerUrl.replace(/\/$/, '') + '/send-unlock', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Internal-Secret': env.EMAIL_WORKER_SECRET },
         body: JSON.stringify({
@@ -1607,7 +1611,7 @@ async function handleVendorWebhook(request, env, folioId) {
         console.warn('[vendor-webhook] email dispatch failed:', emailResp.status, et);
       }
     } else {
-      console.warn('[vendor-webhook] EMAIL_WORKER_URL/SECRET not configured — sale processed but no email sent');
+      console.warn('[vendor-webhook] EMAIL_WORKER_SECRET not configured — sale processed but no email sent. Set with:  wrangler secret put EMAIL_WORKER_SECRET --config wrangler.toml');
     }
 
     return json({ ok: true }, 200, request, env);
@@ -3064,6 +3068,30 @@ export default {
     if (path === '/view-record'    && request.method === 'POST') return handleViewRecord(request, env);
     if (path === '/event'          && request.method === 'POST') return handleEvent(request, env);
     if (path === '/user-list'      && request.method === 'GET')  return handleUserList(request, env);
+    // GET /env-check?key=<ADMIN_DEBUG_TOKEN> — reports which env
+    // bindings the paywall worker can see at runtime, without leaking
+    // any values. Diagnostic-only. Use to confirm secrets landed on
+    // the right worker + survived redeploy.
+    if (path === '/env-check' && request.method === 'GET') {
+      const key = url.searchParams.get('key') || '';
+      if (!env.ADMIN_DEBUG_TOKEN || key !== env.ADMIN_DEBUG_TOKEN) {
+        return errorJson('Unauthorized', 401, request, env);
+      }
+      return json({
+        ok: true,
+        worker: 'folio-paywall',
+        env: {
+          PAYWALL_JWT_SECRET:   !!env.PAYWALL_JWT_SECRET,
+          GCP_SERVICE_ACCOUNT:  !!env.GCP_SERVICE_ACCOUNT,
+          EMAIL_WORKER_SECRET:  !!env.EMAIL_WORKER_SECRET,
+          EMAIL_WORKER_URL:     !!env.EMAIL_WORKER_URL,
+          ADMIN_DEBUG_TOKEN:    !!env.ADMIN_DEBUG_TOKEN,
+          PAYPAL_CLIENT_ID:     !!env.PAYPAL_CLIENT_ID,
+          PAYPAL_CLIENT_SECRET: !!env.PAYPAL_CLIENT_SECRET,
+          FIREBASE_WEB_API_KEY: !!env.FIREBASE_WEB_API_KEY,
+        },
+      }, 200, request, env);
+    }
     if (path === '/vendor-config'  && request.method === 'POST') return handleVendorConfig(request, env);
     if (path.startsWith('/vendor-webhook/') && request.method === 'POST') {
       const folioId = decodeURIComponent(path.substring('/vendor-webhook/'.length));
