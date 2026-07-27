@@ -205,17 +205,21 @@
         try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
         catch (e) { console.warn('[metrics] persistence set failed:', e.message); }
       }
-      // Wait for hydration before firing the auth handler — the page
-      // already shows "Checking sign-in…" as its initial state, so this
-      // just makes sure we resolve it accurately.
-      if (typeof _fb.authStateReady === 'function') {
-        try { await _fb.authStateReady(_fb.auth); }
-        catch (_e) { console.warn('[metrics] authStateReady threw:', _e && _e.message); }
-      } else {
-        for (let i = 0; i < 20 && !_fb.auth.currentUser; i++) {
-          await new Promise(function(r){ setTimeout(r, 50); });
-        }
-      }
+      // Wait for hydration, hard-capped at 1.5s so the splash can
+      // never stall the page.
+      await Promise.race([
+        (async function(){
+          if (typeof _fb.authStateReady === 'function') {
+            try { await _fb.authStateReady(_fb.auth); }
+            catch (_e) { console.warn('[metrics] authStateReady threw:', _e && _e.message); }
+          } else {
+            for (let i = 0; i < 30 && !_fb.auth.currentUser; i++) {
+              await new Promise(function(r){ setTimeout(r, 50); });
+            }
+          }
+        })(),
+        new Promise(function(r){ setTimeout(r, 1500); }),
+      ]);
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
       onAuthChange(_fb.auth.currentUser);
     } catch (e) {

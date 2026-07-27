@@ -165,18 +165,22 @@ button.primary:hover{filter:brightness(.94)}
         try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
         catch (_e2) { console.warn('[admin] persistence set failed:', _e2 && _e2.message); }
       }
-      // Await the initial auth hydration before making the render
-      // decision so the sign-in gate doesn't flash while IndexedDB
-      // restores the persisted user. authStateReady is Firebase v10.14+;
-      // older builds fall back to a short polled wait.
-      if (typeof _fb.authStateReady === 'function') {
-        try { await _fb.authStateReady(_fb.auth); }
-        catch (_e) { console.warn('[admin] authStateReady threw:', _e && _e.message); }
-      } else {
-        for (let i = 0; i < 20 && !_fb.auth.currentUser; i++) {
-          await new Promise(function(r){ setTimeout(r, 50); });
-        }
-      }
+      // Await hydration before rendering — but cap at 1.5s so the
+      // splash can never stall the page. onAuthStateChanged still
+      // fires when it eventually resolves.
+      await Promise.race([
+        (async function(){
+          if (typeof _fb.authStateReady === 'function') {
+            try { await _fb.authStateReady(_fb.auth); }
+            catch (_e) { console.warn('[admin] authStateReady threw:', _e && _e.message); }
+          } else {
+            for (let i = 0; i < 30 && !_fb.auth.currentUser; i++) {
+              await new Promise(function(r){ setTimeout(r, 50); });
+            }
+          }
+        })(),
+        new Promise(function(r){ setTimeout(r, 1500); }),
+      ]);
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
       // Fire once with the hydrated state so the first render happens
       // synchronously with what we already know.
