@@ -361,14 +361,21 @@
 
     // Wait for the initial auth state to hydrate. authStateReady is
     // Firebase v10.14+; older builds get a short polled fallback.
-    if (typeof authMod.authStateReady === 'function') {
-      try { await authMod.authStateReady(auth); }
-      catch (e) { console.warn('[FolioAdmin.bootAuth] authStateReady threw:', e && e.message); }
-    } else {
-      for (let i = 0; i < 20 && !auth.currentUser; i++) {
-        await new Promise(function(r){ setTimeout(r, 50); });
-      }
-    }
+    // Hard-capped at 1.5s so a stuck hydration can never stall the
+    // page — onAuthStateChanged catches up if it resolves later.
+    await Promise.race([
+      (async function(){
+        if (typeof authMod.authStateReady === 'function') {
+          try { await authMod.authStateReady(auth); }
+          catch (e) { console.warn('[FolioAdmin.bootAuth] authStateReady threw:', e && e.message); }
+        } else {
+          for (let i = 0; i < 30 && !auth.currentUser; i++) {
+            await new Promise(function(r){ setTimeout(r, 50); });
+          }
+        }
+      })(),
+      new Promise(function(r){ setTimeout(r, 1500); }),
+    ]);
 
     const fb = fsMod ? {
       doc: fsMod.doc,

@@ -232,15 +232,21 @@ label{display:block;font-size:11.5px;font-weight:500;color:var(--text);margin:6p
         try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
         catch (_e2) { console.warn('[boost] persistence set failed:', _e2 && _e2.message); }
       }
-      // Wait for hydration.
-      if (typeof _fb.authStateReady === 'function') {
-        try { await _fb.authStateReady(_fb.auth); }
-        catch (_e) { console.warn('[boost] authStateReady threw:', _e && _e.message); }
-      } else {
-        for (let i = 0; i < 20 && !_fb.auth.currentUser; i++) {
-          await new Promise(function(r){ setTimeout(r, 50); });
-        }
-      }
+      // Wait for hydration, hard-capped at 1.5s so the splash can't
+      // stall the page.
+      await Promise.race([
+        (async function(){
+          if (typeof _fb.authStateReady === 'function') {
+            try { await _fb.authStateReady(_fb.auth); }
+            catch (_e) { console.warn('[boost] authStateReady threw:', _e && _e.message); }
+          } else {
+            for (let i = 0; i < 30 && !_fb.auth.currentUser; i++) {
+              await new Promise(function(r){ setTimeout(r, 50); });
+            }
+          }
+        })(),
+        new Promise(function(r){ setTimeout(r, 1500); }),
+      ]);
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
       onAuthChange(_fb.auth.currentUser);
     } catch (e) {

@@ -214,15 +214,21 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
         try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
         catch (e) { console.warn('[press-admin] persistence set failed:', e.message); }
       }
-      // Wait for hydration before making the first render decision.
-      if (typeof _fb.authStateReady === 'function') {
-        try { await _fb.authStateReady(_fb.auth); }
-        catch (_e) { console.warn('[press-admin] authStateReady threw:', _e && _e.message); }
-      } else {
-        for (let i = 0; i < 20 && !_fb.auth.currentUser; i++) {
-          await new Promise(function(r){ setTimeout(r, 50); });
-        }
-      }
+      // Wait for hydration, hard-capped at 1.5s so the splash can't
+      // stall the page.
+      await Promise.race([
+        (async function(){
+          if (typeof _fb.authStateReady === 'function') {
+            try { await _fb.authStateReady(_fb.auth); }
+            catch (_e) { console.warn('[press-admin] authStateReady threw:', _e && _e.message); }
+          } else {
+            for (let i = 0; i < 30 && !_fb.auth.currentUser; i++) {
+              await new Promise(function(r){ setTimeout(r, 50); });
+            }
+          }
+        })(),
+        new Promise(function(r){ setTimeout(r, 1500); }),
+      ]);
       console.log('[press-admin] auth ready. currentUser at boot:', _fb.auth.currentUser && _fb.auth.currentUser.email);
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
       onAuthChange(_fb.auth.currentUser);

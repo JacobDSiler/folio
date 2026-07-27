@@ -240,16 +240,21 @@ a{color:var(--accent-ui);text-decoration:none}
         try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
         catch (_e2) { console.warn('[shelf] persistence set failed:', _e2 && _e2.message); }
       }
-      // Wait for hydration before rendering — prevents the flash of
-      // "Sign in required" while IndexedDB restores the session.
-      if (typeof _fb.authStateReady === 'function') {
-        try { await _fb.authStateReady(_fb.auth); }
-        catch (_e) { console.warn('[shelf] authStateReady threw:', _e && _e.message); }
-      } else {
-        for (let i = 0; i < 20 && !_fb.auth.currentUser; i++) {
-          await new Promise(function(r){ setTimeout(r, 50); });
-        }
-      }
+      // Wait for hydration, hard-capped at 1.5s so the splash can
+      // never stall. onAuthStateChanged catches up when it resolves.
+      await Promise.race([
+        (async function(){
+          if (typeof _fb.authStateReady === 'function') {
+            try { await _fb.authStateReady(_fb.auth); }
+            catch (_e) { console.warn('[shelf] authStateReady threw:', _e && _e.message); }
+          } else {
+            for (let i = 0; i < 30 && !_fb.auth.currentUser; i++) {
+              await new Promise(function(r){ setTimeout(r, 50); });
+            }
+          }
+        })(),
+        new Promise(function(r){ setTimeout(r, 1500); }),
+      ]);
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
       onAuthChange(_fb.auth.currentUser);
     } catch (e) {

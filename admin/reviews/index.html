@@ -178,21 +178,23 @@ button.danger:hover{background:var(--danger);color:#fff}
         catch (_e2) { console.warn('[reviews] persistence set failed:', _e2 && _e2.message); }
       }
       // Wait for the initial auth hydration to resolve before deciding
-      // whether to show adminBody or authGate. Without this the page
-      // renders the sign-in gate for a brief moment (while IndexedDB
-      // hydrates the persisted session) — which read as an auth
-      // invalidation on navigation between admin subpages.
-      if (typeof _fb.authStateReady === 'function') {
-        try { await _fb.authStateReady(_fb.auth); }
-        catch (_e) { console.warn('[reviews] authStateReady threw:', _e && _e.message); }
-      } else {
-        // Fallback for older Firebase builds: poll auth.currentUser
-        // briefly. onAuthStateChanged will fire soon anyway; this just
-        // gives it a small head start so the first render is stable.
-        for (let i = 0; i < 20 && !_fb.auth.currentUser; i++) {
-          await new Promise(function(r){ setTimeout(r, 50); });
-        }
-      }
+      // whether to show adminBody or authGate. Hard-capped at 1.5s so
+      // the splash can never stall the page — if hydration takes
+      // longer than that, onAuthStateChanged will still fire when it
+      // resolves; we just move on and show the gate for now.
+      await Promise.race([
+        (async function(){
+          if (typeof _fb.authStateReady === 'function') {
+            try { await _fb.authStateReady(_fb.auth); }
+            catch (_e) { console.warn('[reviews] authStateReady threw:', _e && _e.message); }
+          } else {
+            for (let i = 0; i < 30 && !_fb.auth.currentUser; i++) {
+              await new Promise(function(r){ setTimeout(r, 50); });
+            }
+          }
+        })(),
+        new Promise(function(r){ setTimeout(r, 1500); }),
+      ]);
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
       // Kick off the initial render explicitly — some browsers deliver
       // the first onAuthStateChanged AFTER an idle callback, which
