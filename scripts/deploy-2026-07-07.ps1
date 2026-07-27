@@ -192,6 +192,115 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+fix(auth): stop anonymous account churn clobbering admin sessions
+
+Root cause: Firefox ETP + Chrome's third-party-storage protections
+treat the custom auth.jacobsiler.com domain as third-party and purge
+its IndexedDB between visits. When app.html's onAuthStateChanged
+then fired with user=null, it silently auto-created a fresh
+anonymous account. That new anon session became the current auth
+state — and when Jacob navigated back to /admin/, the console
+showed 'Signed in as ANON_UID — not on admin allowlist' every
+single visit, driving him nuts.
+
+Fixes in this batch:
+
+1. app.html — explicit persistence setup. Try indexedDBLocalPersistence
+   first, fall back to browserLocalPersistence. The SDK's default is
+   already local, but the fallback ladder can silently drop to
+   session-only when IndexedDB is blocked — being explicit at least
+   documents intent + logs a warning if it can't be set at all.
+
+2. app.html — history-aware auto-anon guard. Every non-anonymous
+   sign-in stamps localStorage.folio_had_real_session=1. When
+   onAuthStateChanged later fires with null, we check that flag:
+     - Flag absent → first-time visitor, auto-anon as before
+       (preserves the "try Folio without signing up" path).
+     - Flag present → their real session was wiped; do NOT create
+       a new anon that would orphan every subsequent uid. Instead
+       fire a folio-needs-resignin event and let the user re-sign-in
+       cleanly.
+
+3. admin/index.html — anonymous sessions rendered as signed-out.
+   Anonymous uid + 'not on allowlist' error text read as if Jacob
+   needed to sign out first. Now anonymous is treated identically to
+   the no-user case: sign-in gate visible, no confusing 'signed in
+   as ANON_UID' line, no allowlist error. Clicking Sign in with
+   Google signs the anon out first (so linkWithCredential doesn't
+   collide with the pre-existing admin uid) then does a fresh popup.
+
+---
+
+Previous batch — kept in commit history:
+
+feat(moderation): tiered ratings, contact author, sign-in gate
+
+Content rating tiers replace the single hasAdultContent boolean:
+  all / 12+ / 16+ / 18+. Any rating above 'all' queues for moderator
+  review; 16+ and 18+ are hidden from signed-out shelf visitors. Save
+  logic re-queues on ANY rating change (up OR down) so an approved
+  18+ folio can't silently downgrade to 'all' and appear to signed-out
+  browsers. Legacy hasAdultContent stays in sync (=== 18+) for older
+  readers/exports that key off the boolean.
+
+Moderator experience on /admin/shelf/:
+  - Rating dropdown on every card: pick All / 12+ / 16+ / 18+, saves
+    immediately (no confirm), audit stamps written
+    (shelfRatingSetByModerator + shelfRatingSetAt).
+  - Contact author button opens templated composer + hands off to
+    the moderator's mail client via mailto:. Templates cover the
+    common cases: structural fixes, rating adjustment, content policy
+    check, approval welcome, blank.
+  - Fact sheet in the Contact modal — Firebase Auth record for the
+    author (email, display name, sign-in providers, account creation,
+    last sign-in, disabled flag, federated Google profile URL). Used
+    both for outreach and as the paper trail if a report ever needs
+    to go to authorities.
+  - New /admin/user-lookup?uid=X&key=<ADMIN_DEBUG_TOKEN> endpoint on
+    the paywall worker fetches Firebase Auth records via service
+    account. Used as the fallback when folio_user_settings/{uid}.
+    lastEmail is missing (older signups that pre-date the merge-write).
+
+Sign-in gate for Shelf listing:
+  - Anonymous accounts can no longer publish to the public Shelf.
+    Ticking List on Shelf while anonymous swaps the sub-fields for
+    a sign-in prompt that uses Firebase's linkWithCredential path
+    (via the existing GIS handler around app.html:7871) so the
+    anonymous uid is preserved and Google gets attached — every
+    folio, comp, subscription, and metric on that uid survives.
+  - Save-time guard: listOnShelf silently downgrades to false if the
+    user is anonymous at save time. Firestore rule enforces the
+    same constraint server-side (request.auth.token.firebase.
+    sign_in_provider != 'anonymous' required for release.
+    listOnShelf == true) so a bad client can't force it. Admins
+    bypass so moderator write-throughs still work.
+
+Shelf display:
+  - New rating badges: 12+ (teal), 16+ (amber), 🔞 18+ (existing
+    adult styling). All ages renders no badge.
+  - 16+/18+ hidden from signed-out visitors on the shelf grid
+    (12+ stays visible; teen-appropriate content doesn't need a
+    login gate).
+  - Author metrics tab publish-state line shows the specific tier
+    (Rated 12+ / Rated 16+ / Rated 🔞 18+) instead of the old
+    all-or-nothing "Adult content flag".
+
+Admin metrics dashboard:
+  - "Adult-flagged" tile replaced with "Rated content" —
+    breakdown as "X at 12+ · Y at 16+ · Z at 18+" so Jacob sees
+    per-tier volume at a glance.
+  - Recently-published table renders tier-specific rating chips
+    instead of a flat "adult" bucket.
+
+Firestore rules:
+  - folio_projects create + update require
+    request.auth.token.firebase.sign_in_provider != 'anonymous'
+    when release.listOnShelf is being set true.
+
+---
+
+Previous batch — kept in commit history:
+
 feat(paid folios): multi-tenant vendor auto-delivery
 
 Vendor webhook secrets are now stored ONCE per Folio account rather

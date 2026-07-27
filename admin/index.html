@@ -164,11 +164,22 @@ button.primary:hover{filter:brightness(.94)}
   }
   async function onAuthChange(u) {
     _user = u;
-    if (!u) {
+    // Treat anonymous sessions as effectively signed-out on the admin
+    // console. app.html auto-creates an anonymous account when it loads
+    // with no persisted session (which happens on every visit if the
+    // browser is purging the custom auth-domain's IndexedDB — Firefox
+    // ETP and some Chrome tracker settings do this). Showing "signed
+    // in as ANON_UID — not on allowlist" was confusing because it
+    // looked like the user had to sign out first. Instead, we render
+    // the sign-in gate exactly as if no one were signed in; clicking
+    // Sign in with Google switches straight to the real account.
+    const isAnon = !!(u && u.isAnonymous);
+    if (!u || isAnon) {
       document.getElementById('authGate').classList.remove('hidden');
       document.getElementById('adminBody').classList.add('hidden');
       document.getElementById('signOutBtn').classList.add('hidden');
       document.getElementById('signedInAs').textContent = '';
+      document.getElementById('authStatus').textContent = '';
       return;
     }
     document.getElementById('signedInAs').textContent = u.email || u.uid.slice(0, 12) + '…';
@@ -185,7 +196,20 @@ button.primary:hover{filter:brightness(.94)}
     document.getElementById('userEmail').textContent = u.email || '';
     document.getElementById('userUid').textContent = u.uid;
   }
-  window.doSignIn = async function() { try { await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider()); } catch (e) { document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown'); } };
+  window.doSignIn = async function() {
+    try {
+      // If we're currently on an anonymous session, sign out first so
+      // Firebase doesn't try to link the anon uid to Google (which
+      // would fail with credential-already-in-use for Jacob's own
+      // Google account that's already an admin uid). Then popup.
+      if (_user && _user.isAnonymous) {
+        try { await _fb.signOut(_fb.auth); } catch (_) {}
+      }
+      await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider());
+    } catch (e) {
+      document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown');
+    }
+  };
   window.doSignOut = async function() { try { await _fb.signOut(_fb.auth); } catch (_) {} };
   boot();
 </script>
