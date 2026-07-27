@@ -11599,7 +11599,14 @@
             const hrs = Math.round((fuMs - Date.now()) / 3_600_000);
             parts.push('<span style="color:#a07032;font-weight:600">✨ Featured</span> — ' + hrs + ' h left');
           }
-          if (rel.hasAdultContent) parts.push('<span style="color:#8c1c1c">Adult content flag</span>');
+          // Content rating pill in the metrics tab publish-state line.
+          // Prefer the new ageRating field; fall back to the legacy
+          // boolean → '18+' mapping so older releases still display
+          // meaningfully.
+          const _mRating = rel.ageRating || (rel.hasAdultContent ? '18+' : 'all');
+          if (_mRating === '12+') parts.push('<span style="color:#356666">Rated 12+</span>');
+          else if (_mRating === '16+') parts.push('<span style="color:#8a5417">Rated 16+</span>');
+          else if (_mRating === '18+') parts.push('<span style="color:#8c1c1c">Rated 🔞 18+</span>');
           results.publishState = parts.join(' · ') || 'not published';
         }
       } catch (e) { console.warn('[metrics] folio doc read failed:', e); }
@@ -21833,11 +21840,19 @@
           const _seriesOrderEl = document.getElementById('rlSeriesOrder');
           if (_seriesNameEl)  _seriesNameEl.value  = _rlCurrent.series || '';
           if (_seriesOrderEl) _seriesOrderEl.value = (_rlCurrent.seriesOrder != null) ? String(_rlCurrent.seriesOrder) : '';
-          // Adult content self-declaration (Phase 3 shelf moderation).
-          // Author-set flag; moderators can override on review. Default
-          // false — most releases are age-neutral literary fiction.
+          // Content rating tier — new field (2026-07-27). Existing releases
+          // that only have the legacy hasAdultContent boolean are mapped:
+          // true → "18+", false/missing → "all". The hidden checkbox stays
+          // in sync so any older code paths reading it still see the right
+          // value.
           const _adultEl = document.getElementById('rlHasAdultContent');
-          if (_adultEl) _adultEl.checked = !!_rlCurrent.hasAdultContent;
+          const _savedRating = _rlCurrent.ageRating
+            || (_rlCurrent.hasAdultContent ? '18+' : 'all');
+          try {
+            const _radios = document.querySelectorAll('input[name="rlAgeRating"]');
+            _radios.forEach(function(r){ r.checked = (r.value === _savedRating); });
+          } catch (e) { console.warn('[rl] ageRating hydrate:', e); }
+          if (_adultEl) _adultEl.checked = (_savedRating === '18+');
 
           if (typeof _rlToggleShelfFields === 'function')  _rlToggleShelfFields();
           if (typeof _rlToggleShelfDescField === 'function') _rlToggleShelfDescField();
@@ -21951,6 +21966,14 @@
           if (priceField2) priceField2.value = '';
           if (currField2) currField2.value = 'USD';
           if (audioChk2) audioChk2.checked = false;
+          // Fresh folio — reset content rating to "All ages"; clear the
+          // hidden legacy checkbox so save() writes hasAdultContent=false.
+          try {
+            const _freshRadios = document.querySelectorAll('input[name="rlAgeRating"]');
+            _freshRadios.forEach(function(r){ r.checked = (r.value === 'all'); });
+            const _freshAdult = document.getElementById('rlHasAdultContent');
+            if (_freshAdult) _freshAdult.checked = false;
+          } catch (_) {}
           const previewField2 = document.getElementById('rlPreviewN');
           if (previewField2) previewField2.value = '1';
           if (btn) btn.textContent = '🔖 Publish';
@@ -22335,35 +22358,74 @@
         listOnShelf: !!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked),
         shelfGenre: ((document.getElementById('rlShelfGenre') && document.getElementById('rlShelfGenre').value) || '').trim().slice(0, 40) || null,
         shelfBlurb: ((document.getElementById('rlShelfBlurb') && document.getElementById('rlShelfBlurb').value) || '').trim().slice(0, 280) || null,
-        // Content rating self-declaration + moderation queue flag.
-        //   hasAdultContent — author says "18+ content" (mature themes,
-        //   strong sexuality, graphic violence in literary context).
-        //   Shelf UI shows a 🔞 badge and hides these from signed-out
-        //   preview surfaces. Moderator can override on review.
+        // Content rating tier + moderation queue flag.
+        //   ageRating — author-declared audience tier. One of:
+        //     'all'  → universal (no advisory)
+        //     '12+'  → teen themes, psychological weight, mild peril
+        //     '16+'  → mature themes, non-graphic sexuality/violence
+        //     '18+'  → explicit / graphic literary content
+        //   Anything other than 'all' queues the release for moderator
+        //   review; 16+ and 18+ additionally hide from signed-out
+        //   visitors on the Shelf. Moderators can override on review.
         //
-        //   shelfPendingModeration — every new / edited listing enters
-        //   this queue. Moderators approve or reject via /admin/shelf/
-        //   (built in the next session). Preserves the "you can still
-        //   see your own pending listing" UX by pairing with an owner
-        //   check on the Shelf render side. On a fresh publish OR a
-        //   re-publish that touches shelf-visible fields, we flip it
-        //   back to true so re-edits re-enter moderation ("republish
-        //   air-gap" from the summary).
-        hasAdultContent: !!(document.getElementById('rlHasAdultContent') && document.getElementById('rlHasAdultContent').checked),
-        // Preserve moderation state across republishes. Only set pending=true
-        // on the FIRST publish to Shelf (when shelfListedAt is not previously
-        // set on this release). Otherwise inherit the current value so an
-        // already-approved listing doesn't silently drop off the Shelf every
-        // time the author fixes a typo. Rejected listings likewise stay
-        // rejected until the author explicitly re-ticks List on Shelf.
+        //   hasAdultContent — legacy boolean kept in sync with
+        //   ageRating === '18+' so older readers/exports that still
+        //   check the boolean don't silently miss the flag. New code
+        //   should read ageRating.
+        //
+        //   shelfPendingModeration — every new / edited listing that
+        //   is rated ANYTHING above 'all' enters this queue. Moderators
+        //   approve or reject via /admin/shelf/. Preserves the "you can
+        //   still see your own pending listing" UX by pairing with an
+        //   owner check on the Shelf render side. Any change to
+        //   ageRating on republish (e.g. 12+ → 16+) re-enters
+        //   moderation as if it were a fresh listing.
+        ageRating: (function(){
+          try {
+            const _r = document.querySelector('input[name="rlAgeRating"]:checked');
+            const _v = _r && _r.value;
+            return (_v === '12+' || _v === '16+' || _v === '18+') ? _v : 'all';
+          } catch (_) { return 'all'; }
+        })(),
+        hasAdultContent: (function(){
+          try {
+            const _r = document.querySelector('input[name="rlAgeRating"]:checked');
+            return (_r && _r.value === '18+');
+          } catch (_) { return false; }
+        })(),
+        // Preserve moderation state across republishes UNLESS the author
+        // changed the rating tier — a rating change is treated the same
+        // as a fresh listing (queue for review). Otherwise inherit the
+        // current pending flag so already-approved listings don't drop
+        // off the Shelf every time the author fixes a typo. Rejected
+        // listings likewise stay rejected until the author explicitly
+        // re-ticks List on Shelf.
         //
         // This intentionally deviates from the original SHELF_MODERATION_DESIGN
-        // "republish air-gap" behavior — that was designed for a moderator
+        // "full republish air-gap" — that was designed for a moderator
         // team gated against image safety review, which we don't need at
-        // current scale with a single moderator (Jacob).
-        shelfPendingModeration: (_rlCurrent && _rlCurrent.shelfListedAt)
-          ? !!_rlCurrent.shelfPendingModeration
-          : !!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked),
+        // current scale with a single moderator (Jacob). The rating-
+        // change gate is the compromise: safe-by-default without
+        // shovelling every typo-fix into the queue.
+        shelfPendingModeration: (function(){
+          const _cur = _rlCurrent || null;
+          const _rEl = document.querySelector('input[name="rlAgeRating"]:checked');
+          const _newRating = (_rEl && _rEl.value) || 'all';
+          const _oldRating = _cur ? (_cur.ageRating || (_cur.hasAdultContent ? '18+' : 'all')) : 'all';
+          const _listing   = !!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked);
+          // Only rated content ever enters the queue.
+          if (_newRating === 'all') {
+            // If author dropped to 'all' from a higher tier that was
+            // approved, keep the approval; otherwise no queue needed.
+            return (_cur && _cur.shelfListedAt) ? !!_cur.shelfPendingModeration : false;
+          }
+          // Rated content on a fresh listing → queue.
+          if (!_cur || !_cur.shelfListedAt) return _listing;
+          // Rated content on an existing listing → queue only if the
+          // rating just changed. Otherwise inherit current status.
+          if (_newRating !== _oldRating) return _listing;
+          return !!_cur.shelfPendingModeration;
+        })(),
         // Folio language — pulled from the Book tab's #bookLang select
         // (BCP-47 codes: en, en-GB, en-US, fr, de, es, it, pt, nl, ja, zh, …).
         // Surfaces on the shelf as a small language chip so readers can
@@ -31983,33 +32045,54 @@
       </div>
 
       <!-- ═══ CONTENT RATING & MODERATION ═════════════════════════════════
-           Author self-declares adult-oriented content (mature themes,
-           strong language, explicit-but-tasteful sexuality, graphic
-           violence in a legitimate literary context). Ticking this box
-           does NOT authorize prohibited content — Folio bans porn, real
-           gore, and filth outright. It's a signal that the release
-           should be shown behind a "18+ / not for younger readers"
-           badge on the Shelf and gated from unauthenticated preview
-           surfaces. All new / edited releases queue for moderator
-           approval before appearing on the Shelf. -->
+           Author picks the age tier the release is appropriate for:
+             all — no advisory (universal literary content)
+             12+ — teen themes, psychological weight, mild peril
+             16+ — mature themes, non-graphic sexuality/violence
+             18+ — explicit / graphic (mature themes, strong sexuality,
+                   graphic violence in a legitimate literary context)
+           Any tier other than 'all' queues the release for moderator
+           review before it appears on the Shelf. 16+/18+ are also
+           hidden from previews shown to signed-out visitors. This does
+           NOT authorize prohibited content — Folio bans porn, real
+           gore, and filth outright. -->
       <div id="rlContentRatingSection" style="margin:14px 0 10px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
-        <label style="display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--text);margin:0;cursor:pointer">
-          <input type="checkbox" id="rlHasAdultContent" style="margin:2px 0 0">
-          <span>
-            🔞 <strong>This release contains adult content</strong>
-            <div style="font-size:10.5px;color:var(--hint);font-weight:400;line-height:1.5;margin-top:4px">
-              Tick if your book has mature themes, strong language, on-page sexuality, or graphic violence
-              in a literary context. Adult-flagged folios appear on the Shelf with a 🔞 badge and are hidden
-              from previews shown to signed-out visitors.
-            </div>
-            <div style="font-size:10.5px;color:var(--hint);font-weight:400;line-height:1.5;margin-top:6px;padding:6px 8px;background:var(--surface);border-radius:5px;border:.5px dotted var(--border-mid)">
-              <strong style="color:var(--danger, #c04040)">Not allowed on Folio, period:</strong> pornographic content,
-              real-world gore, and content that exists purely to shock or degrade. Attempting to publish this will
-              get the release taken down and your account restricted. See our
-              <a href="/policy/" target="_blank" style="color:var(--accent-ui)">content policy</a>.
-            </div>
-          </span>
-        </label>
+        <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:0 0 6px">
+          🛡️ <strong>Content rating</strong>
+          <span style="opacity:.7;font-weight:400;font-size:11px">(any rating above "All ages" queues for moderator review)</span>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 6px 24px">
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer;padding:5px 10px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface)">
+            <input type="radio" name="rlAgeRating" value="all" checked style="margin:0"> All ages
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer;padding:5px 10px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface)">
+            <input type="radio" name="rlAgeRating" value="12+" style="margin:0"> 12+
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer;padding:5px 10px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface)">
+            <input type="radio" name="rlAgeRating" value="16+" style="margin:0"> 16+
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text);cursor:pointer;padding:5px 10px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface)">
+            <input type="radio" name="rlAgeRating" value="18+" style="margin:0"> 🔞 18+
+          </label>
+        </div>
+        <div style="font-size:10.5px;color:var(--hint);line-height:1.55;margin:6px 0 0 24px">
+          <div><strong style="color:var(--text)">All ages</strong> — no content advisory; visible everywhere.</div>
+          <div style="margin-top:3px"><strong style="color:var(--text)">12+</strong> — teen themes, psychological weight, mild peril. Shelf shows a small "12+" chip.</div>
+          <div style="margin-top:3px"><strong style="color:var(--text)">16+</strong> — mature themes, non-graphic sexuality or violence. Hidden from signed-out visitors.</div>
+          <div style="margin-top:3px"><strong style="color:var(--text)">🔞 18+</strong> — explicit / graphic content in a literary context. Hidden from signed-out visitors.</div>
+        </div>
+        <div style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:10px 0 0 24px;padding:6px 8px;background:var(--surface);border-radius:5px;border:.5px dotted var(--border-mid)">
+          <strong style="color:var(--danger, #c04040)">Not allowed on Folio, period:</strong> pornographic content,
+          real-world gore, and content that exists purely to shock or degrade. Attempting to publish this will
+          get the release taken down and your account restricted. See our
+          <a href="/policy/" target="_blank" style="color:var(--accent-ui)">content policy</a>.
+        </div>
+        <!-- Legacy hidden checkbox — kept so old save/hydrate paths still
+             function; new radio group above is the source of truth. Save
+             code writes both fields so the shelf renderer + admin views
+             work identically whether the release was saved before or
+             after the ageRating rollout. -->
+        <input type="checkbox" id="rlHasAdultContent" style="display:none">
       </div>
 
       <!-- ═══ SERIES / COLLECTIONS ═══════════════════════════════════════
