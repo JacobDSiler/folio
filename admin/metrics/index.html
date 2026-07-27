@@ -57,6 +57,8 @@
   .table-row .badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; background: var(--bg); color: var(--hint); font-weight: 600; letter-spacing: .02em; }
   .table-row .badge.pending { background: #f8e5c2; color: #7a5411; }
   .table-row .badge.adult   { background: #f5d3d3; color: #8c1c1c; }
+  .table-row .badge.rated-12 { background: #d6e8e8; color: #356666; }
+  .table-row .badge.rated-16 { background: #f0dfc8; color: #8a5417; }
   .table-row .badge.featured { background: #ffe8a0; color: #6f5000; }
   .table-empty { padding: 24px; text-align: center; color: var(--hint); font-size: 12.5px; font-style: italic; }
 
@@ -105,7 +107,7 @@
       <div class="metric loading"><div class="metric-label">Customized imprints</div><div class="metric-value">…</div></div>
       <div class="metric loading"><div class="metric-label">Founding contributors</div><div class="metric-value">…</div></div>
       <div class="metric loading warn"><div class="metric-label">Pending moderation</div><div class="metric-value">…</div></div>
-      <div class="metric loading danger"><div class="metric-label">Adult-flagged</div><div class="metric-value">…</div></div>
+      <div class="metric loading danger"><div class="metric-label">Rated content</div><div class="metric-value">…</div></div>
       <div class="metric loading accent"><div class="metric-label">Featured right now</div><div class="metric-value">…</div></div>
       <div class="metric loading"><div class="metric-label">Total shelf views</div><div class="metric-value">…</div><div class="metric-sub">all-time viewCount sum</div></div>
     </div>
@@ -265,19 +267,24 @@
 
       const now = Date.now();
       let unique = new Set();
-      let pending = 0, adult = 0, featured = 0, totalViews = 0;
+      let pending = 0, rated12 = 0, rated16 = 0, rated18 = 0, featured = 0, totalViews = 0;
       const recent = [];
       _publishedFolios.forEach(f => {
         if (f.uid) unique.add(f.uid);
         const rel = f.release || {};
         if (rel.shelfPendingModeration) pending++;
-        if (rel.hasAdultContent) adult++;
+        // Derive the tier from ageRating with legacy-boolean fallback so
+        // pre-2026-07-27 folios still count correctly.
+        const _rating = rel.ageRating || (rel.hasAdultContent ? '18+' : 'all');
+        if (_rating === '12+') rated12++;
+        else if (_rating === '16+') rated16++;
+        else if (_rating === '18+') rated18++;
         const fUntil = _asMs(rel.featuredUntil);
         if (fUntil && fUntil > now) featured++;
         totalViews += (f.viewCount || 0);
         // Track recent — sort after
         const publishedMs = _asMs(rel.publishedAt) || _asMs(f.updatedAt) || 0;
-        recent.push({ id: f.id, title: rel.title || f.name || '(untitled)', author: rel.author || 'Unknown', publishedMs, pending: rel.shelfPendingModeration, adult: rel.hasAdultContent, featuredUntil: fUntil });
+        recent.push({ id: f.id, title: rel.title || f.name || '(untitled)', author: rel.author || 'Unknown', publishedMs, pending: rel.shelfPendingModeration, ageRating: _rating, adult: (_rating === '18+'), featuredUntil: fUntil });
       });
 
       // Signed-in users comes from the server user-list endpoint.
@@ -301,7 +308,12 @@
       setMetric('contentGrid', 'Published folios', _publishedFolios.length);
       setMetric('contentGrid', 'Unique authors', unique.size);
       setMetric('contentGrid', 'Pending moderation', pending);
-      setMetric('contentGrid', 'Adult-flagged', adult);
+      // Rating tiers surfaced as a compact "X / Y / Z" trio — quick way
+      // to spot if a lot of freshly-rated content is coming in for
+      // review. Legacy adult-only counter absorbed into the 18+ slot.
+      setMetric('contentGrid', 'Rated content',
+        (rated12 + rated16 + rated18).toString(),
+        rated12 + ' at 12+ · ' + rated16 + ' at 16+ · ' + rated18 + ' at 18+');
       setMetric('contentGrid', 'Featured', featured);
       setMetric('contentGrid', 'Total shelf views', totalViews.toLocaleString());
 
@@ -330,9 +342,16 @@
       } else {
         table.innerHTML = top.map(r => {
           const when = r.publishedMs ? new Date(r.publishedMs).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+          // Rating badge in the recent-published table. Show the
+          // specific tier so scanning the list surfaces "18+" vs "12+"
+          // rather than a single flat "adult" bucket.
+          let ratingChip = '';
+          if (r.ageRating === '12+') ratingChip = '<span class="badge rated-12">12+</span> ';
+          else if (r.ageRating === '16+') ratingChip = '<span class="badge rated-16">16+</span> ';
+          else if (r.ageRating === '18+') ratingChip = '<span class="badge adult">🔞 18+</span> ';
           const badges =
             (r.pending ? '<span class="badge pending">pending</span> ' : '') +
-            (r.adult ? '<span class="badge adult">adult</span> ' : '') +
+            ratingChip +
             (r.featuredUntil && r.featuredUntil > now ? '<span class="badge featured">featured</span> ' : '');
           return `<div class="table-row">
             <div>

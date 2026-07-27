@@ -82,6 +82,10 @@ a:hover{text-decoration:underline}
 .shelf-boost-close:hover{color:var(--text)}
 #shelfBoostStatus{font-size:11px;color:var(--hint);min-height:14px;margin-top:8px}
 .shelf-badge.adult{background:rgba(201,140,42,0.15);color:#b57a1e;border:.5px solid rgba(201,140,42,0.3)}
+/* Content-rating chips — muted teal for 12+, amber for 16+; 18+ uses
+   the existing adult badge above so nothing changes for legacy folios. */
+.shelf-badge.rated-12{background:rgba(80,140,140,0.13);color:#356666;border:.5px solid rgba(80,140,140,0.28)}
+.shelf-badge.rated-16{background:rgba(180,120,60,0.15);color:#8a5417;border:.5px solid rgba(180,120,60,0.3)}
 .shelf-card-title{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:600;line-height:1.25;color:var(--text);margin:0 0 4px}
 .shelf-card-title a{color:inherit;text-decoration:none}
 .shelf-card-author{font-size:12px;color:var(--muted);margin:0 0 8px;font-style:italic}
@@ -275,6 +279,18 @@ function renderShelf(){
     catch (e) { return ''; }
   })();
   let items=_allFolios.slice();
+  // Hide 16+ / 18+ folios from signed-out visitors so a random browser
+  // isn't confronted with a mature-content card. Signed-in readers see
+  // everything on the shelf (the badge is their advisory). Owners
+  // always see their own folios regardless (isMine check below in the
+  // pending filter). 12+ stays visible — teen-appropriate content
+  // shouldn't need a login gate.
+  if(!window._myUid){
+    items = items.filter(function(f){
+      const r = f.ageRating || (f.hasAdultContent ? '18+' : 'all');
+      return r !== '16+' && r !== '18+';
+    });
+  }
   if(p==='serial')items=items.filter(f=>f.serial);
   else if(p==='free')items=items.filter(f=>f.priceMode==='free'&&!f.serial);
   else if(p==='paid')items=items.filter(f=>f.priceMode==='paid'&&!f.serial);
@@ -345,9 +361,19 @@ function renderShelf(){
     const cover=f.coverUrl?'<img class="shelf-card-cover" src="'+esc(f.coverUrl)+'" alt="" loading="lazy">':'<div class="shelf-card-cover shelf-card-cover-placeholder">'+esc(f.title)+'</div>';
     const featBadge = isFeatured ? '<span class="shelf-badge featured">✨ featured</span>' : '';
     const typeBadge=f.serial?'<span class="shelf-badge serial">serial</span>':f.priceMode==='paid'?'<span class="shelf-badge paid">paid</span>':'<span class="shelf-badge free">free</span>';
-    // Adult-content badge — author self-declared this release contains mature themes.
-    const adultBadge = f.hasAdultContent ? '<span class="shelf-badge adult" title="This release contains adult content">🔞 adult</span>' : '';
-    const badge = featBadge + typeBadge + adultBadge;
+    // Content-rating badge. Prefer the new ageRating field; fall back to
+    // the legacy hasAdultContent boolean (maps to 18+). Renders nothing
+    // for 'all'-rated content — no visual noise for universal folios.
+    const _rating = f.ageRating || (f.hasAdultContent ? '18+' : 'all');
+    let ratingBadge = '';
+    if (_rating === '12+') {
+      ratingBadge = '<span class="shelf-badge rated-12" title="Content advisory: 12+">12+</span>';
+    } else if (_rating === '16+') {
+      ratingBadge = '<span class="shelf-badge rated-16" title="Content advisory: 16+">16+</span>';
+    } else if (_rating === '18+') {
+      ratingBadge = '<span class="shelf-badge adult" title="This release contains adult content (18+)">🔞 18+</span>';
+    }
+    const badge = featBadge + typeBadge + ratingBadge;
     const genre=f.genre?'<span class="shelf-card-genre">'+esc(GENRE_LABELS[f.genre]||f.genre)+'</span>':'';
     // Series link — clickable badge that filters the shelf to just
     // that series. Positioned in the card footer alongside the genre.
@@ -539,6 +565,15 @@ async function fetchShelf(){
         series:String(r.series||''),
         seriesOrder:Number(r.seriesOrder||0),
         hasAdultContent:!!r.hasAdultContent,
+        // Content rating tier — one of 'all' / '12+' / '16+' / '18+'.
+        // Missing field on older releases maps: hasAdultContent=true → '18+',
+        // everything else → 'all'. See app.html save logic for the source
+        // of truth.
+        ageRating:(function(){
+          const v = String(r.ageRating || '');
+          if (v === '12+' || v === '16+' || v === '18+') return v;
+          return r.hasAdultContent ? '18+' : 'all';
+        })(),
         shelfPendingModeration:!!r.shelfPendingModeration,
         coverUrl:(typeof r.coverUrl==='string'&&/^https:\/\//i.test(r.coverUrl))?r.coverUrl:'',
         priceMode:String(r.priceMode||'free'),
