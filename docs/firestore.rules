@@ -104,18 +104,40 @@ service cloud.firestore {
                     || isAdmin();
 
       // Create: the new doc must be stamped with the creator's own uid.
-      allow create: if isUser(request.resource.data.uid);
+      // Public Shelf listing is blocked for anonymous accounts — an
+      // author must have a real identity provider linked before their
+      // folio can go on the public marketplace. Anonymous accounts can
+      // still create private folios and share them via signed URLs;
+      // they just can't push to the discovery surface where a
+      // moderator would need to reach them.
+      allow create: if isUser(request.resource.data.uid)
+                    && (
+                      request.resource.data.release == null
+                      || request.resource.data.release.listOnShelf != true
+                      || request.auth.token.firebase.sign_in_provider != 'anonymous'
+                    );
 
       // Update / delete: must already own it. Checked against the
       // EXISTING doc — partial merge-updates (publishing a release,
       // setting shelfId) legitimately omit `uid` from the payload, so
       // the incoming data can't be relied on here.
       //
+      // Same anonymous → Shelf block applies on update: an anonymous
+      // owner can't flip release.listOnShelf to true. Admins bypass
+      // (isAdmin branch) so moderator write-throughs still work.
+      //
       // Admin update — Folio operators can update ANY folio doc so
       // /admin/boost can write release.featuredUntil on paying authors'
       // listings. Delete stays owner-only (safer default; admins can
       // demote by writing featuredUntil to null instead).
-      allow update: if isUser(resource.data.uid) || isAdmin();
+      allow update: if (
+                      isUser(resource.data.uid)
+                      && (
+                        request.resource.data.release == null
+                        || request.resource.data.release.listOnShelf != true
+                        || request.auth.token.firebase.sign_in_provider != 'anonymous'
+                      )
+                    ) || isAdmin();
       allow delete: if isUser(resource.data.uid);
 
       // Manuscript body subdocs.

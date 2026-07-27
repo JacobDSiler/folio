@@ -155,10 +155,25 @@
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
     import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, deleteDoc, addDoc, onSnapshot, serverTimestamp, orderBy, limit, deleteField } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js';
-    import { getAuth, signInAnonymously, signInWithPopup, signInWithRedirect, linkWithPopup, linkWithRedirect, getRedirectResult, signInWithCredential, linkWithCredential, GoogleAuthProvider, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+    import { getAuth, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, signInAnonymously, signInWithPopup, signInWithRedirect, linkWithPopup, linkWithRedirect, getRedirectResult, signInWithCredential, linkWithCredential, GoogleAuthProvider, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
     const FC = { apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0", authDomain: "auth.jacobsiler.com", projectId: "miscellaneous-117e9", storageBucket: "miscellaneous-117e9.firebasestorage.app", messagingSenderId: "514858431339", appId: "1:514858431339:web:8b3acbe89966b45fe3922e" };
     const app = initializeApp(FC);
     const db = getFirestore(app); const auth = getAuth(app);
+    // Explicit persistence — the SDK's default IS browserLocalPersistence,
+    // but the fallback ladder can silently drop to session-only when
+    // IndexedDB is unavailable (Firefox ETP treating auth.jacobsiler.com
+    // as third-party storage, Chrome strict-cookie mode, private
+    // browsing). Setting it explicitly + preferring indexedDB with a
+    // localStorage fallback keeps Google sessions persisted across
+    // page loads. Without this Jacob's admin session was being wiped
+    // between visits and app.html was auto-creating a fresh anonymous
+    // account each time, which then showed up on /admin/ as
+    // "signed in as ANON_UID — not on allowlist".
+    try {
+      setPersistence(auth, indexedDBLocalPersistence)
+        .catch(function(){ return setPersistence(auth, browserLocalPersistence); })
+        .catch(function(e){ console.warn('[AUTH] persistence setup failed:', e && e.message); });
+    } catch (e) { console.warn('[AUTH] setPersistence threw:', e && e.message); }
     window._db = db; window._auth = auth;
     window._storage = getStorage(app);
     window._storageLib = { ref, uploadBytes, getDownloadURL, deleteObject };
@@ -199,6 +214,20 @@
       if (user) {
         window._uid = user.uid;
         window._user = user;
+        // Once the user has signed in with a real provider (Google,
+        // email/password, etc.), stamp localStorage so we know NOT to
+        // silently create a fresh anonymous account the next time
+        // their persisted session gets wiped. If their session goes
+        // missing after this stamp, we prompt for re-sign-in rather
+        // than auto-anon — otherwise Jacob's admin session gets
+        // clobbered by a new anon uid every time Firefox ETP purges
+        // the auth-domain IndexedDB.
+        try {
+          if (!user.isAnonymous) {
+            localStorage.setItem('folio_had_real_session', '1');
+            if (user.email) localStorage.setItem('folio_last_signin_email', user.email);
+          }
+        } catch (_) {}
         // Refresh Press subscription state on every auth resolution — powers
         // boost discount indicators + tier badges throughout the app.
         try {
@@ -281,20 +310,39 @@
 
 
       } else {
-        // No user → fallback to anonymous session
+        // No user → decide whether to auto-anon or prompt for sign-in.
+        // Behavior split by prior history:
+        //   - Never signed in before → auto-anon (preserves the
+        //     "try Folio without an account" onboarding path).
+        //   - Previously signed in with a real provider → their
+        //     persisted session was wiped (browser cleared IndexedDB,
+        //     they signed out on another tab, etc.). Do NOT auto-anon
+        //     because that would create a new orphan uid every time.
+        //     Instead, show a re-sign-in prompt via a custom event.
         window._uid = null;
         window._user = null;
 
-
         window.dispatchEvent(new CustomEvent('auth-changed', { detail: { user: null } }));
 
-        try {
-          await signInAnonymously(auth);
-        } catch (e) {
-          console.warn('anon auth:', e);
+        let hadRealSession = false;
+        try { hadRealSession = localStorage.getItem('folio_had_real_session') === '1'; } catch (_) {}
+
+        if (hadRealSession) {
+          // Notify any UI that wants to show a re-sign-in banner.
+          // Kept as a fire-and-forget event so we don't hard-couple
+          // this handler to any specific UI element.
+          try {
+            const lastEmail = localStorage.getItem('folio_last_signin_email') || '';
+            window.dispatchEvent(new CustomEvent('folio-needs-resignin', { detail: { lastEmail } }));
+          } catch (_) {}
+          console.log('[AUTH] persisted Google session missing — prompting re-sign-in instead of auto-anon');
+        } else {
+          try {
+            await signInAnonymously(auth);
+          } catch (e) {
+            console.warn('anon auth:', e);
+          }
         }
-
-
       }
     });
 
@@ -21698,8 +21746,85 @@
       const fields = document.getElementById('rlShelfFields');
       if (!toggle || !fields) return;
       fields.style.display = toggle.checked ? '' : 'none';
+      // Sign-in gate: anonymous users can't list on the Shelf. Swap the
+      // sub-fields for a sign-in prompt while the checkbox is ticked
+      // AND the user is still anonymous. Uncheck the box so a save
+      // that slipped past the check couldn't silently list.
+      const banner = document.getElementById('rlShelfSignInRequired');
+      const isAnon = !!(window._user && window._user.isAnonymous);
+      if (toggle.checked && isAnon) {
+        if (banner) banner.style.display = '';
+        if (fields) fields.style.display = 'none';
+      } else if (banner) {
+        banner.style.display = 'none';
+      }
     }
     window._rlToggleShelfFields = _rlToggleShelfFields;
+
+    // Handler wired to the checkbox onchange so we can intercept the
+    // tick BEFORE the shelf sub-fields render. If the user is anonymous
+    // we untick, show the sign-in banner, and stop — the boost card
+    // state stays "publish + shelf first" so tier buttons don't
+    // misleadingly appear either. Non-anonymous users flow through
+    // exactly as before.
+    window._rlShelfCheckboxChanged = function _rlShelfCheckboxChanged(cb) {
+      const isAnon = !!(window._user && window._user.isAnonymous);
+      if (cb.checked && isAnon) {
+        // Keep it checked visually so the banner reads as the reason —
+        // untick would just make the tickbox blink. The save-time
+        // guard below enforces the actual "no listing without sign-in"
+        // rule so this is purely a UI signal.
+        _rlToggleShelfFields();
+        if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState();
+        return;
+      }
+      _rlToggleShelfFields();
+      if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState();
+    };
+
+    // Kick off Google sign-in from the release modal. Uses the same
+    // GIS flow the sidebar uses; because the current user is anonymous,
+    // Firebase's linkWithCredential path fires (see the auth handler
+    // around line 7871) and preserves the anonymous uid + everything
+    // attached to it (folios, comps, subscriptions, metrics).
+    window._rlShelfSignInPrompt = function _rlShelfSignInPrompt() {
+      // Prefer the app's canonical sign-in trigger if it exists; falls
+      // back to a plain popup via the imported provider. Both paths end
+      // up in the same onAuthStateChanged handler.
+      try {
+        if (typeof window.startSignIn === 'function') { window.startSignIn(); return; }
+        if (typeof window._triggerGoogleSignIn === 'function') { window._triggerGoogleSignIn(); return; }
+      } catch (_) {}
+      // Popup fallback — links credential when currently anonymous.
+      try {
+        const auth = window._auth;
+        const user = window._user;
+        const fbAuth = window._fbAuth || {};
+        if (!auth || !fbAuth.signInWithPopup) {
+          alert('Sign-in helper unavailable. Please use the sidebar Sign in button.');
+          return;
+        }
+        const provider = window._googleProvider || new fbAuth.GoogleAuthProvider();
+        if (user && user.isAnonymous && fbAuth.linkWithPopup) {
+          fbAuth.linkWithPopup(user, provider).catch(function(e){
+            console.warn('[rl] linkWithPopup failed:', e && e.message);
+            // Common failure: credential-already-in-use — user has an
+            // existing Google account. Sign them into that instead so
+            // they can at least publish, but flag the orphan.
+            if (e && e.code === 'auth/credential-already-in-use') {
+              alert('This Google account is already linked to a different Folio account. Signing you into that one. Any work on your anonymous session may be stranded — please contact support if this happens.');
+              fbAuth.signInWithPopup(auth, provider);
+            } else {
+              alert('Sign-in failed: ' + (e && e.message));
+            }
+          });
+        } else {
+          fbAuth.signInWithPopup(auth, provider);
+        }
+      } catch (e) {
+        alert('Sign-in error: ' + (e.message || 'unknown'));
+      }
+    };
 
     // Show/hide the Shelf blurb textarea based on the "use my release
     // description" tickbox. When the author opts to reuse the description,
@@ -22355,7 +22480,18 @@
         // source. shelfListedAt is set once on first opt-in for
         // "newest" sorting; preserve it across edits so a listing's
         // creation date doesn't reset every time the author republishes.
-        listOnShelf: !!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked),
+        // Anonymous accounts can't list on the Shelf — enforced here
+        // (client) + in Firestore rules (server). If the user managed to
+        // tick the box while anonymous (edge case: they signed out
+        // between opening the modal and clicking Publish), we quietly
+        // downgrade to unlisted rather than error, and the Firestore
+        // rule would reject a write that tried to force it anyway.
+        listOnShelf: (function(){
+          const ticked = !!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked);
+          if (!ticked) return false;
+          if (window._user && window._user.isAnonymous) return false;
+          return true;
+        })(),
         shelfGenre: ((document.getElementById('rlShelfGenre') && document.getElementById('rlShelfGenre').value) || '').trim().slice(0, 40) || null,
         shelfBlurb: ((document.getElementById('rlShelfBlurb') && document.getElementById('rlShelfBlurb').value) || '').trim().slice(0, 280) || null,
         // Content rating tier + moderation queue flag.
@@ -31984,10 +32120,25 @@
       <div id="rlShelfSection" style="margin:14px 0 10px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
         <label
           style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:0 0 4px;cursor:pointer">
-          <input type="checkbox" id="rlListOnShelf" onchange="_rlToggleShelfFields(); if(typeof _rlUpdateBoostCardState==='function')_rlUpdateBoostCardState()" style="margin:0">
+          <input type="checkbox" id="rlListOnShelf" onchange="_rlShelfCheckboxChanged(this)" style="margin:0">
           <span>📚 <strong>List on the Folio Shelf</strong>
             <span style="opacity:.7;font-weight:400">(public marketplace at onfolio.press/shelf)</span></span>
         </label>
+        <!-- Sign-in required banner — replaces the checkbox action for
+             anonymous users. Shelf listing requires a real identity so
+             we can reach the author if needed (typo fixes, rating
+             adjustments, content policy questions). Signs in via Google;
+             the existing GIS flow links their anonymous uid so nothing
+             they've already done gets orphaned. -->
+        <div id="rlShelfSignInRequired" style="display:none;margin:6px 0 2px 24px;padding:10px 12px;background:#fdfaf3;border:.5px solid #e8d9a8;border-radius:7px">
+          <div style="font-size:12px;color:#5c3d00;line-height:1.55;margin:0 0 6px">
+            <strong>Sign in to list on the Shelf.</strong> Public listings need a real identity on file so we can reach you if a moderator has a note about your folio. Everything you've already built stays exactly where it is — your Google account gets linked to this anonymous session.
+          </div>
+          <button type="button" onclick="_rlShelfSignInPrompt()"
+            style="font-size:12px;padding:6px 14px;border-radius:7px;border:none;background:var(--accent-ui);color:#fff;cursor:pointer;font-weight:500;font-family:inherit">
+            Sign in with Google to continue
+          </button>
+        </div>
         <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:2px 0 8px 24px">
           Readers can browse, search, and filter every folio on the Shelf. Free or paid, all are welcome.
           Listed folios link to your reader URL — payment + unlock still flow exactly as configured above.
