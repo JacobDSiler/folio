@@ -2469,6 +2469,88 @@ async function handleEvent(request, env) {
    Auth: same ADMIN_DEBUG_TOKEN as /admin-digest + /metrics-rollup.
    Data limit: capped at 2000 users per response (~2 kB per user).
    ══════════════════════════════════════════════════════════════════ */
+/* GET /admin/user-lookup?uid=<uid>&key=<ADMIN_DEBUG_TOKEN>
+   Moderator-only Firebase Auth record lookup. Returns whatever the
+   Identity Toolkit has on file for that uid — email, display name,
+   sign-in providers (google.com, password, anonymous), account
+   creation timestamp, last-login timestamp, disabled flag.
+
+   Purpose: get contact info + provider details for a signed-in author
+   when folio_user_settings/{uid}.lastEmail is missing (older signups
+   that pre-date the merge-write, or edge cases where the write
+   failed). Also the audit path for reporting content: providerData
+   includes the linked Google account so we can identify the person
+   even when they've never given us an email directly.
+
+   Anonymous accounts have no email or displayName — those authors
+   are unreachable by design. The response surfaces this cleanly so
+   the moderator UI can say "anonymous account, cannot be contacted"
+   rather than a generic "no email on file".
+
+   Auth: shared ADMIN_DEBUG_TOKEN (same as /user-list).
+*/
+async function handleAdminUserLookup(request, env) {
+  const url = new URL(request.url);
+  const key = url.searchParams.get('key') || '';
+  const uid = String(url.searchParams.get('uid') || '').trim();
+  const expected = env.ADMIN_DEBUG_TOKEN || '';
+  if (!expected) return errorJson('User lookup disabled — ADMIN_DEBUG_TOKEN not set', 403, request, env);
+  if (key !== expected) return errorJson('Unauthorized', 401, request, env);
+  if (!uid) return errorJson('Missing uid', 400, request, env);
+  try {
+    const auth = await getAccessToken(env);
+    const pid = env.FIRESTORE_PROJECT_ID || auth.projectId;
+    const r = await fetch(
+      'https://identitytoolkit.googleapis.com/v1/projects/' + pid + '/accounts:lookup',
+      {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + auth.token, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ localId: [uid] }),
+      }
+    );
+    if (!r.ok) {
+      const err = await r.text().catch(() => '');
+      return errorJson('Auth lookup failed: ' + r.status + ' ' + err.slice(0, 200), 502, request, env);
+    }
+    const data = await r.json().catch(() => null);
+    const u = (data && Array.isArray(data.users) && data.users[0]) || null;
+    if (!u) return json({ ok: true, found: false, uid }, 200, request, env);
+
+    // Extract provider info — providerUserInfo is the array of linked
+    // identity providers with their per-provider email + displayName.
+    const providers = Array.isArray(u.providerUserInfo)
+      ? u.providerUserInfo.map(function(p){
+          return {
+            providerId: p.providerId || '',       // 'google.com', 'password', 'facebook.com', …
+            email: p.email || null,
+            displayName: p.displayName || null,
+            federatedId: p.federatedId || null,   // Google account URL etc — for reports
+          };
+        })
+      : [];
+
+    return json({
+      ok: true,
+      found: true,
+      uid,
+      email: u.email || null,
+      emailVerified: !!u.emailVerified,
+      displayName: u.displayName || null,
+      photoUrl: u.photoUrl || null,
+      // Firebase timestamps come back as strings of ms since epoch.
+      createdAt: u.createdAt ? Number(u.createdAt) : null,
+      lastLoginAt: u.lastLoginAt ? Number(u.lastLoginAt) : null,
+      lastRefreshAt: u.lastRefreshAt || null,
+      disabled: !!u.disabled,
+      // isAnonymous isn't in the response directly — infer from providers.
+      isAnonymous: providers.length === 0 && !u.email,
+      providers,
+    }, 200, request, env);
+  } catch (e) {
+    return errorJson('Lookup threw: ' + (e.message || 'unknown'), 502, request, env);
+  }
+}
+
 async function handleUserList(request, env) {
   const url = new URL(request.url);
   const key = url.searchParams.get('key') || '';
@@ -3540,6 +3622,7 @@ export default {
     if (path === '/view-record'    && request.method === 'POST') return handleViewRecord(request, env);
     if (path === '/event'          && request.method === 'POST') return handleEvent(request, env);
     if (path === '/user-list'      && request.method === 'GET')  return handleUserList(request, env);
+    if (path === '/admin/user-lookup' && request.method === 'GET') return handleAdminUserLookup(request, env);
     // GET /env-check?key=<ADMIN_DEBUG_TOKEN> — reports which env
     // bindings the paywall worker can see at runtime, without leaking
     // any values. Diagnostic-only. Use to confirm secrets landed on
