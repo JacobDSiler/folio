@@ -62,6 +62,13 @@ a{color:var(--accent-ui);text-decoration:none}
 .mod-actions .unapprove:hover{background:var(--bg)}
 .mod-actions .contact{background:none;color:var(--accent-ui);border:.5px solid var(--border-mid)}
 .mod-actions .contact:hover{background:var(--bg)}
+/* Moderator rating selector on each card — inline with the action row,
+   picks up the same border/padding treatment as the buttons so it reads
+   as one grouped control strip. */
+.mod-rating-ctl{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--hint);padding:5px 10px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--bg)}
+.mod-rating-ctl select{font-size:12px;padding:2px 6px;border:.5px solid var(--border-mid);border-radius:4px;background:var(--surface);color:var(--text);font-family:inherit;cursor:pointer}
+.mod-rating-ctl.saving{opacity:.6}
+.mod-rating-ctl.saved{border-color:var(--accent-ui);color:var(--accent-ui)}
 
 /* Contact-author modal — matches the app's release/help drawer style
    so it doesn't feel bolted on. Templates surface common reasons a
@@ -368,7 +375,24 @@ a{color:var(--accent-ui);text-decoration:none}
       if (rel.rejectedAt) meta.push('<strong>Rejected:</strong> ' + new Date(rel.rejectedAt).toLocaleDateString());
       const readerUrl = '/app.html?read=' + encodeURIComponent(rel.id);
       const imprintUrl = '/imprint/?uid=' + encodeURIComponent(rel.uid);
-      let actions = '<a href="' + esc(readerUrl) + '" target="_blank">Open reader ↗</a>';
+      // Moderator-assigned rating override. Author picks a rating on
+      // release, but the moderator has final say — a wrong rating from
+      // the author (all-ages content flagged 18+, or 18+ material
+      // slipped in as 12+) can be corrected here without needing the
+      // author to republish. Changing the dropdown writes ageRating +
+      // hasAdultContent + a shelfRatingSetByModerator audit stamp.
+      const _curRating = rel.ageRating || (rel.hasAdultContent ? '18+' : 'all');
+      const _ratingOptions = ['all','12+','16+','18+'].map(function(v){
+        const lbl = v === 'all' ? 'All ages' : v;
+        return '<option value="' + v + '"' + (v === _curRating ? ' selected' : '') + '>' + lbl + '</option>';
+      }).join('');
+      const ratingCtl =
+        '<label class="mod-rating-ctl" title="Change the rating tier for this folio. Applies immediately.">' +
+        '<span>Rating</span>' +
+        '<select onchange="setRating(\'' + esc(rel.id) + '\', this.value, this)">' + _ratingOptions + '</select>' +
+        '</label>';
+      let actions = ratingCtl;
+      actions += '<a href="' + esc(readerUrl) + '" target="_blank">Open reader ↗</a>';
       actions += '<a href="' + esc(imprintUrl) + '" target="_blank">View imprint ↗</a>';
       // Contact-submitter button — opens a modal with the author's
       // email (fetched on demand) + a template composer, then hands
@@ -454,6 +478,42 @@ a{color:var(--accent-ui);text-decoration:none}
     } catch (e) { alert('Un-approve failed: ' + (e.message || 'unknown')); }
   };
 
+  // Moderator rating override. Applies immediately (no confirm) so
+  // Jacob can sweep through the queue reassigning ratings without a
+  // popup on every change. Writes ageRating + hasAdultContent (for
+  // back-compat readers that still key off the boolean) + audit stamps
+  // showing who changed it and when. Does NOT toggle
+  // shelfPendingModeration — the moderator uses Approve/Reject for
+  // that; rating change alone doesn't re-queue.
+  window.setRating = async function(id, newRating, selEl) {
+    const wrap = selEl && selEl.closest('.mod-rating-ctl');
+    if (wrap) { wrap.classList.remove('saved'); wrap.classList.add('saving'); }
+    const rating = (['all','12+','16+','18+'].indexOf(newRating) >= 0) ? newRating : 'all';
+    try {
+      await updateRelease(id, {
+        ageRating: rating,
+        hasAdultContent: (rating === '18+'),
+        shelfRatingSetByModerator: true,
+        shelfRatingSetAt: Date.now(),
+      });
+      // Reflect in the in-memory list so re-renders show the new value
+      // without a full queue reload (fast feedback, no query cost).
+      const rec = _releases.find(function(r){ return r.id === id; });
+      if (rec) {
+        rec.ageRating = rating;
+        rec.hasAdultContent = (rating === '18+');
+      }
+      if (wrap) {
+        wrap.classList.remove('saving');
+        wrap.classList.add('saved');
+        setTimeout(function(){ wrap.classList.remove('saved'); }, 1400);
+      }
+    } catch (e) {
+      if (wrap) wrap.classList.remove('saving');
+      alert('Rating change failed: ' + (e.message || 'unknown'));
+    }
+  };
+
   // ── Contact submitter ──────────────────────────────────────────
   // Lookup fetches the author's email from folio_user_settings; if we
   // don't have one on file (older signups pre-2026-07-17), fall back to
@@ -464,8 +524,26 @@ a{color:var(--accent-ui);text-decoration:none}
   // folder as the audit trail.
   let _cmCtx = null;
 
+  // Paywall worker origin — used for the admin user-lookup endpoint
+  // (Firebase Auth record fallback when folio_user_settings has no
+  // email). Same origin as /user-list which /admin/press already uses.
+  const _PAYWALL_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
+
+  // ADMIN_DEBUG_TOKEN cache — same key /admin/press uses so the
+  // moderator only ever pastes it once across all admin panels.
+  function _getAdminToken() {
+    try { return String(localStorage.getItem('folio_admin_debug_token') || '').trim(); }
+    catch (_) { return ''; }
+  }
+  function _promptAdminToken() {
+    const t = prompt('Paste your ADMIN_DEBUG_TOKEN to enable author lookup via Firebase Auth (needed when folio_user_settings has no email on file):');
+    if (!t) return '';
+    try { localStorage.setItem('folio_admin_debug_token', t.trim()); } catch (_) {}
+    return t.trim();
+  }
+
   window.contactAuthor = async function(releaseId, uid, title, author) {
-    _cmCtx = { releaseId, uid, title, author, toEmail: '', toName: author };
+    _cmCtx = { releaseId, uid, title, author, toEmail: '', toName: author, authRecord: null };
     const modal = document.getElementById('contactModal');
     document.getElementById('cmAbout').textContent = 'About "' + title + '" — ' + author;
     document.getElementById('cmToLine').innerHTML = '<em style="color:var(--hint)">Looking up author\'s email…</em>';
@@ -473,30 +551,104 @@ a{color:var(--accent-ui);text-decoration:none}
     document.getElementById('cmBody').value = '';
     document.getElementById('cmStatus').textContent = '';
     modal.classList.add('visible');
-    // Look up the author's email. folio_user_settings/{uid} has lastEmail
-    // + lastDisplayName written on every non-anonymous sign-in.
+    // Two-step lookup:
+    //   1. folio_user_settings/{uid}.lastEmail — cheap, no admin key needed
+    //   2. Firebase Auth record via /admin/user-lookup — fallback for
+    //      users whose folio_user_settings wasn't written (older signups)
+    //      OR when we need providerData for a report (Google account URL,
+    //      federated identity, account creation date, sign-in method).
+    let email = '';
+    let displayName = author;
+    let source = '';
     try {
       const doc = await _fb.getDoc(_fb.doc(_fb.db, 'folio_user_settings', uid));
       const data = doc.exists() ? (doc.data() || {}) : {};
-      const email = String(data.lastEmail || '').trim();
-      const displayName = String(data.lastDisplayName || '').trim() || author;
-      _cmCtx.toEmail = email;
-      _cmCtx.toName = displayName;
-      if (email) {
-        document.getElementById('cmToLine').innerHTML =
-          esc(displayName) + ' &lt;<span class="cm-copyable" title="Click to select">' + esc(email) + '</span>&gt;';
-      } else {
-        document.getElementById('cmToLine').innerHTML =
-          '<span style="color:var(--danger)">No email on file for this author (uid ' + esc(uid) + ').</span> ' +
-          'Older accounts may not have one. Try their Imprint page or ask them to sign in once so their email is recorded.';
+      email = String(data.lastEmail || '').trim();
+      displayName = String(data.lastDisplayName || '').trim() || author;
+      if (email) source = 'folio_user_settings';
+    } catch (_) {}
+
+    // Fallback to Firebase Auth if the settings doc had nothing useful.
+    // Always fetches the full auth record (even when we already have an
+    // email) so the moderator can see providers/createdAt for context.
+    let authRec = null;
+    try {
+      let token = _getAdminToken();
+      if (!token) token = _promptAdminToken();
+      if (token) {
+        const r = await fetch(_PAYWALL_URL + '/admin/user-lookup?uid=' + encodeURIComponent(uid) + '&key=' + encodeURIComponent(token));
+        if (r.ok) {
+          const data = await r.json().catch(function(){ return null; });
+          if (data && data.ok && data.found) {
+            authRec = data;
+            if (!email && data.email) {
+              email = data.email;
+              source = 'firebase-auth';
+            }
+            if (!displayName || displayName === author) {
+              displayName = data.displayName || displayName;
+            }
+          }
+        }
       }
-      // Pre-apply the "structural fixes" template by default when the
-      // release is pending — that's the most common contact reason.
-      cmApplyTemplate(_isPendingContext() ? 'structural' : 'blank');
-    } catch (e) {
-      document.getElementById('cmToLine').innerHTML =
-        '<span style="color:var(--danger)">Email lookup failed: ' + esc(e.message || 'unknown') + '</span>';
+    } catch (_) {}
+
+    _cmCtx.toEmail = email;
+    _cmCtx.toName = displayName;
+    _cmCtx.authRecord = authRec;
+
+    // Render the To line + collapsible "Author details" block. The
+    // details block is always visible when auth data is present so the
+    // moderator has a full paper trail (provider = 'google.com' + Google
+    // account URL, or provider = 'anonymous' meaning we can't contact
+    // them). Reads like a fact sheet, not a form.
+    const parts = [];
+    if (email) {
+      parts.push(
+        '<div><strong>' + esc(displayName) + '</strong> &lt;<span class="cm-copyable" title="Click to select">' +
+        esc(email) + '</span>&gt;' +
+        (source === 'firebase-auth' ? ' <span style="color:var(--hint);font-size:11px">(via Firebase Auth)</span>' : '') +
+        '</div>'
+      );
+    } else if (authRec && authRec.isAnonymous) {
+      parts.push('<div style="color:var(--danger)"><strong>Anonymous account</strong> — no email, no identity provider. This author cannot be contacted by email. See <a href="/policy/" target="_blank" style="color:var(--accent-ui)">content policy</a> for enforcement options (release removal, account restriction).</div>');
+    } else if (authRec) {
+      parts.push('<div style="color:var(--danger)"><strong>No email on this account.</strong> Providers linked: ' + (authRec.providers.map(function(p){ return esc(p.providerId); }).join(', ') || 'none') + '. Try the provider details below for out-of-band contact.</div>');
+    } else {
+      parts.push('<div style="color:var(--danger)">No contact info found. ' + (_getAdminToken() ? 'Firebase Auth lookup failed — check that ADMIN_DEBUG_TOKEN is current and the worker is deployed.' : 'Paste ADMIN_DEBUG_TOKEN when prompted to enable Auth record fallback.') + '</div>');
     }
+
+    // Fact sheet — providers, createdAt, lastLoginAt, disabled flag.
+    // Present for every non-anonymous lookup so the moderator has full
+    // context before writing (and, in the worst case, the specifics they
+    // need to file a report with authorities).
+    if (authRec && authRec.found) {
+      const providerLines = (authRec.providers || []).map(function(p){
+        const bits = [];
+        bits.push('<strong>' + esc(p.providerId) + '</strong>');
+        if (p.email) bits.push(esc(p.email));
+        if (p.displayName && p.displayName !== authRec.displayName) bits.push(esc(p.displayName));
+        if (p.federatedId) bits.push('<a href="' + esc(p.federatedId) + '" target="_blank" rel="noopener" style="color:var(--accent-ui);font-size:11px">provider profile ↗</a>');
+        return '<li>' + bits.join(' · ') + '</li>';
+      }).join('');
+      const facts = [
+        '<div class="cm-authrec" style="margin-top:8px;padding:8px 10px;background:var(--bg);border:.5px dashed var(--border-mid);border-radius:6px;font-size:11.5px;color:var(--text);line-height:1.55">' +
+        '<div style="font-size:10.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px">Author details (Firebase Auth)</div>' +
+        '<div><strong>UID:</strong> <code style="font-size:11px">' + esc(authRec.uid) + '</code></div>' +
+        (authRec.emailVerified != null ? '<div><strong>Email verified:</strong> ' + (authRec.emailVerified ? 'yes' : 'no') + '</div>' : '') +
+        (authRec.createdAt ? '<div><strong>Account created:</strong> ' + new Date(authRec.createdAt).toLocaleString() + '</div>' : '') +
+        (authRec.lastLoginAt ? '<div><strong>Last sign-in:</strong> ' + new Date(authRec.lastLoginAt).toLocaleString() + '</div>' : '') +
+        (authRec.disabled ? '<div style="color:var(--danger)"><strong>Account disabled.</strong></div>' : '') +
+        (providerLines ? '<div style="margin-top:4px"><strong>Sign-in providers:</strong><ul style="margin:2px 0 0;padding-left:18px">' + providerLines + '</ul></div>' : '') +
+        '</div>'
+      ];
+      parts.push(facts.join(''));
+    }
+    document.getElementById('cmToLine').innerHTML = parts.join('');
+
+    // Pre-apply the "structural fixes" template by default when the
+    // release is pending — that's the most common contact reason.
+    cmApplyTemplate(_isPendingContext() ? 'structural' : 'blank');
   };
 
   window.closeContact = function() {

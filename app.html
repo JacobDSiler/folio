@@ -22413,17 +22413,21 @@
           const _newRating = (_rEl && _rEl.value) || 'all';
           const _oldRating = _cur ? (_cur.ageRating || (_cur.hasAdultContent ? '18+' : 'all')) : 'all';
           const _listing   = !!(document.getElementById('rlListOnShelf') && document.getElementById('rlListOnShelf').checked);
-          // Only rated content ever enters the queue.
-          if (_newRating === 'all') {
-            // If author dropped to 'all' from a higher tier that was
-            // approved, keep the approval; otherwise no queue needed.
-            return (_cur && _cur.shelfListedAt) ? !!_cur.shelfPendingModeration : false;
+          // Fresh listing → queue only if rated (all-ages doesn't
+          // need review — hard content policy is what excludes those).
+          if (!_cur || !_cur.shelfListedAt) {
+            return _listing && _newRating !== 'all';
           }
-          // Rated content on a fresh listing → queue.
-          if (!_cur || !_cur.shelfListedAt) return _listing;
-          // Rated content on an existing listing → queue only if the
-          // rating just changed. Otherwise inherit current status.
+          // Any change in rating on an existing listing → re-queue.
+          // This intentionally catches BOTH directions:
+          //   - author raises rating (12+ → 18+): moderator confirms
+          //   - author lowers rating (18+ → all): moderator confirms
+          //     the downgrade is legit, so an approved 18+ folio can't
+          //     silently drop to 'all' and appear to signed-out browsers
           if (_newRating !== _oldRating) return _listing;
+          // No rating change → inherit current pending status so
+          // typo-fix republishes on approved folios don't re-enter
+          // the queue.
           return !!_cur.shelfPendingModeration;
         })(),
         // Folio language — pulled from the Book tab's #bookLang select
