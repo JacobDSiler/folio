@@ -6020,16 +6020,21 @@
           <span style="flex:1;text-align:left">Help + FAQ</span>
           <span style="color:var(--hint);font-size:10px">↗</span>
         </a>
-        <!-- Leave feedback — universally accessible. Submitting a review
-             earns a free 24h Featured Boost on one of your published folios
-             (one-time per folio, ever). Reviews are also considered for
-             public display on the welcome page if you opt in — Jacob curates. -->
-        <button type="button" onclick="_openReviewModal()" title="Leave feedback + earn a free 24h boost"
-          style="display:flex;align-items:center;gap:6px;margin-top:8px;padding:7px 10px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:6px;color:var(--text);text-decoration:none;font-size:12px;font-weight:500;transition:background .15s ease,border-color .15s ease;cursor:pointer;font-family:inherit;width:100%"
-          onmouseover="this.style.background='var(--surface)';this.style.borderColor='var(--accent)'"
-          onmouseout="this.style.background='var(--bg)';this.style.borderColor='var(--border-mid)'">
+        <!-- Review Folio — universally accessible. Label spells out
+             both facets of the deal (feedback ABOUT FOLIO + a free 24h
+             Featured Boost as thanks) so users don't confuse it with a
+             book-review feature or a generic "contact us" form. Reviews
+             are also considered for public display on the welcome page
+             if the reviewer opts in — Jacob curates. -->
+        <button type="button" onclick="_openReviewModal()" title="Rate Folio (the platform) — get a free 24h Featured Boost on one of your published folios in exchange"
+          style="display:flex;align-items:center;gap:6px;margin-top:8px;padding:8px 10px;background:linear-gradient(180deg,rgba(201,140,42,0.06),rgba(201,140,42,0.02));border:.5px solid rgba(201,140,42,0.35);border-radius:6px;color:var(--text);text-decoration:none;font-size:12px;font-weight:500;transition:background .15s ease,border-color .15s ease;cursor:pointer;font-family:inherit;width:100%"
+          onmouseover="this.style.background='linear-gradient(180deg,rgba(201,140,42,0.11),rgba(201,140,42,0.05))';this.style.borderColor='var(--accent)'"
+          onmouseout="this.style.background='linear-gradient(180deg,rgba(201,140,42,0.06),rgba(201,140,42,0.02))';this.style.borderColor='rgba(201,140,42,0.35)'">
           <span style="font-size:14px">💬</span>
-          <span style="flex:1;text-align:left">Leave feedback <span style="color:var(--accent);font-size:10px">+ free 24h boost</span></span>
+          <span style="flex:1;text-align:left;line-height:1.35">
+            <span style="display:block">Review Folio</span>
+            <span style="display:block;color:var(--accent);font-size:10px;font-weight:600;margin-top:1px">Earn a free 24h Featured Boost</span>
+          </span>
           <span style="color:var(--hint);font-size:10px">→</span>
         </button>
         </details>
@@ -33603,8 +33608,11 @@
       <h2 style="font-family:'Playfair Display',Georgia,serif;font-size:22px;font-weight:600;color:var(--text);margin:0">💬 Leave feedback</h2>
       <button type="button" onclick="_closeReviewModal()" style="background:none;border:none;font-size:22px;color:var(--hint);cursor:pointer;padding:4px 8px">×</button>
     </div>
-    <p style="font-size:13px;color:var(--muted);margin:0 0 18px;line-height:1.55">
-      Honest reviews welcome — good OR bad. In exchange, we'll boost one of your published folios for 24 hours. One-time per folio.
+    <p style="font-size:13px;color:var(--muted);margin:0 0 12px;line-height:1.55">
+      Honest reviews of <strong>Folio itself</strong> — good OR bad. In exchange, we'll boost one of your published folios for 24 hours. One-time per folio.
+    </p>
+    <p style="font-size:12px;color:var(--hint);margin:0 0 18px;line-height:1.55;padding:8px 10px;background:var(--bg);border-left:2px solid var(--accent);border-radius:0 5px 5px 0">
+      <strong style="color:var(--text)">Want to appear on the welcome page?</strong> Tick the consent box below and, if the moderator approves, your quote lands in the <em>"Real words from real authors"</em> section on <a href="/" target="_blank" style="color:var(--accent-ui);text-decoration:underline">onfolio.press</a> with your display name attached. Full details in the <a href="/help/#reviews" target="_blank" style="color:var(--accent-ui);text-decoration:underline">Help page</a>.
     </p>
 
     <!-- Role -->
