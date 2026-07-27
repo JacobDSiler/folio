@@ -192,9 +192,32 @@
       const app = _fb.initializeApp(cfg);
       _fb.auth = _fb.getAuth(app);
       _fb.db = _fb.getFirestore(app);
-      try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
-      catch (e) { console.warn('[metrics] persistence set failed:', e.message); }
+      _fb.indexedDBLocalPersistence = authMod.indexedDBLocalPersistence;
+      _fb.authStateReady = authMod.authStateReady;
+      // Persistence — indexedDB first, localStorage fallback.
+      try {
+        if (_fb.indexedDBLocalPersistence) {
+          await _fb.setPersistence(_fb.auth, _fb.indexedDBLocalPersistence);
+        } else {
+          await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence);
+        }
+      } catch (_e1) {
+        try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
+        catch (e) { console.warn('[metrics] persistence set failed:', e.message); }
+      }
+      // Wait for hydration before firing the auth handler — the page
+      // already shows "Checking sign-in…" as its initial state, so this
+      // just makes sure we resolve it accurately.
+      if (typeof _fb.authStateReady === 'function') {
+        try { await _fb.authStateReady(_fb.auth); }
+        catch (_e) { console.warn('[metrics] authStateReady threw:', _e && _e.message); }
+      } else {
+        for (let i = 0; i < 20 && !_fb.auth.currentUser; i++) {
+          await new Promise(function(r){ setTimeout(r, 50); });
+        }
+      }
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
+      onAuthChange(_fb.auth.currentUser);
     } catch (e) {
       console.error('[metrics] boot failed:', e);
       document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown');
@@ -208,13 +231,16 @@
     const gateTitle = document.getElementById('gateTitle');
     const gateBody = document.getElementById('gateBody');
     const gateBtn = document.getElementById('gateSignInBtn');
-    if (!u) {
+    // Anonymous treated as signed-out.
+    if (!u || u.isAnonymous) {
       gateTitle.textContent = 'Sign in required';
       gateBody.innerHTML = 'Admin-only. Locked to bootstrap uids in <code>firestore.rules</code>.';
       gateBtn.classList.remove('hidden');
       gate.classList.remove('hidden'); body.classList.add('hidden');
       document.getElementById('signOutBtn').classList.add('hidden');
       document.getElementById('signedInAs').textContent = '';
+      const _st = document.getElementById('authStatus');
+      if (_st) _st.textContent = '';
       return;
     }
     document.getElementById('signedInAs').textContent = u.email || u.uid;
@@ -231,7 +257,16 @@
     loadAll();
   }
 
-  window.doSignIn = async function() { try { await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider()); } catch (e) { document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown'); } };
+  window.doSignIn = async function() {
+    try {
+      if (_user && _user.isAnonymous) {
+        try { await _fb.signOut(_fb.auth); } catch (_) {}
+      }
+      await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider());
+    } catch (e) {
+      document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown');
+    }
+  };
   window.doSignOut = async function() { try { await _fb.signOut(_fb.auth); } catch (_) {} };
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }

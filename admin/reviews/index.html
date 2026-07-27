@@ -82,7 +82,17 @@ button.danger:hover{background:var(--danger);color:#fff}
 </header>
 
 <div class="admin-wrap">
-  <div id="authGate" class="auth-gate">
+  <!-- Hydration splash — shown until Firebase Auth confirms whether
+       a persisted session exists. Prevents the "sign-in gate flashes
+       for a second, then admin content appears" effect that read as
+       an auth invalidation. See the boot() flow below for how this
+       gets replaced by either authGate or adminBody. -->
+  <div id="authLoading" class="auth-gate">
+    <h2 style="opacity:.7">Checking sign-in…</h2>
+    <p style="color:var(--hint);font-size:12px">Restoring your Google session from browser storage.</p>
+  </div>
+
+  <div id="authGate" class="auth-gate hidden">
     <h2>Sign in required</h2>
     <p>Owner-locked to admin uids in <code>firestore.rules</code>.</p>
     <button class="primary" onclick="doSignIn()">Sign in with Google</button>
@@ -129,8 +139,13 @@ button.danger:hover{background:var(--danger);color:#fff}
       _fb.signInWithPopup = authMod.signInWithPopup;
       _fb.signOut = authMod.signOut;
       _fb.onAuthStateChanged = authMod.onAuthStateChanged;
+      _fb.getDoc = fsMod.getDoc; // added — _isAdmin's folio_roles fallback needs it
+      // authStateReady is Firebase v10.14+; older builds don't expose it.
+      // We tolerate its absence by falling back to a polled check.
+      _fb.authStateReady = authMod.authStateReady;
       _fb.setPersistence = authMod.setPersistence;
       _fb.browserLocalPersistence = authMod.browserLocalPersistence;
+      _fb.indexedDBLocalPersistence = authMod.indexedDBLocalPersistence;
       _fb.getFirestore = fsMod.getFirestore;
       _fb.doc = fsMod.doc;
       _fb.updateDoc = fsMod.updateDoc;
@@ -152,13 +167,48 @@ button.danger:hover{background:var(--danger);color:#fff}
       const app = _fb.initializeApp(cfg);
       _fb.auth = _fb.getAuth(app);
       _fb.db = _fb.getFirestore(app);
-      // Explicit persistence — ensures a signed-in Google session
-      // hydrates from IndexedDB across admin pages without
-      // requiring re-sign-in on each subpage.
-      try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
-      catch (_e) { console.warn('[admin] persistence set failed:', _e && _e.message); }
+      // Persistence — indexedDB first (survives Firefox ETP better),
+      // localStorage fallback. Skipping setPersistence entirely would
+      // ALSO have worked (browserLocal is Firebase's default) — but
+      // being explicit lets us log if it fails.
+      try {
+        await _fb.setPersistence(_fb.auth, _fb.indexedDBLocalPersistence);
+      } catch (_e1) {
+        try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
+        catch (_e2) { console.warn('[reviews] persistence set failed:', _e2 && _e2.message); }
+      }
+      // Wait for the initial auth hydration to resolve before deciding
+      // whether to show adminBody or authGate. Without this the page
+      // renders the sign-in gate for a brief moment (while IndexedDB
+      // hydrates the persisted session) — which read as an auth
+      // invalidation on navigation between admin subpages.
+      if (typeof _fb.authStateReady === 'function') {
+        try { await _fb.authStateReady(_fb.auth); }
+        catch (_e) { console.warn('[reviews] authStateReady threw:', _e && _e.message); }
+      } else {
+        // Fallback for older Firebase builds: poll auth.currentUser
+        // briefly. onAuthStateChanged will fire soon anyway; this just
+        // gives it a small head start so the first render is stable.
+        for (let i = 0; i < 20 && !_fb.auth.currentUser; i++) {
+          await new Promise(function(r){ setTimeout(r, 50); });
+        }
+      }
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
+      // Kick off the initial render explicitly — some browsers deliver
+      // the first onAuthStateChanged AFTER an idle callback, which
+      // leaves the loading splash up for longer than it needs to be.
+      if (_fb.auth.currentUser) {
+        onAuthChange(_fb.auth.currentUser);
+      } else {
+        // Nothing hydrated → show the sign-in gate now instead of
+        // waiting for the async callback.
+        onAuthChange(null);
+      }
     } catch (e) {
+      const gate = document.getElementById('authGate');
+      const loading = document.getElementById('authLoading');
+      if (loading) loading.classList.add('hidden');
+      if (gate) gate.classList.remove('hidden');
       document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown');
     }
   }
@@ -181,12 +231,21 @@ button.danger:hover{background:var(--danger);color:#fff}
 
   async function onAuthChange(u) {
     _user = u;
-    console.log('[reviews] auth state change:', u ? ('signed in as ' + (u.email || u.uid)) : 'signed out');
-    if (!u) {
+    // Hide the hydration splash on any resolved state.
+    const _loading = document.getElementById('authLoading');
+    if (_loading) _loading.classList.add('hidden');
+    console.log('[reviews] auth state change:', u ? ('signed in as ' + (u.email || u.uid) + (u.isAnonymous ? ' [ANON]' : '')) : 'signed out');
+    // Treat anonymous sessions as signed-out on admin pages — same
+    // reasoning as admin/index.html: showing "signed in as ANON_UID"
+    // and "not on allowlist" reads as if the user must sign out
+    // first. Clicking Sign in with Google will swap to Google.
+    if (!u || u.isAnonymous) {
       document.getElementById('authGate').classList.remove('hidden');
       document.getElementById('adminBody').classList.add('hidden');
       document.getElementById('signOutBtn').classList.add('hidden');
       document.getElementById('signedInAs').textContent = '';
+      const _st = document.getElementById('authStatus');
+      if (_st) _st.textContent = '';
       return;
     }
     document.getElementById('signedInAs').textContent = u.email || u.uid;
@@ -206,6 +265,12 @@ button.danger:hover{background:var(--danger);color:#fff}
 
   async function doSignIn() {
     try {
+      // If the current session is anonymous, sign out first so the
+      // Google popup doesn't try to link to Jacob's real admin uid
+      // (which would fail with credential-already-in-use).
+      if (_user && _user.isAnonymous) {
+        try { await _fb.signOut(_fb.auth); } catch (_) {}
+      }
       const p = new _fb.GoogleAuthProvider();
       await _fb.signInWithPopup(_fb.auth, p);
     } catch (e) {

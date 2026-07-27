@@ -56,7 +56,15 @@ button.primary:hover{filter:brightness(.94)}
   </div>
 </header>
 
-<div id="authGate" class="auth-gate">
+<!-- Hydration splash. Shown until Firebase Auth confirms whether a
+     persisted session exists. Prevents the flash-of-sign-in-gate that
+     read as auth invalidation when navigating between admin pages. -->
+<div id="authLoading" class="auth-gate">
+  <h2 style="opacity:.7">Checking sign-in…</h2>
+  <p style="color:var(--hint);font-size:12px">Restoring your Google session from browser storage.</p>
+</div>
+
+<div id="authGate" class="auth-gate hidden">
   <h2>Sign in required</h2>
   <p>The console is owner-locked to admin uids.</p>
   <button class="primary" onclick="doSignIn()">Sign in with Google</button>
@@ -136,6 +144,8 @@ button.primary:hover{filter:brightness(.94)}
       _fb.onAuthStateChanged = authMod.onAuthStateChanged;
       _fb.setPersistence = authMod.setPersistence;
       _fb.browserLocalPersistence = authMod.browserLocalPersistence;
+      _fb.indexedDBLocalPersistence = authMod.indexedDBLocalPersistence;
+      _fb.authStateReady = authMod.authStateReady;
       _fb.getFirestore = fsMod.getFirestore;
       _fb.doc = fsMod.doc;
       _fb.getDoc = fsMod.getDoc;
@@ -143,13 +153,41 @@ button.primary:hover{filter:brightness(.94)}
       const app = _fb.initializeApp(cfg);
       _fb.auth = _fb.getAuth(app);
       _fb.db = _fb.getFirestore(app);
-      // Explicit persistence — ensures a signed-in Google session
-      // hydrates from IndexedDB across admin pages without
-      // requiring re-sign-in on each subpage.
-      try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
-      catch (_e) { console.warn('[admin] persistence set failed:', _e && _e.message); }
+      // Persistence — indexedDB first (Firefox ETP resilient), local
+      // fallback if IndexedDB is blocked (Safari private mode).
+      try {
+        if (_fb.indexedDBLocalPersistence) {
+          await _fb.setPersistence(_fb.auth, _fb.indexedDBLocalPersistence);
+        } else {
+          await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence);
+        }
+      } catch (_e1) {
+        try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
+        catch (_e2) { console.warn('[admin] persistence set failed:', _e2 && _e2.message); }
+      }
+      // Await the initial auth hydration before making the render
+      // decision so the sign-in gate doesn't flash while IndexedDB
+      // restores the persisted user. authStateReady is Firebase v10.14+;
+      // older builds fall back to a short polled wait.
+      if (typeof _fb.authStateReady === 'function') {
+        try { await _fb.authStateReady(_fb.auth); }
+        catch (_e) { console.warn('[admin] authStateReady threw:', _e && _e.message); }
+      } else {
+        for (let i = 0; i < 20 && !_fb.auth.currentUser; i++) {
+          await new Promise(function(r){ setTimeout(r, 50); });
+        }
+      }
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
-    } catch (e) { document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown'); }
+      // Fire once with the hydrated state so the first render happens
+      // synchronously with what we already know.
+      onAuthChange(_fb.auth.currentUser);
+    } catch (e) {
+      const loading = document.getElementById('authLoading');
+      const gate = document.getElementById('authGate');
+      if (loading) loading.classList.add('hidden');
+      if (gate) gate.classList.remove('hidden');
+      document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown');
+    }
   }
   async function isAdmin(uid) {
     if (!uid) return false;
@@ -164,6 +202,9 @@ button.primary:hover{filter:brightness(.94)}
   }
   async function onAuthChange(u) {
     _user = u;
+    // Hide the hydration splash on any resolved state.
+    const _loading = document.getElementById('authLoading');
+    if (_loading) _loading.classList.add('hidden');
     // Treat anonymous sessions as effectively signed-out on the admin
     // console. app.html auto-creates an anonymous account when it loads
     // with no persisted session (which happens on every visit if the

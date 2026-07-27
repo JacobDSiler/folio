@@ -178,6 +178,8 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
       _fb.onAuthStateChanged = authMod.onAuthStateChanged;
       _fb.setPersistence = authMod.setPersistence;
       _fb.browserLocalPersistence = authMod.browserLocalPersistence;
+      _fb.indexedDBLocalPersistence = authMod.indexedDBLocalPersistence;
+      _fb.authStateReady = authMod.authStateReady;
       _fb.getFirestore = fsMod.getFirestore;
       _fb.doc = fsMod.doc;
       _fb.getDoc = fsMod.getDoc;
@@ -199,14 +201,31 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
       const app = _fb.initializeApp(cfg);
       _fb.auth = _fb.getAuth(app);
       _fb.db = _fb.getFirestore(app);
-      // Explicit persistence — Firebase v10 defaults to LOCAL but making it
-      // explicit removes ambiguity when auth appears not to hydrate across
-      // pages. Await this before wiring the listener so the first fire uses
-      // the restored session rather than transient null.
-      try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
-      catch (e) { console.warn('[press-admin] persistence set failed:', e.message); }
+      // Persistence — indexedDB first, localStorage fallback. Await
+      // this before wiring the listener so the first fire uses the
+      // restored session rather than transient null.
+      try {
+        if (_fb.indexedDBLocalPersistence) {
+          await _fb.setPersistence(_fb.auth, _fb.indexedDBLocalPersistence);
+        } else {
+          await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence);
+        }
+      } catch (_e1) {
+        try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
+        catch (e) { console.warn('[press-admin] persistence set failed:', e.message); }
+      }
+      // Wait for hydration before making the first render decision.
+      if (typeof _fb.authStateReady === 'function') {
+        try { await _fb.authStateReady(_fb.auth); }
+        catch (_e) { console.warn('[press-admin] authStateReady threw:', _e && _e.message); }
+      } else {
+        for (let i = 0; i < 20 && !_fb.auth.currentUser; i++) {
+          await new Promise(function(r){ setTimeout(r, 50); });
+        }
+      }
       console.log('[press-admin] auth ready. currentUser at boot:', _fb.auth.currentUser && _fb.auth.currentUser.email);
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
+      onAuthChange(_fb.auth.currentUser);
     } catch (e) {
       document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown');
     }
@@ -214,11 +233,12 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
 
   function onAuthChange(u) {
     _user = u;
-    console.log('[press-admin] onAuthChange fired. user:', u ? (u.email + ' · ' + u.uid) : 'null');
+    console.log('[press-admin] onAuthChange fired. user:', u ? (u.email + ' · ' + u.uid + (u.isAnonymous ? ' [ANON]' : '')) : 'null');
     const gateTitle = document.getElementById('gateTitle');
     const gateBody = document.getElementById('gateBody');
     const gateBtn = document.getElementById('gateSignInBtn');
-    if (!u) {
+    // Anonymous treated as signed-out.
+    if (!u || u.isAnonymous) {
       // Truly signed out — swap the "Checking sign-in…" copy for the CTA.
       gateTitle.textContent = 'Sign in required';
       gateBody.innerHTML = 'Owner-locked to admin uids in <code>firestore.rules</code>.';
@@ -248,8 +268,14 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
   }
 
   window.doSignIn = async function() {
-    try { await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider()); }
-    catch (e) { document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown'); }
+    try {
+      if (_user && _user.isAnonymous) {
+        try { await _fb.signOut(_fb.auth); } catch (_) {}
+      }
+      await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider());
+    } catch (e) {
+      document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown');
+    }
   };
   window.doSignOut = async function() { try { await _fb.signOut(_fb.auth); } catch (_) {} };
   let _authorList = [];  // [{ uid, author, title, count }]

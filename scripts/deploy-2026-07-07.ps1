@@ -173,7 +173,7 @@ try {
     & git add press\index.html press\import\index.html
     & git add 404.html s\index.html
     & git add help\index.html
-    & git add admin\_shared.js
+    & git add admin\_shared.js admin\reviews\index.html
     & git add docs\AUTH_UNAUTHORIZED_DOMAIN_FIX.md docs\STABILITY_PLAN.md
     & git add docs\TUTORIAL_STRATEGY.md
     & git add docs\ADMIN_DIGEST_SETUP.md
@@ -192,6 +192,51 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+fix(auth): kill flash-of-signed-out across all admin subpages
+
+Follow-up to the earlier anon-account-churn fix. Even after
+persistence was stabilized, Jacob kept getting kicked to the sign-in
+gate mid-navigation ("clicking Review moderation particularly
+invalidates it immediately"). Two contributing issues:
+
+1. First-render race. Every admin subpage was calling
+   onAuthStateChanged BEFORE Firebase's IndexedDB hydration had
+   settled. That first fire came through with user=null, we rendered
+   the sign-in gate, and then a second fire came through with the
+   real Google user — but the gate had already flashed into view
+   and read as an auth invalidation. Fix: await authStateReady()
+   (Firebase v10.14+; polled fallback for older builds) BEFORE
+   wiring the listener, and fire the initial handler synchronously
+   with the resolved state.
+
+2. Anonymous sessions from app.html were still leaking into admin
+   pages when Firefox ETP purged auth.jacobsiler.com storage.
+   The admin pages now treat anonymous identically to signed-out —
+   sign-in gate, no confusing "signed in as ANON_UID / not on
+   allowlist" combo. Sign-in button signs the anonymous session out
+   first before opening the Google popup so linkWithCredential
+   can't collide with the pre-existing admin uid.
+
+Structural changes:
+  - New "authLoading" splash on every admin subpage. Shown by default;
+    swapped for either the sign-in gate or the admin body once auth
+    resolves. Prevents the sign-in gate from ever being visible
+    during the hydration window.
+  - Persistence ladder standardised: indexedDBLocalPersistence first
+    (Firefox ETP resilient), browserLocalPersistence fallback for
+    Safari private mode.
+  - New FolioAdmin.bootAuth helper in admin/_shared.js consolidates
+    the auth-plumbing boilerplate. Existing pages keep their inline
+    boot() (each has page-specific rendering); new admin pages should
+    call bootAuth to inherit these fixes automatically.
+
+Pages updated: admin/index.html, admin/reviews/, admin/shelf/,
+admin/metrics/, admin/press/, admin/admins/, admin/boost/.
+
+---
+
+Previous batch — kept in commit history:
+
 fix(auth): stop anonymous account churn clobbering admin sessions
 
 Root cause: Firefox ETP + Chrome's third-party-storage protections

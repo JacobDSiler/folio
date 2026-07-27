@@ -71,6 +71,11 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
   </div>
 </header>
 
+<div id="authLoading" class="auth-gate">
+  <h2 style="font-family:'Playfair Display',Georgia,serif;font-size:20px;margin:0 0 8px;opacity:.7">Checking sign-in…</h2>
+  <p style="color:var(--hint);font-size:12px;margin:0">Restoring your Google session from browser storage.</p>
+</div>
+
 <div id="authGate" class="auth-gate hidden">
   <h2 style="font-family:'Playfair Display',Georgia,serif;font-size:22px;margin:0 0 10px">Sign in required</h2>
   <p style="color:var(--muted);font-size:13px;margin:0 0 20px">Only admins can manage roles.</p>
@@ -137,6 +142,8 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
       _fb.onAuthStateChanged = authMod.onAuthStateChanged;
       _fb.setPersistence = authMod.setPersistence;
       _fb.browserLocalPersistence = authMod.browserLocalPersistence;
+      _fb.indexedDBLocalPersistence = authMod.indexedDBLocalPersistence;
+      _fb.authStateReady = authMod.authStateReady;
       _fb.getFirestore = fsMod.getFirestore;
       _fb.doc = fsMod.doc;
       _fb.getDoc = fsMod.getDoc;
@@ -151,14 +158,32 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
       const app = _fb.initializeApp(cfg);
       _fb.auth = _fb.getAuth(app);
       _fb.db = _fb.getFirestore(app);
-      // Explicit persistence — ensures a signed-in Google session
-      // hydrates from IndexedDB across admin pages without
-      // requiring re-sign-in on each subpage.
-      try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
-      catch (_e) { console.warn('[admin] persistence set failed:', _e && _e.message); }
+      // Persistence — indexedDB first, localStorage fallback.
+      try {
+        if (_fb.indexedDBLocalPersistence) {
+          await _fb.setPersistence(_fb.auth, _fb.indexedDBLocalPersistence);
+        } else {
+          await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence);
+        }
+      } catch (_e1) {
+        try { await _fb.setPersistence(_fb.auth, _fb.browserLocalPersistence); }
+        catch (_e2) { console.warn('[admins] persistence set failed:', _e2 && _e2.message); }
+      }
+      // Wait for hydration before firing the auth handler.
+      if (typeof _fb.authStateReady === 'function') {
+        try { await _fb.authStateReady(_fb.auth); }
+        catch (_e) { console.warn('[admins] authStateReady threw:', _e && _e.message); }
+      } else {
+        for (let i = 0; i < 20 && !_fb.auth.currentUser; i++) {
+          await new Promise(function(r){ setTimeout(r, 50); });
+        }
+      }
       _fb.onAuthStateChanged(_fb.auth, onAuthChange);
+      onAuthChange(_fb.auth.currentUser);
     } catch (e) {
       console.error('[admins] boot failed:', e);
+      const loading = document.getElementById('authLoading');
+      if (loading) loading.classList.add('hidden');
       document.getElementById('authGate').classList.remove('hidden');
       document.getElementById('authStatus').textContent = 'Boot failed: ' + (e.message || 'unknown');
     }
@@ -175,11 +200,15 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
   }
   async function onAuthChange(u) {
     _user = u;
+    // Hide the hydration splash.
+    const loading = document.getElementById('authLoading');
+    if (loading) loading.classList.add('hidden');
     const gate = document.getElementById('authGate');
     const body = document.getElementById('adminBody');
-    console.log('[admins] auth state:', u ? ('signed in as ' + (u.email || u.uid)) : 'signed out');
+    console.log('[admins] auth state:', u ? ('signed in as ' + (u.email || u.uid) + (u.isAnonymous ? ' [ANON]' : '')) : 'signed out');
     try {
-      if (!u) { gate.classList.remove('hidden'); body.classList.add('hidden'); document.getElementById('signOutBtn').classList.add('hidden'); document.getElementById('signedInAs').textContent = ''; return; }
+      // Anonymous treated as signed-out.
+      if (!u || u.isAnonymous) { gate.classList.remove('hidden'); body.classList.add('hidden'); document.getElementById('signOutBtn').classList.add('hidden'); document.getElementById('signedInAs').textContent = ''; const _st = document.getElementById('authStatus'); if (_st) _st.textContent = ''; return; }
       document.getElementById('signedInAs').textContent = u.email || u.uid.slice(0, 12) + '…';
       document.getElementById('signOutBtn').classList.remove('hidden');
       const admin = await isAdmin(u.uid);
@@ -219,7 +248,16 @@ button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--tex
       document.getElementById('authStatus').textContent = 'Auth check failed: ' + (e.message || 'unknown');
     }
   }
-  window.doSignIn = async function() { try { await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider()); } catch (e) { document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown'); } };
+  window.doSignIn = async function() {
+    try {
+      if (_user && _user.isAnonymous) {
+        try { await _fb.signOut(_fb.auth); } catch (_) {}
+      }
+      await _fb.signInWithPopup(_fb.auth, new _fb.GoogleAuthProvider());
+    } catch (e) {
+      document.getElementById('authStatus').textContent = 'Sign-in failed: ' + (e.message || 'unknown');
+    }
+  };
   window.doSignOut = async function() { try { await _fb.signOut(_fb.auth); } catch (_) {} };
 
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]); }

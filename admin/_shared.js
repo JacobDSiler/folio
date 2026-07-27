@@ -244,12 +244,219 @@
   }
 
   /* ─────────────────────────────────────────────────────────────────
+   * bootAuth — shared admin-page auth flow.
+   *
+   * Every admin subpage had ~40 lines of near-identical boot():
+   * import Firebase, initializeApp, setPersistence, onAuthStateChanged.
+   * Nearly identical, but not quite — some were missing setPersistence,
+   * some were missing authStateReady, and some flashed the sign-in gate
+   * on every navigation because the initial render happens BEFORE
+   * IndexedDB hydrates the persisted user. That flash was what Jacob
+   * kept reading as auth invalidation ("clicking Review moderation
+   * particularly invalidates it immediately").
+   *
+   * This helper consolidates the fix:
+   *   1. Awaits Firebase Auth persistence hydration (authStateReady)
+   *      before making any signed-in-or-out decision. On modern
+   *      Firebase (10.14+) that's a single await; older builds get a
+   *      short polled fallback.
+   *   2. Sets indexedDBLocalPersistence with localStorage fallback so
+   *      Firefox ETP purges don't demote the session to session-only.
+   *   3. Treats anonymous sessions as signed-out (never shows "signed
+   *      in as ANON_UID — not on allowlist" — that read as needing
+   *      to sign out first).
+   *   4. Manages three DOM slots — a loading splash, the sign-in
+   *      gate, the admin body — so the page never flashes the wrong
+   *      one during hydration.
+   *   5. Signs out any anonymous session before starting a Google
+   *      sign-in popup so linkWithCredential can't collide with an
+   *      already-existing admin uid.
+   *
+   * USAGE
+   * ─────
+   *   FolioAdmin.bootAuth({
+   *     firebaseModules: { appMod, authMod, fsMod },     // caller does the imports
+   *     domIds: {
+   *       loading:   'authLoading',   // splash shown while hydrating
+   *       gate:      'authGate',      // sign-in prompt
+   *       body:      'adminBody',     // main content
+   *       signedInAs:'signedInAs',    // header email/uid display
+   *       signOutBtn:'signOutBtn',    // header sign-out button
+   *       status:    'authStatus',    // sign-in error line
+   *     },
+   *     onAdmin: (user, ctx) => { ... }, // called when signed-in admin resolved
+   *     onNonAdmin: (user, ctx) => { ... }, // signed in but not on allowlist
+   *   })
+   *   .then(ctx => {
+   *     // ctx.auth, ctx.db, ctx.fb are ready to use.
+   *   });
+   *
+   * The caller owns the DOM (splash / gate / body markup) and page-
+   * specific rendering (onAdmin callback). This helper only does the
+   * auth plumbing.
+   * ───────────────────────────────────────────────────────────────── */
+  async function bootAuth(opts) {
+    opts = opts || {};
+    const mods = opts.firebaseModules || {};
+    const authMod = mods.authMod;
+    const appMod = mods.appMod;
+    const fsMod = mods.fsMod;
+    const domIds = opts.domIds || {};
+    const onAdmin = opts.onAdmin || function(){};
+    const onNonAdmin = opts.onNonAdmin || null;
+
+    const $ = function(id) { return id ? document.getElementById(id) : null; };
+    const loadingEl = $(domIds.loading);
+    const gateEl = $(domIds.gate);
+    const bodyEl = $(domIds.body);
+    const signedInAsEl = $(domIds.signedInAs);
+    const signOutBtnEl = $(domIds.signOutBtn);
+    const statusEl = $(domIds.status);
+
+    function showLoading() {
+      if (loadingEl) loadingEl.classList.remove('hidden');
+      if (gateEl) gateEl.classList.add('hidden');
+      if (bodyEl) bodyEl.classList.add('hidden');
+    }
+    function showGate(msg) {
+      if (loadingEl) loadingEl.classList.add('hidden');
+      if (gateEl) gateEl.classList.remove('hidden');
+      if (bodyEl) bodyEl.classList.add('hidden');
+      if (signOutBtnEl) signOutBtnEl.classList.add('hidden');
+      if (signedInAsEl) signedInAsEl.textContent = '';
+      if (statusEl) statusEl.textContent = msg || '';
+    }
+    function showBody(user) {
+      if (loadingEl) loadingEl.classList.add('hidden');
+      if (gateEl) gateEl.classList.add('hidden');
+      if (bodyEl) bodyEl.classList.remove('hidden');
+      if (signOutBtnEl) signOutBtnEl.classList.remove('hidden');
+      if (signedInAsEl) signedInAsEl.textContent = user.email || user.uid.slice(0, 12) + '…';
+      if (statusEl) statusEl.textContent = '';
+    }
+
+    showLoading();
+
+    if (!authMod || !appMod) {
+      showGate('Boot failed: missing Firebase modules.');
+      throw new Error('bootAuth: firebaseModules.authMod and .appMod required');
+    }
+
+    const app = appMod.initializeApp(FIREBASE_CONFIG);
+    const auth = authMod.getAuth(app);
+    const db = fsMod ? fsMod.getFirestore(app) : null;
+
+    // Persistence — indexedDB survives Firefox ETP better than localStorage;
+    // fall back if indexedDB is unavailable (Safari private mode).
+    try {
+      if (authMod.indexedDBLocalPersistence) {
+        await authMod.setPersistence(auth, authMod.indexedDBLocalPersistence);
+      } else if (authMod.browserLocalPersistence) {
+        await authMod.setPersistence(auth, authMod.browserLocalPersistence);
+      }
+    } catch (_e1) {
+      try { await authMod.setPersistence(auth, authMod.browserLocalPersistence); }
+      catch (_e2) { console.warn('[FolioAdmin.bootAuth] persistence set failed:', _e2 && _e2.message); }
+    }
+
+    // Wait for the initial auth state to hydrate. authStateReady is
+    // Firebase v10.14+; older builds get a short polled fallback.
+    if (typeof authMod.authStateReady === 'function') {
+      try { await authMod.authStateReady(auth); }
+      catch (e) { console.warn('[FolioAdmin.bootAuth] authStateReady threw:', e && e.message); }
+    } else {
+      for (let i = 0; i < 20 && !auth.currentUser; i++) {
+        await new Promise(function(r){ setTimeout(r, 50); });
+      }
+    }
+
+    const fb = fsMod ? {
+      doc: fsMod.doc,
+      getDoc: fsMod.getDoc,
+      setDoc: fsMod.setDoc,
+      updateDoc: fsMod.updateDoc,
+      deleteDoc: fsMod.deleteDoc,
+      collection: fsMod.collection,
+      query: fsMod.query,
+      where: fsMod.where,
+      orderBy: fsMod.orderBy,
+      getDocs: fsMod.getDocs,
+      limit: fsMod.limit,
+      addDoc: fsMod.addDoc,
+      serverTimestamp: fsMod.serverTimestamp,
+    } : {};
+
+    const ctx = { auth: auth, db: db, fb: fb, appModule: appMod, authModule: authMod, fsModule: fsMod };
+
+    async function isAdmin(uid) {
+      if (!uid) return false;
+      if (ADMIN_UIDS.indexOf(uid) >= 0) return true;
+      if (!db || !fsMod || !fsMod.getDoc || !fsMod.doc) return false;
+      try {
+        const roleDoc = await fsMod.getDoc(fsMod.doc(db, 'folio_roles', uid));
+        if (!roleDoc.exists()) return false;
+        const d = roleDoc.data() || {};
+        return Array.isArray(d.roles) && d.roles.indexOf('admin') >= 0;
+      } catch (e) {
+        console.warn('[FolioAdmin.bootAuth] folio_roles lookup failed:', e && e.message);
+        return false;
+      }
+    }
+
+    async function handleAuthChange(u) {
+      // Anonymous sessions are treated identically to signed-out on
+      // admin pages — the "signed in as ANON_UID / not on allowlist"
+      // combination reads as if the user needs to sign out first,
+      // which is not what we mean.
+      if (!u || u.isAnonymous) {
+        showGate('');
+        return;
+      }
+      const admin = await isAdmin(u.uid);
+      if (!admin) {
+        showGate('Signed in as ' + (u.email || u.uid) + ' — not on admin allowlist.');
+        if (onNonAdmin) { try { onNonAdmin(u, ctx); } catch (e) { console.warn('[FolioAdmin.bootAuth] onNonAdmin threw:', e); } }
+        return;
+      }
+      showBody(u);
+      try { await onAdmin(u, ctx); }
+      catch (e) { console.warn('[FolioAdmin.bootAuth] onAdmin threw:', e); }
+    }
+
+    // Fire once now with the hydrated state so the page doesn't wait
+    // on the async callback for the first render.
+    handleAuthChange(auth.currentUser);
+    // Register the ongoing listener so future sign-in/sign-out flips
+    // update the UI without a reload.
+    authMod.onAuthStateChanged(auth, handleAuthChange);
+
+    // Sign-in / sign-out helpers exported for the page's buttons.
+    ctx.signIn = async function() {
+      try {
+        if (auth.currentUser && auth.currentUser.isAnonymous) {
+          try { await authMod.signOut(auth); } catch (_) {}
+        }
+        const p = new authMod.GoogleAuthProvider();
+        await authMod.signInWithPopup(auth, p);
+      } catch (e) {
+        if (statusEl) statusEl.textContent = 'Sign-in failed: ' + (e.message || 'unknown');
+      }
+    };
+    ctx.signOut = async function() {
+      try { await authMod.signOut(auth); } catch (_) {}
+    };
+
+    return ctx;
+  }
+
+  /* ─────────────────────────────────────────────────────────────────
    * Export.
    * ───────────────────────────────────────────────────────────────── */
   global.FolioAdmin = {
     FIREBASE_CONFIG: FIREBASE_CONFIG,
     ADMIN_UIDS: ADMIN_UIDS,
     mountAuthorLookup: mountAuthorLookup,
+    bootAuth: bootAuth,
     esc: esc,
     escAttr: escAttr,
   };
