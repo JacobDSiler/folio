@@ -2551,6 +2551,168 @@ async function handleAdminUserLookup(request, env) {
   }
 }
 
+/* POST /migrate-anon-to-google
+   ────────────────────────────────────────────────────────────────
+   Reassigns folio_projects owned by an anonymous uid to a Google
+   uid — used when the reader tries to link their anon session to a
+   Google account that already has its own Firebase uid (Firebase
+   throws auth/credential-already-in-use in that case).
+
+   Client sends { anonIdToken, googleIdToken }. Both tokens are
+   verified via Firebase Identity Toolkit; anonUid + googleUid are
+   extracted from the verified tokens (NOT from the request body)
+   so the caller can't migrate someone else's folios into their own
+   account.
+
+   Migration steps, using the service account (bypasses client rules):
+     1. Query folio_projects where uid == anonUid (up to 100)
+     2. For each, PATCH uid = googleUid (single-field update, cheap)
+        Subcollections (body/, versions/, subscribers/, paid_sales/,
+        metrics/) stay put automatically because they're keyed by
+        folio ID, not by uid.
+     3. Merge folio_user_settings/{anonUid} into folio_user_settings/
+        {googleUid} for fields that don't already exist on the Google
+        side. Critical fields like pressSubscription on Google side
+        are NEVER overwritten by anon-side data (protects existing
+        subscriptions from being clobbered by an empty anon settings).
+
+   Returns { ok, migrated, anonUid, googleUid, notes[] }.
+*/
+async function handleMigrateAnonToGoogle(request, env) {
+  if (!env.GCP_SERVICE_ACCOUNT) return errorJson('Server not configured (service account)', 500, request, env);
+  let body;
+  try { body = await request.json(); }
+  catch (_) { return errorJson('Bad JSON body', 400, request, env); }
+  const anonIdToken   = String((body && body.anonIdToken)   || '').trim();
+  const googleIdToken = String((body && body.googleIdToken) || '').trim();
+  if (!anonIdToken || !googleIdToken) {
+    return errorJson('Both anonIdToken and googleIdToken required', 400, request, env);
+  }
+  const anonUid   = await _verifyFirebaseIdToken(anonIdToken, env);
+  const googleUid = await _verifyFirebaseIdToken(googleIdToken, env);
+  if (!anonUid)   return errorJson('anonIdToken invalid or expired', 401, request, env);
+  if (!googleUid) return errorJson('googleIdToken invalid or expired', 401, request, env);
+  if (anonUid === googleUid) return errorJson('Same uid — nothing to migrate', 400, request, env);
+  try {
+    const auth = await getAccessToken(env);
+    const pid = env.FIRESTORE_PROJECT_ID || auth.projectId;
+    const notes = [];
+
+    // 1. Query the anon user's folios.
+    const runQueryUrl = 'https://firestore.googleapis.com/v1/projects/' + pid +
+                        '/databases/(default)/documents:runQuery';
+    const queryBody = {
+      structuredQuery: {
+        from: [{ collectionId: 'folio_projects' }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath: 'uid' },
+            op: 'EQUAL',
+            value: { stringValue: anonUid },
+          }
+        },
+        limit: 100,
+      }
+    };
+    const qResp = await fetch(runQueryUrl, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + auth.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(queryBody),
+    });
+    if (!qResp.ok) {
+      const err = await qResp.text().catch(() => '');
+      return errorJson('Folio query failed: ' + qResp.status + ' ' + err.slice(0, 200), 502, request, env);
+    }
+    const rows = await qResp.json();
+
+    // 2. Reassign each folio's uid to googleUid via a targeted PATCH.
+    let migrated = 0;
+    let failed = 0;
+    if (Array.isArray(rows)) {
+      for (const row of rows) {
+        if (!row.document) continue;
+        const folioId = String(row.document.name || '').split('/').pop();
+        if (!folioId) continue;
+        const patchUrl = 'https://firestore.googleapis.com/v1/projects/' + pid +
+                         '/databases/(default)/documents/folio_projects/' +
+                         encodeURIComponent(folioId) + '?updateMask.fieldPaths=uid';
+        const pResp = await fetch(patchUrl, {
+          method: 'PATCH',
+          headers: { 'Authorization': 'Bearer ' + auth.token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: { uid: { stringValue: googleUid } } }),
+        });
+        if (pResp.ok) {
+          migrated++;
+        } else {
+          failed++;
+          const err = await pResp.text().catch(() => '');
+          console.warn('[migrate] folio', folioId, 'update failed:', pResp.status, err.slice(0, 200));
+        }
+      }
+    }
+    notes.push(migrated + ' folio(s) reassigned' + (failed ? ' (' + failed + ' failed)' : ''));
+
+    // 3. Merge folio_user_settings/{anonUid} into {googleUid}. Never
+    //    clobber existing values on the Google side — the Google account
+    //    may already carry a pressSubscription, comp status, or preferences
+    //    we don't want an empty anon settings doc to overwrite.
+    try {
+      const anonSet   = await fsGet(pid, auth.token, 'folio_user_settings/' + encodeURIComponent(anonUid)).catch(() => null);
+      const googleSet = await fsGet(pid, auth.token, 'folio_user_settings/' + encodeURIComponent(googleUid)).catch(() => null);
+      if (anonSet && Object.keys(anonSet).length > 0) {
+        const missingOnGoogle = {};
+        for (const key of Object.keys(anonSet)) {
+          if (!googleSet || googleSet[key] == null) {
+            missingOnGoogle[key] = anonSet[key];
+          }
+        }
+        const mergeKeys = Object.keys(missingOnGoogle);
+        if (mergeKeys.length > 0) {
+          const fields = {};
+          for (const k of mergeKeys) {
+            const v = missingOnGoogle[k];
+            // Only merge scalar-ish leaf types for safety; complex nested
+            // objects (subcollections, etc.) are skipped. The typical anon
+            // settings doc holds lastEmail/lastDisplayName/signInAt which
+            // are all strings/timestamps.
+            if (typeof v === 'string') fields[k] = { stringValue: v };
+            else if (typeof v === 'number') fields[k] = { doubleValue: v };
+            else if (typeof v === 'boolean') fields[k] = { booleanValue: v };
+            else if (v instanceof Date) fields[k] = { timestampValue: v.toISOString() };
+            // else skip (map/array — too risky to auto-merge)
+          }
+          if (Object.keys(fields).length > 0) {
+            const updateMask = 'updateMask.fieldPaths=' + Object.keys(fields).map(encodeURIComponent).join('&updateMask.fieldPaths=');
+            const mergeUrl = 'https://firestore.googleapis.com/v1/projects/' + pid +
+                             '/databases/(default)/documents/folio_user_settings/' +
+                             encodeURIComponent(googleUid) + '?' + updateMask;
+            const mResp = await fetch(mergeUrl, {
+              method: 'PATCH',
+              headers: { 'Authorization': 'Bearer ' + auth.token, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ fields }),
+            });
+            if (mResp.ok) {
+              notes.push('Merged ' + Object.keys(fields).length + ' settings field(s)');
+            } else {
+              notes.push('Settings merge failed (non-fatal)');
+            }
+          } else {
+            notes.push('No settings fields to merge');
+          }
+        } else {
+          notes.push('Google settings already carry every anon field');
+        }
+      }
+    } catch (e) {
+      notes.push('Settings merge threw: ' + (e.message || 'unknown') + ' (non-fatal)');
+    }
+
+    return json({ ok: true, migrated, failed, anonUid, googleUid, notes }, 200, request, env);
+  } catch (e) {
+    return errorJson('Migration failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+}
+
 async function handleUserList(request, env) {
   const url = new URL(request.url);
   const key = url.searchParams.get('key') || '';
@@ -3623,6 +3785,7 @@ export default {
     if (path === '/event'          && request.method === 'POST') return handleEvent(request, env);
     if (path === '/user-list'      && request.method === 'GET')  return handleUserList(request, env);
     if (path === '/admin/user-lookup' && request.method === 'GET') return handleAdminUserLookup(request, env);
+    if (path === '/migrate-anon-to-google' && request.method === 'POST') return handleMigrateAnonToGoogle(request, env);
     // GET /env-check?key=<ADMIN_DEBUG_TOKEN> — reports which env
     // bindings the paywall worker can see at runtime, without leaking
     // any values. Diagnostic-only. Use to confirm secrets landed on

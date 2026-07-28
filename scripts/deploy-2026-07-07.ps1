@@ -192,6 +192,88 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat(auth): full anonymous → Google migration on sign-in
+
+Previously, when an anonymous user tried to link to a Google account
+that already had its own Firebase uid, Firebase threw
+auth/credential-already-in-use and we silently signed them into the
+existing Google account. Anything they'd built on the anon session
+(folios, comps, subscribers, metrics) was orphaned in Firestore —
+"contact support" was the recovery path.
+
+This batch fixes it end-to-end:
+
+1. Worker endpoint POST /migrate-anon-to-google
+   Body: { anonIdToken, googleIdToken }. Verifies both tokens
+   via Identity Toolkit, extracts uids from the verified tokens
+   (never trusts client-provided uids). Then via service account:
+     - Queries folio_projects where uid == anonUid (up to 100)
+     - PATCHes each doc's uid to googleUid. Subcollections
+       (body/, versions/, subscribers/, paid_sales/, metrics/)
+       stay put because they're keyed by folio ID, not uid.
+     - Reads folio_user_settings/{anonUid} + /{googleUid}, merges
+       ONLY scalar fields that don't already exist on the Google
+       side. Critical fields like pressSubscription on the Google
+       side are never overwritten by anon-side data.
+   Returns { migrated, failed, anonUid, googleUid, notes[] }.
+
+2. Client refactor — release-modal sign-in prompt
+   (window._rlShelfSignInPrompt in app.html):
+     - Captures the anon ID token BEFORE the popup (once
+       signInWithCredential fires the anon session is dead and
+       its token can't be regenerated).
+     - Tries linkWithPopup. On success the anon uid is preserved
+       with Google added as a provider — no migration needed.
+     - On credential-already-in-use: extracts credential via
+       GoogleAuthProvider.credentialFromError, signs into the
+       existing Google account via signInWithCredential, calls
+       /migrate-anon-to-google, then reloads the app so
+       everything re-renders under the new uid.
+     - Shows migration progress + result in the release modal's
+       status line.
+
+3. GIS sign-in flow (sidebar / main app sign-in button) gets the
+   same treatment. Captures anon token BEFORE linkWithCredential
+   attempt, falls back through migration on credential-in-use.
+   The legacy _restoreFolioBackupAfterUpgrade path (localStorage
+   backup of just the currently-open folio) stays as a
+   belt-and-braces safety net if the worker migration fails.
+
+4. Fixed the sibling regression from the previous batch: when
+   onAuthStateChanged fired with no user AND
+   localStorage.folio_had_real_session === '1', we were skipping
+   auto-anon entirely — leaving the app hanging on "Loading your
+   folios…" forever because downstream code expects SOME user.
+   Now auto-anon runs unconditionally; the folio-needs-resignin
+   event still fires so the amber re-sign-in banner shows on top,
+   giving the user a one-click path back to their real account.
+
+5. New re-sign-in banner (app.html top of page). Listens for the
+   folio-needs-resignin event, renders a dismissible amber bar:
+   "Your Google session was cleared. You were signed in as
+   <email>. Sign back in to reach your existing folios."
+   Clicking the button signs out the fresh anon session first
+   (so linkWithCredential doesn't collide with the pre-existing
+   admin uid) then opens the Google popup. Dismissing hides for
+   the tab; reappears on next reload if the situation persists.
+   Auto-removes on successful non-anon sign-in.
+
+Related UI polish:
+  - "Review Folio" button lifted out of the collapsible Shortcuts
+    <details> — now a sibling so it stays visible even when the
+    Shortcuts menu is collapsed. Amber-tinted background lifts it
+    above the neutral row of sibling buttons.
+  - Two-line label ("Review Folio" / "Earn a free 24h Featured
+    Boost") makes the exchange explicit; tooltip expands.
+  - Modal intro explicitly says "Honest reviews of Folio itself"
+    to distinguish from any book-review flow.
+  - Help page (/help/) gains a "Reviews + feedback" section with
+    deep-linkable #reviews anchor referenced from the modal.
+
+---
+
+Previous batch — kept in commit history:
+
 fix(auth): kill flash-of-signed-out across all admin subpages
 
 Follow-up to the earlier anon-account-churn fix. Even after

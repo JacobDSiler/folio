@@ -7990,6 +7990,17 @@
       console.log('[GIS] proceeding with', isAnon ? 'linkWithCredential' : 'signInWithCredential',
         { currentUid: currentUser?.uid });
 
+      // Capture the anon ID token BEFORE any auth mutation so we can
+      // migrate anon-owned folios if linking fails with
+      // credential-already-in-use (Google account already has its own
+      // Firebase uid). Without this token the worker can't verify the
+      // caller owns the anon uid and the migration is impossible.
+      let anonIdToken = null;
+      if (isAnon) {
+        try { anonIdToken = await currentUser.getIdToken(); }
+        catch (e) { console.warn('[GIS] anon token capture failed:', e && e.message); }
+      }
+
       try {
         let result;
         if (isAnon) {
@@ -8014,16 +8025,48 @@
           || e?.code === 'auth/email-already-in-use'
           || e?.code === 'auth/account-exists-with-different-credential') {
           // The Google account is already linked to a different Firebase
-          // user. Sign in as that existing user instead — we'll use the
-          // localStorage backup to restore the anon's current folio onto
-          // their existing account via _restoreFolioBackupAfterUpgrade.
-          console.log('[GIS] credential-in-use — switching to existing Google user via signInWithCredential');
+          // user. Sign in as that existing user, then hit the worker's
+          // migration endpoint to reassign anon-owned folios to the
+          // Google uid. The old localStorage-backup-then-restore path
+          // only recovered ONE folio (the currently-open one); this
+          // reassigns EVERY folio owned by the anon uid.
+          console.log('[GIS] credential-in-use — switching + migrating via worker');
           try {
             const result2 = await fbAuth.signInWithCredential(window._auth, credential);
             console.log('[GIS] fallback sign-in OK',
               { uid: result2?.user?.uid, email: result2?.user?.email });
-            if (typeof setStatus === 'function') setStatus('Signed in as ' + (result2?.user?.email || 'Google user'));
-            // Defer the restore so onAuthStateChanged has a chance to settle.
+            if (typeof setStatus === 'function') setStatus('Signed in as ' + (result2?.user?.email || 'Google user') + '. Moving your work…');
+            // Attempt migration if we captured an anon token earlier.
+            if (anonIdToken) {
+              try {
+                const googleIdToken = await result2.user.getIdToken();
+                const migrateResp = await fetch(PAYWALL_WORKER_URL + '/migrate-anon-to-google', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ anonIdToken, googleIdToken }),
+                });
+                const migrateData = await migrateResp.json().catch(() => ({}));
+                if (migrateResp.ok && migrateData.ok) {
+                  const n = migrateData.migrated || 0;
+                  console.log('[GIS] migration OK:', migrateData);
+                  if (typeof setStatus === 'function') {
+                    setStatus(n
+                      ? ('Signed in — moved ' + n + ' folio' + (n === 1 ? '' : 's') + ' to your account. Reloading…')
+                      : 'Signed in. Reloading…');
+                  }
+                  // Reload so the app re-renders under the Google uid.
+                  setTimeout(function(){ window.location.reload(); }, 900);
+                  return;
+                } else {
+                  console.warn('[GIS] migration failed:', migrateData);
+                  if (typeof setStatus === 'function') setStatus('Signed in, but migration failed — see console. Email support.');
+                }
+              } catch (mErr) {
+                console.warn('[GIS] migration threw:', mErr && mErr.message);
+                if (typeof setStatus === 'function') setStatus('Signed in, but migration failed — see console.');
+              }
+            }
+            // Fallback: legacy localStorage-single-folio restore.
             setTimeout(() => {
               if (typeof window._restoreFolioBackupAfterUpgrade === 'function') {
                 try { window._restoreFolioBackupAfterUpgrade(); } catch (e3) { console.warn(e3); }
@@ -21852,47 +21895,136 @@
       if (typeof _rlUpdateBoostCardState === 'function') _rlUpdateBoostCardState();
     };
 
-    // Kick off Google sign-in from the release modal. Uses the same
-    // GIS flow the sidebar uses; because the current user is anonymous,
-    // Firebase's linkWithCredential path fires (see the auth handler
-    // around line 7871) and preserves the anonymous uid + everything
-    // attached to it (folios, comps, subscriptions, metrics).
-    window._rlShelfSignInPrompt = function _rlShelfSignInPrompt() {
-      // Prefer the app's canonical sign-in trigger if it exists; falls
-      // back to a plain popup via the imported provider. Both paths end
-      // up in the same onAuthStateChanged handler.
+    // Kick off Google sign-in from the release modal, with proper
+    // anon → Google migration when the target Google account already
+    // has its own Firebase uid.
+    //
+    // Three cases the flow has to handle cleanly:
+    //   1. Anon → Google (Google account doesn't yet exist in
+    //      Firebase). linkWithPopup succeeds; anon uid is preserved
+    //      with Google added as a provider. No migration needed —
+    //      everything on the anon uid stays reachable under the same
+    //      uid.
+    //   2. Anon → Google (Google account IS an existing Firebase
+    //      uid). linkWithPopup throws auth/credential-already-in-use.
+    //      We capture the credential from the error, sign in as that
+    //      existing Google user via signInWithCredential, then hit
+    //      the worker's /migrate-anon-to-google endpoint which
+    //      reassigns every folio_projects doc owned by the anon uid
+    //      to the Google uid via service account (bypasses the
+    //      client-side "only owner can update" rule). Anon session's
+    //      work follows them to their existing account.
+    //   3. Already signed in (Google) or fully signed out. Just
+    //      signInWithPopup — nothing to migrate.
+    //
+    // Anon ID token is captured BEFORE the popup so we have proof of
+    // the anon session to send to the worker; after signInWithCredential
+    // fires the anon session is dead and its token can't be regenerated.
+    window._rlShelfSignInPrompt = async function _rlShelfSignInPrompt() {
+      const auth = window._auth;
+      const user = window._user;
+      const fbAuth = window._fbAuth || {};
+      if (!auth || !fbAuth.signInWithPopup) {
+        alert('Sign-in helper unavailable. Please use the sidebar Sign in button.');
+        return;
+      }
+      const provider = window._googleProvider || new fbAuth.GoogleAuthProvider();
+      const wasAnon = !!(user && user.isAnonymous);
+
+      // Capture anon token + uid before doing anything that could
+      // invalidate the session. If we skip this step and the linking
+      // fails, we lose the ability to migrate (worker requires the
+      // anon token to prove ownership of the anon uid).
+      let anonIdToken = null;
+      let anonUid = null;
+      if (wasAnon) {
+        anonUid = user.uid;
+        try { anonIdToken = await user.getIdToken(); }
+        catch (e) { console.warn('[rl] anon token capture failed:', e && e.message); }
+      }
+
+      // Case 3 — not anon → plain sign-in and we're done.
+      if (!wasAnon) {
+        try { await fbAuth.signInWithPopup(auth, provider); }
+        catch (e) { alert('Sign-in failed: ' + (e && e.message || 'unknown')); }
+        return;
+      }
+
+      // Case 1 — try to link the anon session to Google. If Google
+      // isn't yet a Firebase uid, this succeeds and the anon uid
+      // survives with Google as a linked provider. Nothing else to do.
+      if (!fbAuth.linkWithPopup) {
+        alert('Sign-in helper missing linkWithPopup — please reload and try again.');
+        return;
+      }
+      let linkError = null;
       try {
-        if (typeof window.startSignIn === 'function') { window.startSignIn(); return; }
-        if (typeof window._triggerGoogleSignIn === 'function') { window._triggerGoogleSignIn(); return; }
-      } catch (_) {}
-      // Popup fallback — links credential when currently anonymous.
+        await fbAuth.linkWithPopup(user, provider);
+        console.log('[rl] link succeeded — anon uid preserved with Google linked');
+        return;
+      } catch (e) {
+        linkError = e;
+      }
+
+      // Case 2 — link failed. If it wasn't the "Google account exists"
+      // case, just report the error. Otherwise fall through to migration.
+      if (linkError && linkError.code !== 'auth/credential-already-in-use') {
+        alert('Sign-in failed: ' + (linkError.message || linkError.code || 'unknown'));
+        return;
+      }
+      const credential = fbAuth.GoogleAuthProvider &&
+        fbAuth.GoogleAuthProvider.credentialFromError &&
+        fbAuth.GoogleAuthProvider.credentialFromError(linkError);
+      if (!credential) {
+        alert('Sign-in error: could not read Google credential from the linking error. Please try again.');
+        return;
+      }
+      if (!anonIdToken) {
+        // No anon token → migration impossible. Sign in anyway but warn.
+        try {
+          await fbAuth.signInWithCredential(auth, credential);
+          alert('Signed into your Google account, but your anonymous folios couldn\'t be migrated (missing session token). Any work on the anon session is still in the database but not linked to your Google account — email hello@onfolio.press to recover it.');
+        } catch (e) { alert('Sign-in failed: ' + (e.message || 'unknown')); }
+        return;
+      }
+
+      // Full migration path. Show a lightweight status while it runs.
+      const _statusEl = document.getElementById('rlStatus');
+      if (_statusEl) {
+        _statusEl.textContent = 'Signing into your Google account and moving your work…';
+        _statusEl.style.color = 'var(--hint)';
+      }
       try {
-        const auth = window._auth;
-        const user = window._user;
-        const fbAuth = window._fbAuth || {};
-        if (!auth || !fbAuth.signInWithPopup) {
-          alert('Sign-in helper unavailable. Please use the sidebar Sign in button.');
+        const result = await fbAuth.signInWithCredential(auth, credential);
+        const googleIdToken = await result.user.getIdToken();
+        const migrateResp = await fetch(PAYWALL_WORKER_URL + '/migrate-anon-to-google', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ anonIdToken, googleIdToken }),
+        });
+        const migrateData = await migrateResp.json().catch(function(){ return {}; });
+        if (!migrateResp.ok || !migrateData.ok) {
+          alert('Signed in as ' + (result.user.email || 'your Google account') + ', but migration failed: ' +
+                ((migrateData && migrateData.error) || migrateResp.status) +
+                '. Your anonymous work is still in the database — email hello@onfolio.press with your account email and this error to recover it.');
+          if (_statusEl) { _statusEl.textContent = 'Migration failed — see alert.'; _statusEl.style.color = 'var(--danger,#c04040)'; }
           return;
         }
-        const provider = window._googleProvider || new fbAuth.GoogleAuthProvider();
-        if (user && user.isAnonymous && fbAuth.linkWithPopup) {
-          fbAuth.linkWithPopup(user, provider).catch(function(e){
-            console.warn('[rl] linkWithPopup failed:', e && e.message);
-            // Common failure: credential-already-in-use — user has an
-            // existing Google account. Sign them into that instead so
-            // they can at least publish, but flag the orphan.
-            if (e && e.code === 'auth/credential-already-in-use') {
-              alert('This Google account is already linked to a different Folio account. Signing you into that one. Any work on your anonymous session may be stranded — please contact support if this happens.');
-              fbAuth.signInWithPopup(auth, provider);
-            } else {
-              alert('Sign-in failed: ' + (e && e.message));
-            }
-          });
-        } else {
-          fbAuth.signInWithPopup(auth, provider);
+        const n = migrateData.migrated || 0;
+        if (_statusEl) {
+          _statusEl.textContent = n
+            ? ('✓ Signed in as ' + (result.user.email || 'you') + '. Moved ' + n + ' folio' + (n === 1 ? '' : 's') + ' to your account. Reloading…')
+            : ('✓ Signed in as ' + (result.user.email || 'you') + '. Reloading…');
+          _statusEl.style.color = 'var(--accent-ui)';
         }
+        // Force a reload so the app re-renders everything under the
+        // new (Google) uid — the current in-memory state still points
+        // at the anon uid's data model in a bunch of places, and a
+        // reload is the cleanest way to snap into the new identity.
+        setTimeout(function(){ window.location.reload(); }, 900);
       } catch (e) {
-        alert('Sign-in error: ' + (e.message || 'unknown'));
+        alert('Sign-in failed during migration: ' + (e.message || 'unknown') + '. Contact support if this persists.');
+        if (_statusEl) { _statusEl.textContent = 'Sign-in error.'; _statusEl.style.color = 'var(--danger,#c04040)'; }
       }
     };
 
