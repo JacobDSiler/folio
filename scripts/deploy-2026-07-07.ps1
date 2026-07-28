@@ -192,6 +192,38 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+fix(rules): unblock share links on unpublished folios
+
+Anonymous readers hitting reader / beta / editor share links on
+UNPUBLISHED folios were getting FirebaseError: Missing or insufficient
+permissions from getDoc(folio_projects/{id}). The prior rule only
+allowed non-owner reads when release.published == true, which
+excluded every legitimate beta/editor sharing scenario (the whole
+point of beta shares is pre-publication feedback).
+
+The fix aligns the rule with the release-modal's mental model:
+creating a release object AT ALL — Public & free, Paid, or
+Private link — is itself the "I want this distributable via URL"
+signal. Folio IDs are timestamp + 6-char random suffix (~10^10
+guesses), unguessable in practice; the URL is the credential.
+
+New helper parentHasRelease(id) mirrors parentPublished(id) but
+checks release != null rather than release.published == true.
+folioVisible(id) — used by subcollection read rules (body/main,
+metadata, etc.) — now returns true when parentHasRelease.
+
+body/paid stays owner-only. Paid content still routes through the
+paywall worker's /paid-content endpoint which HMAC-verifies the
+share/paywall JWT via service account before returning anything.
+No change to paid-content security.
+
+folio_projects/{id} top-level read rule updated in parallel
+(the rule uses resource.data.uid directly, not the helper).
+
+---
+
+Previous batch — kept in commit history:
+
 feat(auth): full anonymous → Google migration on sign-in
 
 Previously, when an anonymous user tried to link to a Google account
