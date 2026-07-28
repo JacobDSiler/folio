@@ -310,15 +310,18 @@
 
 
       } else {
-        // No user → decide whether to auto-anon or prompt for sign-in.
-        // Behavior split by prior history:
-        //   - Never signed in before → auto-anon (preserves the
-        //     "try Folio without an account" onboarding path).
-        //   - Previously signed in with a real provider → their
-        //     persisted session was wiped (browser cleared IndexedDB,
-        //     they signed out on another tab, etc.). Do NOT auto-anon
-        //     because that would create a new orphan uid every time.
-        //     Instead, show a re-sign-in prompt via a custom event.
+        // No user → always fall back to an anonymous session so the app
+        // has SOMETHING to run against. Downstream code (folio loader,
+        // subscribers refresh, metrics tab) assumes there's always a
+        // signed-in user; a null user hangs the "Loading your folios…"
+        // spinner forever.
+        //
+        // Additionally, if the browser had a real (Google) session
+        // previously that got wiped, we ALSO fire a folio-needs-resignin
+        // event so a banner can nudge the user to sign back in and
+        // reclaim their prior work — see the listener installed below.
+        // Prior wrong choice (skipping auto-anon when hadRealSession was
+        // true) left the app hanging; the fix is additive not exclusive.
         window._uid = null;
         window._user = null;
 
@@ -328,23 +331,82 @@
         try { hadRealSession = localStorage.getItem('folio_had_real_session') === '1'; } catch (_) {}
 
         if (hadRealSession) {
-          // Notify any UI that wants to show a re-sign-in banner.
-          // Kept as a fire-and-forget event so we don't hard-couple
-          // this handler to any specific UI element.
           try {
             const lastEmail = localStorage.getItem('folio_last_signin_email') || '';
             window.dispatchEvent(new CustomEvent('folio-needs-resignin', { detail: { lastEmail } }));
           } catch (_) {}
-          console.log('[AUTH] persisted Google session missing — prompting re-sign-in instead of auto-anon');
-        } else {
-          try {
-            await signInAnonymously(auth);
-          } catch (e) {
-            console.warn('anon auth:', e);
-          }
+          console.log('[AUTH] persisted Google session missing — auto-anon proceeding, re-sign-in banner shown');
+        }
+        try {
+          await signInAnonymously(auth);
+        } catch (e) {
+          console.warn('anon auth:', e);
         }
       }
     });
+
+    // ── Re-sign-in banner ─────────────────────────────────────────
+    // Fires when onAuthStateChanged reports no user AND localStorage
+    // shows the browser previously held a real (Google) session — i.e.
+    // the persisted session was wiped (Firefox ETP purge, cross-site
+    // storage clear, manual sign-out on another tab, etc.). We've
+    // already auto-signed-in a new anonymous session by this point so
+    // the app runs; the banner just nudges the user to reclaim their
+    // real account before they start work on the wrong uid.
+    //
+    // Dismissible per-session — dismissing hides for the current tab
+    // only; re-appears on next reload if the situation persists. This
+    // keeps the nudge from becoming annoying while still surfacing
+    // the loss on every fresh entry.
+    (function _installResigninBanner(){
+      let _banner = null;
+      let _dismissed = false;
+      window.addEventListener('folio-needs-resignin', function(ev){
+        if (_dismissed || _banner) return;
+        const lastEmail = (ev && ev.detail && ev.detail.lastEmail) || '';
+        _banner = document.createElement('div');
+        _banner.id = 'resigninBanner';
+        _banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#fdfaf3;border-bottom:.5px solid #e8d9a8;padding:10px 16px;display:flex;align-items:center;gap:12px;font-size:12.5px;color:#5c3d00;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,0.06)';
+        _banner.innerHTML =
+          '<span style="font-size:16px">🔑</span>' +
+          '<span style="flex:1;line-height:1.45">' +
+          '<strong>Your Google session was cleared.</strong> ' +
+          (lastEmail ? 'You were signed in as <code style="background:rgba(0,0,0,0.05);padding:1px 5px;border-radius:3px;font-size:11.5px">' + lastEmail.replace(/</g,'&lt;') + '</code>. ' : '') +
+          'You\'re browsing anonymously right now — sign back in to reach your existing folios.' +
+          '</span>' +
+          '<button type="button" id="resigninBtn" style="background:var(--accent-ui,#065f46);color:#fff;border:none;padding:7px 14px;border-radius:6px;font-size:12.5px;font-weight:500;cursor:pointer;font-family:inherit;flex-shrink:0">Sign back in with Google</button>' +
+          '<button type="button" id="resigninDismiss" title="Hide until next reload" style="background:none;border:none;color:#5c3d00;font-size:20px;line-height:1;cursor:pointer;padding:0 4px;flex-shrink:0">×</button>';
+        document.body.appendChild(_banner);
+        document.getElementById('resigninBtn').addEventListener('click', async function(){
+          try {
+            const provider = window._googleProvider || new GoogleAuthProvider();
+            const currentUser = window._user;
+            // If we're on the anonymous session we just auto-signed
+            // into, sign it out first so linkWithCredential doesn't
+            // fight with the pre-existing Google uid.
+            if (currentUser && currentUser.isAnonymous) {
+              try { await signOut(auth); } catch (_) {}
+            }
+            await signInWithPopup(auth, provider);
+          } catch (e) {
+            console.warn('[resignin] popup failed:', e && e.message);
+            alert('Sign-in failed: ' + (e && e.message ? e.message : 'unknown'));
+          }
+        });
+        document.getElementById('resigninDismiss').addEventListener('click', function(){
+          _dismissed = true;
+          if (_banner) { _banner.remove(); _banner = null; }
+        });
+      });
+      // If a Google sign-in later succeeds, remove the banner.
+      window.addEventListener('auth-changed', function(ev){
+        const u = ev && ev.detail && ev.detail.user;
+        if (u && !u.isAnonymous && _banner) {
+          _banner.remove();
+          _banner = null;
+        }
+      });
+    })();
 
   </script>
   <style>
@@ -6020,12 +6082,16 @@
           <span style="flex:1;text-align:left">Help + FAQ</span>
           <span style="color:var(--hint);font-size:10px">↗</span>
         </a>
-        <!-- Review Folio — universally accessible. Label spells out
-             both facets of the deal (feedback ABOUT FOLIO + a free 24h
-             Featured Boost as thanks) so users don't confuse it with a
-             book-review feature or a generic "contact us" form. Reviews
-             are also considered for public display on the welcome page
-             if the reviewer opts in — Jacob curates. -->
+        </details>
+        <!-- Review Folio — SIBLING to the Shortcuts <details>, not
+             inside it. Stays visible even when the user collapses
+             Shortcuts, so the review path never gets hidden accidentally.
+             Label spells out both facets of the deal (feedback ABOUT
+             FOLIO + a free 24h Featured Boost as thanks) so users don't
+             confuse it with a book-review feature or a generic
+             "contact us" form. Reviews are also considered for public
+             display on the welcome page if the reviewer opts in —
+             Jacob curates. -->
         <button type="button" onclick="_openReviewModal()" title="Rate Folio (the platform) — get a free 24h Featured Boost on one of your published folios in exchange"
           style="display:flex;align-items:center;gap:6px;margin-top:8px;padding:8px 10px;background:linear-gradient(180deg,rgba(201,140,42,0.06),rgba(201,140,42,0.02));border:.5px solid rgba(201,140,42,0.35);border-radius:6px;color:var(--text);text-decoration:none;font-size:12px;font-weight:500;transition:background .15s ease,border-color .15s ease;cursor:pointer;font-family:inherit;width:100%"
           onmouseover="this.style.background='linear-gradient(180deg,rgba(201,140,42,0.11),rgba(201,140,42,0.05))';this.style.borderColor='var(--accent)'"
@@ -6037,7 +6103,6 @@
           </span>
           <span style="color:var(--hint);font-size:10px">→</span>
         </button>
-        </details>
         <script>
           (function(){
             try {
