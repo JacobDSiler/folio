@@ -2722,9 +2722,19 @@
       cursor: grabbing
     }
 
-    .ch-item.drag-over {
-      border-color: var(--accent-ui);
-      box-shadow: 0 0 0 2px rgba(42, 31, 14, 0.15)
+    /* Drop indicator — a coloured line on the edge of the target row
+       showing WHERE the dragged item will land. Previously we only
+       highlighted the whole target row with a border, which made it
+       impossible to tell whether a drop would insert above or below
+       the row: dragging a PRE section onto "Contents" felt stuck
+       because there was no visual cue that dropping on the top half
+       would put the PRE section above the TOC. Two half-height drop
+       zones with distinct indicators fix that. */
+    .ch-item.drag-over-top {
+      box-shadow: 0 -3px 0 0 var(--accent-ui, #065f46);
+    }
+    .ch-item.drag-over-bottom {
+      box-shadow: 0 3px 0 0 var(--accent-ui, #065f46);
     }
 
     .ch-item-head {
@@ -14634,22 +14644,55 @@
     /* Drag-to-reorder */
     let dragSrcId = null;
     function attachDrag(item) {
+      // Splits each row into two vertical halves for drop detection.
+      // Top half → insert BEFORE this row (row stays, new item goes above);
+      // Bottom half → insert AFTER this row (row stays, new item goes below).
+      // This makes dropping ABOVE the first row (typically the TOC)
+      // visually obvious: hover the top half of Contents, see a line
+      // above it, release, done. Previously the row got a full border
+      // and the actual drop position was always "before", which was
+      // confusing when trying to move a PRE section above the TOC.
       item.addEventListener('dragstart', e => {
         dragSrcId = item.dataset.id;
         item.classList.add('dragging');
         e.dataTransfer.effectAllowed = 'move';
       });
-      item.addEventListener('dragend', () => { item.classList.remove('dragging'); document.querySelectorAll('.ch-item').forEach(i => i.classList.remove('drag-over')); });
-      item.addEventListener('dragover', e => { e.preventDefault(); item.classList.add('drag-over'); });
-      item.addEventListener('dragleave', () => item.classList.remove('drag-over'));
+      const clearHalfClasses = () => {
+        document.querySelectorAll('.ch-item').forEach(i => {
+          i.classList.remove('drag-over-top', 'drag-over-bottom');
+        });
+      };
+      item.addEventListener('dragend', () => {
+        item.classList.remove('dragging');
+        clearHalfClasses();
+      });
+      item.addEventListener('dragover', e => {
+        e.preventDefault();
+        const rect = item.getBoundingClientRect();
+        const dropAbove = (e.clientY - rect.top) < (rect.height / 2);
+        // Only one row shows an indicator at a time.
+        clearHalfClasses();
+        item.classList.add(dropAbove ? 'drag-over-top' : 'drag-over-bottom');
+      });
+      item.addEventListener('dragleave', () => {
+        item.classList.remove('drag-over-top', 'drag-over-bottom');
+      });
       item.addEventListener('drop', e => {
-        e.preventDefault(); item.classList.remove('drag-over');
+        e.preventDefault();
+        item.classList.remove('drag-over-top', 'drag-over-bottom');
         if (dragSrcId === item.dataset.id) return;
         const srcIdx = chapters.findIndex(c => c.id === dragSrcId);
-        const dstIdx = chapters.findIndex(c => c.id === item.dataset.id);
+        let  dstIdx = chapters.findIndex(c => c.id === item.dataset.id);
         if (srcIdx < 0 || dstIdx < 0) return;
+        const rect = item.getBoundingClientRect();
+        const dropAbove = (e.clientY - rect.top) < (rect.height / 2);
+        // Remove source first — this shifts every later index down by 1,
+        // so if the source WAS before the destination, adjust for the
+        // gap it left behind.
         const [moved] = chapters.splice(srcIdx, 1);
-        chapters.splice(dstIdx, 0, moved);
+        if (srcIdx < dstIdx) dstIdx--;
+        const insertAt = dropAbove ? dstIdx : dstIdx + 1;
+        chapters.splice(insertAt, 0, moved);
         renderChapterList();
         renderPreview();
       });

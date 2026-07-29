@@ -192,6 +192,37 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+ux(chapters): split drag-drop targets into upper/lower halves
+
+Reordering the chapter list previously highlighted the whole target
+row on hover and always inserted BEFORE the target. That made it
+impossible to tell whether a drop would land above or below the row,
+and — critically — made it feel like you couldn't drag a PRE
+section (frontispiece, dedication, prologue) above the auto-inserted
+Table of Contents at position 0. Jacob had to work around by
+dragging Contents DOWN below the PRE section instead of PRE up.
+
+New behaviour:
+  - Each row splits into two half-height drop zones. Hovering the
+    top half shows a coloured line ABOVE the row; bottom half shows
+    a line BELOW. The drop position mirrors what you see.
+  - Drop math adjusts for source-removal shift so above/below reads
+    naturally regardless of drag direction. Edge cases (drop-on-self,
+    drop just above the next-neighbour) become no-ops rather than
+    unintended swaps.
+  - .drag-over-top / .drag-over-bottom classes with a 3px accent-
+    colour box-shadow give a clean insertion-line visual — no
+    layout shift, no ghost rows, minimal reflow.
+
+Same drop UX standard as Notion / Trello / VS Code file trees. Works
+for every row type (Pre, Ch, Post, TOC) — no type-based restrictions
+on where you can drop, since the author is the authority on their
+book's structure.
+
+---
+
+Previous batch — kept in commit history:
+
 fix(rules): unblock share links on unpublished folios
 
 Anonymous readers hitting reader / beta / editor share links on
