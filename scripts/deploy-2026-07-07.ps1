@@ -192,6 +192,35 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+fix+feat(images): writing-mode Insert works, drag-to-reorder in preview
+
+Two related fixes to Thomas's image struggle:
+
+1. Insert image from writing-mode context menu now WORKS. Previously
+   it either silently failed or showed a "switch to preview mode"
+   toast that was easy to miss. Now the handler flushes any pending
+   textarea edits, derives the caret's paragraph index (raw line
+   → filtered non-empty-line count), and opens the standard insert
+   modal targeting that paragraph. After the modal confirms, the
+   writing-area textarea is mirrored with the updated ch.content so
+   the __IMG__ marker line appears immediately without needing to
+   close writing mode. Same treatment applied to _imgUpdateMarker +
+   _imgRemoveMarker so edits and deletions stay in sync too.
+
+2. Drag inline images in the preview to reorder them, no writing-
+   mode round-trip required. In edit mode every rendered image is
+   draggable="true"; dragging one onto another swaps their positions
+   in ch.content (same chapter → straight swap; cross-chapter →
+   swap-in-place with content lists preserving length so no index
+   shifts). Event handlers install once via delegation on the
+   preview scroller so re-renders don't need re-wiring. Source
+   image gets a subtle shrink + fade during drag, drop target gets
+   a dashed accent outline. Same-chapter swap-with-self is a no-op.
+
+---
+
+Previous batch — kept in commit history:
+
 ux(chapters): split drag-drop targets into upper/lower halves
 
 Reordering the chapter list previously highlighted the whole target
