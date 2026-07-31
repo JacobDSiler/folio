@@ -2737,6 +2737,21 @@
       box-shadow: 0 3px 0 0 var(--accent-ui, #065f46);
     }
 
+    /* Inline-image drag-to-reorder — visual feedback for edit-mode
+       drag on rendered images in the preview. Source shrinks + fades
+       to indicate what's being moved; drop target gets an accent
+       outline so the user knows where the swap will land. */
+    ._img-dragging {
+      opacity: 0.4;
+      transform: scale(0.96);
+      transition: opacity 0.12s, transform 0.12s;
+    }
+    ._img-drop-target {
+      outline: 2px dashed var(--accent-ui, #065f46);
+      outline-offset: 4px;
+      border-radius: 4px;
+    }
+
     .ch-item-head {
       display: flex;
       align-items: center;
@@ -14995,6 +15010,16 @@
       }
       ch.content = lines.join('\n');
       if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+      // If writing mode is open on THIS chapter, mirror the new content
+      // back into the textarea so the __IMG__ marker line is visible
+      // immediately. Without this the user would insert an image and see
+      // no change until they closed writing mode.
+      try {
+        if (typeof _writingChId !== 'undefined' && _writingChId === chId) {
+          const ta = document.getElementById('writingArea');
+          if (ta) { ta.value = ch.content; if (typeof _autoResizeWritingArea === 'function') _autoResizeWritingArea(ta); }
+        }
+      } catch (_) {}
       try { renderPreview(); } catch (e) { }
       return true;
     }
@@ -15007,6 +15032,12 @@
       lines[raw] = _imgMarkerLine(meta);
       ch.content = lines.join('\n');
       if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+      try {
+        if (typeof _writingChId !== 'undefined' && _writingChId === chId) {
+          const ta = document.getElementById('writingArea');
+          if (ta) { ta.value = ch.content; if (typeof _autoResizeWritingArea === 'function') _autoResizeWritingArea(ta); }
+        }
+      } catch (_) {}
       try { renderPreview(); } catch (e) { }
       return true;
     }
@@ -15019,6 +15050,12 @@
       lines.splice(raw, 1);
       ch.content = lines.join('\n');
       if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+      try {
+        if (typeof _writingChId !== 'undefined' && _writingChId === chId) {
+          const ta = document.getElementById('writingArea');
+          if (ta) { ta.value = ch.content; if (typeof _autoResizeWritingArea === 'function') _autoResizeWritingArea(ta); }
+        }
+      } catch (_) {}
       try { renderPreview(); } catch (e) { }
       return true;
     }
@@ -15038,6 +15075,138 @@
       _imgOpenModal({ mode: 'edit', chId: chId, editParaIdx: paraIdx, meta: meta });
     }
     window._imgClickMarker = _imgClickMarker;
+
+    // ── Drag-to-reorder inline images in the preview ─────────────────
+    // In edit mode every rendered image marker is draggable="true".
+    // Dragging one onto another swaps their positions in the underlying
+    // ch.content (same chapter → straight swap; cross-chapter → remove
+    // from source content and insert at destination's raw line index).
+    // This spares the user the round-trip through chapter-edit mode
+    // just to fix an image order slip.
+    //
+    // Event handlers are attached ONCE via event delegation on the
+    // preview scroller so re-renders (renderPreview) don't need to
+    // re-wire anything. The handlers early-return if the target isn't
+    // an image marker or if we're not in edit mode.
+    let _imgDragSrc = null;
+    function _imgSwapMarkers(srcChId, srcParaIdx, dstChId, dstParaIdx) {
+      if (srcChId === dstChId && srcParaIdx === dstParaIdx) return false;
+      const srcCh = chapters.find(c => c.id === srcChId);
+      const dstCh = chapters.find(c => c.id === dstChId);
+      if (!srcCh || !dstCh) return false;
+      const srcLines = (srcCh.content || '').split('\n');
+      const srcRaw = _imgFilteredToRaw(srcLines, srcParaIdx);
+      if (srcRaw < 0 || !_imgParseLine(srcLines[srcRaw])) return false;
+      if (srcChId === dstChId) {
+        // Same-chapter swap — no index shifting needed since we're
+        // swapping in place, not removing + reinserting.
+        const dstRaw = _imgFilteredToRaw(srcLines, dstParaIdx);
+        if (dstRaw < 0 || !_imgParseLine(srcLines[dstRaw])) return false;
+        const tmp = srcLines[srcRaw];
+        srcLines[srcRaw] = srcLines[dstRaw];
+        srcLines[dstRaw] = tmp;
+        srcCh.content = srcLines.join('\n');
+      } else {
+        // Cross-chapter swap. Grab meta from both sides, write each
+        // one's meta into the other's line position. Neither list
+        // changes length, so no index math beyond finding the two raws.
+        const dstLines = (dstCh.content || '').split('\n');
+        const dstRaw = _imgFilteredToRaw(dstLines, dstParaIdx);
+        if (dstRaw < 0 || !_imgParseLine(dstLines[dstRaw])) return false;
+        const tmp = srcLines[srcRaw];
+        srcLines[srcRaw] = dstLines[dstRaw];
+        dstLines[dstRaw] = tmp;
+        srcCh.content = srcLines.join('\n');
+        dstCh.content = dstLines.join('\n');
+      }
+      if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+      // Mirror to writing-mode textarea if it's open on either chapter
+      // — otherwise the user would leave writing mode and see their
+      // "reorder" undone because writing mode would push its stale
+      // content back on close.
+      try {
+        if (typeof _writingChId !== 'undefined' && _writingChId) {
+          const wCh = chapters.find(c => c.id === _writingChId);
+          const ta = document.getElementById('writingArea');
+          if (wCh && ta && (_writingChId === srcChId || _writingChId === dstChId)) {
+            ta.value = wCh.content;
+            if (typeof _autoResizeWritingArea === 'function') _autoResizeWritingArea(ta);
+          }
+        }
+      } catch (_) {}
+      try { renderPreview(); } catch (_) {}
+      return true;
+    }
+    window._imgSwapMarkers = _imgSwapMarkers;
+
+    (function _imgInstallDragDelegation(){
+      const findMarker = (target) => {
+        let el = target;
+        while (el && el !== document.body) {
+          if (el.dataset && el.dataset.imgmarker === '1') return el;
+          el = el.parentElement;
+        }
+        return null;
+      };
+      const attach = (host) => {
+        if (!host || host.dataset._imgDnd === '1') return;
+        host.dataset._imgDnd = '1';
+        host.addEventListener('dragstart', (e) => {
+          if (typeof _editMode === 'undefined' || !_editMode) return;
+          const marker = findMarker(e.target);
+          if (!marker) return;
+          const chId = marker.dataset.chid;
+          const paraIdx = parseInt(marker.dataset.paraidx, 10);
+          if (!chId || isNaN(paraIdx)) return;
+          _imgDragSrc = { chId, paraIdx };
+          try { e.dataTransfer.effectAllowed = 'move'; } catch (_) {}
+          marker.classList.add('_img-dragging');
+        });
+        host.addEventListener('dragend', () => {
+          _imgDragSrc = null;
+          host.querySelectorAll('._img-dragging,._img-drop-target')
+              .forEach(el => el.classList.remove('_img-dragging', '_img-drop-target'));
+        });
+        host.addEventListener('dragover', (e) => {
+          if (!_imgDragSrc) return;
+          const marker = findMarker(e.target);
+          if (!marker) return;
+          const chId = marker.dataset.chid;
+          const paraIdx = parseInt(marker.dataset.paraidx, 10);
+          if (chId === _imgDragSrc.chId && paraIdx === _imgDragSrc.paraIdx) return;
+          e.preventDefault();
+          host.querySelectorAll('._img-drop-target')
+              .forEach(el => el.classList.remove('_img-drop-target'));
+          marker.classList.add('_img-drop-target');
+        });
+        host.addEventListener('drop', (e) => {
+          if (!_imgDragSrc) return;
+          const marker = findMarker(e.target);
+          if (!marker) return;
+          const dstChId = marker.dataset.chid;
+          const dstParaIdx = parseInt(marker.dataset.paraidx, 10);
+          if (isNaN(dstParaIdx)) return;
+          e.preventDefault();
+          const src = _imgDragSrc;
+          _imgDragSrc = null;
+          host.querySelectorAll('._img-drop-target')
+              .forEach(el => el.classList.remove('_img-drop-target'));
+          _imgSwapMarkers(src.chId, src.paraIdx, dstChId, dstParaIdx);
+        });
+      };
+      // Preview scroller may not exist at parse time — install once
+      // it's in the DOM. Cheap idempotent check runs on every render.
+      const install = () => {
+        attach(document.getElementById('previewScroller'));
+        attach(document.getElementById('previewArea'));
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', install);
+      } else {
+        install();
+      }
+      window._imgReinstallDragDelegation = install;
+    })();
 
     /* ── Image prefetch for binary exports (PDF / DOCX) ─────────────────
        Walks S.images, fetches each image's bytes + dataURL + natural
@@ -15098,6 +15267,41 @@
       const el = _ctxTarget;
       if (typeof _ctxClose === 'function') _ctxClose();
       if (!el) return;
+
+      // Case 1 — invoked from the writing-mode textarea. Previously this
+      // dead-ended with a toast telling the user to switch modes; Thomas
+      // (and Jacob when testing) reported that Insert image "silently
+      // fails" from writing mode because the toast was easy to miss and
+      // the button gave no other feedback. Now: sync the textarea's
+      // current value back to ch.content (so no pending edits are lost),
+      // derive a filtered paragraph index from the caret position, and
+      // open the same insert modal used everywhere else.
+      if (el.tagName === 'TEXTAREA' && el.id === 'writingArea'
+          && typeof _writingChId !== 'undefined' && _writingChId) {
+        const chId = _writingChId;
+        const ch = chapters.find(c => c.id === chId);
+        if (!ch) return;
+        // Flush any keystrokes that landed between last oninput and this
+        // click so the paragraph walk below reflects on-screen content.
+        try { if (typeof updateWritingContent === 'function') updateWritingContent(); }
+        catch (_) {}
+        const caret = (typeof el.selectionStart === 'number') ? el.selectionStart : (el.value || '').length;
+        const before = (el.value || '').slice(0, caret);
+        const rawLineIdx = before.split('\n').length - 1;
+        // Convert raw line idx → filtered paragraph idx (skipping empty
+        // lines) so _imgInsertMarker inserts AFTER the paragraph the
+        // caret is currently in.
+        const lines = (ch.content || '').split('\n');
+        let filteredIdx = -1;
+        for (let i = 0; i <= rawLineIdx && i < lines.length; i++) {
+          if (lines[i].trim()) filteredIdx++;
+        }
+        _imgOpenModal({ mode: 'insert', chId: chId, afterParaIdx: filteredIdx });
+        return;
+      }
+
+      // Case 2 — invoked from a rendered paragraph in the page preview.
+      // Legacy path. Uses the paragraph's data attributes.
       if (el.tagName === 'TEXTAREA' || !el.dataset || !el.dataset.chid) {
         if (typeof toastInfo === 'function')
           toastInfo('To place an image, turn on Edit mode and right-click a paragraph in the page preview.', { duration: 3800 });
@@ -15784,17 +15988,25 @@
           ? `<div style="font-family:${font};font-size:${pt(fsize * 0.78)};color:${T.text}99;font-style:italic;text-align:center;margin-top:${mm(1)};max-width:${fp}%">${esc(meta.caption)}</div>`
           : '';
         const inner = src
-          ? `<img src="${src}" style="width:${fp}%;height:auto;object-fit:contain;border-radius:${mm(0.6)};display:block">`
+          ? `<img src="${src}" style="width:${fp}%;height:auto;object-fit:contain;border-radius:${mm(0.6)};display:block" draggable="false">`
           : `<div style="width:${fp}%;padding:${mm(6)} 0;box-sizing:border-box;background:${T.divider}22;border:1px dashed ${T.divider};text-align:center;font-family:${font};font-size:${pt(fsize * 0.72)};color:${T.text}88">image not found</div>`;
         const ed = (typeof _editMode !== 'undefined' && _editMode);
-        const eda = ed ? ` data-imgmarker="1" data-chid="${chId}" data-paraidx="${paraIdx}" onclick="_imgClickMarker(this)" title="Click to edit this image"` : '';
-        return `<div class="folio-inline-img"${eda} style="display:flex;flex-direction:column;align-items:${ai};margin:${mm(2.5)} 0${ed ? ';cursor:pointer' : ''}">${inner}${cap}</div>`;
+        // Drag-reorder handles wired only in edit mode. draggable attribute
+        // on the container plus data-* attrs is enough — the actual drag
+        // handlers live on _imgAttachDrag which is called via a MutationObserver
+        // on the preview scroller (installed once, catches every re-render).
+        const eda = ed
+          ? ` data-imgmarker="1" data-chid="${chId}" data-paraidx="${paraIdx}" draggable="true" onclick="_imgClickMarker(this)" title="Click to edit · drag to reorder"`
+          : '';
+        return `<div class="folio-inline-img"${eda} style="display:flex;flex-direction:column;align-items:${ai};margin:${mm(2.5)} 0${ed ? ';cursor:grab' : ''}">${inner}${cap}</div>`;
       };
       const _imgRenderFullPage = (meta, pn, anchorId, markerChId, paraIdx) => {
         const im = (typeof _imgById === 'function') ? _imgById(meta.id) : null;
         const src = im ? _imgSrc(im) : '';
         const ed = (typeof _editMode !== 'undefined' && _editMode);
-        const eda = ed ? ` data-imgmarker="1" data-chid="${markerChId}" data-paraidx="${paraIdx}" onclick="_imgClickMarker(this)" title="Click to edit this image"` : '';
+        const eda = ed
+          ? ` data-imgmarker="1" data-chid="${markerChId}" data-paraidx="${paraIdx}" draggable="true" onclick="_imgClickMarker(this)" title="Click to edit · drag to reorder"`
+          : '';
         const edc = ed ? 'cursor:pointer;' : '';
         if (meta.bleed) {
           const chapAttr = anchorId ? ` id="chap-${anchorId}" data-chapid="${anchorId}"` : '';
