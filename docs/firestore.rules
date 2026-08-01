@@ -84,49 +84,54 @@ service cloud.firestore {
         && d.data.release != null
         && d.data.release.published == true;
     }
-    // Does this folio have a release object at all? The moment an author
-    // creates a release (Public / Paid / Private-link — any of the three
-    // access modes in the release modal), they're signalling intent to
-    // distribute via URL. This is the gate that lets beta / editor share
-    // links land on unpublished folios: the URL is the credential (folio
-    // IDs are timestamp + random suffix, unguessable in practice), and
-    // the folio doc's metadata (title, cover, release settings) becomes
-    // readable. body/paid stays owner-only regardless — paid content
-    // still routes through the worker's /paid-content endpoint which
-    // verifies the share/paywall JWT before returning anything.
+    // Does this folio have a release object at all? Historical helper;
+    // kept for other rules that still key off "has this been released."
     function parentHasRelease(id) {
       let d = parentDoc(id);
       return d != null && d.data.release != null;
     }
-    // Anyone who is allowed to SEE this folio: its owner, or anyone if
-    // it has been released (any mode — published, private-link, or paid).
+    // Anyone who is allowed to SEE this folio. Per-doc GET is
+    // permission-free — the folio ID (13-digit timestamp + 6-char base36
+    // suffix, ~10^10 combinations) IS the credential. This means:
+    //   • Beta / editor / reader share links work on pure drafts, before
+    //     any "release" has been created. Author generates a share URL,
+    //     hands it to a reader, reader opens it — no publish step
+    //     required first. Aligned with the mental model that generating
+    //     a share URL IS the "distribute" gesture.
+    //   • Nobody can enumerate the collection — see the folio_projects
+    //     LIST rule below, which stays locked to owner-scoped queries.
+    //   • body/paid subcollection stays owner-only regardless. Paid
+    //     content still routes through the worker's /paid-content
+    //     endpoint which verifies the share/paywall JWT via service
+    //     account before returning anything.
     function folioVisible(id) {
-      return isUser(parentUid(id)) || parentHasRelease(id);
+      return parentDoc(id) != null;
     }
 
     match /folio_projects/{id} {
-      // Read: the owner, anyone with a release (Public / Paid / Private
-      // link — see parentHasRelease helper for the rationale), OR admin.
+      // Per-doc GET: unrestricted. Folio IDs are unguessable
+      // (13-digit timestamp + 6-char base36 suffix); knowing the ID
+      // IS the credential. This lets share links work on pure drafts
+      // — the author generates a URL, hands it to a reader, reader
+      // opens it, no release-first step required. Prior gating on
+      // release.published made share links fail for beta / editor
+      // flows; the earlier fix loosened it to "any release object"
+      // but Thomas / Jacob want it to work BEFORE any release is
+      // configured too. This is that.
       //
-      // A LIST query is only permitted when it's constrained to
-      // where('uid','==', <me>) — the app's "my folios" query — because
-      // then every result provably satisfies isUser(). An unfiltered
-      // list of all folios is denied.
+      // LIST: still locked. Only owner-scoped queries succeed —
+      // `where('uid','==', <me>)` matches each result's uid to the
+      // caller. Admin bypass keeps /admin/shelf/ enumerating pending
+      // + rejected listings. Any unfiltered `collection(folio_projects)`
+      // query is denied — nobody can enumerate every folio in the
+      // system just by hitting the collection.
       //
-      // Prior rule required release.published == true for non-owner
-      // reads, which broke every share link (reader / beta / editor)
-      // that landed on an unpublished folio — the app was calling
-      // getDoc(folio_projects/{id}) directly on the client and hitting
-      // Missing-or-Insufficient-Permissions. Beta / editor share flows
-      // legitimately need unpublished-folio access; the folio ID + JWT
-      // (verified server-side by the paywall worker for any sensitive
-      // fetch like body/paid) form the credential together.
-      //
-      // Admin branch stays so /admin/shelf/ can see pending + rejected
-      // listings that aren't publicly visible yet.
-      allow read:   if isUser(resource.data.uid)
-                    || (resource.data.release != null)
-                    || isAdmin();
+      // Sensitive content still gated separately: body/paid stays
+      // owner-only (see match /body/{doc} below); the paywall worker's
+      // /paid-content endpoint is the only path to paid content and
+      // it verifies the share/paywall JWT via service account first.
+      allow get:    if true;
+      allow list:   if isUser(resource.data.uid) || isAdmin();
 
       // Create: the new doc must be stamped with the creator's own uid.
       // Public Shelf listing is blocked for anonymous accounts — an

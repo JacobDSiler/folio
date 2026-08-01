@@ -1420,7 +1420,7 @@ async function handleViewRecord(request, env) {
    (config storage, JWT mint, email dispatch, sale recording) is
    vendor-agnostic.
    ══════════════════════════════════════════════════════════════════ */
-const _VENDOR_KINDS = new Set(['kofi', 'payhip', 'paypal']);
+const _VENDOR_KINDS = new Set(['kofi', 'payhip', 'paypal', 'paypal_native']);
 
 /* Owner writes their vendor webhook config for a folio. Auth via the
    Firebase ID token in Authorization: Bearer <token>. We decode the
@@ -1915,12 +1915,20 @@ async function handleVendorOwnerConfig(request, env) {
 
   const vendor  = String((body && body.vendor)  || '').trim().toLowerCase();
   const secret  = String((body && body.secret)  || '').trim();
+  // PayPal Native carries a clientId (public — used in the buttons SDK
+  // URL) alongside the client secret. Every other vendor stores only
+  // the single `secret` value (kofi verification token, payhip HMAC
+  // signing secret, paypal webhook id).
+  const clientId = String((body && body.clientId) || '').trim();
   const enabled = body && body.enabled === false ? false : true;
 
   if (enabled && !_VENDOR_KINDS.has(vendor)) {
-    return errorJson('Unknown vendor. Supported: kofi, payhip, paypal', 400, request, env);
+    return errorJson('Unknown vendor. Supported: kofi, payhip, paypal, paypal_native', 400, request, env);
   }
   if (enabled && !secret) return errorJson('Missing secret', 400, request, env);
+  if (enabled && vendor === 'paypal_native' && !clientId) {
+    return errorJson('PayPal Native requires clientId (public) alongside secret', 400, request, env);
+  }
 
   try {
     const uid = await _verifyFirebaseIdToken(idToken, env);
@@ -1935,7 +1943,9 @@ async function handleVendorOwnerConfig(request, env) {
     const existing = await fsGet(pid, auth.token, 'folio_vendor_owner_configs/' + encodeURIComponent(uid)).catch(() => null);
     const vendorMap = (existing && existing.vendors && typeof existing.vendors === 'object') ? { ...existing.vendors } : {};
     if (enabled) {
-      vendorMap[vendor] = { secret, ownerEmail: ownerEmail || null, updatedAt: new Date().toISOString() };
+      const entry = { secret, ownerEmail: ownerEmail || null, updatedAt: new Date().toISOString() };
+      if (vendor === 'paypal_native') entry.clientId = clientId;
+      vendorMap[vendor] = entry;
     } else {
       delete vendorMap[vendor];
     }
@@ -1943,15 +1953,13 @@ async function handleVendorOwnerConfig(request, env) {
     // Write. Firestore REST needs typed values.
     const vendorMapFields = {};
     for (const v of Object.keys(vendorMap)) {
-      vendorMapFields[v] = {
-        mapValue: {
-          fields: {
-            secret:     { stringValue: String(vendorMap[v].secret || '') },
-            ownerEmail: vendorMap[v].ownerEmail ? { stringValue: vendorMap[v].ownerEmail } : { nullValue: null },
-            updatedAt:  { stringValue: String(vendorMap[v].updatedAt || new Date().toISOString()) },
-          }
-        }
+      const inner = {
+        secret:     { stringValue: String(vendorMap[v].secret || '') },
+        ownerEmail: vendorMap[v].ownerEmail ? { stringValue: vendorMap[v].ownerEmail } : { nullValue: null },
+        updatedAt:  { stringValue: String(vendorMap[v].updatedAt || new Date().toISOString()) },
       };
+      if (vendorMap[v].clientId) inner.clientId = { stringValue: String(vendorMap[v].clientId) };
+      vendorMapFields[v] = { mapValue: { fields: inner } };
     }
 
     const url = 'https://firestore.googleapis.com/v1/projects/' + pid +
@@ -1973,11 +1981,12 @@ async function handleVendorOwnerConfig(request, env) {
       return errorJson('Config write failed: ' + ((err.error && err.error.message) || r.status), 502, request, env);
     }
 
-    // Return the vendor's webhook URL so owner can copy-paste.
+    // Return the vendor's webhook URL so owner can copy-paste. PayPal
+    // Native doesn't use a webhook — the buttons SDK calls our create/
+    // capture endpoints directly, so no URL to configure vendor-side.
     const origin = new URL(request.url).origin;
-    const webhookUrl = enabled
-      ? (origin + '/' + vendor + '-webhook')
-      : null;
+    const usesWebhook = enabled && vendor !== 'paypal_native';
+    const webhookUrl = usesWebhook ? (origin + '/' + vendor + '-webhook') : null;
     return json({
       ok: true,
       vendor,
@@ -1987,6 +1996,269 @@ async function handleVendorOwnerConfig(request, env) {
     }, 200, request, env);
   } catch (e) {
     return errorJson('Config failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   PATH A — PayPal Buttons native checkout
+   ──────────────────────────────────────────────────────────────────
+   Author-native, popup-based PayPal checkout that never leaves Folio.
+   Reader hits a paid folio, sees the PayPal Buttons SDK inline on the
+   paywall, clicks a button, popup opens for PayPal login/approval,
+   popup closes on approval, worker captures the payment against the
+   AUTHOR's PayPal Business account, mints an unlock JWT, dispatches
+   the confirmation emails. Same downstream flow as Ko-fi webhook.
+
+   Key architectural decision: the author's PayPal credentials
+   (Client ID + Secret) are used for both order creation AND capture,
+   so payment lands DIRECTLY in the author's PayPal account. Folio is
+   never merchant of record. No pass-through, no revenue sharing, no
+   platform-level tax complications. Same "0% cut" invariant as the
+   redirect vendors.
+
+   Three endpoints:
+     GET  /paypal-native-config?folio=<id> — public. Returns the
+          author's PayPal Client ID (safe to expose — it's what
+          the SDK URL embeds) + price + currency + folio meta so
+          the paywall can render Buttons.
+     POST /paypal-create-order — server-side order creation via the
+          author's PayPal credentials. Returns { orderId }.
+     POST /paypal-capture-order — server-side capture after the
+          buyer approves. On success: mint JWT, record sale,
+          dispatch emails, return { ok, token, unlockUrl }.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Parameterized version of ppAccessToken that uses SPECIFIC credentials
+   (the author's, not Jacob's platform ones). Lets us call PayPal APIs
+   on behalf of an individual author for their own paid folios. */
+async function ppAccessTokenFor(clientId, clientSecret, mode) {
+  if (!clientId || !clientSecret) throw new Error('Missing PayPal credentials');
+  const base = (mode === 'live') ? PP_LIVE : PP_SANDBOX;
+  const basic = btoa(clientId + ':' + clientSecret);
+  const r = await fetch(base + '/v1/oauth2/token', {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Basic ' + basic,
+      'Content-Type':  'application/x-www-form-urlencoded',
+    },
+    body: 'grant_type=client_credentials',
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || !data.access_token) {
+    throw new Error('PayPal token exchange failed: ' +
+      (data.error_description || data.error || r.status));
+  }
+  return { token: data.access_token, base };
+}
+
+/* Load a folio's PayPal Native config (owner's clientId + secret + mode)
+   and pricing from the folio doc. Returns null if the folio isn't
+   configured for PayPal Native. */
+async function _loadPaypalNativeConfig(env, folioId) {
+  if (!env.GCP_SERVICE_ACCOUNT) throw new Error('Server not configured');
+  const auth = await getAccessToken(env);
+  const pid = env.FIRESTORE_PROJECT_ID || auth.projectId;
+  const folio = await fsGet(pid, auth.token, 'folio_projects/' + encodeURIComponent(folioId));
+  if (!folio) return null;
+  const rel = folio.release || {};
+  if (rel.priceMode !== 'paid' || rel.provider !== 'paypal_native') return null;
+  const ownerUid = folio.uid;
+  if (!ownerUid) return null;
+  const cfg = await fsGet(pid, auth.token, 'folio_vendor_owner_configs/' + encodeURIComponent(ownerUid));
+  const vendors = (cfg && cfg.vendors) || {};
+  const pn = vendors.paypal_native;
+  if (!pn || !pn.secret || !pn.clientId) return null;
+  return {
+    folio,
+    ownerUid,
+    ownerEmail: pn.ownerEmail || null,
+    clientId: String(pn.clientId),
+    clientSecret: String(pn.secret),
+    mode: (env.PAYPAL_MODE === 'live') ? 'live' : 'sandbox',
+    price: Number(rel.price) || 0,
+    currency: String(rel.currency || 'USD'),
+    title: String(rel.title || folio.name || 'Folio'),
+    author: String(rel.author || ''),
+  };
+}
+
+/* GET /paypal-native-config?folio=<id>
+   Public. Returns the author's PayPal Client ID (safe to expose — it's
+   embedded in the Buttons SDK URL by design), price, currency, folio
+   title/author. Client uses this to load the PayPal SDK and render
+   the Buttons on the paywall. */
+async function handlePaypalNativeConfig(request, env) {
+  const url = new URL(request.url);
+  const folioId = (url.searchParams.get('folio') || '').trim();
+  if (!folioId) return errorJson('Missing folio', 400, request, env);
+  try {
+    const cfg = await _loadPaypalNativeConfig(env, folioId);
+    if (!cfg) return errorJson('Folio not configured for PayPal Native', 404, request, env);
+    return json({
+      ok: true,
+      folioId,
+      clientId: cfg.clientId,
+      currency: cfg.currency,
+      price:    cfg.price,
+      title:    cfg.title,
+      author:   cfg.author,
+      mode:     cfg.mode,
+    }, 200, request, env);
+  } catch (e) {
+    return errorJson('Config lookup failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+}
+
+/* POST /paypal-create-order
+   Body: { folioId, buyerEmail? }
+   Creates a PayPal order in the author's account for the folio price,
+   returns { orderId } for the Buttons SDK to open the popup with. */
+async function handlePaypalCreateOrder(request, env) {
+  let body;
+  try { body = await request.json(); }
+  catch (_) { return errorJson('Bad JSON body', 400, request, env); }
+  const folioId = String((body && body.folioId) || '').trim();
+  if (!folioId) return errorJson('Missing folioId', 400, request, env);
+  try {
+    const cfg = await _loadPaypalNativeConfig(env, folioId);
+    if (!cfg) return errorJson('Folio not configured for PayPal Native', 404, request, env);
+    if (!cfg.price || cfg.price <= 0) return errorJson('Folio has no price set', 400, request, env);
+    const pp = await ppAccessTokenFor(cfg.clientId, cfg.clientSecret, cfg.mode);
+    const r = await fetch(pp.base + '/v2/checkout/orders', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + pp.token, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        intent: 'CAPTURE',
+        purchase_units: [{
+          reference_id: folioId,
+          description: String(cfg.title).slice(0, 127),
+          amount: { currency_code: cfg.currency, value: cfg.price.toFixed(2) },
+        }],
+      }),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.id) {
+      return errorJson('PayPal create failed: ' + (data.message || data.error || r.status), 502, request, env);
+    }
+    return json({ ok: true, orderId: data.id }, 200, request, env);
+  } catch (e) {
+    return errorJson('Create order failed: ' + (e.message || 'unknown'), 502, request, env);
+  }
+}
+
+/* POST /paypal-capture-order
+   Body: { folioId, orderId, buyerEmail? }
+   Captures the approved order. On success: mint the unlock JWT, record
+   the sale under paid_sales/, dispatch buyer + owner emails via the
+   email worker. Returns { ok, token, unlockUrl } so the paywall can
+   immediately stash the token in localStorage and unlock content
+   without waiting for the email. */
+async function handlePaypalCaptureOrder(request, env) {
+  if (!env.PAYWALL_JWT_SECRET) return errorJson('Server not configured', 500, request, env);
+  let body;
+  try { body = await request.json(); }
+  catch (_) { return errorJson('Bad JSON body', 400, request, env); }
+  const folioId = String((body && body.folioId) || '').trim();
+  const orderId = String((body && body.orderId) || '').trim();
+  const suppliedBuyerEmail = String((body && body.buyerEmail) || '').trim();
+  if (!folioId || !orderId) return errorJson('Missing folioId or orderId', 400, request, env);
+  try {
+    const cfg = await _loadPaypalNativeConfig(env, folioId);
+    if (!cfg) return errorJson('Folio not configured for PayPal Native', 404, request, env);
+    const pp = await ppAccessTokenFor(cfg.clientId, cfg.clientSecret, cfg.mode);
+    const r = await fetch(pp.base + '/v2/checkout/orders/' + encodeURIComponent(orderId) + '/capture', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + pp.token, 'Content-Type': 'application/json' },
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || data.status !== 'COMPLETED') {
+      return errorJson('PayPal capture failed: ' + (data.message || data.error || r.status), 502, request, env);
+    }
+    // Extract buyer email + captured amount from the response.
+    const payer = data.payer || {};
+    const buyerEmail = suppliedBuyerEmail || payer.email_address || '';
+    const captureRes = (data.purchase_units && data.purchase_units[0] &&
+                        data.purchase_units[0].payments &&
+                        data.purchase_units[0].payments.captures &&
+                        data.purchase_units[0].payments.captures[0]) || {};
+    const capturedAmount = (captureRes.amount && captureRes.amount.value) || cfg.price.toFixed(2);
+    const capturedCurrency = (captureRes.amount && captureRes.amount.currency_code) || cfg.currency;
+    if (!buyerEmail) {
+      return errorJson('PayPal capture succeeded but no buyer email available', 502, request, env);
+    }
+
+    // Mint unlock JWT (same shape as Ko-fi flow).
+    const now = Math.floor(Date.now() / 1000);
+    const exp = now + (365 * 86400);
+    const sub = await sha256ShortHex(orderId + '::' + folioId + '::' + buyerEmail, 8);
+    const jwtPayload = {
+      sub,
+      release:    folioId,
+      product:    null,
+      provider:   'paypal_native',
+      purchaseId: orderId,
+      email:      buyerEmail,
+      iat: now,
+      exp,
+    };
+    const token = await signJWT(jwtPayload, env.PAYWALL_JWT_SECRET);
+    const origin = allowedOrigins(env)[0] || (new URL(request.url).origin);
+    const unlockUrl = origin + '/app.html?read=' + encodeURIComponent(folioId) +
+                      '&pwToken=' + encodeURIComponent(token);
+
+    // Record sale + dispatch emails (best-effort — don't fail the
+    // capture response over email issues; buyer already paid).
+    const acc = await getAccessToken(env);
+    const pid = env.FIRESTORE_PROJECT_ID || acc.projectId;
+    _writeSaleRecord(pid, acc.token, folioId, {
+      vendor: 'paypal_native',
+      orderId,
+      buyerEmail,
+      amount: Number(capturedAmount) || cfg.price,
+      currency: capturedCurrency,
+      ts: new Date().toISOString(),
+    }).catch(function(){});
+
+    if (env.EMAIL_WORKER_SECRET) {
+      const emailReqBody = JSON.stringify({
+        folioId,
+        folioTitle: cfg.title,
+        folioAuthor: cfg.author,
+        buyerEmail,
+        ownerEmail: cfg.ownerEmail || null,
+        amount: Number(capturedAmount) || cfg.price,
+        currency: capturedCurrency,
+        unlockUrl,
+        vendor: 'paypal_native',
+      });
+      const emailReqHeaders = { 'Content-Type': 'application/json', 'X-Internal-Secret': env.EMAIL_WORKER_SECRET };
+      try {
+        if (env.EMAIL_WORKER && typeof env.EMAIL_WORKER.fetch === 'function') {
+          await env.EMAIL_WORKER.fetch('https://internal/send-unlock', {
+            method: 'POST', headers: emailReqHeaders, body: emailReqBody,
+          });
+        } else {
+          const _url = env.EMAIL_WORKER_URL || 'https://folio-email.jacobdsiler.workers.dev';
+          await fetch(_url.replace(/\/$/, '') + '/send-unlock', {
+            method: 'POST', headers: emailReqHeaders, body: emailReqBody,
+          });
+        }
+      } catch (e) {
+        console.warn('[paypal-capture] email dispatch failed:', e && e.message);
+      }
+    }
+
+    return json({
+      ok: true,
+      token,
+      unlockUrl,
+      folioId,
+      buyerEmail,
+      amount: Number(capturedAmount) || cfg.price,
+      currency: capturedCurrency,
+    }, 200, request, env);
+  } catch (e) {
+    return errorJson('Capture failed: ' + (e.message || 'unknown'), 502, request, env);
   }
 }
 
@@ -2004,13 +2276,19 @@ async function handleVendorOwnerConfigGet(request, env) {
     const origin = new URL(request.url).origin;
     const vendors = (cfg && cfg.vendors) || {};
     // Return only presence + updatedAt per vendor, never the secret value.
+    // clientId (paypal_native only) IS returned — it's public by design
+    // (embedded in the PayPal Buttons SDK URL that renders on paywalls).
     const out = {};
     for (const v of Object.keys(vendors)) {
+      const usesWebhook = v !== 'paypal_native';
       out[v] = {
         configured: !!vendors[v].secret,
         updatedAt: vendors[v].updatedAt || null,
-        webhookUrl: origin + '/' + v + '-webhook',
+        webhookUrl: usesWebhook ? (origin + '/' + v + '-webhook') : null,
       };
+      if (v === 'paypal_native' && vendors[v].clientId) {
+        out[v].clientId = String(vendors[v].clientId);
+      }
     }
     return json({ ok: true, vendors: out }, 200, request, env);
   } catch (e) {
@@ -3819,6 +4097,10 @@ export default {
     // (vs the legacy /vendor-webhook/{folioId} above which was per-folio).
     if (path === '/vendor-owner-config' && request.method === 'POST') return handleVendorOwnerConfig(request, env);
     if (path === '/vendor-owner-config' && request.method === 'GET')  return handleVendorOwnerConfigGet(request, env);
+    // Path A — PayPal Buttons native checkout.
+    if (path === '/paypal-native-config' && request.method === 'GET')  return handlePaypalNativeConfig(request, env);
+    if (path === '/paypal-create-order'  && request.method === 'POST') return handlePaypalCreateOrder(request, env);
+    if (path === '/paypal-capture-order' && request.method === 'POST') return handlePaypalCaptureOrder(request, env);
     if (path === '/kofi-webhook'   && request.method === 'POST') return handleMultiTenantVendorWebhook(request, env, 'kofi');
     if (path === '/payhip-webhook' && request.method === 'POST') return handleMultiTenantVendorWebhook(request, env, 'payhip');
     if (path === '/paypal-webhook' && request.method === 'POST') return handleMultiTenantVendorWebhook(request, env, 'paypal');

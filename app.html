@@ -14896,11 +14896,42 @@
     // The display src for an image: the Storage URL once uploaded, the
     // base64 dataURL while it is still local (freshly added, pre-save).
     function _imgSrc(img) { return img ? (img.url || img.data || '') : ''; }
-    // Cover = the first image in the library (matches removeImg's existing
-    // behaviour). Recomputed whenever the library changes.
+    // Cover selection — preserves an existing cover if the image is
+    // still present in the library. Only auto-promotes to "first image"
+    // when there's no cover set yet OR the current cover was removed.
+    //
+    // Prior behaviour (unconditional "first image = cover") had a nasty
+    // side effect: uploading an inline image while writing (e.g. Thomas's
+    // wife's illustrations, an author photo) would silently replace the
+    // book cover if none was set — because the freshly-uploaded image
+    // landed at S.images[0] as the "first." Authors were losing their
+    // covers to inline uploads they had no idea would touch the cover.
+    // Cover changes should be explicit — this is the "leave alone
+    // unless we have to" guard.
     function _imgRefreshCover() {
-      const first = (Array.isArray(S.images) && S.images.length) ? S.images[0] : null;
-      S.coverImg = first ? (first.url || first.data || null) : null;
+      if (!Array.isArray(S.images) || !S.images.length) {
+        S.coverImg = null;
+        return;
+      }
+      const current = S.coverImg || null;
+      // If the current cover matches ANY image in the library (by url
+      // or by data URL prefix), leave it alone. This preserves the
+      // cover across inline uploads.
+      if (current) {
+        const stillPresent = S.images.some(im => {
+          if (!im) return false;
+          if (im.url && im.url === current) return true;
+          if (im.data && im.data === current) return true;
+          return false;
+        });
+        if (stillPresent) return;
+      }
+      // No cover, or the cover image was removed → promote the first
+      // library image. Keeps the "first image auto-becomes cover"
+      // onboarding UX for brand-new folios while protecting existing
+      // covers from being clobbered.
+      const first = S.images[0];
+      S.coverImg = (first.url || first.data || null);
     }
     function _imgStoragePath(folioId, imageId) { return 'folio_images/' + folioId + '/' + imageId; }
     // dataURL -> Blob, for the Storage upload.
@@ -14985,15 +15016,39 @@
     }
     window._imgParseLine = _imgParseLine;
 
-    // Map a filtered (non-empty) paragraph index to its raw split('\n')
-    // index. Returns -1 if not found. Mirrors _onParaBlur's walk.
+    // Map a paragraph index (as understood by the renderer + insert/edit
+    // callers) to its raw split('\n') line index. CRITICAL invariant:
+    // this walk MUST mirror _paragraphsOf() exactly — same leading/
+    // trailing blank trim, same MAX_BLANK_RUN cap on interior blanks,
+    // same "empty lines count as paragraphs up to the cap." Every
+    // click-to-edit / insert / remove path routes through here to
+    // convert render-side indices into raw-content edits.
+    //
+    // Prior (bugged) version only counted non-empty lines, which
+    // diverged from the render's index the moment a chapter had ANY
+    // preserved blank paragraph. Result: clicking a rendered image
+    // returned `raw = -1`, the modal never opened, edits silently
+    // failed. See _paragraphsOf just above _imgInsertMarker for the
+    // canonical walk this mirrors.
     function _imgFilteredToRaw(lines, filteredIdx) {
+      if (!Array.isArray(lines) || filteredIdx < 0) return -1;
+      const MAX_BLANK_RUN = 3;
+      let start = 0, end = lines.length;
+      while (start < end && !lines[start].trim()) start++;
+      while (end > start && !lines[end - 1].trim()) end--;
       let count = -1;
-      for (let i = 0; i < lines.length; i++) {
+      let blankRun = 0;
+      for (let i = start; i < end; i++) {
         if (lines[i].trim()) {
           count++;
           if (count === filteredIdx) return i;
+          blankRun = 0;
+        } else if (blankRun < MAX_BLANK_RUN) {
+          count++;
+          if (count === filteredIdx) return i;
+          blankRun++;
         }
+        // else: blank line beyond the cap — skipped, doesn't advance count.
       }
       return -1;
     }
@@ -15288,13 +15343,21 @@
         const caret = (typeof el.selectionStart === 'number') ? el.selectionStart : (el.value || '').length;
         const before = (el.value || '').slice(0, caret);
         const rawLineIdx = before.split('\n').length - 1;
-        // Convert raw line idx → filtered paragraph idx (skipping empty
-        // lines) so _imgInsertMarker inserts AFTER the paragraph the
-        // caret is currently in.
+        // Convert raw caret line → renderer's paraIdx. Must mirror the
+        // _paragraphsOf walk exactly: skip leading blank run, count both
+        // non-empty and blank lines up to MAX_BLANK_RUN. See _imgFilteredToRaw
+        // for the reverse mapping — the two functions have to agree or
+        // inserted images end up with the wrong click target.
         const lines = (ch.content || '').split('\n');
+        const MAX_BLANK_RUN = 3;
+        let start = 0, endL = lines.length;
+        while (start < endL && !lines[start].trim()) start++;
+        while (endL > start && !lines[endL - 1].trim()) endL--;
         let filteredIdx = -1;
-        for (let i = 0; i <= rawLineIdx && i < lines.length; i++) {
-          if (lines[i].trim()) filteredIdx++;
+        let blankRun = 0;
+        for (let i = start; i < endL && i <= rawLineIdx; i++) {
+          if (lines[i].trim()) { filteredIdx++; blankRun = 0; }
+          else if (blankRun < MAX_BLANK_RUN) { filteredIdx++; blankRun++; }
         }
         _imgOpenModal({ mode: 'insert', chId: chId, afterParaIdx: filteredIdx });
         return;
@@ -15460,7 +15523,12 @@
           } catch (_) { }
           if (!Array.isArray(S.images)) S.images = [];
           S.images.push(img);
-          _imgRefreshCover();
+          // NOTE: intentionally NOT calling _imgRefreshCover() here.
+          // Inline image uploads (from the writing-mode / preview
+          // Insert-image flow) must never touch the cover. Cover
+          // designation is a separate concern, handled by the Book tab's
+          // Cover Image dropzone (handleImages) and the _imgRefreshCover
+          // "preserve current if still in library" guard.
           try { if (typeof renderImgList === 'function') renderImgList(); } catch (_) { }
           if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
           if (_imgModalState) _imgModalState.selectedId = img.id;
@@ -22478,7 +22546,10 @@
           // Tip URL (author's external tip destination — Ko-fi etc.).
           const _tipEl = document.getElementById('rlTipUrl');
           if (_tipEl) _tipEl.value = _rlCurrent.tipUrl || '';
-          try { _rlSetProvider(_rlCurrent.provider === 'custom' ? 'custom' : 'gumroad'); } catch (e) { }
+          try {
+            const _p = _rlCurrent.provider;
+            _rlSetProvider(_p === 'custom' || _p === 'paypal_native' ? _p : 'gumroad');
+          } catch (e) { }
           // Post-populate state syncs — call unconditionally (even the
           // _rlCurrent branch benefits, and the no-_rlCurrent branch
           // needs it too so tier buttons hide until publish + shelf).
@@ -22819,7 +22890,14 @@
       const _gmMatch = productId.match(/\/l\/([^\/?#]+)/);
       if (_gmMatch) productId = _gmMatch[1];
       // Multi-provider: which payment provider is the author using?
-      const provider = (typeof _rlProvider !== 'undefined' && _rlProvider === 'custom') ? 'custom' : 'gumroad';
+      // Provider persists to release.provider — determines paywall
+      // rendering (Buttons SDK for paypal_native, external redirect
+      // for custom, license-verify for gumroad).
+      const provider = (function(){
+        if (typeof _rlProvider === 'undefined') return 'gumroad';
+        if (_rlProvider === 'custom' || _rlProvider === 'paypal_native') return _rlProvider;
+        return 'gumroad';
+      })();
       const checkoutUrl = (document.getElementById('rlCheckoutUrl') && document.getElementById('rlCheckoutUrl').value || '').trim();
       // let, not const — the auto-generate branch below may reassign it
       // when the author leaves the field blank on a paid+custom release.
@@ -24866,23 +24944,73 @@
                     release.unlockCode and issues the same shape of JWT the
                     Gumroad path issues, so the rest of the paywall is
                     identical for both providers. */
+    // ── PayPal Native (Path A) — save owner-level credentials ────────
+    // Saves the author's PayPal Business API Client ID + Secret to
+    // /vendor-owner-config with vendor='paypal_native'. Same account-
+    // wide pattern as the multi-tenant vendor webhooks: one config
+    // covers every folio the author sells via PayPal Native.
+    window._rlSavePaypalNative = async function _rlSavePaypalNative() {
+      const status = document.getElementById('rlPaypalNativeStatus');
+      const setStat = (msg, color) => { if (status) { status.textContent = msg; status.style.color = color || 'var(--hint)'; } };
+      const clientIdEl = document.getElementById('rlPaypalClientId');
+      const secretEl = document.getElementById('rlPaypalClientSecret');
+      const clientId = (clientIdEl && clientIdEl.value || '').trim();
+      const secret = (secretEl && secretEl.value || '').trim();
+      if (!clientId || !secret) { setStat('Both Client ID and Client Secret are required.', 'var(--danger,#c04040)'); return; }
+      if (!window._user || window._user.isAnonymous) { setStat('Sign in with Google first.', 'var(--danger,#c04040)'); return; }
+      setStat('Saving…');
+      try {
+        const idToken = await window._user.getIdToken();
+        const r = await fetch(PAYWALL_WORKER_URL + '/vendor-owner-config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+          body: JSON.stringify({ vendor: 'paypal_native', clientId, secret, enabled: true }),
+        });
+        const data = await r.json().catch(function(){ return {}; });
+        if (!r.ok || !data.ok) {
+          setStat('Save failed: ' + (data.error || r.status), 'var(--danger,#c04040)');
+          return;
+        }
+        // Clear the secret input after save — it's stored server-side,
+        // no need to keep it visible.
+        if (secretEl) secretEl.value = '';
+        setStat('✓ Connected. Every folio you release via PayPal Native uses this connection.', 'var(--accent-ui)');
+      } catch (e) {
+        setStat('Save failed: ' + (e.message || 'unknown'), 'var(--danger,#c04040)');
+      }
+    };
+
     function _rlSetProvider(p) {
-      const which = (p === 'custom') ? 'custom' : 'gumroad';
+      const valid = ['gumroad', 'custom', 'paypal_native'];
+      const which = valid.indexOf(p) >= 0 ? p : 'gumroad';
       const gBox = document.getElementById('rlGumroadFields');
       const cBox = document.getElementById('rlCustomFields');
+      const pBox = document.getElementById('rlPaypalNativeFields');
       if (gBox) gBox.style.display = (which === 'gumroad') ? '' : 'none';
       if (cBox) cBox.style.display = (which === 'custom') ? '' : 'none';
+      if (pBox) pBox.style.display = (which === 'paypal_native') ? '' : 'none';
       const gBtn = document.getElementById('rlProvGumroad');
       const cBtn = document.getElementById('rlProvCustom');
+      const pBtn = document.getElementById('rlProvPaypalNative');
       const ACTIVE = '2px solid var(--accent-ui,#0a7)';
       const NORMAL = '1px solid var(--border-mid)';
-      if (gBtn) { gBtn.style.border = (which === 'gumroad') ? ACTIVE : NORMAL; gBtn.style.fontWeight = (which === 'gumroad') ? '600' : '500'; }
-      if (cBtn) { cBtn.style.border = (which === 'custom') ? ACTIVE : NORMAL; cBtn.style.fontWeight = (which === 'custom') ? '600' : '500'; }
+      const setBtn = (btn, on) => {
+        if (!btn) return;
+        btn.style.border = on ? ACTIVE : NORMAL;
+        btn.style.fontWeight = on ? '600' : '500';
+      };
+      setBtn(gBtn, which === 'gumroad');
+      setBtn(cBtn, which === 'custom');
+      setBtn(pBtn, which === 'paypal_native');
       const hint = document.getElementById('rlProvHint');
       if (hint) {
-        hint.textContent = (which === 'custom')
-          ? 'Ko-fi, Payhip, PayPal, Stripe, Lemon Squeezy — any vendor with a checkout URL. Add auto-delivery below and Folio emails the unlock link on your behalf.'
-          : 'Buyers verify automatically through Gumroad\'s license API. Requires a Gumroad account with the product set up + license keys enabled.';
+        if (which === 'custom') {
+          hint.textContent = 'Ko-fi, Payhip, PayPal, Stripe, Lemon Squeezy — any vendor with a checkout URL. Add auto-delivery below and Folio emails the unlock link on your behalf.';
+        } else if (which === 'paypal_native') {
+          hint.textContent = 'PayPal checkout renders directly on your folio\'s paywall — buyer never leaves Folio. Payment lands in your PayPal Business account. Requires PayPal Client ID + Secret from developer.paypal.com.';
+        } else {
+          hint.textContent = 'Buyers verify automatically through Gumroad\'s license API. Requires a Gumroad account with the product set up + license keys enabled.';
+        }
       }
       _rlProvider = which;
     }
@@ -25391,6 +25519,7 @@
       wrap.dataset.product = (release && release.product) || '';
       wrap.dataset.provider = (release && release.provider) || 'gumroad';
       const _isCustom = wrap.dataset.provider === 'custom';
+      const _isPaypalNative = wrap.dataset.provider === 'paypal_native';
 
       const coverHtml = cover
         ? '<div class="pwpc-cover" style="background-image:url(&quot;' + _pwEscAttr(cover) + '&quot;)"></div>'
@@ -25399,6 +25528,8 @@
       // Author-customisable CTA button label + help/blurb. Falls back to
       // provider-aware defaults when blank. Kickstarter pre-launch, active
       // crowdfunding, mailing-list signup, pre-order — anything custom.
+      // PayPal Native replaces the anchor with the PayPal Buttons SDK
+      // (mounted after wrap is appended, see _pwMountPaypalNative below).
       const _defaultBuyLabel = (release && release.provider === 'custom')
         ? 'Buy &amp; get unlock code &rarr;'
         : 'Buy on Gumroad &rarr;';
@@ -25406,6 +25537,10 @@
       const _ctaBlurbOut = (release && release.ctaBlurb)
         ? '<div style="font-size:11.5px;color:var(--muted);margin:8px 0 4px;line-height:1.4">' + _pwEsc(release.ctaBlurb) + '</div>'
         : '';
+      const _buyBlock = _isPaypalNative
+        ? '<div class="pwpc-paypal-slot" id="pwpc-paypal-' + _pwEscAttr(releaseId) + '" style="margin-top:6px;min-height:52px"></div>' +
+          '<div class="pwpc-paypal-status" style="font-size:11px;color:var(--hint);margin-top:8px;line-height:1.5">Loading PayPal checkout…</div>'
+        : '<a class="pwpc-buy" href="' + _pwEscAttr(_pwBuyURL(release)) + '" target="_blank" rel="noopener">' + _ctaLabelOut + '</a>';
       wrap.innerHTML =
         '<div class="pwpc-row">' +
         coverHtml +
@@ -25414,7 +25549,7 @@
         '<div class="pwpc-title">' + _pwEsc(title) + '</div>' +
         (author ? '<div style="font-size:11.5px;color:var(--muted);margin-bottom:6px">by ' + _pwEsc(author) + '</div>' : '') +
         (priceStr ? '<div class="pwpc-price">' + priceStr + '</div>' : '') +
-        '<a class="pwpc-buy" href="' + _pwEscAttr(_pwBuyURL(release)) + '" target="_blank" rel="noopener">' + _ctaLabelOut + '</a>' +
+        _buyBlock +
         _ctaBlurbOut +
         '</div>' +
         '</div>' +
@@ -25479,8 +25614,126 @@
         }
       });
 
+      // If this is a PayPal Native release, kick off the Buttons SDK
+      // mount as soon as the wrap is inserted into the DOM. Uses
+      // requestAnimationFrame + a MutationObserver-lite polling loop
+      // because paywall render can happen before or after the pane
+      // is visible; we just wait until the slot exists in the tree.
+      if (_isPaypalNative) {
+        const _slotId = 'pwpc-paypal-' + releaseId;
+        const _tryMount = () => {
+          if (document.getElementById(_slotId)) {
+            _pwMountPaypalNative(releaseId, _slotId);
+          } else {
+            setTimeout(_tryMount, 120);
+          }
+        };
+        setTimeout(_tryMount, 0);
+      }
+
       return wrap;
     }
+
+    // ── PayPal Native (Path A) — mount PayPal Buttons on the paywall ──
+    // Fetches the folio's owner-configured PayPal Client ID + price +
+    // currency, injects the PayPal SDK script for that Client ID, then
+    // calls paypal.Buttons(...).render() into the mount slot. On buyer
+    // approval, calls /paypal-capture-order → gets a JWT → stashes it
+    // locally → unlocks the folio in place, no page reload.
+    //
+    // Idempotent per releaseId — subsequent calls for the same slot
+    // are no-ops (script tag stays cached, buttons stay rendered).
+    const _pwPaypalMounted = new Set();
+    async function _pwMountPaypalNative(releaseId, slotId) {
+      if (_pwPaypalMounted.has(releaseId)) return;
+      _pwPaypalMounted.add(releaseId);
+      const slot = document.getElementById(slotId);
+      const statusEl = slot ? slot.parentElement.querySelector('.pwpc-paypal-status') : null;
+      const setStatus = (msg, isErr) => {
+        if (!statusEl) return;
+        statusEl.textContent = msg;
+        statusEl.style.color = isErr ? 'var(--danger,#c04040)' : 'var(--hint)';
+      };
+      try {
+        const _url = (typeof PAYWALL_WORKER_URL === 'string' && PAYWALL_WORKER_URL)
+          ? PAYWALL_WORKER_URL
+          : 'https://folio-paywall.jacobdsiler.workers.dev';
+        const r = await fetch(_url + '/paypal-native-config?folio=' + encodeURIComponent(releaseId));
+        const cfg = await r.json().catch(function(){ return {}; });
+        if (!r.ok || !cfg.ok) {
+          setStatus('PayPal checkout unavailable: ' + (cfg.error || r.status) + '. Contact the author.', true);
+          return;
+        }
+        // Load the PayPal SDK once per Client ID. Multiple releases
+        // from the same author share the same SDK; from different
+        // authors need distinct script tags (Client IDs differ).
+        const sdkId = 'pp-sdk-' + cfg.clientId;
+        if (!document.getElementById(sdkId)) {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.id = sdkId;
+            s.src = 'https://www.paypal.com/sdk/js?client-id=' + encodeURIComponent(cfg.clientId) +
+                    '&currency=' + encodeURIComponent(cfg.currency) +
+                    '&intent=capture';
+            s.onload = resolve;
+            s.onerror = () => reject(new Error('PayPal SDK failed to load'));
+            document.head.appendChild(s);
+          });
+        }
+        if (!window.paypal || !window.paypal.Buttons) {
+          setStatus('PayPal SDK loaded but Buttons unavailable.', true);
+          return;
+        }
+        setStatus('');
+        window.paypal.Buttons({
+          style: { layout: 'vertical', shape: 'rect', label: 'buynow', color: 'gold' },
+          createOrder: async () => {
+            const rr = await fetch(_url + '/paypal-create-order', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ folioId: releaseId }),
+            });
+            const dd = await rr.json().catch(function(){ return {}; });
+            if (!rr.ok || !dd.ok) throw new Error('Order create failed: ' + (dd.error || rr.status));
+            return dd.orderId;
+          },
+          onApprove: async (data) => {
+            setStatus('Payment received — unlocking your book…');
+            try {
+              const rr = await fetch(_url + '/paypal-capture-order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ folioId: releaseId, orderId: data.orderID }),
+              });
+              const dd = await rr.json().catch(function(){ return {}; });
+              if (!rr.ok || !dd.ok) throw new Error(dd.error || 'Capture failed');
+              // Stash the unlock token and switch to unlocked view.
+              try { localStorage.setItem('folio_paywall_' + releaseId, dd.token); } catch (_) {}
+              setStatus('✓ Unlocked. Enjoy the read.');
+              setTimeout(() => {
+                try {
+                  if (typeof _pwHidePreview === 'function') _pwHidePreview();
+                  document.documentElement.setAttribute('data-paid-unlocked', '1');
+                  // Trigger a content re-render if there's a hook for it.
+                  if (typeof _pwCheckAccess === 'function') _pwCheckAccess(releaseId);
+                } catch (_) {}
+              }, 500);
+            } catch (e) {
+              setStatus('Payment captured but unlock failed — your unlock email will arrive shortly. ' + (e.message || ''), true);
+            }
+          },
+          onError: (err) => {
+            console.warn('[paypal-native] Buttons onError:', err);
+            setStatus('PayPal checkout error. Please try again.', true);
+          },
+          onCancel: () => { setStatus(''); },
+        }).render('#' + slotId);
+      } catch (e) {
+        console.warn('[paypal-native] mount failed:', e);
+        setStatus('PayPal checkout failed to load: ' + (e.message || 'unknown'), true);
+      }
+    }
+    window._pwMountPaypalNative = _pwMountPaypalNative;
 
     function _pwEsc(s) {
       return String(s == null ? '' : s)
@@ -32288,9 +32541,12 @@
         <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 6px">How are you
           taking payment?</label>
         <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+          <button type="button" id="rlProvPaypalNative" onclick="_rlSetProvider('paypal_native')" class="rl-prov"
+            style="flex:1;min-width:140px;padding:8px;border-radius:7px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">PayPal
+            <span style="opacity:.6;font-weight:400">(native checkout)</span></button>
           <button type="button" id="rlProvCustom" onclick="_rlSetProvider('custom')" class="rl-prov"
             style="flex:1;min-width:140px;padding:8px;border-radius:7px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Any vendor
-            <span style="opacity:.6;font-weight:400">(recommended)</span></button>
+            <span style="opacity:.6;font-weight:400">(redirect)</span></button>
           <button type="button" id="rlProvGumroad" onclick="_rlSetProvider('gumroad')" class="rl-prov"
             style="flex:1;min-width:140px;padding:8px;border-radius:7px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Gumroad
             <span style="opacity:.6;font-weight:400">(auto-verify)</span></button>
@@ -32298,6 +32554,30 @@
         <p id="rlProvHint" style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:0 0 10px">
           Ko-fi, Payhip, PayPal, Stripe, Lemon Squeezy — any vendor with a checkout URL. Add auto-delivery below and Folio emails the unlock link on your behalf.
         </p>
+
+        <!-- PayPal Native sub-fields (Path A — buttons SDK on the paywall). -->
+        <div id="rlPaypalNativeFields" style="display:none;padding:12px;background:#fdfaf3;border:.5px solid #e8d9a8;border-radius:8px;margin-bottom:10px">
+          <p style="font-size:11.5px;color:#5c3d00;line-height:1.55;margin:0 0 10px">
+            <strong>Account-wide setup.</strong> Paste your PayPal Business account's REST API Client ID + Secret. These credentials cover every folio you sell via PayPal Native — you only need to enter them once. Payment lands directly in your PayPal account; Folio never touches the money.
+          </p>
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">PayPal Client ID <span style="opacity:.6;font-weight:400">(from developer.paypal.com &rarr; Apps &amp; Credentials)</span></label>
+          <input type="text" id="rlPaypalClientId" placeholder="AeXt...long-string...xyz" autocomplete="off" spellcheck="false"
+            style="width:100%;font-size:12.5px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:8px;font-family:ui-monospace,Menlo,monospace">
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">PayPal Client Secret</label>
+          <input type="password" id="rlPaypalClientSecret" autocomplete="new-password" spellcheck="false"
+            placeholder="(paste-only — never displayed after saving)"
+            style="width:100%;font-size:12.5px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:8px;font-family:ui-monospace,Menlo,monospace">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button type="button" onclick="_rlSavePaypalNative()"
+              style="font-size:12px;padding:7px 14px;border-radius:7px;border:none;background:var(--accent-ui);color:#fff;cursor:pointer;font-weight:500;font-family:inherit">
+              Save PayPal Native connection
+            </button>
+            <span id="rlPaypalNativeStatus" style="font-size:11.5px;color:var(--hint);line-height:1.55"></span>
+          </div>
+          <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:10px 0 0">
+            Also set your <strong>Price</strong> + <strong>Currency</strong> below — the buttons SDK charges that amount. The buyer sees PayPal's own popup (never leaves your folio), pays with card / PayPal / Venmo / Google Pay, and unlocks the book automatically on success.
+          </p>
+        </div>
 
         <!-- Gumroad sub-fields (default) -->
         <div id="rlGumroadFields">
