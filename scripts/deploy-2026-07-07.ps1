@@ -192,6 +192,106 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat(paypal-native): Path A shipped — inline PayPal Buttons checkout
+
+Also in this batch: fixes for the image-insert cover side-effect,
+click-to-edit on freshly-inserted images, and release-independent
+share links.
+
+═══ Path A — PayPal Native ═══════════════════════════════════════
+
+Reader lands on a paid folio, sees the PayPal Buttons SDK inline
+on the paywall, clicks Buy, popup opens for PayPal login/approval,
+popup closes on approval, worker captures the payment against the
+AUTHOR's PayPal Business account, mints an unlock JWT, dispatches
+the confirmation emails. Buyer never leaves Folio.
+
+Backend (folio-paywall-worker.js):
+  - _VENDOR_KINDS extended with 'paypal_native'.
+  - /vendor-owner-config accepts { vendor:'paypal_native', clientId,
+    secret } — clientId is public (embedded in the Buttons SDK URL)
+    so it's returned by the GET; secret stays server-side only.
+  - GET  /paypal-native-config?folio=<id> — public. Returns author's
+    Client ID + price + currency + title so the paywall can render.
+  - POST /paypal-create-order — creates a PayPal order via the
+    author's credentials (ppAccessTokenFor helper — parameterized
+    version of ppAccessToken). Returns { orderId } for the SDK's
+    onCreateOrder callback.
+  - POST /paypal-capture-order — captures the approved order, mints
+    the unlock JWT (same shape as Ko-fi flow), records the sale,
+    dispatches buyer + owner emails via the email worker. Returns
+    { ok, token, unlockUrl } so the paywall unlocks in place
+    without waiting for the email.
+
+Frontend (app.html):
+  - Release modal: new "PayPal (native checkout)" provider button
+    alongside Custom + Gumroad. Selecting it shows an inline config
+    panel for Client ID + Secret + "Save" that hits /vendor-owner-
+    config. Saves apply account-wide — every folio the author sells
+    via PayPal Native reuses the same credentials.
+  - Release save: provider now accepts 'paypal_native' as a stored
+    value (previously only 'custom' / 'gumroad'). Save + hydrate
+    paths updated in parallel.
+  - Paywall lock card: when release.provider === 'paypal_native',
+    the buy-now anchor is replaced with a mount slot that
+    _pwMountPaypalNative populates. That function fetches the
+    config, injects the PayPal SDK for the author's Client ID,
+    renders paypal.Buttons with createOrder + onApprove wired to
+    /paypal-create-order + /paypal-capture-order, stashes the
+    returned JWT in localStorage, and switches the folio to
+    unlocked view — no page reload.
+  - Same-Client-ID SDK loads are deduped via a per-Client-ID script
+    tag id; per-release mount is a Set of releaseIds so repeat
+    renders don't stack multiple Buttons.
+
+Money invariant: payments land DIRECTLY in the author's PayPal
+Business account (Folio's API keys are never used for buyer
+transactions). Folio is never merchant of record. Same "0% cut"
+posture as the redirect vendors.
+
+═══ Image-insert fixes ═══════════════════════════════════════════
+
+  - Cover no longer gets clobbered by inline uploads. _imgRefreshCover
+    now preserves an existing cover if the image is still in the
+    library; only promotes "first image" when there's no cover yet
+    OR the current cover was removed. _imgModalUpload (the inline
+    insert path) doesn't call _imgRefreshCover at all — inline
+    uploads add to the library without touching cover designation.
+    Fixes Thomas's cover-getting-replaced issue.
+  - Click-to-edit on rendered images now works even when the chapter
+    has a preserved blank paragraph before the image. Root cause:
+    render stamped paraIdx as the index into _paragraphsOf() output
+    (which includes blank paragraphs up to MAX_BLANK_RUN), while
+    _imgFilteredToRaw only counted non-empty raw lines — indices
+    diverged the moment ANY blank paragraph existed. Rewrote
+    _imgFilteredToRaw to mirror _paragraphsOf's walk exactly. Same
+    fix applied to the writing-mode caret → paraIdx calculation.
+  - Writing-mode textarea now mirrors ch.content on insert/update/
+    remove so the __IMG__ marker line shows immediately without
+    needing to close writing mode (was in prior batch, mentioned
+    here for completeness).
+
+═══ Share links pre-release ══════════════════════════════════════
+
+Firestore rules loosened further: per-doc GET on folio_projects is
+now unrestricted (the folio ID's ~10^10 combinations ARE the
+credential). LIST stays owner-scoped so nobody can enumerate the
+collection. body/paid stays owner-only via the paywall worker's
+JWT-verified service-account path. Share links (reader / beta /
+editor) now work on pure drafts before any release object exists.
+
+Rationale: Jacob's mental model is "generating a share URL IS the
+distribute gesture" — requiring a release step first was friction
+that broke the beta-reader workflow. New rule matches that.
+
+folioVisible(id) simplified to `parentDoc(id) != null` — same
+"if the folio exists, its metadata is fetchable" posture propagated
+to subcollections (characters, metadata, presence, annotations).
+
+═══════════════════════════════════════════════════════════════════
+
+Previous batch — kept in commit history:
+
 fix+feat(images): writing-mode Insert works, drag-to-reorder in preview
 
 Two related fixes to Thomas's image struggle:
