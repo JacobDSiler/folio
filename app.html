@@ -24991,6 +24991,14 @@
       }
     };
 
+    // Provider labels — kept in one place so the chosen-chip and the
+    // picker buttons stay in sync if we ever add / rename vendors.
+    const _RL_PROV_LABELS = {
+      paypal_native: 'PayPal (native checkout)',
+      custom:        'Any vendor (redirect)',
+      gumroad:       'Gumroad (auto-verify)',
+    };
+
     function _rlSetProvider(p) {
       const valid = ['gumroad', 'custom', 'paypal_native'];
       const which = valid.indexOf(p) >= 0 ? p : 'gumroad';
@@ -25018,15 +25026,77 @@
         if (which === 'custom') {
           hint.textContent = 'Ko-fi, Payhip, PayPal, Stripe, Lemon Squeezy — any vendor with a checkout URL. Add auto-delivery below and Folio emails the unlock link on your behalf.';
         } else if (which === 'paypal_native') {
-          hint.textContent = 'PayPal checkout renders directly on your folio\'s paywall — buyer never leaves Folio. Payment lands in your PayPal Business account. Requires PayPal Client ID + Secret from developer.paypal.com.';
+          hint.textContent = 'PayPal checkout renders directly on your folio\'s paywall — buyer never leaves Folio. Payment lands in your PayPal Business account. Configure credentials in Vendor connections.';
         } else {
           hint.textContent = 'Buyers verify automatically through Gumroad\'s license API. Requires a Gumroad account with the product set up + license keys enabled.';
         }
       }
       _rlProvider = which;
+      // Collapse the three-button picker into a single chip once a
+      // vendor is chosen — reduces cognitive load and keeps the release
+      // modal focused on THIS folio's release settings. "Change vendor"
+      // reopens the picker.
+      const picker = document.getElementById('rlProvPicker');
+      const chosen = document.getElementById('rlProvChosen');
+      const chosenName = document.getElementById('rlProvChosenName');
+      if (picker) picker.style.display = 'none';
+      if (chosen) chosen.style.display = 'flex';
+      if (chosenName) chosenName.textContent = _RL_PROV_LABELS[which] || which;
+      // For PayPal Native, refresh the "connection status" line so the
+      // author sees whether their credentials are on file without
+      // having to open Vendor Connections first.
+      if (which === 'paypal_native' && typeof _rlRefreshPaypalNativeStatus === 'function') {
+        _rlRefreshPaypalNativeStatus();
+      }
     }
     window._rlSetProvider = _rlSetProvider;
     let _rlProvider = 'custom';
+
+    // Re-open the picker (undo the collapse). Called from the "Change
+    // vendor" button in the collapsed-state chip.
+    window._rlChangeProvider = function _rlChangeProvider() {
+      const picker = document.getElementById('rlProvPicker');
+      const chosen = document.getElementById('rlProvChosen');
+      if (picker) picker.style.display = '';
+      if (chosen) chosen.style.display = 'none';
+    };
+
+    // Refresh the PayPal Native status line by hitting the Vendor
+    // Connections GET endpoint. Shows one of:
+    //   - "Checking connection…" (initial)
+    //   - "✓ Connected. Buttons will render on this folio's paywall."
+    //   - "Not connected. Click Open Vendor connections above to set up."
+    //   - "Sign in with Google to configure."
+    window._rlRefreshPaypalNativeStatus = async function _rlRefreshPaypalNativeStatus() {
+      const line = document.getElementById('rlPaypalNativeStatusLine');
+      if (!line) return;
+      if (!window._user || window._user.isAnonymous) {
+        line.textContent = 'Sign in with Google to configure PayPal.';
+        line.style.color = 'var(--danger,#c04040)';
+        return;
+      }
+      line.textContent = 'Checking connection…';
+      line.style.color = 'var(--hint)';
+      try {
+        const idToken = await window._user.getIdToken();
+        const r = await fetch(PAYWALL_WORKER_URL + '/vendor-owner-config', {
+          method: 'GET',
+          headers: { 'Authorization': 'Bearer ' + idToken },
+        });
+        const data = await r.json().catch(function(){ return {}; });
+        const pn = (data && data.vendors && data.vendors.paypal_native) || null;
+        if (pn && pn.configured) {
+          line.innerHTML = '<span style="color:var(--accent-ui,#065f46);font-weight:500">✓ Connected.</span> Buttons will render on this folio\'s paywall once you save the release.';
+          line.style.color = 'var(--text)';
+        } else {
+          line.innerHTML = '<span style="color:#a05028">Not connected yet.</span> Click <em>Open Vendor connections</em> below to paste your PayPal Client ID + Secret.';
+          line.style.color = 'var(--text)';
+        }
+      } catch (e) {
+        line.textContent = 'Could not check connection status.';
+        line.style.color = 'var(--hint)';
+      }
+    };
 
     /* Build the "Buy" URL for the reader. Branches on release.provider:
          - custom:   release.checkoutUrl (whatever the author pasted)
@@ -32597,7 +32667,11 @@
            emails buyers after checkout. -->
         <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 6px">How are you
           taking payment?</label>
-        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+        <!-- Vendor picker: three-button grid on first view. Once a
+             vendor is picked, _rlSetProvider collapses this to a
+             single-line "Using X — Change vendor" chip so the release
+             modal only surfaces the fields for the chosen vendor. -->
+        <div id="rlProvPicker" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
           <button type="button" id="rlProvPaypalNative" onclick="_rlSetProvider('paypal_native')" class="rl-prov"
             style="flex:1;min-width:140px;padding:8px;border-radius:7px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">PayPal
             <span style="opacity:.6;font-weight:400">(native checkout)</span></button>
@@ -32608,31 +32682,38 @@
             style="flex:1;min-width:140px;padding:8px;border-radius:7px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Gumroad
             <span style="opacity:.6;font-weight:400">(auto-verify)</span></button>
         </div>
+        <!-- Collapsed-state chip — shown INSTEAD of the picker once a
+             vendor is chosen. "Change vendor" re-opens the picker. -->
+        <div id="rlProvChosen" style="display:none;align-items:center;gap:8px;margin-bottom:10px;padding:8px 10px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:7px;font-size:12px;color:var(--text)">
+          <span style="font-size:11px;color:var(--hint);text-transform:uppercase;letter-spacing:.05em">Using</span>
+          <strong id="rlProvChosenName" style="font-size:12.5px">-</strong>
+          <span style="flex:1"></span>
+          <button type="button" onclick="_rlChangeProvider()" style="font-size:11px;padding:4px 10px;border-radius:5px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--accent-ui,#065f46);cursor:pointer;font-family:inherit">Change vendor</button>
+        </div>
         <p id="rlProvHint" style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:0 0 10px">
           Ko-fi, Payhip, PayPal, Stripe, Lemon Squeezy — any vendor with a checkout URL. Add auto-delivery below and Folio emails the unlock link on your behalf.
         </p>
 
-        <!-- PayPal Native sub-fields (Path A — buttons SDK on the paywall). -->
+        <!-- PayPal Native — credentials live in Vendor Connections.
+             This section is now a compact status line + a nudge to
+             open that modal when unconfigured. Keeps the release
+             modal focused on THIS folio's release settings (price,
+             currency, CTA copy) while account-wide setup happens
+             once in the dedicated Vendor Connections drawer. -->
         <div id="rlPaypalNativeFields" style="display:none;padding:12px;background:#fdfaf3;border:.5px solid #e8d9a8;border-radius:8px;margin-bottom:10px">
-          <p style="font-size:11.5px;color:#5c3d00;line-height:1.55;margin:0 0 10px">
-            <strong>Account-wide setup.</strong> Paste your PayPal Business account's REST API Client ID + Secret. These credentials cover every folio you sell via PayPal Native — you only need to enter them once. Payment lands directly in your PayPal account; Folio never touches the money.
+          <p style="font-size:11.5px;color:#5c3d00;line-height:1.55;margin:0 0 8px">
+            <strong>PayPal (native checkout)</strong> renders the PayPal buttons directly on your paywall — buyer never leaves Folio, payment lands in your PayPal Business account.
           </p>
-          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">PayPal Client ID <span style="opacity:.6;font-weight:400">(from developer.paypal.com &rarr; Apps &amp; Credentials)</span></label>
-          <input type="text" id="rlPaypalClientId" placeholder="AeXt...long-string...xyz" autocomplete="off" spellcheck="false"
-            style="width:100%;font-size:12.5px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:8px;font-family:ui-monospace,Menlo,monospace">
-          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">PayPal Client Secret</label>
-          <input type="password" id="rlPaypalClientSecret" autocomplete="new-password" spellcheck="false"
-            placeholder="(paste-only — never displayed after saving)"
-            style="width:100%;font-size:12.5px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;margin-bottom:8px;font-family:ui-monospace,Menlo,monospace">
+          <div id="rlPaypalNativeStatusLine" style="font-size:11.5px;color:var(--hint);line-height:1.55;margin:0 0 8px">Checking connection…</div>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <button type="button" onclick="_rlSavePaypalNative()"
-              style="font-size:12px;padding:7px 14px;border-radius:7px;border:none;background:var(--accent-ui);color:#fff;cursor:pointer;font-weight:500;font-family:inherit">
-              Save PayPal Native connection
+            <button type="button" onclick="_vcOpen()"
+              style="font-size:12px;padding:7px 14px;border-radius:7px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--accent-ui,#065f46);cursor:pointer;font-weight:500;font-family:inherit">
+              Open Vendor connections
             </button>
-            <span id="rlPaypalNativeStatus" style="font-size:11.5px;color:var(--hint);line-height:1.55"></span>
+            <span style="font-size:10.5px;color:var(--hint);line-height:1.4">One connection covers every paid folio you release via PayPal Native.</span>
           </div>
           <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:10px 0 0">
-            Also set your <strong>Price</strong> + <strong>Currency</strong> below — the buttons SDK charges that amount. The buyer sees PayPal's own popup (never leaves your folio), pays with card / PayPal / Venmo / Google Pay, and unlocks the book automatically on success.
+            Set your <strong>Price</strong> + <strong>Currency</strong> below — the buttons SDK charges that amount per purchase.
           </p>
         </div>
 

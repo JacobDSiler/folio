@@ -106,16 +106,43 @@ try {
     Write-Host "  OK   app.html closes with </html>" -ForegroundColor Green
 
     # -- 3. Firebase Storage CORS -------------------------------------
+    # Locks Storage bucket CORS to the origins declared in
+    # docs/firebase-storage-cors.json. Skipped gracefully if neither
+    # gsutil NOR gcloud is on PATH — falls back to manual instructions.
+    # Either tool works; gcloud is the successor and shipping with newer
+    # Google Cloud SDK installs, so we try it first.
     Write-Host ""
     Write-Host "-- Firebase Storage CORS --" -ForegroundColor Cyan
+    $bucket = 'miscellaneous-117e9.firebasestorage.app'
+    $corsFile = 'docs\firebase-storage-cors.json'
+
+    # Prefer gcloud (newer). gcloud storage buckets update supersedes
+    # gsutil cors set and works with the same JSON config file.
+    $gcloud = Get-Command gcloud -ErrorAction SilentlyContinue
+    if (-not $gcloud) { $gcloud = Get-Command gcloud.cmd -ErrorAction SilentlyContinue }
     $gsutil = Get-Command gsutil -ErrorAction SilentlyContinue
     if (-not $gsutil) { $gsutil = Get-Command gsutil.cmd -ErrorAction SilentlyContinue }
-    if (-not $gsutil) {
-        Write-Host "gsutil not on PATH. Install Google Cloud SDK or run this step manually:" -ForegroundColor Yellow
-        Write-Host "  gsutil cors set docs\firebase-storage-cors.json gs://miscellaneous-117e9.firebasestorage.app" -ForegroundColor Yellow
-    } else {
-        & gsutil cors set docs\firebase-storage-cors.json gs://miscellaneous-117e9.firebasestorage.app
+
+    if ($gcloud) {
+        Write-Host "  Using gcloud storage buckets update..." -ForegroundColor Cyan
+        & $gcloud.Source storage buckets update "gs://$bucket" --cors-file="$corsFile"
+        if ($LASTEXITCODE -ne 0) { Write-Host "gcloud failed (exit $LASTEXITCODE)." -ForegroundColor Red; Stop-Here $LASTEXITCODE }
+    } elseif ($gsutil) {
+        Write-Host "  Using gsutil cors set..." -ForegroundColor Cyan
+        & $gsutil.Source cors set $corsFile "gs://$bucket"
         if ($LASTEXITCODE -ne 0) { Write-Host "gsutil failed (exit $LASTEXITCODE)." -ForegroundColor Red; Stop-Here $LASTEXITCODE }
+    } else {
+        Write-Host "Neither gcloud nor gsutil on PATH. Skipping CORS update." -ForegroundColor Yellow
+        Write-Host "  Two ways to apply the config in $corsFile :" -ForegroundColor Yellow
+        Write-Host "" -ForegroundColor Yellow
+        Write-Host "  Option A - one-time via Google Cloud Console (no install):" -ForegroundColor Gray
+        Write-Host "    https://console.cloud.google.com/storage/browser/$bucket" -ForegroundColor Gray
+        Write-Host "    click the three-dot menu -> Edit CORS configuration ->" -ForegroundColor Gray
+        Write-Host "    paste the contents of $corsFile -> Save." -ForegroundColor Gray
+        Write-Host "" -ForegroundColor Yellow
+        Write-Host "  Option B - install Google Cloud SDK (permanent fix):" -ForegroundColor Gray
+        Write-Host "    https://cloud.google.com/sdk/docs/install-sdk" -ForegroundColor Gray
+        Write-Host "    then re-run this deploy - CORS will apply automatically." -ForegroundColor Gray
     }
 
     # -- 4. Firestore + Storage rules ---------------------------------
@@ -192,6 +219,46 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+ux(release-modal): collapse vendor picker + tighter deploy CORS
+
+Release modal
+─────────────
+Vendor picker used to keep all three provider buttons visible after
+you clicked one — visually noisy once you've made your choice. Now
+picks collapse to a single-line chip: "Using PayPal (native
+checkout) — [Change vendor]". The "Change vendor" button re-opens
+the full picker. Matches Jacob's original design proposal (the
+release modal is for THIS folio's release settings; account-wide
+credential setup belongs in Vendor Connections).
+
+Follows through on that split:
+  - PayPal Native section in the release modal shrank from a full
+    Client ID + Secret + Save form to a compact "Open Vendor
+    connections" link with a live "✓ Connected / Not connected"
+    status line so the author knows the state without leaving.
+  - Credential form ONLY lives in Vendor Connections now.
+    /vendor-owner-config still accepts writes from either surface
+    but the release modal no longer duplicates the fields.
+
+Deploy CORS
+───────────
+gsutil isn't installed on Jacob's machine so the CORS step was
+skipping every deploy — Firebase Storage was running with default
+permissive CORS. Two fixes:
+  - The deploy now prefers `gcloud storage buckets update` (newer,
+    ships with current Google Cloud SDK) and falls back to `gsutil
+    cors set` if only the older tool is around.
+  - When neither is installed, prints TWO clear paths: (Option A)
+    the Google Cloud Console web UI URL that lets you paste the
+    config once, (Option B) install the Google Cloud SDK link so
+    future deploys apply CORS automatically. Both take ~5 minutes.
+
+Bucket name + config file path pulled into vars for readability.
+
+---
+
+Previous batch — kept in commit history:
+
 feat(vendor-connections): account-wide credentials modal
 
 New Vendor Connections modal (sidebar footer, alongside Release
