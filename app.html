@@ -6795,6 +6795,17 @@
               <span id="btnReleaseBadge"
                 style="display:none;background:#d1fae5;color:#065f46;font-size:9px;padding:1px 6px;border-radius:8px;font-weight:400;letter-spacing:.02em">LIVE</span>
             </button>
+            <!-- Vendor connections launcher — account-wide credentials
+                 (PayPal Native Client ID+Secret, Ko-fi verification
+                 token, Payhip signing secret) live here so the release
+                 modal can be a simple vendor picker without repeating
+                 credential entry per folio. -->
+            <button class="btn-sm btn-ghost" id="btnVendorConnections" onclick="_vcOpen()"
+              style="width:100%;margin-top:5px;padding:6px 8px;font-size:11px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--bg);color:var(--muted);cursor:pointer;font-family:var(--sans);display:flex;align-items:center;justify-content:center;gap:6px"
+              title="Configure your PayPal / Ko-fi / Payhip credentials once — they apply to every paid folio">
+              <span style="font-size:12px">🔌</span>
+              <span>Vendor connections</span>
+            </button>
             <!-- Publish health — at-a-glance release state. Collapsed by
                  default; clicking the summary expands the detail block. -->
             <div id="publishHealthLine"
@@ -25530,13 +25541,22 @@
       // crowdfunding, mailing-list signup, pre-order — anything custom.
       // PayPal Native replaces the anchor with the PayPal Buttons SDK
       // (mounted after wrap is appended, see _pwMountPaypalNative below).
-      const _defaultBuyLabel = (release && release.provider === 'custom')
-        ? 'Buy &amp; get unlock code &rarr;'
+      //
+      // Path C polish: for redirect vendors (custom), auto-detect the
+      // vendor from the checkout URL and use it in the CTA + a small
+      // reassurance line. The reader learns WHERE they're going before
+      // they click, and "you'll come back here" removes the "will I
+      // lose my place / did I actually buy the right book?" anxiety.
+      const _vendorGuess = _isCustom ? _pwGuessVendor(_pwBuyURL(release)) : null;
+      const _defaultBuyLabel = _isCustom
+        ? (_vendorGuess ? ('Buy on ' + _vendorGuess.name + ' &rarr;') : 'Buy &amp; get unlock code &rarr;')
         : 'Buy on Gumroad &rarr;';
       const _ctaLabelOut = (release && release.ctaLabel) ? _pwEsc(release.ctaLabel) : _defaultBuyLabel;
       const _ctaBlurbOut = (release && release.ctaBlurb)
         ? '<div style="font-size:11.5px;color:var(--muted);margin:8px 0 4px;line-height:1.4">' + _pwEsc(release.ctaBlurb) + '</div>'
-        : '';
+        : (_vendorGuess
+            ? '<div style="font-size:10.5px;color:var(--hint);margin:6px 0 4px;line-height:1.5">You\'ll be redirected to ' + _pwEsc(_vendorGuess.name) + ' for secure checkout, then your unlock link arrives here by email within 60 seconds.</div>'
+            : '');
       const _buyBlock = _isPaypalNative
         ? '<div class="pwpc-paypal-slot" id="pwpc-paypal-' + _pwEscAttr(releaseId) + '" style="margin-top:6px;min-height:52px"></div>' +
           '<div class="pwpc-paypal-status" style="font-size:11px;color:var(--hint);margin-top:8px;line-height:1.5">Loading PayPal checkout…</div>'
@@ -25744,6 +25764,37 @@
         .replace(/'/g, '&#39;');
     }
     function _pwEscAttr(s) { return _pwEsc(s); }
+
+    // Path C polish — recognise the vendor from a checkout URL so the
+    // paywall CTA can read "Buy on Ko-fi →" instead of the generic
+    // "Buy & get unlock code →", and the reassurance line can name
+    // where the reader is being sent. Order matters: paypal.me is
+    // matched before paypal.com so the specific redirect flow wins.
+    // Anything not in the table falls through to a null return and
+    // the paywall uses its generic default (no regression).
+    function _pwGuessVendor(url) {
+      if (!url || typeof url !== 'string') return null;
+      const u = url.toLowerCase();
+      const rules = [
+        { match: /(^|\/\/)([\w-]+\.)?ko-fi\.com\//,             name: 'Ko-fi' },
+        { match: /(^|\/\/)([\w-]+\.)?payhip\.com\//,            name: 'Payhip' },
+        { match: /(^|\/\/)paypal\.me\//,                        name: 'PayPal' },
+        { match: /(^|\/\/)([\w-]+\.)?paypal\.com\//,            name: 'PayPal' },
+        { match: /(^|\/\/)([\w-]+\.)?gumroad\.com\//,           name: 'Gumroad' },
+        { match: /(^|\/\/)buy\.stripe\.com\//,                  name: 'Stripe' },
+        { match: /(^|\/\/)([\w-]+\.)?lemonsqueezy\.com\//,      name: 'Lemon Squeezy' },
+        { match: /(^|\/\/)([\w-]+\.)?buymeacoffee\.com\//,      name: 'Buy Me a Coffee' },
+        { match: /(^|\/\/)([\w-]+\.)?patreon\.com\//,           name: 'Patreon' },
+        { match: /(^|\/\/)([\w-]+\.)?substack\.com\//,          name: 'Substack' },
+        { match: /(^|\/\/)([\w-]+\.)?itch\.io\//,               name: 'itch.io' },
+        { match: /(^|\/\/)([\w-]+\.)?kickstarter\.com\//,       name: 'Kickstarter' },
+        { match: /(^|\/\/)([\w-]+\.)?indiegogo\.com\//,         name: 'Indiegogo' },
+      ];
+      for (const r of rules) {
+        if (r.match.test(u)) return { name: r.name };
+      }
+      return null;
+    }
 
 
 
@@ -26413,7 +26464,13 @@
           '<div class="rdad-icon">🔒</div>' +
           '<div><strong>Includes audiobook</strong></div>' +
           '<div style="margin-top:6px;color:var(--hint)">' + ((release && release.provider === 'custom') ? 'Unlock with your code to listen.' : 'Unlock with your Gumroad license to listen.') + '</div>' +
-          (buy ? '<a class="rdad-cta" href="' + buy + '" target="_blank" rel="noopener">' + ((release && release.provider === 'custom') ? 'Buy &amp; get unlock code →' : 'Get it on Gumroad →') + '</a>' : '') +
+          (buy ? '<a class="rdad-cta" href="' + buy + '" target="_blank" rel="noopener">' + (function(){
+            if (release && release.provider === 'custom') {
+              const _vg = (typeof _pwGuessVendor === 'function') ? _pwGuessVendor(buy) : null;
+              return _vg ? ('Buy on ' + _vg.name + ' →') : 'Buy &amp; get unlock code →';
+            }
+            return 'Get it on Gumroad →';
+          })() + '</a>' : '') +
           '</div>';
         return;
       }
@@ -34421,6 +34478,266 @@
     <div id="reviewStatus" style="font-size:12px;color:var(--hint);text-align:right;margin-top:8px;min-height:14px"></div>
   </div>
 </div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     VENDOR CONNECTIONS MODAL — account-wide credentials for the
+     payment vendors that need them. Reached from the sidebar footer
+     ("Vendor connections" button). One save covers every folio the
+     author sells through that vendor; the release modal just picks
+     which one to use per book, no credential re-entry per folio.
+     ═══════════════════════════════════════════════════════════════════ -->
+<div id="vendorConnModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;padding:20px;align-items:center;justify-content:center"
+     onclick="if(event.target.id==='vendorConnModal')_vcClose()">
+  <div style="background:var(--surface);border:.5px solid var(--border);border-radius:14px;padding:24px 28px;max-width:580px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.3);max-height:90vh;overflow-y:auto">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin:0 0 6px">
+      <h2 style="font-family:'Playfair Display',Georgia,serif;font-size:22px;font-weight:600;color:var(--text);margin:0">🔌 Vendor connections</h2>
+      <button type="button" onclick="_vcClose()" style="background:none;border:none;font-size:22px;color:var(--hint);cursor:pointer;padding:4px 8px">×</button>
+    </div>
+    <p style="font-size:12.5px;color:var(--muted);margin:0 0 18px;line-height:1.55">
+      Configure your payment vendors <strong>once</strong>. Every paid folio you release through a connected vendor reuses these credentials — no per-book setup. Money always lands directly in your account; Folio never touches the transaction.
+    </p>
+
+    <div id="vcSections"></div>
+
+    <div style="margin-top:16px;padding:10px 12px;background:var(--bg);border-radius:8px;font-size:11px;color:var(--hint);line-height:1.55">
+      Credentials are stored server-side, encrypted at rest, and never returned to the client after save. The one exception is PayPal Native's Client ID — that's a public value (embedded in the PayPal SDK URL your buyers load) and gets shown here so you can confirm which account is connected.
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Vendor Connections modal ─────────────────────────────────────
+  // Uses the same /vendor-owner-config endpoints as the release-modal
+  // inline UI, so both paths write to the same folio_vendor_owner_configs
+  // doc under the owner uid. The modal is the RECOMMENDED path
+  // (account-wide setup) while the inline release-modal UI stays as a
+  // convenience for authors who prefer configuring from the release
+  // flow. Both stay in sync — GET returns the current state either
+  // way.
+  window._vcOpen = async function _vcOpen() {
+    const m = document.getElementById('vendorConnModal');
+    if (!m) return;
+    if (!window._user || window._user.isAnonymous) {
+      alert('Sign in with Google first to configure vendor connections.');
+      return;
+    }
+    m.style.display = 'flex';
+    _vcRender({ loading: true });
+    try {
+      const idToken = await window._user.getIdToken();
+      const r = await fetch(PAYWALL_WORKER_URL + '/vendor-owner-config', {
+        method: 'GET',
+        headers: { 'Authorization': 'Bearer ' + idToken },
+      });
+      const data = await r.json().catch(function(){ return {}; });
+      _vcRender({ vendors: (data && data.vendors) || {} });
+    } catch (e) {
+      _vcRender({ error: e.message || 'Load failed' });
+    }
+  };
+  window._vcClose = function _vcClose() {
+    const m = document.getElementById('vendorConnModal');
+    if (m) m.style.display = 'none';
+  };
+
+  // Vendor catalog — order matters (recommended first). Each entry
+  // defines the schema for what credentials the modal collects, and
+  // the human-readable copy shown per section.
+  const _VC_VENDORS = [
+    {
+      key: 'paypal_native',
+      name: 'PayPal (native checkout)',
+      badge: 'Recommended',
+      blurb: 'Buttons render inline on your folio\'s paywall — buyer never leaves Folio. Requires a PayPal Business account and REST API credentials from developer.paypal.com.',
+      fields: [
+        { key: 'clientId', label: 'PayPal Client ID', type: 'text', placeholder: 'AeXt...long-string...xyz', mono: true, publicValue: true },
+        { key: 'secret',   label: 'PayPal Client Secret', type: 'password', placeholder: '(paste-only — never displayed after save)', mono: true },
+      ],
+    },
+    {
+      key: 'kofi',
+      name: 'Ko-fi',
+      badge: null,
+      blurb: 'Buyers pay on Ko-fi, get redirected back to their inbox for the unlock link. Simplest setup — no developer account required. Paste your verification token from Ko-fi Settings → API/Webhooks.',
+      fields: [
+        { key: 'secret', label: 'Verification token', type: 'password', placeholder: 'Ko-fi verification token', mono: true },
+      ],
+      webhookHint: 'After saving, copy the webhook URL below into Ko-fi\'s Webhook URL field.',
+    },
+    {
+      key: 'payhip',
+      name: 'Payhip',
+      badge: null,
+      blurb: 'Buyers pay on Payhip. Paste your IPN signing secret from Payhip Settings → Site Integration → IPN.',
+      fields: [
+        { key: 'secret', label: 'IPN signing secret', type: 'password', placeholder: 'Payhip HMAC signing secret', mono: true },
+      ],
+      webhookHint: 'After saving, copy the webhook URL below into Payhip\'s Notification URL field.',
+    },
+  ];
+
+  function _vcRender(state) {
+    const host = document.getElementById('vcSections');
+    if (!host) return;
+    if (state.loading) {
+      host.innerHTML = '<div style="padding:30px 0;text-align:center;color:var(--hint);font-size:12.5px">Loading your connections…</div>';
+      return;
+    }
+    if (state.error) {
+      host.innerHTML = '<div style="padding:20px;background:#fef2f2;border:.5px solid #fecaca;border-radius:8px;color:#7f1d1d;font-size:12.5px">Load failed: ' + esc(state.error) + '</div>';
+      return;
+    }
+    const vendors = state.vendors || {};
+    host.innerHTML = _VC_VENDORS.map(function(v){
+      const cur = vendors[v.key] || null;
+      const connected = !!(cur && cur.configured);
+      const updated = cur && cur.updatedAt ? new Date(cur.updatedAt).toLocaleString() : null;
+      const webhookUrl = cur && cur.webhookUrl;
+      const publicClientId = (v.key === 'paypal_native' && cur && cur.clientId) ? cur.clientId : '';
+      // Field inputs. When connected, show placeholders explaining
+      // that the existing value is masked and blank = keep unchanged.
+      const fieldsHtml = v.fields.map(function(f){
+        const inputId = 'vcInput-' + v.key + '-' + f.key;
+        const placeholder = connected
+          ? '(configured — paste new value to update, or leave blank)'
+          : f.placeholder;
+        const currentValue = (f.publicValue && f.key === 'clientId') ? publicClientId : '';
+        return (
+          '<label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:8px 0 4px">' + esc(f.label) + '</label>' +
+          '<input id="' + inputId + '" type="' + f.type + '" ' +
+          (f.type === 'password' ? 'autocomplete="new-password" ' : 'autocomplete="off" ') +
+          'spellcheck="false" placeholder="' + esc(placeholder) + '" ' +
+          (currentValue ? ('value="' + esc(currentValue) + '" ') : '') +
+          'style="width:100%;font-size:12.5px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;box-sizing:border-box' +
+          (f.mono ? ';font-family:ui-monospace,Menlo,monospace' : '') + '">'
+        );
+      }).join('');
+      const badgeHtml = v.badge ? '<span style="margin-left:8px;font-size:10px;padding:2px 8px;background:rgba(6,95,70,0.1);color:var(--accent-ui,#065f46);border-radius:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em">' + esc(v.badge) + '</span>' : '';
+      const statusHtml = connected
+        ? '<span style="font-size:11px;color:var(--accent-ui,#065f46);font-weight:500">✓ Connected' + (updated ? ' · ' + esc(updated) : '') + '</span>'
+        : '<span style="font-size:11px;color:var(--hint)">Not connected</span>';
+      const webhookHtml = (webhookUrl && v.webhookHint)
+        ? '<div style="margin-top:10px;padding:8px 10px;background:var(--bg);border:.5px dashed var(--border-mid);border-radius:6px">' +
+          '<div style="font-size:10.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">' + esc(v.webhookHint) + '</div>' +
+          '<code style="font-size:11px;font-family:ui-monospace,Menlo,monospace;color:var(--text);word-break:break-all;display:block;cursor:pointer" onclick="_vcCopyWebhook(this)">' + esc(webhookUrl) + '</code>' +
+          '<div class="vc-copied" style="font-size:10px;color:var(--accent-ui,#065f46);margin-top:4px;display:none">Copied to clipboard ✓</div>' +
+          '</div>'
+        : '';
+      const disconnectBtn = connected
+        ? '<button type="button" onclick="_vcDisconnect(\'' + v.key + '\')" style="font-size:11.5px;padding:6px 12px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--muted);cursor:pointer;font-family:inherit">Disconnect</button>'
+        : '';
+      return (
+        '<div style="margin:0 0 14px;padding:14px 16px;border:.5px solid var(--border-mid);border-radius:10px;background:var(--surface)">' +
+        '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">' +
+        '<div><strong style="font-size:14px;color:var(--text)">' + esc(v.name) + '</strong>' + badgeHtml + '</div>' +
+        statusHtml +
+        '</div>' +
+        '<p style="font-size:11.5px;color:var(--muted);margin:6px 0 4px;line-height:1.55">' + esc(v.blurb) + '</p>' +
+        fieldsHtml +
+        '<div style="display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap">' +
+        '<button type="button" onclick="_vcSave(\'' + v.key + '\')" style="font-size:12px;padding:7px 14px;border-radius:6px;border:none;background:var(--accent-ui,#065f46);color:#fff;cursor:pointer;font-weight:500;font-family:inherit">' + (connected ? 'Update' : 'Connect') + '</button>' +
+        disconnectBtn +
+        '<span id="vcStatus-' + v.key + '" style="font-size:11.5px;color:var(--hint);line-height:1.5"></span>' +
+        '</div>' +
+        webhookHtml +
+        '</div>'
+      );
+    }).join('');
+  }
+
+  window._vcCopyWebhook = function _vcCopyWebhook(el) {
+    const url = el && el.textContent;
+    if (!url) return;
+    const flash = el.parentElement && el.parentElement.querySelector('.vc-copied');
+    try {
+      navigator.clipboard.writeText(url).then(function(){
+        if (flash) { flash.style.display = ''; setTimeout(function(){ flash.style.display = 'none'; }, 1800); }
+      });
+    } catch (_) {
+      try { window.prompt('Copy this webhook URL:', url); } catch (__) {}
+    }
+  };
+
+  window._vcSave = async function _vcSave(vendorKey) {
+    const v = _VC_VENDORS.find(function(x){ return x.key === vendorKey; });
+    if (!v) return;
+    const status = document.getElementById('vcStatus-' + vendorKey);
+    const setStat = function(msg, color){ if (status) { status.textContent = msg; status.style.color = color || 'var(--hint)'; } };
+    if (!window._user || window._user.isAnonymous) { setStat('Sign in with Google first.', 'var(--danger,#c04040)'); return; }
+
+    // Collect field values. For "update" scenarios, blank fields mean
+    // "keep the current value" — the worker rejects saves with an
+    // empty secret, so we short-circuit here if the user tries to
+    // update without changing anything.
+    const payload = { vendor: vendorKey, enabled: true };
+    let anyValue = false;
+    for (const f of v.fields) {
+      const el = document.getElementById('vcInput-' + vendorKey + '-' + f.key);
+      const val = (el && el.value || '').trim();
+      if (val) { payload[f.key] = val; anyValue = true; }
+    }
+    if (!anyValue) {
+      setStat('Paste a new value in at least one field to update.', 'var(--danger,#c04040)');
+      return;
+    }
+    // If secret is missing but this is a first-time connection, the
+    // worker will reject with a 400. Let it — the error message tells
+    // the user what to do.
+    setStat('Saving…');
+    try {
+      const idToken = await window._user.getIdToken();
+      const r = await fetch(PAYWALL_WORKER_URL + '/vendor-owner-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+        body: JSON.stringify(payload),
+      });
+      const data = await r.json().catch(function(){ return {}; });
+      if (!r.ok || !data.ok) {
+        setStat('Save failed: ' + (data.error || r.status), 'var(--danger,#c04040)');
+        return;
+      }
+      setStat('✓ Saved.', 'var(--accent-ui,#065f46)');
+      // Clear password fields after save; leave text (public) fields
+      // populated so the user can see what's currently on file.
+      for (const f of v.fields) {
+        if (f.type === 'password') {
+          const el = document.getElementById('vcInput-' + vendorKey + '-' + f.key);
+          if (el) el.value = '';
+        }
+      }
+      // Refresh the modal to pick up new webhook URL + updated state.
+      setTimeout(function(){ _vcOpen(); }, 600);
+    } catch (e) {
+      setStat('Save failed: ' + (e.message || 'unknown'), 'var(--danger,#c04040)');
+    }
+  };
+
+  window._vcDisconnect = async function _vcDisconnect(vendorKey) {
+    const v = _VC_VENDORS.find(function(x){ return x.key === vendorKey; });
+    if (!v) return;
+    if (!confirm('Disconnect ' + v.name + ' from your account? This affects every paid folio using ' + v.name + '. Buyers fall back to the shared unlock code flow (or, for PayPal Native, the paywall stops rendering the buttons).')) return;
+    const status = document.getElementById('vcStatus-' + vendorKey);
+    const setStat = function(msg, color){ if (status) { status.textContent = msg; status.style.color = color || 'var(--hint)'; } };
+    setStat('Disconnecting…');
+    try {
+      const idToken = await window._user.getIdToken();
+      const r = await fetch(PAYWALL_WORKER_URL + '/vendor-owner-config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + idToken },
+        body: JSON.stringify({ vendor: vendorKey, enabled: false }),
+      });
+      const data = await r.json().catch(function(){ return {}; });
+      if (!r.ok || !data.ok) {
+        setStat('Disconnect failed: ' + (data.error || r.status), 'var(--danger,#c04040)');
+        return;
+      }
+      setStat('✓ Disconnected.', 'var(--hint)');
+      setTimeout(function(){ _vcOpen(); }, 600);
+    } catch (e) {
+      setStat('Disconnect failed: ' + (e.message || 'unknown'), 'var(--danger,#c04040)');
+    }
+  };
+</script>
 
 <script>
   window._openReviewModal = async function _openReviewModal() {

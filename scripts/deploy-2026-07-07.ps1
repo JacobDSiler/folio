@@ -186,12 +186,95 @@ try {
     & git add press\index.html
     & git add docs\METRICS_PLAN.md
     & git add folio-paywall-worker.js
-    & git add scripts\deploy-2026-07-07.ps1 scripts\deploy-2026-07-07.cmd
+    & git add scripts\deploy-2026-07-07.ps1 scripts\deploy-2026-07-07.cmd scripts\create-taskbar-shortcuts.ps1
 
     # Commit message in a temp file so multi-line + non-ASCII survive
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat(vendor-connections): account-wide credentials modal
+
+New Vendor Connections modal (sidebar footer, alongside Release
+button). Shows three sections — PayPal (native checkout) first
+(recommended), then Ko-fi, then Payhip. Each section:
+
+  - Live connection status pill (Connected + last-updated timestamp
+    OR Not connected)
+  - Credential fields with intelligent placeholders (when connected,
+    fields read "configured — paste new value to update, or leave
+    blank")
+  - Save + Disconnect buttons per vendor
+  - For Ko-fi + Payhip: the webhook URL surfaces below the fields
+    with click-to-copy affordance, matching Folio's own conventions
+    for account-scoped URLs
+  - PayPal Native's public Client ID is echoed back in the text
+    input so authors can confirm which PayPal account is on file
+    (the Secret is never echoed — masked forever after save)
+
+Uses the same /vendor-owner-config GET+POST endpoints as the release-
+modal inline UI. Both paths write to the same
+folio_vendor_owner_configs/{ownerUid} doc — so authors who set things
+up either way stay in sync. The modal is the recommended surface
+for account-wide setup; the release-modal inline path stays for
+authors who prefer to configure while releasing.
+
+Reached from the new "Vendor connections" button beneath Release in
+the sidebar footer. Only sign-in-verified accounts can open it
+(gates match the release modal's own signed-in-required rule).
+
+Also in this batch:
+  - Rewrote create-taskbar-shortcuts.ps1 in ASCII-only so PS 5.1
+    doesn't choke on em-dashes and arrows when reading the BOM-less
+    UTF-8 file. Same trap the deploy-*.ps1 hit and fixed with a BOM;
+    for a small utility script ASCII is simpler than shepherding BOM
+    state. Also removed the PNG-fallback branch since PNGs don't
+    render as .lnk icons on Windows — script now prefers any .ico
+    in the repo, falls back to a generic Windows imageres.dll icon.
+
+---
+
+Previous batch — kept in commit history:
+
+feat(paywall+tools): Path C polish + taskbar shortcut helper
+
+Path C — vendor auto-detect on the paywall CTA
+──────────────────────────────────────────────
+Redirect-vendor releases (release.provider === 'custom') used to
+show a generic "Buy & get unlock code →" button regardless of the
+actual vendor, leaving the reader with no idea WHERE the button
+would send them. Adds _pwGuessVendor(url) which recognises Ko-fi,
+Payhip, PayPal, PayPal.me, Gumroad, Stripe, Lemon Squeezy, Buy Me
+a Coffee, Patreon, Substack, itch.io, Kickstarter, Indiegogo from
+their checkout URL patterns.
+
+Where the vendor is recognised:
+  • CTA button label becomes "Buy on Ko-fi →" (or whichever vendor)
+    unless the author has overridden ctaLabel.
+  • A small hint line appears under the button: "You'll be
+    redirected to Ko-fi for secure checkout, then your unlock link
+    arrives here by email within 60 seconds." Also suppressed if
+    the author set a ctaBlurb.
+  • Same treatment applied to the reader-drawer audio-CTA path
+    (rdad-cta) so audiobook purchases feel identically grounded.
+
+Anything not in the table falls through to the generic default —
+no regression for exotic checkout URLs.
+
+Taskbar shortcut helper — new scripts/create-taskbar-shortcuts.ps1
+──────────────────────────────────────────────────────────────────
+Windows blocks direct pinning of .cmd/.ps1 files and raw folder
+paths. Workaround: create .lnk shortcuts whose *target* is
+powershell.exe (for scripts) or explorer.exe (for folders); those
+Windows accepts. Run the helper once, right-click each resulting
+desktop shortcut, "Pin to taskbar."
+
+Auto-picks the newest deploy-*.ps1 in scripts/ so it stays valid as
+we roll out new deploy batches — re-run the helper any time.
+
+---
+
+Previous batch — kept in commit history:
+
 feat(paypal-native): Path A shipped — inline PayPal Buttons checkout
 
 Also in this batch: fixes for the image-insert cover side-effect,
