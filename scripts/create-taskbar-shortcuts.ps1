@@ -66,10 +66,13 @@ $deployLnk = Join-Path $desktop 'Deploy Folio.lnk'
 $sc1 = $WshShell.CreateShortcut($deployLnk)
 # Wrapping the .ps1 in a powershell.exe launch is what makes Windows
 # accept "Pin to taskbar" - a bare .cmd or .ps1 cant be pinned.
-# -NoExit keeps the console window open after the deploy finishes so
-# you can read the "All deployed" summary before it disappears.
+# NOTE: no -NoExit. The deploy script's Stop-Here helper already prompts
+# "Press Enter to close..." at the end via Read-Host, so the window
+# holds long enough to read the summary; pressing Enter then closes it
+# cleanly. Adding -NoExit would leave a raw PS prompt hanging around
+# after Enter, which Jacob didn't want.
 $sc1.TargetPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
-$sc1.Arguments  = "-NoProfile -ExecutionPolicy Bypass -NoExit -File `"$($deployPs1.FullName)`""
+$sc1.Arguments  = "-NoProfile -ExecutionPolicy Bypass -File `"$($deployPs1.FullName)`""
 $sc1.WorkingDirectory = $repoRoot
 $sc1.Description = 'Ship the current deploy batch - GitHub Pages + Firestore rules + Cloudflare Workers.'
 $sc1.WindowStyle = 1
