@@ -15007,15 +15007,39 @@
        indices stay consistent). */
     function _imgNormMeta(m) {
       m = m || {};
-      const size = (['small', 'medium', 'full', 'page'].indexOf(m.size) >= 0) ? m.size : 'medium';
+      const size = (['small', 'medium', 'full', 'page', 'quad'].indexOf(m.size) >= 0) ? m.size : 'medium';
       const align = (['left', 'center', 'right'].indexOf(m.align) >= 0) ? m.align : 'center';
-      return {
+      const out = {
         id: m.id || null,
         size: size,
         align: align,
         bleed: (size === 'page') ? !!m.bleed : false,
         caption: (typeof m.caption === 'string') ? m.caption : '',
       };
+      // Quad (2x2 plate) — a classical illustration layout where four
+      // related plates share a single figure block. Reader-facing:
+      // upper-left = ids[0], upper-right = ids[1], lower-left = ids[2],
+      // lower-right = ids[3]. Missing slots render as an empty tile so
+      // the grid geometry stays intact. Serialised as an `ids` array of
+      // up to four image ids; `id` (the singular field) is used as a
+      // fallback for callers reading a quad marker as a single-image
+      // marker (e.g. the export text-only fallback) — first non-empty
+      // id wins.
+      if (size === 'quad') {
+        const rawIds = Array.isArray(m.ids) ? m.ids.slice(0, 4) : [];
+        while (rawIds.length < 4) rawIds.push(null);
+        out.ids = rawIds.map(function(v){ return v || null; });
+        // Keep the singular `id` populated with the first non-empty slot
+        // so downstream code that just reads .id (thumbnails, single-
+        // image previews, exports that fall back to a placeholder) still
+        // sees something sensible.
+        out.id = out.ids.find(function(v){ return v; }) || null;
+        // Quad ignores align (it's always centered by design) and bleed
+        // (it's an inline flow block, not a full-page treatment).
+        out.align = 'center';
+        out.bleed = false;
+      }
+      return out;
     }
     function _imgMarkerLine(meta) { return '__IMG__' + JSON.stringify(_imgNormMeta(meta)); }
     function _imgParseLine(line) {
@@ -15410,6 +15434,9 @@
         align: meta.align,
         bleed: meta.bleed,
         caption: meta.caption,
+        // Quad support: carry the ids array when editing an existing
+        // quad marker so the four slots are pre-filled.
+        ids: Array.isArray(meta.ids) ? meta.ids.slice(0, 4) : [null, null, null, null],
       };
       let modal = document.getElementById('imgInsertModal');
       if (!modal) {
@@ -15431,15 +15458,54 @@
       if (!modal || !_imgModalState) return;
       const st = _imgModalState;
       const editing = st.mode === 'edit';
+      const isQuad = (st.size === 'quad');
       const esc2 = (typeof esc === 'function') ? esc : function (x) { return String(x == null ? '' : x); };
       const lib = Array.isArray(S.images) ? S.images : [];
+
+      // Ensure quad has an ids array with 4 slots (padded with nulls).
+      if (isQuad) {
+        if (!Array.isArray(st.ids)) st.ids = [];
+        while (st.ids.length < 4) st.ids.push(null);
+      }
+
+      // For single-image (non-quad), highlight the currently selected
+      // image in the library grid. For quad, highlight ANY image that's
+      // in any of the four slots.
+      const isSelectedInQuad = (imId) => isQuad && Array.isArray(st.ids) && st.ids.indexOf(imId) >= 0;
       const grid = lib.map(function (im) {
-        const sel = im.id === st.selectedId;
+        const sel = isQuad ? isSelectedInQuad(im.id) : (im.id === st.selectedId);
         return '<button type="button" onclick="_imgModalPick(\'' + im.id + '\')" ' +
+          'title="' + (isQuad ? 'Click to place in the next empty quad slot' : 'Click to select') + '" ' +
           'style="border:2px solid ' + (sel ? 'var(--accent-ui,#c98c2a)' : 'transparent') +
           ';border-radius:8px;padding:0;background:none;cursor:pointer;width:84px;height:84px;overflow:hidden;flex:0 0 auto">' +
           '<img src="' + _imgSrc(im) + '" style="width:100%;height:100%;object-fit:cover;display:block"></button>';
       }).join('');
+
+      // Quad slot picker — a 2x2 grid preview showing what will land in
+      // each corner. Click a slot to clear it. Clicking library images
+      // above fills the next empty slot in order (upper-left → upper-
+      // right → lower-left → lower-right).
+      const quadPanel = (function(){
+        if (!isQuad) return '';
+        const cornerLabels = ['Upper-left', 'Upper-right', 'Lower-left', 'Lower-right'];
+        const cells = st.ids.map(function(imId, i){
+          const im = imId ? _imgById(imId) : null;
+          const inner = im
+            ? '<img src="' + _imgSrc(im) + '" style="width:100%;height:100%;object-fit:cover;display:block">'
+            : '<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:11px;color:var(--hint);text-align:center;padding:6px">' + cornerLabels[i] + '<br><span style="font-size:9.5px;opacity:.7">(empty)</span></div>';
+          return '<button type="button" onclick="_imgModalQuadClear(' + i + ')" ' +
+            'title="Click to clear this slot" ' +
+            'style="position:relative;padding:0;border:.5px solid var(--border-mid,#ccc);border-radius:6px;background:var(--bg,#f6f4ee);overflow:hidden;aspect-ratio:1/1;cursor:' +
+            (im ? 'pointer' : 'default') + '">' + inner +
+            (im ? '<span style="position:absolute;top:3px;right:5px;font-size:12px;background:rgba(0,0,0,.55);color:#fff;padding:0 5px;border-radius:8px;line-height:1.5">×</span>' : '') +
+            '</button>';
+        }).join('');
+        return '<div style="margin-top:8px;padding:10px;background:var(--bg,#f6f4ee);border:.5px dashed var(--border-mid,#ccc);border-radius:8px">' +
+          '<div style="font-size:10.5px;color:var(--hint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">2×2 plate — click library thumbs above to fill in order</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:6px;max-width:280px">' + cells + '</div>' +
+          '</div>';
+      })();
+
       const lbl = function (t, extra) {
         return '<div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;' +
           'color:var(--hint,#888);margin:12px 0 6px">' + t +
@@ -15459,25 +15525,27 @@
         '<div style="font-size:11.5px;color:var(--hint,#888);margin-bottom:8px">' +
         (editing ? 'Update how this image sits on the page, or remove it.'
           : 'Pick an image, choose how it sits on the page, then insert it.') + '</div>' +
-        lbl('Image') +
+        lbl('Image' + (isQuad ? ' library' : '')) +
         '<div style="display:flex;flex-wrap:wrap;gap:7px;max-height:200px;overflow:auto">' + grid +
         '<button type="button" onclick="_imgModalUpload()" style="width:84px;height:84px;border:1.5px dashed ' +
         'var(--border-mid,#ccc);border-radius:8px;background:none;cursor:pointer;color:var(--hint,#888);font-size:11px;flex:0 0 auto">+ Upload</button>' +
         '</div>' +
         (lib.length ? '' : '<div style="font-size:11px;color:var(--hint,#888);margin-top:6px">No images yet — upload one to begin.</div>') +
+        quadPanel +
         lbl('Size') +
-        '<div style="display:flex;gap:6px">' +
+        '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
         optBtn('size', 'small', 'Small') + optBtn('size', 'medium', 'Medium') +
-        optBtn('size', 'full', 'Full width') + optBtn('size', 'page', 'Full page') + '</div>' +
+        optBtn('size', 'full', 'Full width') + optBtn('size', 'page', 'Full page') +
+        optBtn('size', 'quad', 'Quad 2×2') + '</div>' +
         '<label style="display:flex;align-items:center;gap:7px;margin-top:9px;font-size:12px;' +
         (st.size === 'page' ? '' : 'opacity:.45;pointer-events:none') + '">' +
         '<input type="checkbox" ' + (st.bleed ? 'checked' : '') +
         ' onchange="_imgModalSet(\'bleed\',this.checked)"> Full bleed (edge to edge, no margins)</label>' +
-        lbl('Alignment', '(for Small / Medium)') +
-        '<div style="display:flex;gap:6px">' +
+        lbl('Alignment', isQuad ? '(quad is always centered)' : '(for Small / Medium)') +
+        '<div style="display:flex;gap:6px' + (isQuad ? ';opacity:.45;pointer-events:none' : '') + '">' +
         optBtn('align', 'left', 'Left') + optBtn('align', 'center', 'Center') + optBtn('align', 'right', 'Right') + '</div>' +
         lbl('Caption', '(optional)') +
-        '<input type="text" value="' + esc2(st.caption) + '" placeholder="A caption for this image" ' +
+        '<input type="text" value="' + esc2(st.caption) + '" placeholder="A caption for this ' + (isQuad ? 'plate' : 'image') + '" ' +
         'oninput="_imgModalSet(\'caption\',this.value)" style="width:100%;box-sizing:border-box;padding:7px 9px;' +
         'border-radius:7px;border:1px solid var(--border-mid,#ccc);font-size:12.5px;background:var(--bg,#fff);color:var(--text,#222)">' +
         '<div style="display:flex;gap:8px;margin-top:18px;justify-content:flex-end">' +
@@ -15491,6 +15559,20 @@
         '</div>' +
         '</div>';
     }
+
+    // Quad-specific slot management. _imgModalPick fills the next empty
+    // slot when in quad mode; _imgModalQuadClear empties one specific
+    // slot on click.
+    window._imgModalQuadClear = function _imgModalQuadClear(slotIdx) {
+      if (!_imgModalState || _imgModalState.size !== 'quad') return;
+      if (!Array.isArray(_imgModalState.ids)) return;
+      if (slotIdx < 0 || slotIdx >= 4) return;
+      _imgModalState.ids[slotIdx] = null;
+      // Update the single-id fallback so downstream single-image
+      // consumers see the first remaining image.
+      _imgModalState.selectedId = _imgModalState.ids.find(v => v) || null;
+      _imgRenderModal();
+    };
 
     function _imgModalSet(key, val) {
       if (!_imgModalState) return;
@@ -15513,6 +15595,24 @@
 
     function _imgModalPick(id) {
       if (!_imgModalState) return;
+      // Quad mode: fill the next empty slot in order. If the image is
+      // already in a slot, remove it (click-to-toggle). If all four
+      // slots are full, replace the first slot with the new pick so
+      // clicks always feel responsive.
+      if (_imgModalState.size === 'quad') {
+        if (!Array.isArray(_imgModalState.ids)) _imgModalState.ids = [null, null, null, null];
+        const existing = _imgModalState.ids.indexOf(id);
+        if (existing >= 0) {
+          _imgModalState.ids[existing] = null;
+        } else {
+          const empty = _imgModalState.ids.indexOf(null);
+          if (empty >= 0) _imgModalState.ids[empty] = id;
+          else _imgModalState.ids[0] = id;
+        }
+        _imgModalState.selectedId = _imgModalState.ids.find(v => v) || null;
+        _imgRenderModal();
+        return;
+      }
       _imgModalState.selectedId = id;
       _imgRenderModal();
     }
@@ -15554,16 +15654,28 @@
     function _imgModalConfirm() {
       const st = _imgModalState;
       if (!st) return;
-      if (!st.selectedId) {
+      // Quad requires at least one slot filled; single-image modes
+      // require selectedId. Different validation per mode.
+      if (st.size === 'quad') {
+        const anySet = Array.isArray(st.ids) && st.ids.some(function(v){ return v; });
+        if (!anySet) {
+          if (typeof toastInfo === 'function') toastInfo('Fill at least one quad slot first', { duration: 2400 });
+          return;
+        }
+      } else if (!st.selectedId) {
         if (typeof toastInfo === 'function') toastInfo('Pick an image first', { duration: 2400 });
         return;
       }
-      const meta = _imgNormMeta({ id: st.selectedId, size: st.size, align: st.align, bleed: st.bleed, caption: st.caption });
+      const metaInput = {
+        id: st.selectedId, size: st.size, align: st.align, bleed: st.bleed, caption: st.caption,
+      };
+      if (st.size === 'quad') metaInput.ids = Array.isArray(st.ids) ? st.ids.slice(0, 4) : [];
+      const meta = _imgNormMeta(metaInput);
       const ok = (st.mode === 'edit')
         ? _imgUpdateMarker(st.chId, st.editParaIdx, meta)
         : _imgInsertMarker(st.chId, st.afterParaIdx, meta);
       if (ok && typeof toastSuccess === 'function')
-        toastSuccess(st.mode === 'edit' ? 'Image updated' : 'Image inserted', { icon: '\U0001F5BC', duration: 2000 });
+        toastSuccess(st.mode === 'edit' ? 'Image updated' : (st.size === 'quad' ? '2×2 plate inserted' : 'Image inserted'), { icon: '\U0001F5BC', duration: 2000 });
       _imgCloseModal();
     }
     window._imgModalConfirm = _imgModalConfirm;
@@ -16049,6 +16161,16 @@
       // its own page.
       const _imgMeasureHeight = (meta, cw, chH) => {
         if (meta.size === 'page') return chH;
+        // Quad — 2x2 plate. Fixed square aspect for the WHOLE block
+        // (each cell is 1:1), so height = width. Full content width by
+        // convention (like `full`). Cap at chapter height like every
+        // other inline block.
+        if (meta.size === 'quad') {
+          let qh = cw;
+          if (meta.caption) qh += fsize * ptScale * 2.2;
+          qh += 2 * (2.5 * MM);
+          return Math.min(qh, chH);
+        }
         const frac = meta.size === 'small' ? 0.4 : meta.size === 'medium' ? 0.66 : 1.0;
         const dispW = cw * frac;
         const im = (typeof _imgById === 'function') ? _imgById(meta.id) : null;
@@ -16059,6 +16181,38 @@
         return Math.min(h, chH);
       };
       const _imgRenderInline = (meta, cw, chId, paraIdx) => {
+        const ed = (typeof _editMode !== 'undefined' && _editMode);
+        // Drag-reorder handles wired only in edit mode. draggable attribute
+        // on the container plus data-* attrs is enough — the actual drag
+        // handlers live on _imgAttachDrag which is called via a MutationObserver
+        // on the preview scroller (installed once, catches every re-render).
+        const eda = ed
+          ? ` data-imgmarker="1" data-chid="${chId}" data-paraidx="${paraIdx}" draggable="true" onclick="_imgClickMarker(this)" title="Click to edit · drag to reorder"`
+          : '';
+
+        // Quad — 2x2 plate. Classical illustration/frontispiece layout
+        // with four tiles laid out upper-left / upper-right / lower-
+        // left / lower-right. Empty slots render as a subtle placeholder
+        // so the grid geometry stays intact even if only 3 of the 4
+        // plates are populated. Always centered, always full width of
+        // the content area (the plates fit the page like the `full`
+        // size does for a single image).
+        if (meta.size === 'quad') {
+          const ids = Array.isArray(meta.ids) ? meta.ids : [];
+          const tiles = [0, 1, 2, 3].map(i => {
+            const id = ids[i] || null;
+            const tim = id ? (typeof _imgById === 'function' ? _imgById(id) : null) : null;
+            const tsrc = tim ? _imgSrc(tim) : '';
+            return tsrc
+              ? `<img src="${tsrc}" style="width:100%;height:100%;object-fit:cover;display:block;border-radius:${mm(0.4)}" draggable="false">`
+              : `<div style="width:100%;height:100%;background:${T.divider}22;border:1px dashed ${T.divider};border-radius:${mm(0.4)};display:flex;align-items:center;justify-content:center;font-family:${font};font-size:${pt(fsize * 0.7)};color:${T.text}77;text-align:center">plate ${i + 1}</div>`;
+          }).join('');
+          const cap = meta.caption
+            ? `<div style="font-family:${font};font-size:${pt(fsize * 0.78)};color:${T.text}99;font-style:italic;text-align:center;margin-top:${mm(1)};max-width:100%">${esc(meta.caption)}</div>`
+            : '';
+          return `<div class="folio-inline-img"${eda} style="display:flex;flex-direction:column;align-items:center;margin:${mm(2.5)} 0${ed ? ';cursor:grab' : ''}"><div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:${mm(1.2)};width:100%;aspect-ratio:1/1">${tiles}</div>${cap}</div>`;
+        }
+
         const im = (typeof _imgById === 'function') ? _imgById(meta.id) : null;
         const src = im ? _imgSrc(im) : '';
         const fp = meta.size === 'small' ? 40 : meta.size === 'medium' ? 66 : 100;
@@ -16069,14 +16223,6 @@
         const inner = src
           ? `<img src="${src}" style="width:${fp}%;height:auto;object-fit:contain;border-radius:${mm(0.6)};display:block" draggable="false">`
           : `<div style="width:${fp}%;padding:${mm(6)} 0;box-sizing:border-box;background:${T.divider}22;border:1px dashed ${T.divider};text-align:center;font-family:${font};font-size:${pt(fsize * 0.72)};color:${T.text}88">image not found</div>`;
-        const ed = (typeof _editMode !== 'undefined' && _editMode);
-        // Drag-reorder handles wired only in edit mode. draggable attribute
-        // on the container plus data-* attrs is enough — the actual drag
-        // handlers live on _imgAttachDrag which is called via a MutationObserver
-        // on the preview scroller (installed once, catches every re-render).
-        const eda = ed
-          ? ` data-imgmarker="1" data-chid="${chId}" data-paraidx="${paraIdx}" draggable="true" onclick="_imgClickMarker(this)" title="Click to edit · drag to reorder"`
-          : '';
         return `<div class="folio-inline-img"${eda} style="display:flex;flex-direction:column;align-items:${ai};margin:${mm(2.5)} 0${ed ? ';cursor:grab' : ''}">${inner}${cap}</div>`;
       };
       const _imgRenderFullPage = (meta, pn, anchorId, markerChId, paraIdx) => {

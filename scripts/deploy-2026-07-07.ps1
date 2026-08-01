@@ -219,6 +219,48 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat(images): 2x2 plate layout + deploy shortcut closes on Enter
+
+Two small quality-of-life shipments:
+
+1. Quad (2x2) image layout — a new size option in the insert-image
+   modal, alongside Small / Medium / Full / Full page. Selecting Quad
+   swaps the single-image selector for a live 2x2 plate picker:
+   click library thumbnails above to fill the four slots in order
+   (upper-left, upper-right, lower-left, lower-right); click any
+   filled slot to clear it. Renders as a real CSS grid — square
+   plate, four object-cover tiles, gap between cells that matches
+   the rest of the folio's typography scale. Empty slots show a
+   subtle "plate N" placeholder so the grid geometry stays intact
+   even when only 3 of 4 plates are populated.
+
+   Data model: same __IMG__ marker line, with a new `ids` array of
+   up to four image ids and `size:"quad"`. Singular `id` field is
+   populated with the first non-empty slot for downstream single-
+   image consumers (thumbnails, exports that fall back to a
+   placeholder). Alignment is always centered; bleed is disabled
+   (quads are inline flow blocks, not full-page treatments).
+
+   Use case: classical illustration/frontispiece plate spreads.
+   Wife's four hand-drawn character studies, chapter-opening
+   fourfold thematic art, quartet portraits — anything the author
+   wants to present as a single unified figure rather than four
+   separate inline images stacked vertically.
+
+2. Deploy shortcut closes cleanly on Enter. Dropped the -NoExit
+   flag from the shortcut's PowerShell invocation. The deploy
+   script's Stop-Here helper already prompts "Press Enter to
+   close..." at the end via Read-Host, so the window still holds
+   long enough to read the summary; pressing Enter now exits the
+   script AND closes the window (previously -NoExit left a raw
+   PS prompt hanging around after Enter). Re-run
+   create-taskbar-shortcuts.ps1 to update your pinned shortcut,
+   or edit the shortcut's Arguments manually to remove -NoExit.
+
+---
+
+Previous batch — kept in commit history:
+
 ux(release-modal): collapse vendor picker + tighter deploy CORS
 
 Release modal
