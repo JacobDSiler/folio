@@ -208,26 +208,83 @@ before investing in the bigger surface).
 
 ---
 
-## Blocking questions
+## Blocking questions — Jacob's answers (2026-08-04)
 
-1. **Indie enhancements — is chapter-preview-strip valuable?**
-   Some authors don't want readers seeing chapter titles before
-   they open (spoiler concern). Would need a per-folio opt-out.
-   Or make it Imprint-only if too fragile.
+1. **Chapter-preview-strip on the Indie modal.**
+   → **Ship it. Configurable per-folio.** Authors who don't want
+   readers seeing chapter titles get a checkbox in the release
+   modal's shelf-fields to hide it. Default: shown, because most
+   authors WANT the free-preview chapters obvious to browsers.
 
-2. **Imprint product-page URL structure.** `/folio/<slug>` requires
-   unique slugs across the whole platform (collision risk).
-   `/imprint/<uid>/<slug>` is longer but disambiguation-safe.
-   Or `/folio/<folioId>` (unguessable ID, uglier).
+2. **Imprint product-page URL structure.**
+   → **Not answered directly** — Jacob's priority for Imprint is
+   "expose the preview chapters as click-to-read links AND buy
+   buttons directly on the shelf card" (so readers can purchase
+   from the shelf without a product-page detour). This makes the
+   product-page URL less urgent; the shelf card itself becomes
+   the primary conversion surface for Imprint tier.
+   Leaving URL structure decision for when we build the product
+   page in Phase 3. `/imprint/<uid>/<slug>` remains my
+   recommendation for collision safety.
 
-3. **Reviews per-folio.** Currently reviews are platform-level
-   ("what do you think of Folio"). Do we build per-book reviews
-   now, or defer until Imprint tier ships and there's a natural
-   home for them on the product page?
+3. **Reviews per-folio.**
+   → **Defer until Imprint product page ships.** Aligns with
+   Jacob's "let the product page be where reviews live" framing.
 
-4. **Bulk-convert existing images.** For Jacob's ~12 shelf folios,
-   many uploaded pre-WebP, would be a nice one-time cleanup.
-   Small tool, ~2h. Worth it now for the shelf-load speed, or
-   defer to Phase 2?
+4. **Bulk-convert existing images retroactively.**
+   → **No. New uploads only.** Jacob will re-upload as needed;
+   the cost of a bulk-migration tool isn't justified against a
+   manual re-upload for the current ~12-folio corpus.
 
-Answer these + I can execute the next phase.
+---
+
+## New scope revealed by Jacob's answers
+
+**Imprint-tier shelf-card exposure** (new — was implicit before):
+
+For an Imprint-tier folio, the SHELF CARD itself should expose:
+- **Chapter preview links** — clickable chips right on the card
+  (not just in the modal) so readers can start reading in one tap
+- **Buy button** — for paid folios, the buy CTA lives on the card
+  itself so a reader who arrived via the shelf can convert without
+  ever opening the modal or the reader
+
+This is the tier's real value prop: your card becomes a mini
+product page. Free/Indie folios keep the current minimal card;
+Imprint folios "unfold" with the extra affordances.
+
+**Implementation lift:**
+- Detect Imprint tier at shelf-render time (author's uid → look
+  up their subscription in folio_user_settings; cache per session)
+- Conditional card render: Imprint gets extra rows for preview
+  chapters + buy button
+- For paid Imprint folios with `provider=paypal_native`, the buy
+  button on the card either scrolls to a mini-Buttons SDK mount
+  slot inline (heavier) OR opens the reader at the paywall with
+  buttons scrolled into view (lighter — reuses existing path)
+
+Multi-session build. Ships alongside or after the Imprint product
+page since both are the same tier's conversion story.
+
+---
+
+## Immediate roadmap (revised)
+
+**Phase 2 (this session)** — Chapter preview strip on the info
+modal, per-folio configurable. All tiers see it, authors can hide
+it per-folio in the release modal's shelf-fields section. Reader
+honours `#chap-<id>` fragment so preview chips can deep-link
+into the reader at a specific chapter.
+
+**Phase 3 (next multi-session)** — Imprint tier work:
+- Imprint-tier shelf-card unfolds with preview links + buy button
+- Standalone product page at `/imprint/<uid>/<slug>` (leaning
+  toward this vs `/folio/<slug>` for collision safety)
+- Product-photo assign hook to `/press/photos/`
+- Long blurb authoring
+- Click-behavior override (open reader / open product page /
+  open external URL)
+
+**Follow-up polish (future)** — per-book reviews (aligned with
+Phase 3 product page), Imprint-tier layout templates,
+AVIF conversion option.

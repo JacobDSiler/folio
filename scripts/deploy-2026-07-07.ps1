@@ -225,6 +225,78 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat: chapter preview strip on shelf info modal (Phase 2, per-folio configurable)
+
+Phase 2 of FOLIO_INFO_SURFACES_PLAN.md — the Indie-tier enhancement
+Jacob greenlit after Phase 1 (info modal) shipped last session.
+
+What ships
+──────────
+Every info modal now renders a "First chapters" strip beneath the
+blurb — a stack of clickable chips, one per free-preview chapter.
+Each chip shows chapter number, title (up to 80 chars, single-line
+ellipsis), and word count (e.g. "2.4k words"). Chip click deep-
+links to the reader with ?goto=<chId> and the reader scrolls
+straight to that chapter's opening page.
+
+For PAID folios: the strip is the first `previewSections` chapters
+(matches what the paywall already lets anonymous readers see).
+For FREE folios: the strip is the first 3 chapters as a taste —
+enough to feel the voice without spoiling structure.
+
+Per-folio configurable
+──────────────────────
+New checkbox in the release modal's shelf-fields section:
+  "Show chapter preview strip on the info card"
+
+Default ON — the shelf-conversion story wants opening chapter
+titles visible. Authors with spoiler-sensitive titles (mystery
+reveals, chapter-title-as-punchline structure) uncheck it per-folio.
+Setting persists in release.showChapterPreview; the shelf render
+respects it via `folio.showChapterPreview !== false` (so pre-strip
+folios light up automatically).
+
+Chapter metadata computed at save time
+──────────────────────────────────────
+release.previewChapterMeta is populated on _rlPublish from the
+in-editor chapters array. Each entry is { id, title, wordCount }
+so the shelf render is INSTANT — no need to open the body/main
+subcollection just to show the strip. Word count strips HTML tags
+before counting so the number matches what a reader would count
+in the browser.
+
+Reader — new ?goto= URL param
+──────────────────────────────
+Reader boot already handled ?teaser=<chId> (with a "shared chapter"
+banner) for signed-teaser deep-links. Preview-strip clicks don't
+warrant that banner — nobody shared it, the reader chose it — so
+this batch adds ?goto=<chId> as a plain jump: same double-fire
+retry pattern (600ms + 1600ms) for slow-loading paid folios, no
+banner. Reuses _rdJumpToChapter which is idempotent.
+
+Deferred (per Jacob's answers to the plan-doc blocking questions):
+  • Imprint-tier shelf card exposure (preview chips + buy button
+    ON the card itself, no modal needed) — bigger design pass,
+    ships alongside the Imprint product page in Phase 3.
+  • Per-book reviews — deferred until Imprint product page ships.
+  • Bulk-convert existing images to WebP — deferred; Jacob will
+    re-upload as needed.
+
+Files touched
+─────────────
+  app.html    — reader ?goto= parse + jump, save previewChapterMeta
+                + showChapterPreview, hydrate rlShowChapterPreview,
+                release-modal checkbox HTML
+  shelf.html  — read new fields into _allFolios, render preview
+                strip in _openFolioInfo modal, CSS for chip row
+  docs/FOLIO_INFO_SURFACES_PLAN.md — Jacob's answers logged;
+                Imprint shelf-card exposure added as new Phase 3
+                scope; roadmap revised
+
+---
+
+Previous batch — kept in commit history:
+
 feat: shelf info modal + auto-WebP + FOLIO_INFO_SURFACES_PLAN doc
 
 Two shipping wins + one design doc.
