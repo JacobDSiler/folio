@@ -219,6 +219,68 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat+fix: per-chapter import, mobile rename, clipboard menu, pin fix
+
+Per-chapter import (new — the biggest UX unlock in this batch)
+──────────────────────────────────────────────────────────────
+Each chapter row in the sidebar gets a new ⇧ button. Click →
+file picker (docx/txt/md/rtf) → smartSplit runs → one of three
+outcomes:
+
+  - 1 section detected: replace this chapter's content in place.
+    Only adopts the file's title if the chapter is currently
+    untitled (author's manual title always wins).
+  - 2+ sections detected: three-way choice dialog:
+    (a) Insert AFTER this chapter — keeps this chapter, adds the
+        N new sections right after (RECOMMENDED, default framing)
+    (b) Replace this chapter with the N new ones
+    (c) Merge everything into this chapter as one big content
+        block with scene-break separators (advanced case)
+
+Reuses the manuscript-level importer's readFileAsText +
+smartSplit paths, so docx heading detection, YAML frontmatter
+stripping, scene breaks, and pre/post-matter type detection
+all work identically.
+
+Fixes the "import is limited to the initial manuscript" barrier
+that made bringing in follow-up chapters awkward.
+
+Mobile rename latency — fixed
+─────────────────────────────
+updateChTitle() was calling renderPreview() on every keystroke,
+which on mobile (or any 10+-chapter folio) made typing feel like
+typing through mud — full paginated repaint per character. Debounced
+to fire once 350ms after the last keystroke; the state mutation +
+autosave stay synchronous so nothing desyncs.
+
+Clipboard actions on the context menu
+─────────────────────────────────────
+Custom right-click / long-press menu now shows Copy / Cut / Paste
+at the top. Priority: navigator.clipboard (async, works on modern
+HTTPS) with a document.execCommand fallback for older browsers +
+Safari private mode. Copy + Cut show only when there's a selection;
+Paste shows on any editable surface (textarea / contenteditable).
+Divider hides entirely if no clipboard items are visible.
+
+Fixes the "long-press on mobile has no way to copy/paste" gap —
+our menu was suppressing the native browser menu and never
+offering replacements.
+
+Pinned taskbar shortcut refresh
+───────────────────────────────
+create-taskbar-shortcuts.ps1 now finds already-pinned copies in
+%APPDATA%\...\User Pinned\TaskBar\ and refreshes them in place.
+Fixes "I edited the shortcut but the pinned taskbar icon still
+opens with the old arguments" — Windows COPIES the .lnk on first
+pin, so later desktop edits don't propagate. Re-run the script
+after any shortcut change and the pinned copy updates too. May
+need explorer.exe restart to see the icon change; the -NoExit
+argument fix takes effect immediately.
+
+---
+
+Previous batch — kept in commit history:
+
 fix(rules): unblock imprint LIST + CRITICAL_PATHS.md tracking table
 
 P0 imprint fix

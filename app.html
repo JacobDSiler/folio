@@ -13280,6 +13280,7 @@
       <span style="font-size:9.5px;color:var(--hint);flex-shrink:0;padding:0 3px;white-space:nowrap">${wcStr}</span>
       <button class="ch-expand-btn" onclick="scrollToChapter('${ch.id}')" title="Jump to chapter in preview">▶</button>
       <button class="ch-expand-btn" onclick="openWritingMode('${ch.id}')" title="Open in writing mode">✍</button>
+      <button class="ch-expand-btn" onclick="_chImportInto('${ch.id}')" title="Import a file (docx / txt / md / rtf) — replaces this chapter's content, or split into multiple new chapters" style="opacity:0.65;font-size:11px">⇧</button>
       <button class="ch-expand-btn" onclick="showChapterExportMenu('${ch.id}',this)" title="Export this chapter" style="opacity:0.65;font-size:11px">⇩</button>
       <button class="ch-rm-btn" style="margin-left:2px;padding:1px 6px;font-size:10px" onclick="removeChapter('${ch.id}')">✕</button>
     </div>
@@ -14523,10 +14524,198 @@
       renderPreview();
     }
 
+    // Chapter rename: previously called renderPreview() on every
+    // keystroke, which on mobile (and any folio with 10+ chapters)
+    // made typing feel like typing through mud — each character
+    // triggered a full paginated preview repaint. Now the state
+    // update stays synchronous (so nothing else desyncs) but the
+    // expensive preview render is debounced to fire once when the
+    // author actually pauses typing. Autosave still catches the
+    // change immediately.
+    let _chTitleRenderTimer = null;
     function updateChTitle(id, val) {
       const ch = chapters.find(c => c.id === id);
-      if (ch) { ch.title = val; renderPreview(); }
+      if (!ch) return;
+      ch.title = val;
+      if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+      // Debounce the preview repaint. 350ms is long enough that a
+      // fast typist doesn't trigger a mid-word repaint, short enough
+      // that the preview updates before the author scrolls to check.
+      if (_chTitleRenderTimer) clearTimeout(_chTitleRenderTimer);
+      _chTitleRenderTimer = setTimeout(function(){
+        try { renderPreview(); } catch (e) { console.warn('[chTitle] preview render failed:', e); }
+        _chTitleRenderTimer = null;
+      }, 350);
     }
+
+    // Per-chapter import (the ⇧ button on each chapter row). Opens
+    // a file picker (docx / txt / md / rtf), reads the file, runs
+    // smartSplit for chapter detection, then either:
+    //   - 0-1 sections detected → REPLACE this chapter's content
+    //     (and title if the file had one).
+    //   - 2+ sections detected → prompt the author to choose:
+    //     "replace this chapter with the N sections" OR
+    //     "insert the N sections AFTER this chapter" OR
+    //     "keep this chapter's title, replace content only".
+    //
+    // Reuses the same readFileAsText + smartSplit path as the
+    // manuscript-level importer, so docx heading parsing, YAML
+    // frontmatter stripping, scene-break recognition, and front/
+    // back matter type detection all work identically.
+    window._chImportInto = function _chImportInto(chId) {
+      const targetCh = chapters.find(function(c){ return c.id === chId; });
+      if (!targetCh) return;
+      const fi = document.createElement('input');
+      fi.type = 'file';
+      fi.accept = '.docx,.txt,.md,.rtf';
+      fi.onchange = async function(e) {
+        const f = e.target.files && e.target.files[0];
+        if (!f) return;
+        let text = '';
+        try { text = await readFileAsText(f); }
+        catch (err) {
+          if (typeof toastWarning === 'function') toastWarning('Import failed: ' + (err.message || 'unknown'), { duration: 4000 });
+          return;
+        }
+        // Run smartSplit — returns [] if no content, [1] if a single
+        // chapter, more if multiple detected.
+        let sections = [];
+        try { sections = (typeof smartSplit === 'function') ? smartSplit(text) : [{ title: '', content: text, type: 'chapter' }]; }
+        catch (err) { console.warn('[chImport] smartSplit threw:', err); sections = [{ title: '', content: text, type: 'chapter' }]; }
+        if (!sections.length) {
+          if (typeof toastWarning === 'function') toastWarning('File appears to be empty.', { duration: 3200 });
+          return;
+        }
+        if (sections.length === 1) {
+          // Single section — replace this chapter's content. Only
+          // adopt the file's title if the chapter is currently
+          // untitled, so the author's manual title always wins.
+          const only = sections[0];
+          targetCh.content = only.content || '';
+          if (!targetCh.title && only.title) targetCh.title = only.title;
+          if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+          renderChapterList();
+          renderPreview();
+          if (typeof toastInfo === 'function') toastInfo('Imported into "' + (targetCh.title || 'chapter') + '"', { duration: 2400 });
+          return;
+        }
+        // Multiple sections — three-way choice dialog. Non-blocking
+        // custom modal so it works on mobile (window.confirm() only
+        // gives binary choices).
+        _chImportChoiceModal({
+          sections: sections,
+          targetCh: targetCh,
+          fileName: f.name,
+        });
+      };
+      fi.click();
+    };
+
+    // Modal shown when a per-chapter import contains multiple
+    // detected sections. Three modes:
+    //   'replace-this'  — swap this chapter for the N sections in place
+    //   'insert-after'  — keep this chapter, insert the N sections after
+    //   'title-keep'    — replace content of THIS chapter only, ignore
+    //                     the other detected sections (advanced case)
+    function _chImportChoiceModal(opts) {
+      const sections = opts.sections;
+      const targetCh = opts.targetCh;
+      const fileName = opts.fileName || 'file';
+      const n = sections.length;
+      // Build a preview list of the section titles
+      const titleList = sections.map(function(s, i){
+        const t = (s.title || '(untitled)').slice(0, 60);
+        const wc = s.content ? (s.content.trim().split(/\s+/).length) : 0;
+        return '<li style="margin:2px 0;color:var(--text)">' +
+               '<strong>' + esc(t) + '</strong>' +
+               ' <span style="color:var(--hint);font-size:11px">— ' + wc + ' words</span></li>';
+      }).join('');
+      let modal = document.getElementById('chImportChoiceModal');
+      if (modal) modal.remove();
+      modal = document.createElement('div');
+      modal.id = 'chImportChoiceModal';
+      modal.style.cssText = 'position:fixed;inset:0;z-index:400;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:20px';
+      modal.addEventListener('click', function(ev){ if (ev.target === modal) modal.remove(); });
+      modal.innerHTML =
+        '<div style="background:var(--surface);border-radius:14px;max-width:520px;width:100%;max-height:88vh;overflow-y:auto;padding:24px 26px;box-shadow:0 20px 60px rgba(0,0,0,.4);color:var(--text)">' +
+        '<h2 style="font-family:\'Playfair Display\',Georgia,serif;font-size:20px;margin:0 0 6px">Multi-chapter import</h2>' +
+        '<p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55">' +
+        '<strong>' + esc(fileName) + '</strong> contains <strong>' + n + '</strong> detected chapters. What should happen with them?' +
+        '</p>' +
+        '<div style="max-height:180px;overflow-y:auto;padding:8px 10px;background:var(--bg);border-radius:6px;font-size:12px;margin:0 0 14px">' +
+        '<ol style="margin:0;padding-left:20px">' + titleList + '</ol>' +
+        '</div>' +
+        '<div style="display:flex;flex-direction:column;gap:6px">' +
+        '<button type="button" onclick="_chImportChoiceApply(\'insert-after\')" style="text-align:left;padding:10px 14px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit">' +
+        '<strong>Insert AFTER this chapter</strong>' +
+        '<div style="font-size:11px;color:var(--hint);margin-top:3px">Keeps "' + esc(targetCh.title || 'this chapter') + '" as-is; the ' + n + ' new sections land right after it. Recommended for typical multi-chapter imports.</div>' +
+        '</button>' +
+        '<button type="button" onclick="_chImportChoiceApply(\'replace-this\')" style="text-align:left;padding:10px 14px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit">' +
+        '<strong>Replace this chapter with the ' + n + ' new ones</strong>' +
+        '<div style="font-size:11px;color:var(--hint);margin-top:3px">"' + esc(targetCh.title || 'this chapter') + '" is removed. Use when you\'re re-importing a section that was previously represented by a single placeholder chapter.</div>' +
+        '</button>' +
+        '<button type="button" onclick="_chImportChoiceApply(\'title-keep\')" style="text-align:left;padding:10px 14px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit">' +
+        '<strong>Merge everything into this chapter</strong>' +
+        '<div style="font-size:11px;color:var(--hint);margin-top:3px">Concatenates all ' + n + ' sections into this chapter\'s content (with scene-break separators). Keeps the current title. Advanced.</div>' +
+        '</button>' +
+        '</div>' +
+        '<div style="display:flex;justify-content:flex-end;margin-top:12px">' +
+        '<button type="button" onclick="document.getElementById(\'chImportChoiceModal\').remove()" style="padding:8px 14px;border-radius:7px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--muted);cursor:pointer;font-family:inherit;font-size:12.5px">Cancel</button>' +
+        '</div>' +
+        '</div>';
+      document.body.appendChild(modal);
+      // Stash the pending import so the choice buttons can access it.
+      window._chImportChoicePending = { sections: sections, targetCh: targetCh };
+    }
+
+    window._chImportChoiceApply = function _chImportChoiceApply(mode) {
+      const pending = window._chImportChoicePending;
+      const modal = document.getElementById('chImportChoiceModal');
+      if (!pending) { if (modal) modal.remove(); return; }
+      const sections = pending.sections;
+      const targetCh = pending.targetCh;
+      const targetIdx = chapters.findIndex(function(c){ return c.id === targetCh.id; });
+      if (targetIdx < 0) { if (modal) modal.remove(); return; }
+
+      const newEntries = sections.map(function(s){
+        return {
+          id: uid(),
+          title: s.title || '',
+          content: s.content || '',
+          type: s.type || 'chapter',
+          src: 'chapter-import',
+          expanded: false,
+        };
+      });
+
+      if (mode === 'replace-this') {
+        chapters.splice(targetIdx, 1, ...newEntries);
+      } else if (mode === 'insert-after') {
+        chapters.splice(targetIdx + 1, 0, ...newEntries);
+      } else if (mode === 'title-keep') {
+        // Merge all section contents into this chapter, separated by
+        // scene-break markers. Titles from sub-sections are dropped
+        // (they become inline paragraphs; the author can promote them
+        // to real chapter breaks later via the split editor if wanted).
+        const merged = sections.map(function(s){
+          const titleLine = s.title ? '## ' + s.title + '\n\n' : '';
+          return titleLine + (s.content || '');
+        }).join('\n\n__SCENE_BREAK__\n\n');
+        targetCh.content = merged;
+      }
+
+      if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+      renderChapterList();
+      renderPreview();
+      if (modal) modal.remove();
+      window._chImportChoicePending = null;
+      if (typeof toastInfo === 'function') {
+        const msg = mode === 'replace-this' ? ('Replaced with ' + sections.length + ' chapters')
+                  : mode === 'insert-after' ? ('Inserted ' + sections.length + ' chapters after')
+                  : ('Merged ' + sections.length + ' sections into "' + (targetCh.title || 'chapter') + '"');
+        toastInfo(msg, { duration: 2600 });
+      }
+    };
 
 
     function _insertIntoTextarea(ta, glyph) {
@@ -20129,6 +20318,26 @@
         }
       }
 
+      // Clipboard actions — show Copy/Cut when text is selected, Paste
+       // always (it works into a caret position, no selection needed).
+       // Mobile long-press users especially need these; our custom
+       // context menu suppresses the browser's native one, so without
+       // these buttons they'd have no way to copy or paste on phones.
+      const _ctxCopyBtn = document.getElementById('ctxCopy');
+      const _ctxCutBtn = document.getElementById('ctxCut');
+      const _ctxPasteBtn = document.getElementById('ctxPaste');
+      const _ctxClipSep = document.getElementById('ctxClipboardSep');
+      // Editability check — Cut + Paste only make sense on a
+      // writable surface (textarea or contenteditable owner-view).
+      const isEditable = isTA || isCE;
+      if (_ctxCopyBtn)  _ctxCopyBtn.style.display  = hasSel ? '' : 'none';
+      if (_ctxCutBtn)   _ctxCutBtn.style.display   = (hasSel && isEditable) ? '' : 'none';
+      if (_ctxPasteBtn) _ctxPasteBtn.style.display = isEditable ? '' : 'none';
+      // Hide the separator entirely if none of the clipboard items are
+      // showing (avoids a lonely divider at the top of the menu).
+      const anyClip = (hasSel) || isEditable;
+      if (_ctxClipSep) _ctxClipSep.style.display = anyClip ? '' : 'none';
+
       // Bold/italic only relevant when text is selected
       document.getElementById('ctxBold').style.opacity = hasSel ? '1' : '0.4';
       document.getElementById('ctxItalic').style.opacity = hasSel ? '1' : '0.4';
@@ -20239,6 +20448,116 @@
       if (menu && !menu.contains(e.target)) _ctxClose();
     });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') _ctxClose(); });
+
+    // Clipboard actions — used by the Copy/Cut/Paste items on the
+    // custom context menu. Mobile long-press users need these because
+    // our menu suppresses the native browser context menu (which is
+    // where they'd normally get clipboard ops on touch devices).
+    //
+    // Priority: navigator.clipboard (async, works on HTTPS + secure
+    // contexts, standard modern API) → document.execCommand fallback
+    // (deprecated but ubiquitous on older browsers + private-mode
+    // Safari). Fallback path uses the saved selection range so the
+    // ops run against the correct target even after the menu opened
+    // and stole focus momentarily.
+    function _ctxGetSelectedText() {
+      if (!_ctxTarget) return '';
+      const el = _ctxTarget;
+      if (el.tagName === 'TEXTAREA') {
+        return el.value.slice(el.selectionStart || 0, el.selectionEnd || 0);
+      }
+      const sel = window.getSelection();
+      return (sel && sel.toString()) || '';
+    }
+    async function _ctxCopy() {
+      const txt = _ctxGetSelectedText();
+      _ctxClose();
+      if (!txt) return;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(txt);
+        } else {
+          document.execCommand('copy');
+        }
+        if (typeof toastInfo === 'function') toastInfo('Copied ' + txt.length + ' character' + (txt.length === 1 ? '' : 's'), { duration: 1600 });
+      } catch (e) {
+        console.warn('[ctx] copy failed:', e && e.message);
+        if (typeof toastWarning === 'function') toastWarning('Copy failed — check browser permissions.', { duration: 3000 });
+      }
+    }
+    async function _ctxCut() {
+      const txt = _ctxGetSelectedText();
+      if (!txt) { _ctxClose(); return; }
+      const el = _ctxTarget;
+      _ctxClose();
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(txt);
+        } else {
+          document.execCommand('cut');
+          return;
+        }
+        // Manually delete the selection since the async clipboard API
+        // doesn't touch the DOM the way execCommand('cut') would.
+        if (el && el.tagName === 'TEXTAREA') {
+          const s = el.selectionStart, e2 = el.selectionEnd;
+          el.value = el.value.slice(0, s) + el.value.slice(e2);
+          el.selectionStart = el.selectionEnd = s;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+          try {
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) sel.getRangeAt(0).deleteContents();
+          } catch (_) {}
+        }
+        if (typeof toastInfo === 'function') toastInfo('Cut ' + txt.length + ' character' + (txt.length === 1 ? '' : 's'), { duration: 1600 });
+      } catch (e) {
+        console.warn('[ctx] cut failed:', e && e.message);
+        if (typeof toastWarning === 'function') toastWarning('Cut failed — check browser permissions.', { duration: 3000 });
+      }
+    }
+    async function _ctxPaste() {
+      const el = _ctxTarget;
+      _ctxClose();
+      if (!el) return;
+      // Restore focus to the target — the menu opening stole it and
+      // clipboard reads on some browsers require the target to be
+      // focused. Restore the saved range too for contenteditable
+      // paste to land at the right caret position.
+      try {
+        if (el.focus) el.focus();
+        if (_ctxSavedRange && !el.tagName === 'TEXTAREA') {
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(_ctxSavedRange);
+        }
+      } catch (_) {}
+      try {
+        let text = '';
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          text = await navigator.clipboard.readText();
+        } else {
+          document.execCommand('paste');
+          return;
+        }
+        if (!text) return;
+        if (el.tagName === 'TEXTAREA') {
+          const s = el.selectionStart || 0, e2 = el.selectionEnd || 0;
+          el.value = el.value.slice(0, s) + text + el.value.slice(e2);
+          const pos = s + text.length;
+          el.selectionStart = el.selectionEnd = pos;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+        } else {
+          document.execCommand('insertText', false, text);
+        }
+      } catch (e) {
+        console.warn('[ctx] paste failed:', e && e.message);
+        if (typeof toastWarning === 'function') toastWarning('Paste failed — some browsers block clipboard reads without a user gesture.', { duration: 3800 });
+      }
+    }
+    window._ctxCopy  = _ctxCopy;
+    window._ctxCut   = _ctxCut;
+    window._ctxPaste = _ctxPaste;
 
     // Wrap selected text in textarea with marker (e.g. ** or *)
     function _ctxWrap(marker) {
@@ -32728,6 +33047,28 @@
 
   <!-- Right-click context menu (Step 6 — restored + Set Pronunciation) -->
   <div id="ctxMenu" role="menu" aria-label="Editor context menu">
+    <!-- Clipboard actions — copy / cut / paste for mobile long-press
+         users who otherwise couldn't reach standard text ops because
+         our custom context menu suppresses the browser's native one.
+         Uses navigator.clipboard where available (secure origin) with
+         a document.execCommand fallback for older browsers. Cut and
+         Copy show only when there IS a selection; Paste shows always. -->
+    <button class="ctx-item" id="ctxCopy" onclick="_ctxCopy()" type="button" style="display:none">
+      <span>📋</span>
+      <span>Copy</span>
+      <span class="ctx-kbd">Ctrl+C</span>
+    </button>
+    <button class="ctx-item" id="ctxCut" onclick="_ctxCut()" type="button" style="display:none">
+      <span>✂</span>
+      <span>Cut</span>
+      <span class="ctx-kbd">Ctrl+X</span>
+    </button>
+    <button class="ctx-item" id="ctxPaste" onclick="_ctxPaste()" type="button">
+      <span>📥</span>
+      <span>Paste</span>
+      <span class="ctx-kbd">Ctrl+V</span>
+    </button>
+    <div class="ctx-sep" id="ctxClipboardSep"></div>
     <button class="ctx-item" id="ctxBold" onclick="_ctxWrap('**')" type="button">
       <span style="font-weight:700">B</span>
       <span>Bold</span>
