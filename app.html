@@ -23222,6 +23222,10 @@
           if (_shelfGenre)   _shelfGenre.value     = _rlCurrent.shelfGenre || '';
           if (_shelfBlurb)   _shelfBlurb.value     = _rlCurrent.shelfBlurb || '';
           if (_shelfUseDesc) _shelfUseDesc.checked = !!_rlCurrent.shelfUseDescription;
+          // Chapter preview strip toggle — default true (undefined + missing
+          // both hydrate as checked). Only an explicit `false` unchecks it.
+          const _showCpEl = document.getElementById('rlShowChapterPreview');
+          if (_showCpEl) _showCpEl.checked = (_rlCurrent.showChapterPreview !== false);
           // Hydrate the new classification picker (genreCodes + tags).
           // Suggest-on-open banner fires inside populateFromRelease when
           // genreCodes is empty and legacy shelfGenre carries a value —
@@ -23978,6 +23982,44 @@
           }
         })(),
         shelfUseDescription: !!(document.getElementById('rlShelfUseDesc') && document.getElementById('rlShelfUseDesc').checked),
+        // Chapter preview strip config for the shelf info modal (Phase 2
+        // of FOLIO_INFO_SURFACES_PLAN.md). Default true — most authors
+        // want their opening chapter titles visible so readers can peek
+        // before opening the reader. Per-folio opt-out for spoiler-sensitive
+        // titles. previewChapterMeta is derived at save time from the
+        // FREE chapters (paid mode → first `previewSections`; free mode →
+        // first 3 as a taste) so the shelf render is instant + doesn't
+        // need to open the body/main subcollection.
+        showChapterPreview: (function(){
+          const el = document.getElementById('rlShowChapterPreview');
+          return el ? !!el.checked : true;
+        })(),
+        previewChapterMeta: (function(){
+          try {
+            const el = document.getElementById('rlShowChapterPreview');
+            if (el && !el.checked) return null;
+            const chs = (typeof getChapters === 'function') ? (getChapters() || []) : [];
+            // Filter to actual chapters (skip front-matter / back-matter items).
+            const chOnly = chs.filter(function(c){ return c && c.type === 'chapter'; });
+            const takeN = (_rlMode === 'paid')
+              ? Math.max(0, Number(previewN) || 0)
+              : Math.min(3, chOnly.length);
+            if (takeN <= 0) return null;
+            return chOnly.slice(0, takeN).map(function(c, i){
+              const words = ((c && c.content) || '')
+                .replace(/<[^>]+>/g, ' ')
+                .trim().split(/\s+/).filter(Boolean).length;
+              return {
+                id: String(c.id || ''),
+                title: String(c.title || ('Chapter ' + (i + 1))).slice(0, 80),
+                wordCount: words,
+              };
+            });
+          } catch (e) {
+            console.warn('[preview-meta] failed to compute:', e);
+            return null;
+          }
+        })(),
         // Preserve featuredUntil across republishes so the author doesn't
         // lose their boost by editing + updating the release. Jacob sets
         // this manually via Firestore for v1 (payment landed = write the
@@ -27301,6 +27343,12 @@
       // locked chapter). Stashed here, applied after loadFolioById so the
       // preview has actually rendered before we jump.
       const _teaserChId = params.get('teaser');
+      // ?goto=<chId> — plain "jump to this chapter after load" with no
+      // teaser-banner semantics. Used by the shelf info modal's chapter
+      // preview strip (Indie tier) so a reader clicking a preview chip
+      // lands on that chapter's opening page. Doesn't unlock anything;
+      // just scrolls. See docs/FOLIO_INFO_SURFACES_PLAN.md.
+      const _gotoChId = params.get('goto');
 
       const startLoad = () => {
         if (typeof loadFolioById !== 'function') {
@@ -27334,6 +27382,18 @@
             };
             setTimeout(function(){ _jumpAndBanner('600ms'); }, 600);
             setTimeout(function(){ _jumpAndBanner('1600ms'); }, 1600);
+          }
+          // Plain-jump path (?goto=<chId> — no teaser banner). Same
+          // double-fire pattern for slow-loading paid folios.
+          if (_gotoChId) {
+            const _plainJump = function(label) {
+              try {
+                if (typeof _rdJumpToChapter === 'function') _rdJumpToChapter(_gotoChId);
+                console.log('[goto] auto-jump attempt (' + label + ')');
+              } catch (e) { console.warn('[goto] jump failed:', e); }
+            };
+            setTimeout(function(){ _plainJump('600ms'); }, 600);
+            setTimeout(function(){ _plainJump('1600ms'); }, 1600);
           }
         }).catch(err => {
           const code = err && err.code;
@@ -34458,6 +34518,16 @@
           <div style="font-size:10px;color:var(--hint);margin-top:3px">
             Customising the card visuals (colours, fonts, background) is a <strong>Folio Press</strong> Pro feature — coming soon.
           </div>
+
+          <!-- Chapter preview strip toggle (Phase 2 of FOLIO_INFO_SURFACES_PLAN.md).
+               Default ON — most authors WANT the first few chapters visible
+               on the shelf info modal so browsers can peek at what they're
+               buying. Authors who don't want chapter titles visible ahead
+               of time (spoiler concern) uncheck this per-folio. -->
+          <label style="display:flex;align-items:flex-start;gap:6px;font-size:11.5px;color:var(--text);margin:14px 0 4px;cursor:pointer;line-height:1.4">
+            <input type="checkbox" id="rlShowChapterPreview" style="margin:2px 0 0" checked>
+            <span>Show chapter preview strip on the info card <span style="opacity:.6;font-weight:400">(readers see the first few chapter titles + word counts, clickable to jump into the reader at that chapter). Uncheck if titles are spoiler-sensitive.</span></span>
+          </label>
 
           <!-- ═══ CLASSIFICATION (Folio open taxonomy + tags) ═══════════
                Primary + secondary genre codes from docs/folio-taxonomy.json

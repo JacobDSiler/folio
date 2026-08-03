@@ -157,6 +157,12 @@ a:hover{text-decoration:underline}
 .folio-info-modal .fi-chip-row{display:flex;flex-wrap:wrap;gap:5px}
 .folio-info-modal .fi-chip{font-size:11.5px;padding:3px 9px;background:var(--bg,#f6f4ee);color:var(--text,#1a1611);border-radius:11px}
 .folio-info-modal .fi-chip.tag{background:rgba(6,95,70,0.08);color:var(--accent-ui,#065f46);font-weight:500}
+.folio-info-modal .fi-preview-strip{display:flex;flex-direction:column;gap:6px;margin-bottom:4px}
+.folio-info-modal .fi-preview-chip{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:9px 12px;background:var(--bg,#f6f4ee);border:.5px solid var(--border-mid,rgba(0,0,0,0.10));border-radius:8px;text-decoration:none;color:var(--text,#1a1611);font-size:12.5px;line-height:1.35;transition:background .15s,border-color .15s}
+.folio-info-modal .fi-preview-chip:hover{background:var(--surface,#fff);border-color:var(--accent-ui,#065f46)}
+.folio-info-modal .fi-preview-chip .fi-pv-num{font-family:'Playfair Display',Georgia,serif;font-size:14px;font-weight:600;color:var(--accent,#c98c2a);flex:0 0 auto}
+.folio-info-modal .fi-preview-chip .fi-pv-title{flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.folio-info-modal .fi-preview-chip .fi-pv-wc{font-size:10.5px;color:var(--muted,#5a5347);flex:0 0 auto;font-variant-numeric:tabular-nums}
 .folio-info-modal .fi-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:.5px solid var(--border-mid,rgba(0,0,0,0.14))}
 .folio-info-modal .fi-btn{font-size:13px;padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-family:inherit;font-weight:500}
 .folio-info-modal .fi-btn.primary{background:var(--accent-ui,#065f46);color:#fff}
@@ -639,6 +645,33 @@ window._openFolioInfo = function _openFolioInfo(folioId) {
       }).join('') +
       '</div>'
     : '';
+  // Chapter preview strip — Indie-tier enhancement (Phase 2 of
+  // FOLIO_INFO_SURFACES_PLAN.md). Only renders when the author left
+  // showChapterPreview on AND we have chapter metadata to render.
+  // Each chip deep-links to the reader with ?goto=<chId> so the reader
+  // scrolls straight to that chapter's opening page — no "shared
+  // chapter" banner (that's the ?teaser= path).
+  const previewStrip = (folio.showChapterPreview !== false
+                        && folio.previewChapterMeta
+                        && folio.previewChapterMeta.length)
+    ? '<div class="fi-section-lbl">First chapters</div>' +
+      '<div class="fi-preview-strip">' +
+      folio.previewChapterMeta.map(function(c, i){
+        const href = '/app.html?read=' + encodeURIComponent(folio.id) +
+                     '&goto=' + encodeURIComponent(c.id);
+        const wcLbl = c.wordCount
+          ? (c.wordCount >= 1000
+             ? (Math.round(c.wordCount / 100) / 10) + 'k words'
+             : c.wordCount + ' words')
+          : '';
+        return '<a class="fi-preview-chip" href="' + esc(href) + '">' +
+               '<span class="fi-pv-num">' + (i + 1) + '</span>' +
+               '<span class="fi-pv-title">' + esc(c.title) + '</span>' +
+               (wcLbl ? '<span class="fi-pv-wc">' + esc(wcLbl) + '</span>' : '') +
+               '</a>';
+      }).join('') +
+      '</div>'
+    : '';
   const readerHref = '/app.html?read=' + encodeURIComponent(folio.id);
   const imprintHref = folio.uid ? '/imprint/?uid=' + encodeURIComponent(folio.uid) : null;
   const cover = folio.coverUrl ? esc(folio.coverUrl) : '';
@@ -667,6 +700,7 @@ window._openFolioInfo = function _openFolioInfo(folioId) {
         (langLabels ? '<span><strong>Language:</strong> ' + esc(langLabels) + '</span>' : '') +
         '</div>'
       : '') +
+    previewStrip +
     secondaryChips +
     tagChips +
     '<div class="fi-actions">' +
@@ -834,6 +868,21 @@ async function fetchShelf(){
         // falls back to a top-level data.featuredUntil in case somebody
         // wrote it outside the release map.
         viewCount:Number((r&&r.viewCount)||data.viewCount||0),
+        // Chapter preview strip config (Phase 2 of FOLIO_INFO_SURFACES_PLAN.md).
+        // showChapterPreview defaults to true when undefined so existing
+        // (pre-strip) folios light up automatically on next shelf render.
+        // Only an explicit `false` from the release payload hides it.
+        showChapterPreview: (r && r.showChapterPreview !== false),
+        previewChapterMeta: (function(){
+          const list = (r && Array.isArray(r.previewChapterMeta)) ? r.previewChapterMeta : [];
+          return list.filter(function(c){ return c && c.id; }).map(function(c, i){
+            return {
+              id: String(c.id),
+              title: String(c.title || ('Chapter ' + (i + 1))).slice(0, 80),
+              wordCount: Number(c.wordCount || 0),
+            };
+          });
+        })(),
         featuredUntil:(function(){
           const raw=(r&&r.featuredUntil)||data.featuredUntil||null;
           if(!raw)return 0;
