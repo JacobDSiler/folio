@@ -24569,18 +24569,29 @@
       if (release.priceMode === 'paid' && (release.product || release.checkoutUrl)) {
         const buyUrl = _pwBuyURL(release);
         const subId = 'subForm_' + chIdx + '_' + Math.random().toString(36).slice(2, 6);
-        // Provider-aware CTA copy. Gumroad direct-purchase uses the
-        // classic "Buy on Gumroad" wording. Custom URL deals (Kickstarter,
-        // PayPal, Ko-fi, mailing-list signup, Stripe, etc.) get a generic
-        // "Read the rest now" + the host's domain for clarity, so a reader
-        // seeing the CTA understands they're going to a non-Gumroad page.
+        // Provider-aware CTA copy. Three flavours:
+        //   paypal_native → button (not anchor) that scrolls to the main
+        //                   CTA card at the top of the paywall region,
+        //                   where the PayPal Buttons SDK is mounted.
+        //                   Reader never leaves Folio.
+        //   custom        → anchor to the vendor's checkout URL,
+        //                   labelled with the auto-detected vendor name
+        //                   (or the URL's domain as fallback).
+        //   gumroad       → classic Gumroad direct-purchase CTA.
         const _isCustom = release.provider === 'custom';
+        const _isPn     = release.provider === 'paypal_native';
         let _buyLabel = '💳 Read the rest now on Gumroad →';
         let _buyHelp  = 'Buying unlocks every chapter immediately — no waiting on the schedule.';
-        if (_isCustom) {
+        if (_isPn) {
+          _buyLabel = '💳 Purchase with PayPal to unlock →';
+          _buyHelp  = 'Pay through PayPal (card, PayPal, or Google Pay) and this chapter unlocks the moment your payment goes through. You never leave Folio.';
+        } else if (_isCustom) {
+          const _vg = (typeof _pwGuessVendor === 'function') ? _pwGuessVendor(buyUrl) : null;
           let _domain = '';
           try { _domain = new URL(buyUrl).hostname.replace(/^www\./, ''); } catch (e) {}
-          _buyLabel = '💳 Continue reading' + (_domain ? ' on ' + _esc(_domain) : '') + ' →';
+          _buyLabel = _vg
+            ? ('💳 Continue reading on ' + _esc(_vg.name) + ' →')
+            : ('💳 Continue reading' + (_domain ? ' on ' + _esc(_domain) : '') + ' →');
           _buyHelp  = 'Pay through the link above. Once you have your unlock code, paste it below to read the rest.';
         }
         // Author-customisable CTA text overrides the defaults — used for
@@ -24594,12 +24605,23 @@
         // today but want to know when the next book lands"). Subscribe
         // only renders when the release has notifyOnUnlock turned on AND
         // we have a folioId to attach the subscriber to.
+        //
+        // For paypal_native, the buy element is a <button> that calls
+        // _pwScrollToCTA — this scrolls the reader to the main CTA card
+        // at the top of the paywall region (where the Buttons SDK is
+        // mounted) and briefly highlights it so the reader knows where
+        // to click. Prevents the "each locked chapter shows a lock but
+        // there's no purchase surface on it" gap Jacob reported.
+        const _buyElement = _isPn
+          ? ('<button type="button" onclick="_pwScrollToCTA()" ' +
+             'style="display:inline-block;font-size:13.5px;font-weight:600;padding:10px 22px;border-radius:8px;background:var(--accent-ui,#0a7);color:#fff;border:none;cursor:pointer;font-family:inherit">' +
+             _buyLabel + '</button>')
+          : ('<a href="' + buyUrl + '" target="_blank" rel="noopener" ' +
+             'style="display:inline-block;font-size:13.5px;font-weight:600;padding:10px 22px;border-radius:8px;background:var(--accent-ui,#0a7);color:#fff;text-decoration:none">' +
+             _buyLabel + '</a>');
         ctaHTML =
           '<div style="margin-top:16px;display:flex;flex-direction:column;gap:10px;align-items:center">' +
-          '<a href="' + buyUrl + '" target="_blank" rel="noopener" ' +
-          'style="display:inline-block;font-size:13.5px;font-weight:600;padding:10px 22px;border-radius:8px;background:var(--accent-ui,#0a7);color:#fff;text-decoration:none">' +
-          _buyLabel +
-          '</a>' +
+          _buyElement +
           '<div style="font-size:10.5px;color:var(--hint);max-width:380px">' +
           _buyHelp +
           '</div>' +
@@ -26717,18 +26739,31 @@
               'Click the link in that email and this book unlocks automatically.' +
             '</div>'
           : '') +
-        '<div class="pwpc-have">' +
-        '<div class="pwpc-have-lbl">' + (_isCustom ? 'Have an unlock code? Paste it here:' : 'Already bought? Paste your license key:') + '</div>' +
-        '<div class="pwpc-row2">' +
-        '<input type="text" class="pwpc-key" placeholder="' + (_isCustom ? 'your-unlock-code' : 'XXXX-XXXX-XXXX-XXXX') + '" autocomplete="off" spellcheck="false">' +
-        '<button type="button" class="pwpc-unlock">Unlock</button>' +
-        '</div>' +
-        '<div class="pwpc-status"></div>' +
-        '</div>';
+        // Unlock-code input: hidden entirely for PayPal Native releases.
+        // PayPal Native mints a JWT that the client stashes automatically
+        // via _pwMountPaypalNative's onApprove — there is no manually-
+        // pastable code, so showing an empty field asking for one just
+        // confuses readers (Jacob reported the current build was still
+        // asking for a Gumroad key on a PayPal Native folio). For
+        // Gumroad + custom, the input stays with its provider-appropriate
+        // labels.
+        (_isPaypalNative
+          ? ''
+          : ('<div class="pwpc-have">' +
+             '<div class="pwpc-have-lbl">' + (_isCustom ? 'Have an unlock code? Paste it here:' : 'Already bought? Paste your license key:') + '</div>' +
+             '<div class="pwpc-row2">' +
+             '<input type="text" class="pwpc-key" placeholder="' + (_isCustom ? 'your-unlock-code' : 'XXXX-XXXX-XXXX-XXXX') + '" autocomplete="off" spellcheck="false">' +
+             '<button type="button" class="pwpc-unlock">Unlock</button>' +
+             '</div>' +
+             '<div class="pwpc-status"></div>' +
+             '</div>'));
 
-      // Wire up the unlock button
+      // Wire up the unlock button. Null-safe: paypal_native releases
+      // don't render the input at all (the button doesn't exist), so
+      // we skip wiring entirely. Without this guard, addEventListener
+      // on a null btn would throw at render time and break the CTA.
       const btn = wrap.querySelector('.pwpc-unlock');
-      btn.addEventListener('click', async () => {
+      if (btn) btn.addEventListener('click', async () => {
         const input = wrap.querySelector('.pwpc-key');
         const status = wrap.querySelector('.pwpc-status');
         const key = (input.value || '').trim();
