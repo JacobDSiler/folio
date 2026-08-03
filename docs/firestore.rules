@@ -119,19 +119,37 @@ service cloud.firestore {
       // but Thomas / Jacob want it to work BEFORE any release is
       // configured too. This is that.
       //
-      // LIST: still locked. Only owner-scoped queries succeed —
-      // `where('uid','==', <me>)` matches each result's uid to the
-      // caller. Admin bypass keeps /admin/shelf/ enumerating pending
-      // + rejected listings. Any unfiltered `collection(folio_projects)`
-      // query is denied — nobody can enumerate every folio in the
-      // system just by hitting the collection.
+      // LIST: three ways a query is allowed.
+      //   1. Owner-scoped queries: `where('uid','==', <me>)` matches
+      //      each result's uid to the caller. Powers the "my folios"
+      //      sidebar list.
+      //   2. Shelf queries: `where('release.listOnShelf','==',true)`
+      //      matches each result's listOnShelf flag. Every returned
+      //      folio is one the author explicitly opted into public
+      //      listing, so anonymous readers can see them. Powers the
+      //      public /shelf/ page. Without this branch anonymous
+      //      readers get FirebaseError: Missing or insufficient
+      //      permissions on shelf load — which is exactly what broke
+      //      the shelf on mobile/incognito after the earlier "allow
+      //      get: if true" rule change opened per-doc GET but left
+      //      LIST locked.
+      //   3. Admin bypass — /admin/shelf/ needs to enumerate
+      //      pending + rejected listings that aren't publicly visible.
+      //
+      // Any unfiltered `collection(folio_projects)` query is still
+      // denied — nobody can enumerate every folio in the system just
+      // by hitting the collection without one of these three
+      // constraints in their query.
       //
       // Sensitive content still gated separately: body/paid stays
       // owner-only (see match /body/{doc} below); the paywall worker's
       // /paid-content endpoint is the only path to paid content and
       // it verifies the share/paywall JWT via service account first.
       allow get:    if true;
-      allow list:   if isUser(resource.data.uid) || isAdmin();
+      allow list:   if isUser(resource.data.uid)
+                    || (resource.data.release != null
+                        && resource.data.release.listOnShelf == true)
+                    || isAdmin();
 
       // Create: the new doc must be stamped with the creator's own uid.
       // Public Shelf listing is blocked for anonymous accounts — an
