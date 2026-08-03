@@ -26114,8 +26114,15 @@
         const suggested = starters[primary] || ['slow-burn', 'character-driven', 'found-family', 'atmospheric', 'no-explicit-content'];
         const remaining = suggested.filter(function(t){ return state.tags.indexOf(t) < 0; });
         if (!remaining.length) { host.innerHTML = ''; return; }
+        // Data-attribute approach — JSON.stringify(t) inside a
+        // double-quoted onclick attr broke the HTML because the returned
+        // string carries literal double quotes ("slow-burn") which
+        // ended the attribute early. Reader clicked and nothing added.
+        // Using data-tag + this.dataset.tag inside onclick sidesteps
+        // the escape hell entirely.
         host.innerHTML = 'Suggestions: ' + remaining.map(function(t){
-          return '<button type="button" onclick="window._folioClassify.addTag(' + JSON.stringify(t) + ')" ' +
+          return '<button type="button" data-tag="' + esc(t) + '" ' +
+                 'onclick="window._folioClassify.addTag(this.dataset.tag)" ' +
                  'style="margin:0 3px 2px 0;font-size:11px;padding:2px 8px;border:.5px dashed var(--border-mid);background:transparent;color:var(--accent-ui,#065f46);border-radius:10px;cursor:pointer;font-family:inherit">+' + esc(t) + '</button>';
         }).join('');
       }

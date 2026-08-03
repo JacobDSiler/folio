@@ -189,7 +189,7 @@ try {
     # 2026-07-17 after "your branch is up to date with origin/main"
     # errors traced back here.
     & git add index.html
-    & git add app.html shelf.html
+    & git add app.html shelf.html docs\CRITICAL_PATHS.md
     # Product photo templates -- the .psdt files themselves stay in
     # Firebase Storage (gitignored), but manifest.json IS tracked so
     # the app knows which templates exist and where their metadata
@@ -225,6 +225,47 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+fix+feat: tag-suggestion click + live stats strip on welcome page
+
+Tag suggestion buttons — HTML escape bug
+────────────────────────────────────────
+The "+character-driven / +literary / +grief" suggestion chips
+under the Tags input in the release modal didn't add tags when
+clicked. Root cause: `onclick="window._folioClassify.addTag(' +
+JSON.stringify(t) + ')"` produced attribute value
+`onclick="window._folioClassify.addTag("slow-burn")"` — nested
+double quotes broke the HTML and the browser parsed onclick as
+`window._folioClassify.addTag(` with the rest orphaned. Silent
+click, no error.
+
+Fix: switched to a data-attribute pattern —
+`data-tag="slow-burn" onclick="window._folioClassify.addTag(this.dataset.tag)"`
+Sidesteps the escape hell entirely. Click a chip, tag appears,
+suggestion disappears from the list.
+
+Live stats strip on welcome page
+────────────────────────────────
+New "N folios on the Shelf · N authors publishing · N reader
+reviews" strip beneath the hero on onfolio.press. Reads live from
+Firestore via the same queries the shelf uses (published +
+listOnShelf, higher limit for the count). Reviews count uses the
+same double-flag filter the testimonials render already uses
+(approvedForDisplay + allowMarketing) — both flags mandatory for
+anonymous read per the reviews rule.
+
+Deliberately understated visual — small serif numbers in accent
+colour, all-caps uppercase micro labels beneath. Hidden entirely
+until at least one metric is non-zero (no "0 folios" on the very
+first anonymous visit). Piggybacks on the existing
+testimonialsBoot script so no new Firebase-init overhead.
+
+Both new queries recorded in CRITICAL_PATHS.md so future rule
+changes cross-check against them.
+
+---
+
+Previous batch — kept in commit history:
+
 feat+fix: resizable sidebar, scroll persistence, deploy force-exit
 
 Sidebar UX (Thomas)
