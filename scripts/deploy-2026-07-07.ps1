@@ -217,7 +217,7 @@ try {
     & git add admin\shelf\index.html
     & git add admin\metrics\index.html
     & git add press\index.html
-    & git add docs\METRICS_PLAN.md docs\BISAC_CLASSIFICATION_PLAN.md docs\folio-taxonomy.json docs\CRITICAL_PATHS.md
+    & git add docs\METRICS_PLAN.md docs\BISAC_CLASSIFICATION_PLAN.md docs\folio-taxonomy.json docs\CRITICAL_PATHS.md docs\FOLIO_INFO_SURFACES_PLAN.md
     & git add folio-paywall-worker.js
     & git add scripts\deploy-2026-07-07.ps1 scripts\deploy-2026-07-07.cmd scripts\create-taskbar-shortcuts.ps1
 
@@ -225,6 +225,69 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat: shelf info modal + auto-WebP + FOLIO_INFO_SURFACES_PLAN doc
+
+Two shipping wins + one design doc.
+
+Shelf info modal (Phase 1)
+──────────────────────────
+Every shelf card gets an ⓘ button in the bottom-right corner.
+Tap → non-navigational modal opens with cover, title, author (linked
+to imprint), price, primary genre, rating chip, full blurb,
+secondary genres, tags (clickable to filter shelf), meta row
+(published, page count, view count, series, language), and a
+primary "Open in reader →" CTA. Reads from window._allFolios so
+it's instant — no extra Firestore round-trip. Card body click
+still opens the reader directly; this is the "before I commit,
+tell me more" surface a reader can tap without leaving the shelf.
+
+Card layout tweak: added position:relative so the ⓘ button sits
+correctly in the bottom-right without overlapping the pending
+review chip in the top-right (they're at opposite corners now).
+
+Auto-WebP conversion on upload
+──────────────────────────────
+New _maybeConvertToWebP(file, opts) helper — wired into both
+image upload paths (Book-tab cover dropzone via handleImages, and
+release-modal inline image picker via _imgModalUpload). Client-
+side canvas.toBlob('image/webp', 0.85) conversion; the swap
+happens ONLY if the WebP is at least 15% smaller than the source,
+so already-optimised images aren't churned.
+
+Skips gracefully for files < 40KB, GIFs (animation), SVGs
+(vector), already-WebP, and browsers without webp encoding
+support. Fallback path returns the ORIGINAL file so callers get a
+drop-in replacement — no code path changes at call sites.
+
+Logs the outcome to console — "[webp] converted foo.jpg 480KB →
+92KB (81% smaller)" — so authors + developers can see what's
+happening during testing.
+
+Not gated behind paid tiers. Client-side conversion costs Folio
+nothing, and faster shelf loads benefit every reader. Paid tier
+upsell (quality slider, bulk-convert existing, AVIF) is a Phase 2
+option — see plan doc.
+
+Plan doc — docs/FOLIO_INFO_SURFACES_PLAN.md
+───────────────────────────────────────────
+Covers the three-tier vision:
+  Free    → info modal (SHIPPED)
+  Indie   → enhanced modal (accent stripe, chapter preview strip,
+            author's other folios, review snippet)
+  Imprint → standalone product page at /folio/<slug> with
+            click-behavior override (open reader / open product
+            page / open external URL), rich long-blurb authoring,
+            layout templates, product-photo assign hook to
+            /press/photos/, SEO metadata
+Also captures Thomas's asks (print button reposition, wider
+editor) with the specific clarification questions needed to
+progress. Blocking questions listed at the bottom for Jacob's
+call before Phase 2/3 build.
+
+---
+
+Previous batch — kept in commit history:
+
 fix+feat: tag-suggestion click + live stats strip on welcome page
 
 Tag suggestion buttons — HTML escape bug

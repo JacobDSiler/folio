@@ -15221,8 +15221,98 @@
     /* ═══════════════════════════════════════════════
        IMAGE HANDLING
     ═══════════════════════════════════════════════ */
+    /* ─────────────────────────────────────────────────────────────
+       WebP auto-conversion at upload.
+       Converts the uploaded File into a WebP Blob (client-side, via
+       canvas.toBlob) if the result is meaningfully smaller than the
+       original. Costs Folio nothing — browser does the work — but
+       dramatically speeds up shelf + reader loads for authors who
+       upload big camera-original JPEGs.
+
+       Skips conversion for:
+         - Files already smaller than 40KB (overhead not worth it)
+         - PNGs with transparency (WebP supports it but visual
+           parity isn't guaranteed at low quality; safer to keep the
+           source)
+         - GIFs / SVGs / anything non-raster (canvas roundtrip would
+           lose animation / vector fidelity)
+         - Browsers that don't support toBlob('image/webp',...)
+           (falls through to the original file)
+
+       Returns the converted File on success, the ORIGINAL File on
+       skip / failure. Callers get a drop-in replacement — no code
+       path changes needed at the call site.
+    ─────────────────────────────────────────────────────────────── */
+    async function _maybeConvertToWebP(file, opts) {
+      opts = opts || {};
+      const quality = opts.quality || 0.85;
+      const minSize = opts.minSize || 40 * 1024;
+      try {
+        if (!file || typeof file.size !== 'number') return file;
+        if (file.size < minSize) return file;
+        const t = String(file.type || '').toLowerCase();
+        if (t.indexOf('gif') >= 0) return file;      // animated / palette
+        if (t.indexOf('svg') >= 0) return file;      // vector
+        if (t.indexOf('webp') >= 0) return file;     // already webp
+        if (t && t.indexOf('image/') !== 0) return file; // not an image
+        // Decode via createImageBitmap (fastest path). Fall back to
+        // Image element if bitmap decode isn't available.
+        let bitmap = null, w = 0, h = 0;
+        try {
+          if (typeof createImageBitmap === 'function') {
+            bitmap = await createImageBitmap(file);
+            w = bitmap.width; h = bitmap.height;
+          }
+        } catch (_) { bitmap = null; }
+        if (!bitmap) {
+          bitmap = await new Promise(function(res, rej){
+            const url = URL.createObjectURL(file);
+            const im = new Image();
+            im.onload = function(){ w = im.naturalWidth; h = im.naturalHeight; URL.revokeObjectURL(url); res(im); };
+            im.onerror = function(){ URL.revokeObjectURL(url); rej(new Error('decode failed')); };
+            im.src = url;
+          });
+        }
+        if (!w || !h) return file;
+        // Draw to canvas + toBlob('image/webp').
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(bitmap, 0, 0);
+        const webpBlob = await new Promise(function(res){
+          canvas.toBlob(function(b){ res(b); }, 'image/webp', quality);
+        });
+        if (!webpBlob) return file; // toBlob returned null → browser doesn't support webp encoding
+        // Only swap if the webp is meaningfully smaller (>= 15% saving).
+        // Otherwise keep the original so we don't churn on already-
+        // optimised source images (e.g. author uploaded a hand-tuned PNG).
+        const saving = 1 - (webpBlob.size / file.size);
+        if (saving < 0.15) {
+          console.log('[webp] skipped', file.name, '-', 'saving too small (' + Math.round(saving * 100) + '%)');
+          return file;
+        }
+        const baseName = file.name.replace(/\.(jpe?g|png|bmp|tiff?)$/i, '') || 'image';
+        const newFile = new File([webpBlob], baseName + '.webp', { type: 'image/webp' });
+        console.log('[webp] converted', file.name,
+                    Math.round(file.size / 1024) + 'KB',
+                    '→', Math.round(webpBlob.size / 1024) + 'KB',
+                    '(' + Math.round(saving * 100) + '% smaller)');
+        return newFile;
+      } catch (e) {
+        console.warn('[webp] conversion failed for', file && file.name, e && e.message);
+        return file;
+      }
+    }
+    window._maybeConvertToWebP = _maybeConvertToWebP;
+
     function handleImages(input) {
-      Array.from(input.files).forEach(f => {
+      Array.from(input.files).forEach(async function(raw){
+        // Auto-convert to WebP where the browser supports it AND the
+        // result is meaningfully smaller than the source. Speeds up
+        // shelf/reader loads across the platform without any per-
+        // author configuration. Falls through to the raw file on
+        // skip / failure.
+        const f = await _maybeConvertToWebP(raw);
         const r = new FileReader();
         r.onload = e => {
           const img = { id: _imgGenId(), name: f.name, type: f.type, data: e.target.result };
@@ -15977,9 +16067,13 @@
     function _imgModalUpload() {
       const fi = document.createElement('input');
       fi.type = 'file'; fi.accept = 'image/*';
-      fi.onchange = function (e) {
-        const f = e.target.files && e.target.files[0];
-        if (!f) return;
+      fi.onchange = async function (e) {
+        const raw = e.target.files && e.target.files[0];
+        if (!raw) return;
+        // Auto-convert to WebP (same client-side helper handleImages
+        // uses). Speeds up inline-image loads on the reader/shelf
+        // without any per-author configuration.
+        const f = await _maybeConvertToWebP(raw);
         const r = new FileReader();
         r.onload = function (ev) {
           const img = { id: _imgGenId(), name: f.name, type: f.type, data: ev.target.result };
