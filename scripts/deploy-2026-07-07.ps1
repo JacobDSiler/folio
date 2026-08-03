@@ -219,6 +219,56 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+fix(paywall): route paid folios through inline CTA + paypal_native aware lock modal
+
+Two root causes for "PayPal Buttons don't appear + clicking a lock
+does nothing" after Jacob's release actually saved with the
+paypal_native provider:
+
+1. Dead _pwShowGate branch. The router used to split paid folios
+   two ways: _pwShowPreview when the release had previewSections>0
+   OR teasers, else _pwShowGate (a modal-style gate). But the
+   #pwGate HTML template was removed at some point — the function
+   early-returns silently. So a paid release with previewSections=0
+   AND no teasers rendered locked TOC rows but NO purchase CTA
+   anywhere. Fix: route ALL paid releases through _pwShowPreview
+   with previewN=0 as the zero-preview case. The inline CTA card
+   is now the single canonical purchase surface. Same fix applied
+   to _pwReapply's editorReaderPreview branch.
+
+2. _serialShowLockModal was Gumroad-hardcoded. The click handler on
+   locked TOC rows opened this modal, which required
+   (release.product || release.checkoutUrl) to consider itself
+   "paid" — a paypal_native release has NEITHER, so isPaid was
+   false and no buy button rendered at all. Even if isPaid HAD
+   been true, the button label + href assumed Gumroad. Fix:
+     - isPaid now accepts paypal_native as a valid purchase path
+     - Button label is vendor-aware: "Go to purchase (PayPal) →"
+       for paypal_native, "Buy on Ko-fi →" (or whatever vendor
+       _pwGuessVendor detects) for custom, hardcoded Gumroad text
+       stays as fallback for the Gumroad path
+     - For paypal_native, the button is a <button> not an <a> —
+       clicking it closes the lock modal and calls _pwScrollToCTA
+       which smooth-scrolls to the inline CTA card (where the
+       PayPal Buttons SDK is mounted) and pulses it briefly so the
+       reader can see where the purchase actually happens
+
+Once this ships, the paywall flow for PayPal Native releases works
+end-to-end regardless of previewSections setting:
+  - No preview → CTA card renders at top of the hidden region with
+    PayPal Buttons SDK mounted inline
+  - Preview → CTA card renders after the last visible free page,
+    same buttons mount
+  - Click a locked TOC row → modal explains + button scrolls
+    reader to the mounted buttons with a highlight pulse
+
+Deploy this and Jacob's Resonance PayPal Native test should
+complete end-to-end for the first time.
+
+---
+
+Previous batch — kept in commit history:
+
 fix(release): P0 paypal_native save silently failed + export-for-support
 
 P0 — paypal_native releases weren't saving
