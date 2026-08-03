@@ -219,6 +219,55 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+fix(release): P0 paypal_native save silently failed + export-for-support
+
+P0 — paypal_native releases weren't saving
+──────────────────────────────────────────
+Author picks all their release settings, clicks Update, thinks it
+saved. Reopens the modal — everything's clobbered. Root cause:
+the paid-mode validation in _rlPublish branched on `custom` vs
+implicit-else. paypal_native fell into the else, hit the Gumroad
+`if (!productId)` check, silently returned early with a red
+status line. No save happened, but the modal closed anyway on
+the next click and the settings looked like they'd been eaten.
+
+Also broke PayPal Native paywall rendering as a downstream effect:
+release.provider was never persisted as 'paypal_native' because
+save never ran, so the paywall render fell into the default
+(gumroad) branch and skipped the PayPal Buttons mount slot.
+
+Fix: dedicated paypal_native branch in the validation block —
+no productId or checkoutUrl needed (credentials live in Vendor
+Connections, account-wide; buttons SDK handles the checkout).
+Save proceeds unconditionally so the author isn't blocked from
+publishing while they configure the vendor side; the paywall
+render shows a "not configured" line if credentials are missing.
+
+Once this ships and the release actually saves, PayPal Native
+paywall rendering will start working on Jacob's test folio.
+
+Export release settings for support
+───────────────────────────────────
+New 🩺 Export for support button next to Publish. Copies a
+snapshot of the CURRENT MODAL STATE (not saved Firestore data —
+that way in-flight edits that produce bug reports are captured
+too) as JSON to clipboard. Redacts unlock codes to
+"REDACTED_N_CHARS" so length is preserved without leaking the
+secret. Includes classification state, vendor config summary
+(via /vendor-owner-config GET when signed-in on a paid folio),
+serial settings, subscribe wiring, ageRating, series metadata.
+
+Fallback: if clipboard write fails (Safari private mode, etc.),
+downloads as folio-release-<folioId>-<ts>.json.
+
+Solves the "screenshot the whole modal" round-trip when authors
+seek support — they paste the JSON, we have every field in
+plain text.
+
+---
+
+Previous batch — kept in commit history:
+
 feat+fix: per-chapter import, mobile rename, clipboard menu, pin fix
 
 Per-chapter import (new — the biggest UX unlock in this batch)

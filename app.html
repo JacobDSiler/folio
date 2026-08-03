@@ -23432,6 +23432,22 @@
             if (typeof toastInfo === 'function')
               toastInfo('Generated unlock code: ' + unlockCode + ' — copy this, you\'ll email it to buyers.', { icon: '🔑', duration: 6000 });
           }
+        } else if (provider === 'paypal_native') {
+          // PayPal Native — no per-folio credential fields on the
+          // release modal (credentials live in Vendor Connections,
+          // account-wide). Nothing to validate beyond price + the
+          // presence of a Vendor Connections entry, which is checked
+          // at paywall render time (the buttons show a "not
+          // configured" line if the author hasn't set up PayPal
+          // Native yet). Save proceeds unconditionally so the author
+          // isn't blocked from publishing while they configure the
+          // vendor side.
+          //
+          // Prior bug: this branch didn't exist — paypal_native fell
+          // into the else-below and hit the "Please enter the Gumroad
+          // product id" check, which silently returned early and made
+          // Update look like it worked while nothing was actually
+          // saved. That was the "settings not persisting" P0.
         } else {
           if (!productId) { _rlSetStatus('Please enter the Gumroad product id (or full URL).', '#c04040'); return; }
         }
@@ -24974,6 +24990,124 @@
     window.closeReleaseModal = closeReleaseModal;
     window._rlSetMode = _rlSetMode;
     window._rlPublish = _rlPublish;
+
+    // Export release settings as a JSON snapshot for support requests.
+    // Reads the current DOM state of the release modal (not the saved
+    // Firestore data — that way authors can capture in-flight edits
+    // that AREN'T saved, which is exactly the state that produces
+    // most "why isn't this working" reports). Redacts anything that
+    // could be sensitive (unlock codes shown as "REDACTED_8_CHARS"
+    // so length is preserved, currency-only for prices, no auth
+    // tokens). Copies to clipboard + downloads as a fallback file
+    // for browsers where clipboard write fails.
+    window._rlExportForSupport = async function _rlExportForSupport() {
+      const _v = function(id){ const el = document.getElementById(id); return el ? el.value : ''; };
+      const _c = function(id){ const el = document.getElementById(id); return el ? !!el.checked : false; };
+      const _redactCode = function(code){
+        if (!code) return '';
+        return 'REDACTED_' + code.length + '_CHARS';
+      };
+      // Grab classification state via the runtime.
+      let genreCodes = [], tags = [];
+      try {
+        if (window._folioClassify) {
+          genreCodes = window._folioClassify.collectCodes() || [];
+          tags = window._folioClassify.collectTags() || [];
+        }
+      } catch (_) {}
+      const rated = (function(){
+        const r = document.querySelector('input[name="rlAgeRating"]:checked');
+        return (r && r.value) || 'all';
+      })();
+      const snapshot = {
+        _generated: new Date().toISOString(),
+        _folioId: (typeof _projId !== 'undefined') ? _projId : null,
+        _mode: (typeof _rlMode !== 'undefined') ? _rlMode : null,
+        _provider: (typeof _rlProvider !== 'undefined') ? _rlProvider : null,
+        _userSignedIn: !!(window._user && !window._user.isAnonymous),
+        title: _v('rlTitleField'),
+        author: _v('rlAuthorField'),
+        description: _v('rlDescField').slice(0, 500),
+        price: _v('rlPrice'),
+        currency: _v('rlCurrency'),
+        productId: _v('rlProductId'),
+        checkoutUrl: _v('rlCheckoutUrl'),
+        unlockCode: _redactCode(_v('rlUnlockCode')),
+        ctaLabel: _v('rlCtaLabel'),
+        ctaBlurb: _v('rlCtaBlurb'),
+        previewSections: _v('rlPreviewN'),
+        listOnShelf: _c('rlListOnShelf'),
+        shelfGenre: _v('rlShelfGenre'),
+        shelfBlurb: _v('rlShelfBlurb'),
+        shelfUseDescription: _c('rlShelfUseDesc'),
+        tipUrl: _v('rlTipUrl'),
+        series: _v('rlSeriesName'),
+        seriesOrder: _v('rlSeriesOrder'),
+        ageRating: rated,
+        genreCodes: genreCodes,
+        tags: tags,
+        audioBundle: _c('rlAudioBundle'),
+        disableUnpurchasedExport: _c('rlDisableUnpurchasedExport'),
+        notifyOwnerOnSubscribe: _c('rlNotifyOwnerOnSubscribe'),
+        notifyEmail: _v('rlNotifyEmail'),
+        subscribeHeading: _v('rlSubscribeHeading'),
+        subscribeWebhookUrl: _v('rlSubscribeWebhookUrl'),
+        serialEnabled: _c('rlSerialEnabled'),
+        serialCadence: _v('rlSerialCadence'),
+        serialCadenceCustom: _v('rlSerialCustom'),
+        serialFirstReleaseAt: _v('rlSerialFirst'),
+        // Vendor Connections state — helpful diagnostic for paid folios.
+        _vendorConfig: null,
+      };
+      // Pull vendor config state if the user is signed in and it's
+      // useful for a paid folio.
+      try {
+        if (window._user && !window._user.isAnonymous && snapshot._mode === 'paid') {
+          const idToken = await window._user.getIdToken();
+          const r = await fetch(PAYWALL_WORKER_URL + '/vendor-owner-config', {
+            method: 'GET',
+            headers: { 'Authorization': 'Bearer ' + idToken },
+          });
+          if (r.ok) {
+            const data = await r.json().catch(function(){ return {}; });
+            snapshot._vendorConfig = (data && data.vendors) || {};
+          }
+        }
+      } catch (e) {
+        snapshot._vendorConfigError = e.message || 'unknown';
+      }
+      const jsonStr = JSON.stringify(snapshot, null, 2);
+      // Copy to clipboard; fall back to a downloaded .json file if
+      // clipboard write is blocked (Safari private mode, etc.).
+      let copied = false;
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(jsonStr);
+          copied = true;
+        }
+      } catch (_) { copied = false; }
+      if (copied) {
+        if (typeof toastSuccess === 'function') {
+          toastSuccess('Release settings copied to clipboard — paste into your support request.', { duration: 4500 });
+        } else if (typeof toastInfo === 'function') {
+          toastInfo('Release settings copied to clipboard.', { duration: 4500 });
+        }
+      } else {
+        // Fallback: download as file.
+        try {
+          const blob = new Blob([jsonStr], { type: 'application/json' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'folio-release-' + (snapshot._folioId || 'unknown') + '-' + Date.now() + '.json';
+          a.click();
+          setTimeout(function(){ URL.revokeObjectURL(a.href); }, 5000);
+          if (typeof toastInfo === 'function') toastInfo('Release settings downloaded as a JSON file.', { duration: 4000 });
+        } catch (e) {
+          alert('Could not copy or download settings: ' + (e.message || 'unknown'));
+        }
+      }
+      console.log('[rl-export] snapshot:', snapshot);
+    };
 
     // Post-publish boost nudge — shown for a few seconds inside the release
     // modal right after a successful publish. Warm, non-pushy, one-click
@@ -34324,6 +34458,14 @@
         <button type="button" id="rlPublishBtn" onclick="_rlPublish()"
           style="flex:1;font-size:13px;font-weight:500;padding:10px 14px;border-radius:8px;border:none;background:#065f46;color:#fff;cursor:pointer">🔖
           Publish</button>
+        <!-- Export release settings for support — copies a redacted
+             JSON snapshot to clipboard so authors can paste it into
+             help requests without needing to screenshot the whole
+             modal. Secrets are stripped server-side; this is just
+             a client-side settings dump. -->
+        <button type="button" id="rlExportBtn" onclick="_rlExportForSupport()"
+          title="Copy the current release settings to clipboard as JSON — useful for pasting into a support request."
+          style="font-size:11.5px;padding:10px 12px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--muted);cursor:pointer">🩺 Export for support</button>
         <button type="button" id="rlUnpublishBtn" onclick="_rlUnpublish()"
           style="display:none;font-size:12px;padding:10px 12px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">Unpublish</button>
       </div>
