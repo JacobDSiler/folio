@@ -180,6 +180,28 @@ a:hover{text-decoration:underline}
     <option value="newest">Newest</option><option value="alpha">A → Z</option><option value="author">By author</option>
   </select>
 </div>
+<!-- Tag filter row — v2 classification plan's power-user layer. Two
+     comma-separated inputs: "with any of" (include, ANY-of match) and
+     "hide any" (exclude, NONE-of match). This is what lets a reader
+     say "fantasy romance BUT NOT spicy" — Include Fantasy + Romance
+     via the Genre dropdown above, Exclude "spicy, explicit, sensual"
+     via the Hide-tags input below. Autocomplete is TODO; typing raw
+     tags works today. Compact styling stays out of the way when
+     empty. -->
+<div class="shelf-tag-row" style="max-width:900px;margin:8px auto 12px;padding:0 20px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-size:12px;color:var(--muted)">
+  <label style="display:flex;align-items:center;gap:4px;flex:1;min-width:200px">
+    <span style="opacity:.7">🏷 With any of:</span>
+    <input id="shelfTagsInclude" type="text" placeholder="slow-burn, hopepunk, gothic…"
+           oninput="renderShelf()"
+           style="flex:1;padding:4px 8px;font-size:12px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);font-family:inherit;outline:none">
+  </label>
+  <label style="display:flex;align-items:center;gap:4px;flex:1;min-width:200px">
+    <span style="opacity:.7">🚫 Hide any:</span>
+    <input id="shelfTagsExclude" type="text" placeholder="spicy, explicit, gore…"
+           oninput="renderShelf()"
+           style="flex:1;padding:4px 8px;font-size:12px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);font-family:inherit;outline:none">
+  </label>
+</div>
 <div class="shelf-grid-wrap">
   <!-- Series filter banner — visible when /shelf?series= is set. Shows
        the series name + a chip to clear the filter. Populated by JS
@@ -311,6 +333,36 @@ function renderShelf(){
     });
   }
   if(s)items=items.filter(f=>f.title.toLowerCase().includes(s)||f.author.toLowerCase().includes(s));
+  // Tag filters — v2 classification plan's power-user layer.
+  // Sources (combined): ?tag=<t> URL param (single-tag hop from a card),
+  // #shelfTagsInclude input (comma-separated include list), ?nottag=<t>
+  // URL param (single-tag exclude), #shelfTagsExclude input (comma-
+  // separated exclude list). ANY-OF semantics for include; NONE-OF for
+  // exclude. Legacy folios without .tags simply have an empty array and
+  // pass every filter unchanged.
+  const _tagsFromInput = function(id){
+    const el = document.getElementById(id);
+    if (!el || !el.value) return [];
+    return el.value.split(',').map(function(t){ return t.trim().toLowerCase(); }).filter(Boolean);
+  };
+  const _urlTag = (function(){ try { return (new URLSearchParams(window.location.search).get('tag') || '').trim().toLowerCase(); } catch (_) { return ''; } })();
+  const _urlNotTag = (function(){ try { return (new URLSearchParams(window.location.search).get('nottag') || '').trim().toLowerCase(); } catch (_) { return ''; } })();
+  const includeTags = _tagsFromInput('shelfTagsInclude');
+  if (_urlTag && includeTags.indexOf(_urlTag) < 0) includeTags.push(_urlTag);
+  const excludeTags = _tagsFromInput('shelfTagsExclude');
+  if (_urlNotTag && excludeTags.indexOf(_urlNotTag) < 0) excludeTags.push(_urlNotTag);
+  if (includeTags.length) {
+    items = items.filter(function(f){
+      const t = Array.isArray(f.tags) ? f.tags : [];
+      return includeTags.some(function(want){ return t.indexOf(want) >= 0; });
+    });
+  }
+  if (excludeTags.length) {
+    items = items.filter(function(f){
+      const t = Array.isArray(f.tags) ? f.tags : [];
+      return !excludeTags.some(function(bad){ return t.indexOf(bad) >= 0; });
+    });
+  }
   if(_urlSeries){
     items=items.filter(f=>String(f.series||'').toLowerCase().includes(_urlSeries));
     // Reveal the banner + fill in the actual series name (from the
@@ -374,7 +426,27 @@ function renderShelf(){
       ratingBadge = '<span class="shelf-badge adult" title="This release contains adult content (18+)">🔞 18+</span>';
     }
     const badge = featBadge + typeBadge + ratingBadge;
-    const genre=f.genre?'<span class="shelf-card-genre">'+esc(GENRE_LABELS[f.genre]||f.genre)+'</span>':'';
+    // New classification (v2) — prefer primary genreCode label over the
+    // legacy shelfGenre string when the folio has been classified.
+    // Falls back to the derived shelfGenre for old folios.
+    const _primaryLabel = (f.genreCodes && f.genreCodes.length && f.genreCodes[0].label)
+      ? f.genreCodes[0].label
+      : (f.genre ? (GENRE_LABELS[f.genre] || f.genre) : '');
+    const genre = _primaryLabel
+      ? '<span class="shelf-card-genre">' + esc(_primaryLabel) + '</span>'
+      : '';
+    // Top-3 tags — pill row below the genre. Clicking a tag filters
+    // the shelf to that tag (Stage 4 wiring).
+    const tagChips = (f.tags && f.tags.length)
+      ? '<div class="shelf-card-tags" style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">'
+        + f.tags.slice(0, 3).map(function(t){
+            return '<a class="shelf-card-tag" href="/shelf?tag=' + encodeURIComponent(t) + '" '
+                 + 'onclick="event.stopPropagation()" '
+                 + 'style="font-size:9.5px;padding:1px 6px;background:rgba(6,95,70,0.08);color:var(--accent-ui,#065f46);border-radius:8px;text-decoration:none;font-weight:500">'
+                 + esc(t) + '</a>';
+          }).join('')
+        + '</div>'
+      : '';
     // Series link — clickable badge that filters the shelf to just
     // that series. Positioned in the card footer alongside the genre.
     // Uses event.stopPropagation on click so the outer card's
@@ -428,6 +500,7 @@ function renderShelf(){
       '<h2 class="shelf-card-title"><a href="'+esc(href)+'">'+esc(f.title)+'</a></h2>'+
       authorPart+blurb+
       '<div class="shelf-card-foot">'+badge+genre+seriesLink+langChip+boostChip+'</div>'+
+      tagChips+
       '</div>';
   };
   if (featured.length > 0) {
@@ -520,6 +593,20 @@ async function boot(){
 async function fetchShelf(){
   const status=document.getElementById('shelfStatus');
   console.log('[shelf] fetchShelf starting');
+  // Hydrate the tag filter inputs from URL params so readers arriving
+  // via a card's tag chip (or a shared link like /shelf?tag=hopepunk)
+  // SEE the active filter, not just experience its effects. Otherwise
+  // "no folios match" would look like the shelf is empty rather than
+  // filtered.
+  try {
+    const _sp = new URLSearchParams(window.location.search);
+    const _urlTag = (_sp.get('tag') || '').trim();
+    const _urlNotTag = (_sp.get('nottag') || '').trim();
+    const incEl = document.getElementById('shelfTagsInclude');
+    const excEl = document.getElementById('shelfTagsExclude');
+    if (incEl && _urlTag && !incEl.value) incEl.value = _urlTag;
+    if (excEl && _urlNotTag && !excEl.value) excEl.value = _urlNotTag;
+  } catch (_) {}
   try{
     const q=_fbQuery(_fbCollection(_fbDb,'folio_projects'),_fbWhere('release.listOnShelf','==',true),_fbWhere('release.published','==',true),_fbLimit(200));
     console.log('[shelf] query built, calling getDocs…');
@@ -564,6 +651,20 @@ async function fetchShelf(){
         // time in the release modal.
         series:String(r.series||''),
         seriesOrder:Number(r.seriesOrder||0),
+        // Folio open-taxonomy classification (v2 plan). Ordered array;
+        // [0] is primary genre. Legacy folios without genreCodes
+        // gracefully fall through to the derived shelfGenre string.
+        genreCodes:(function(){
+          const list = Array.isArray(r.genreCodes) ? r.genreCodes : [];
+          return list.filter(function(c){ return c && c.code; }).map(function(c){
+            return { code: String(c.code), label: String(c.label || c.code) };
+          });
+        })(),
+        tags:(function(){
+          const list = Array.isArray(r.tags) ? r.tags : [];
+          return list.filter(function(t){ return typeof t === 'string' && t.trim(); })
+                    .map(function(t){ return t.trim().toLowerCase(); });
+        })(),
         hasAdultContent:!!r.hasAdultContent,
         // Content rating tier — one of 'all' / '12+' / '16+' / '18+'.
         // Missing field on older releases maps: hasAdultContent=true → '18+',
