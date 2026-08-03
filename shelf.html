@@ -130,6 +130,38 @@ a:hover{text-decoration:underline}
    see this because the pending listing itself is filtered out for them. */
 .shelf-card{position:relative}
 .shelf-pending-chip{position:absolute;top:10px;right:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;background:rgba(196,72,44,0.94);color:#fff;font-size:10.5px;font-weight:600;padding:4px 9px;border-radius:11px;letter-spacing:.05em;text-transform:uppercase;box-shadow:0 2px 8px rgba(0,0,0,0.25);cursor:help;backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);border:.5px solid rgba(255,255,255,0.2)}
+/* (i) Info button on shelf cards — opens the folio-info modal.
+   Positioned bottom-right of the card, minimal visual weight so the
+   card body reads clean. Grows subtly on hover so the affordance is
+   there when the reader goes looking. */
+.shelf-card-info{position:absolute;bottom:10px;right:10px;z-index:2;width:26px;height:26px;padding:0;border:.5px solid var(--border-mid,rgba(0,0,0,0.14));border-radius:50%;background:var(--surface,#fff);color:var(--muted,#5a5347);font-size:15px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,0.06);transition:transform .12s ease,color .12s ease,border-color .12s ease;font-family:inherit}
+.shelf-card-info:hover{transform:scale(1.12);color:var(--accent-ui,#065f46);border-color:var(--accent-ui,#065f46)}
+.shelf-card{position:relative}
+
+/* Folio info modal — opened by the (i) button. Reads the folio object
+   we already have in memory so it's instant, no extra Firestore hit.
+   Cover on the left, everything else on the right; wraps to stacked
+   on narrow screens. */
+.folio-info-backdrop{position:fixed;inset:0;background:rgba(10,8,5,0.55);z-index:1200;display:none;align-items:center;justify-content:center;padding:20px;backdrop-filter:blur(3px)}
+.folio-info-backdrop.visible{display:flex}
+.folio-info-modal{background:var(--surface,#fff);color:var(--text,#1a1611);border-radius:14px;max-width:640px;width:100%;max-height:88vh;overflow-y:auto;padding:24px 28px;box-shadow:0 20px 60px rgba(0,0,0,0.35)}
+.folio-info-modal h2{font-family:'Playfair Display',Georgia,serif;font-size:24px;font-weight:600;margin:0 0 4px;line-height:1.2}
+.folio-info-modal .fi-author{font-size:14px;color:var(--muted,#5a5347);margin:0 0 16px}
+.folio-info-modal .fi-row{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px}
+.folio-info-modal .fi-cover{flex:0 0 140px;aspect-ratio:2/3;background-size:cover;background-position:center;background-color:var(--bg,#f6f4ee);border-radius:8px;box-shadow:0 4px 14px rgba(0,0,0,0.12)}
+.folio-info-modal .fi-body{flex:1;min-width:220px}
+.folio-info-modal .fi-blurb{font-size:13.5px;line-height:1.6;color:var(--text,#1a1611);margin:0 0 14px;white-space:pre-wrap}
+.folio-info-modal .fi-meta-row{display:flex;flex-wrap:wrap;gap:14px;font-size:11.5px;color:var(--muted,#5a5347);margin-bottom:14px}
+.folio-info-modal .fi-meta-row strong{color:var(--text,#1a1611);font-weight:500}
+.folio-info-modal .fi-section-lbl{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted,#5a5347);margin:14px 0 6px}
+.folio-info-modal .fi-chip-row{display:flex;flex-wrap:wrap;gap:5px}
+.folio-info-modal .fi-chip{font-size:11.5px;padding:3px 9px;background:var(--bg,#f6f4ee);color:var(--text,#1a1611);border-radius:11px}
+.folio-info-modal .fi-chip.tag{background:rgba(6,95,70,0.08);color:var(--accent-ui,#065f46);font-weight:500}
+.folio-info-modal .fi-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:.5px solid var(--border-mid,rgba(0,0,0,0.14))}
+.folio-info-modal .fi-btn{font-size:13px;padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-family:inherit;font-weight:500}
+.folio-info-modal .fi-btn.primary{background:var(--accent-ui,#065f46);color:#fff}
+.folio-info-modal .fi-btn.secondary{background:var(--surface,#fff);color:var(--text,#1a1611);border:.5px solid var(--border-mid,rgba(0,0,0,0.14))}
+.folio-info-modal .fi-close{position:absolute;top:14px;right:16px;background:none;border:none;font-size:22px;color:var(--muted,#5a5347);cursor:pointer;line-height:1;padding:2px 8px}
 .shelf-pending-chip:hover{background:rgba(196,72,44,1)}
 .shelf-empty{text-align:center;padding:80px 20px;color:var(--hint);font-size:14px}
 .shelf-empty .lead{font-family:'Playfair Display',Georgia,serif;font-size:22px;color:var(--text);margin-bottom:8px}
@@ -494,8 +526,21 @@ function renderShelf(){
         return '<span class="shelf-lang-chip' + (code === 'en' ? '' : ' non-en') + '">' + esc(code.toUpperCase()) + '</span>';
       }).join('') +
       '</span>';
-    return '<div class="shelf-card'+(isFeatured?' featured':'')+'" onclick="if(!event.target.closest(\'a\')&&!event.target.closest(\'button\'))window.location=\''+esc(href)+'\'" tabindex="0" onkeydown="if(event.key===\'Enter\')window.location=\''+esc(href)+'\'">'+
+    // (i) Info button — opens a modal with the full folio blurb,
+    // genres, tags, series, price, and other metadata without
+    // navigating away from the shelf. Reader who wants to know more
+    // before committing gets it in one tap; card body click still
+    // opens the folio directly (low threshold for reading + sales,
+    // per Jacob's design intent). Uses window._openFolioInfo which
+    // reads from the folio object passed in — we stash it on the
+    // button via _folioInfoStash so we don't need to re-query.
+    const infoBtn = '<button class="shelf-card-info" type="button" ' +
+      'onclick="event.stopPropagation();window._openFolioInfo(\'' + esc(f.id) + '\')" ' +
+      'aria-label="More about this folio" title="More info">' +
+      '<span aria-hidden="true">ⓘ</span></button>';
+    return '<div class="shelf-card'+(isFeatured?' featured':'')+'" data-folio-id="'+esc(f.id)+'" onclick="if(!event.target.closest(\'a\')&&!event.target.closest(\'button\'))window.location=\''+esc(href)+'\'" tabindex="0" onkeydown="if(event.key===\'Enter\')window.location=\''+esc(href)+'\'">'+
       pendingChip+
+      infoBtn+
       cover+
       '<h2 class="shelf-card-title"><a href="'+esc(href)+'">'+esc(f.title)+'</a></h2>'+
       authorPart+blurb+
@@ -538,6 +583,107 @@ window.renderShelf=renderShelf;
 // to reveal owner boost chips without a full page reload.
 const _origRender = renderShelf;
 window.renderShelf = function(items){ window._allFolios = items || []; return _origRender(items); };
+
+// ── Folio info modal ──────────────────────────────────────────────
+// Opened from the (i) button on every shelf card. Reads the folio
+// from window._allFolios so it's instant — no extra Firestore hit.
+// Card CLICK still opens the reader directly; this is the "before
+// I commit, tell me more" surface a reader can tap without leaving
+// the shelf. Also the substrate for tier-differentiated surfaces
+// down the road — see docs/FOLIO_INFO_SURFACES_PLAN.md.
+window._openFolioInfo = function _openFolioInfo(folioId) {
+  const folio = (window._allFolios || []).find(function(f){ return f && f.id === folioId; });
+  if (!folio) return;
+  let backdrop = document.getElementById('folioInfoBackdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'folioInfoBackdrop';
+    backdrop.className = 'folio-info-backdrop';
+    backdrop.addEventListener('click', function(ev){
+      if (ev.target === backdrop) _closeFolioInfo();
+    });
+    document.body.appendChild(backdrop);
+  }
+  const priceStr = (folio.priceMode === 'paid' && folio.price)
+    ? ((folio.currency === 'GBP' ? '£' : folio.currency === 'EUR' ? '€' : '$') + Number(folio.price).toFixed(2))
+    : '';
+  const primaryGenre = (folio.genreCodes && folio.genreCodes[0] && folio.genreCodes[0].label)
+    ? folio.genreCodes[0].label
+    : (folio.genre ? (GENRE_LABELS[folio.genre] || folio.genre) : '');
+  const secondaryGenres = (folio.genreCodes || []).slice(1);
+  const langLabels = (folio.languages || [folio.language || 'en'])
+    .map(function(c){ return LANG_LABELS[String(c).split('-')[0].toLowerCase()] || c.toUpperCase(); })
+    .join(' · ');
+  const ratingChip = (folio.ageRating && folio.ageRating !== 'all')
+    ? '<span class="fi-chip" style="background:#f5d3d3;color:#8c1c1c">' + esc(folio.ageRating) + '</span>'
+    : '';
+  const seriesLine = folio.series
+    ? '<span><strong>Series:</strong> ' + esc(folio.series) + (folio.seriesOrder ? ' · book ' + folio.seriesOrder : '') + '</span>'
+    : '';
+  const pubDate = folio.publishedAt
+    ? new Date(folio.publishedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+    : '';
+  const pageCountLine = folio.pageCount ? '<span><strong>~' + folio.pageCount + '</strong> pages</span>' : '';
+  const viewCountLine = folio.viewCount ? '<span><strong>' + folio.viewCount + '</strong> reads</span>' : '';
+  const secondaryChips = secondaryGenres.length
+    ? '<div class="fi-section-lbl">Also filed under</div>' +
+      '<div class="fi-chip-row">' +
+      secondaryGenres.map(function(g){ return '<span class="fi-chip">' + esc(g.label || g.code) + '</span>'; }).join('') +
+      '</div>'
+    : '';
+  const tagChips = (folio.tags && folio.tags.length)
+    ? '<div class="fi-section-lbl">Tags</div>' +
+      '<div class="fi-chip-row">' +
+      folio.tags.map(function(t){
+        return '<a class="fi-chip tag" href="/shelf?tag=' + encodeURIComponent(t) + '" style="text-decoration:none">' + esc(t) + '</a>';
+      }).join('') +
+      '</div>'
+    : '';
+  const readerHref = '/app.html?read=' + encodeURIComponent(folio.id);
+  const imprintHref = folio.uid ? '/imprint/?uid=' + encodeURIComponent(folio.uid) : null;
+  const cover = folio.coverUrl ? esc(folio.coverUrl) : '';
+  backdrop.innerHTML =
+    '<div class="folio-info-modal" role="dialog" aria-modal="true" style="position:relative">' +
+    '<button class="fi-close" onclick="_closeFolioInfo()" aria-label="Close">×</button>' +
+    '<div class="fi-row">' +
+    '<div class="fi-cover"' + (cover ? ' style="background-image:url(&quot;' + cover + '&quot;)"' : '') + '></div>' +
+    '<div class="fi-body">' +
+    '<h2>' + esc(folio.title) + '</h2>' +
+    (folio.author ? '<p class="fi-author">by ' + (imprintHref
+      ? '<a href="' + esc(imprintHref) + '" style="color:inherit">' + esc(folio.author) + '</a>'
+      : esc(folio.author)) + '</p>' : '<p class="fi-author"></p>') +
+    (priceStr ? '<div style="font-family:\'Playfair Display\',Georgia,serif;font-size:20px;color:var(--accent,#c98c2a);margin-bottom:12px">' + priceStr + '</div>' : '') +
+    (primaryGenre ? '<div style="font-size:11.5px;color:var(--muted,#5a5347);margin-bottom:10px"><strong style="color:var(--text,#1a1611)">' + esc(primaryGenre) + '</strong>' + (ratingChip ? ' ' + ratingChip : '') + '</div>' : '') +
+    '</div>' +
+    '</div>' +
+    (folio.blurb ? '<p class="fi-blurb">' + esc(folio.blurb) + '</p>' :
+      folio.description ? '<p class="fi-blurb">' + esc(folio.description) + '</p>' : '') +
+    ((pubDate || pageCountLine || viewCountLine || seriesLine)
+      ? '<div class="fi-meta-row">' +
+        (pubDate ? '<span><strong>Published</strong> ' + esc(pubDate) + '</span>' : '') +
+        pageCountLine +
+        viewCountLine +
+        seriesLine +
+        (langLabels ? '<span><strong>Language:</strong> ' + esc(langLabels) + '</span>' : '') +
+        '</div>'
+      : '') +
+    secondaryChips +
+    tagChips +
+    '<div class="fi-actions">' +
+    '<button class="fi-btn secondary" onclick="_closeFolioInfo()">Close</button>' +
+    '<a class="fi-btn primary" href="' + esc(readerHref) + '" style="text-decoration:none;display:inline-flex;align-items:center">Open in reader →</a>' +
+    '</div>' +
+    '</div>';
+  backdrop.classList.add('visible');
+  // Escape-key close.
+  const escHandler = function(e){ if (e.key === 'Escape') { _closeFolioInfo(); document.removeEventListener('keydown', escHandler); } };
+  document.addEventListener('keydown', escHandler);
+};
+
+window._closeFolioInfo = function _closeFolioInfo() {
+  const backdrop = document.getElementById('folioInfoBackdrop');
+  if (backdrop) backdrop.classList.remove('visible');
+};
 
 async function boot(){
   try{
