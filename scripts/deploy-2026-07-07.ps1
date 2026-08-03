@@ -219,6 +219,63 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+fix(rules): unblock anonymous shelf LIST + open-taxonomy plan pivot
+
+Rules — P0 shelf regression
+───────────────────────────
+Anonymous readers hitting /shelf on mobile / incognito were getting
+FirebaseError: Missing or insufficient permissions. Root cause: the
+earlier rules change ("allow get: if true; allow list: if
+isUser(uid) || isAdmin()") opened per-doc GET but left the collection
+LIST rule locked to owner + admin — so the public shelf's own query
+(`where('release.listOnShelf','==',true).where('release.published',
+'==',true)`) failed the rules check for every anonymous session.
+
+Fix: LIST now allowed when the query filters to shelf-listed folios
+(`resource.data.release.listOnShelf == true`) in addition to the
+existing owner + admin branches. Every returned doc satisfies the
+rule because the query constraint enforces the filter. Any
+unfiltered `collection(folio_projects)` query stays denied — the
+"no enumeration" invariant is preserved.
+
+Classification plan v2 (docs/BISAC_CLASSIFICATION_PLAN.md)
+──────────────────────────────────────────────────────────
+Rewrote the plan from paid BISAC → free, Folio-owned taxonomy with
+power-user filter operators. Not worth $225/yr for a platform that
+isn't paying for itself, and BISAC didn't solve the tone-signalling
+problem anyway (its "Romance / Gothic" leaf couldn't tell readers a
+book was Brontë-chaste vs Romantasy-spicy). Tags do that; the
+pivot elevates them to first-class.
+
+Key design changes from v1:
+  - ~35-entry hand-curated genre list, shipped as
+    docs/folio-taxonomy.json. Folio-owned codes (FOL_*), free,
+    editable in the repo.
+  - Tags are first-class + rich (soft-cap 24 per folio). Community-
+    curated via autocomplete-against-existing-tags. Signal tone,
+    trope shape, mood, structure, and content advisories that
+    coarse genres can't.
+  - Filter operators: INCLUDE (ANY / ALL) + EXCLUDE on both
+    genres and tags. Solves the Romantasy trap directly — reader
+    filters INCLUDE Fantasy+Romance EXCLUDE spicy/explicit, gets
+    The Kept Hour but not the steam-forward Romantasy books.
+  - New test case: The Kept Hour (Brontë-chaste fantasy/romance/
+    scifi). Nine-step verification at the bottom of the plan;
+    step 9 (reader filters INCLUDE 'spicy' and The Kept Hour does
+    NOT appear because it's tagged 'no-explicit-content') is the
+    step BISAC couldn't have given us.
+  - Effort estimate: ~12h across 3 sessions (vs 13-16h for v1),
+    since the taxonomy is 35 entries instead of 4000+.
+  - Forward-compat: if we ever want BISAC on top (retailer sync),
+    add a one-time mapping table; schema doesn't have to change.
+
+Not yet slotted into TOMORROW_PLAN.md — waiting on Jacob's
+greenlight of the pivoted plan first.
+
+---
+
+Previous batch — kept in commit history:
+
 feat(images): 2x2 plate layout + deploy shortcut closes on Enter
 
 Two small quality-of-life shipments:
