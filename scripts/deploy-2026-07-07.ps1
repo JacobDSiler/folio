@@ -34,7 +34,13 @@ function Stop-Here([int]$code = 0) {
         Write-Host "Press Enter to close..." -ForegroundColor DarkGray
         Read-Host | Out-Null
     }
-    exit $code
+    # Force the powershell.exe process to terminate — plain `exit` only
+    # exits the SCRIPT, not the shell, and if the shortcut still carries
+    # a stale -NoExit flag (which Windows can cache on pinned taskbar
+    # copies even after the .lnk file is refreshed on disk), the window
+    # stays open as a bare prompt after Enter. [Environment]::Exit bypasses
+    # -NoExit entirely and closes the terminal every time.
+    [Environment]::Exit($code)
 }
 
 try {
@@ -219,6 +225,41 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat+fix: resizable sidebar, scroll persistence, deploy force-exit
+
+Sidebar UX (Thomas)
+───────────────────
+1. Sidebar is now resizable on desktop. Drag the 6px handle between
+   sidebar and preview to adjust width; range 260-640px, default 360.
+   Double-click the handle to reset. Width persists to localStorage
+   as folio_sidebar_w and is restored BEFORE first paint (via a
+   head-block boot script that mirrors the existing bootRestoreTab
+   pattern) so returning sessions don't flash back to the default.
+   Handle hidden on mobile (<768px) where the sidebar is a slide-in
+   panel rather than a fixed column.
+
+2. Sidebar scroll position persists across reloads. Debounced
+   scroll listener saves scrollTop to folio_sidebar_scroll every
+   250ms; restore fires on load + a 400ms follow-up to catch
+   late-rendered content. Fixes Thomas's "every reload dumps me
+   back at the top of the Book tab / Cover Image section" — the
+   scroll offset within whichever tab was last active now sticks.
+
+Deploy force-exit — third time's the charm
+──────────────────────────────────────────
+Even after removing -NoExit from the pinned shortcut, the taskbar
+copy stayed open as a bare prompt after Enter — because Windows
+caches the parsed shortcut arguments and a Copy-Item to the pinned
+.lnk doesn't reliably invalidate that cache. Fixed the ROOT of the
+problem instead: Stop-Here now ends with [Environment]::Exit which
+force-terminates the powershell.exe process regardless of any
+-NoExit flag that may still be lurking in the shortcut's cached
+argument list. exit was too polite; this is nuclear and correct.
+
+---
+
+Previous batch — kept in commit history:
+
 fix(paywall): per-chapter buy button + hide Gumroad key input for PayPal Native
 
 Two follow-on paywall fixes after Jacob confirmed the PayPal Buttons

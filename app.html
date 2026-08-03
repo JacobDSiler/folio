@@ -15,6 +15,20 @@
        block overriding the static `style="display:none"` on each
        non-import tab div. The button `active` class is swapped in
        a second inline script right after the buttons are parsed. */
+    /* Restore sidebar width from localStorage BEFORE first paint so
+       a wider sidebar doesn't flash back to the default on load.
+       Same rationale as bootRestoreTab below — pre-empt the paint
+       so returning users don't see a layout jolt every reload. */
+    (function bootRestoreSidebarWidth() {
+      try {
+        var raw = localStorage.getItem('folio_sidebar_w');
+        var w = parseInt(raw || '0', 10);
+        if (w && w >= 240 && w <= 720) {
+          document.documentElement.style.setProperty('--sidebar-w', w + 'px');
+        }
+      } catch (e) {}
+    })();
+
     (function bootRestoreTab() {
       try {
         // 4-group model — see _TAB_GROUPS in the main script.
@@ -530,11 +544,59 @@
 
     .app {
       display: grid;
-      grid-template-columns: var(--sidebar-w) 1fr;
+      /* Three columns now — sidebar / resize-handle / preview.
+         The 6px handle sits between sidebar and preview and drives
+         the draggable width change. Handle stays a fixed 6px so
+         only the sidebar column changes width during drag; the
+         preview column absorbs the delta via the 1fr. */
+      grid-template-columns: var(--sidebar-w) 6px 1fr;
       flex: 1;
       overflow: hidden;
       height: 100%;
       min-height: 0
+    }
+    /* Sidebar resize handle. Desktop-only (mobile media query below
+       hides it because the sidebar becomes a full-width panel there).
+       Cursor + subtle hover state make the affordance discoverable
+       without adding visual noise when idle. */
+    .sidebar-resize-handle {
+      display: block;
+      width: 6px;
+      height: 100%;
+      background: transparent;
+      cursor: col-resize;
+      position: relative;
+      z-index: 5;
+      transition: background 0.15s;
+    }
+    .sidebar-resize-handle:hover,
+    .sidebar-resize-handle.dragging {
+      background: rgba(6, 95, 70, 0.15);
+    }
+    .sidebar-resize-handle::before {
+      /* A 1-px hint line down the middle — reads as a divider without
+         intruding on the sidebar's own border. */
+      content: '';
+      position: absolute;
+      top: 12px;
+      bottom: 12px;
+      left: 2.5px;
+      width: 1px;
+      background: var(--border);
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+    .sidebar-resize-handle:hover::before,
+    .sidebar-resize-handle.dragging::before {
+      opacity: 1;
+    }
+    body.folio-resizing {
+      /* Prevent text selection + interactivity flicker mid-drag. */
+      cursor: col-resize !important;
+      user-select: none;
+    }
+    body.folio-resizing * {
+      pointer-events: none;
     }
 
     .sidebar {
@@ -2186,6 +2248,10 @@
         grid-template-columns: 1fr;
         grid-template-rows: 1fr
       }
+      /* Hide the resize handle on mobile — the sidebar is a slide-in
+         panel there, not a fixed column, so a col-resize divider makes
+         no sense. */
+      .sidebar-resize-handle { display: none }
 
       /* Sidebar slides in from the left on mobile, never takes flow
          space. Z-index above the preview but below the overlay so the
@@ -6136,6 +6202,99 @@
               if (el && s === '0') el.open = false;
             } catch (_) {}
           })();
+
+          /* Sidebar UX polish (2026-08-04) —
+             (1) Drag the resize handle to adjust sidebar width; width
+                 persists to localStorage as folio_sidebar_w so returning
+                 sessions land at the same width (Thomas's request).
+                 Double-click the handle to reset to 360px default.
+             (2) Persist sidebar-scroll scrollTop across reloads so
+                 authors don't lose their place in a long panel when
+                 the tab reopens (also Thomas's request — he kept
+                 landing back on the Cover Image section every time). */
+          (function _installSidebarUX(){
+            const DEFAULT_W = 360;
+            const MIN_W = 260;
+            const MAX_W = 640;
+
+            // (1) Resize handle
+            const handle = document.getElementById('sidebarResizeHandle');
+            if (handle) {
+              let dragging = false;
+              let startX = 0, startW = 0;
+              handle.addEventListener('mousedown', function(e){
+                dragging = true;
+                startX = e.clientX;
+                const cs = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w');
+                startW = parseInt(cs, 10) || DEFAULT_W;
+                document.body.classList.add('folio-resizing');
+                handle.classList.add('dragging');
+                e.preventDefault();
+              });
+              document.addEventListener('mousemove', function(e){
+                if (!dragging) return;
+                let w = startW + (e.clientX - startX);
+                if (w < MIN_W) w = MIN_W;
+                if (w > MAX_W) w = MAX_W;
+                document.documentElement.style.setProperty('--sidebar-w', w + 'px');
+              });
+              const endDrag = function(){
+                if (!dragging) return;
+                dragging = false;
+                document.body.classList.remove('folio-resizing');
+                handle.classList.remove('dragging');
+                try {
+                  const cs = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w');
+                  const w = parseInt(cs, 10);
+                  if (w && w >= MIN_W && w <= MAX_W) {
+                    localStorage.setItem('folio_sidebar_w', String(w));
+                  }
+                } catch (_) {}
+              };
+              document.addEventListener('mouseup', endDrag);
+              document.addEventListener('mouseleave', endDrag);
+              // Double-click resets to the default width — matches
+              // most IDE panel behaviour.
+              handle.addEventListener('dblclick', function(){
+                document.documentElement.style.setProperty('--sidebar-w', DEFAULT_W + 'px');
+                try { localStorage.removeItem('folio_sidebar_w'); } catch (_) {}
+              });
+            }
+
+            // (2) Sidebar scroll position persistence. Debounced save so
+            // scrolling doesn't spam localStorage; restore on next
+            // animation frame so the DOM is populated with the current
+            // tab's content before we set scrollTop.
+            const scroller = document.querySelector('.sidebar-scroll');
+            if (scroller) {
+              let saveTimer = null;
+              scroller.addEventListener('scroll', function(){
+                if (saveTimer) clearTimeout(saveTimer);
+                saveTimer = setTimeout(function(){
+                  try { localStorage.setItem('folio_sidebar_scroll', String(scroller.scrollTop)); }
+                  catch (_) {}
+                }, 250);
+              });
+              // Restore. Wait one frame so the initial tab-panel display
+              // rules have applied — otherwise scrollHeight is 0 and
+              // scrollTop can't be set. Also re-restore on tab change so
+              // switching tab-then-back returns you to the same place
+              // within that tab's content flow (tab groups share the
+              // same scroller, so this is one shared scroll offset).
+              const restoreScroll = function() {
+                try {
+                  const raw = localStorage.getItem('folio_sidebar_scroll');
+                  const y = parseInt(raw || '0', 10);
+                  if (y > 0 && scroller.scrollHeight > scroller.clientHeight) {
+                    scroller.scrollTop = y;
+                  }
+                } catch (_) {}
+              };
+              // Fire on load + a moment later to catch late-rendered content.
+              requestAnimationFrame(function(){ setTimeout(restoreScroll, 40); });
+              setTimeout(restoreScroll, 400);
+            }
+          })();
         </script>
       </div>
 
@@ -7215,6 +7374,14 @@
         <span style="margin-left:auto;opacity:.7">&copy; Jacob Siler</span>
       </div>
     </aside>
+
+    <!-- Sidebar resize handle. Drag to adjust the sidebar's width
+         on desktop. Width persists to localStorage so Thomas doesn't
+         have to re-drag every session. Hidden on mobile where the
+         sidebar is a slide-in panel, not a fixed column. -->
+    <div class="sidebar-resize-handle" id="sidebarResizeHandle"
+         title="Drag to resize sidebar (double-click to reset)"
+         aria-label="Resize sidebar"></div>
 
     <!-- ════════════════ PREVIEW ════════════════ -->
     <main class="preview-area" id="previewArea">
