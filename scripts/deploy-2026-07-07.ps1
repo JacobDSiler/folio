@@ -219,6 +219,47 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+fix(paywall): per-chapter buy button + hide Gumroad key input for PayPal Native
+
+Two follow-on paywall fixes after Jacob confirmed the PayPal Buttons
+render on the top CTA card:
+
+1. Per-chapter locked-chapter cards now have a purchase button.
+   Previously each locked chapter showed the 🔒 icon + "This chapter
+   is part of the rest of the book" + "Unlock with a purchase code
+   or buy below" but NO button — reader had to scroll back to the
+   top CTA to find one. For paypal_native releases, the buy element
+   is now a <button> labelled "💳 Purchase with PayPal to unlock →"
+   that calls _pwScrollToCTA — smooth-scrolls to the main CTA card
+   (where the Buttons SDK is mounted) and pulses it. For custom-
+   URL releases, the anchor label uses _pwGuessVendor to say
+   "Continue reading on Ko-fi →" (or whichever vendor) instead of
+   the domain-only fallback. Gumroad path unchanged.
+
+2. Gumroad license-key input hidden on paypal_native CTA cards.
+   Jacob reported the current build still asked for a "XXXX-XXXX-
+   XXXX-XXXX" Gumroad-format license key on his PayPal Native
+   folio, which is nonsensical — PayPal Native mints a JWT that
+   the client stashes automatically via _pwMountPaypalNative's
+   onApprove callback. There's nothing for the reader to paste
+   manually. Fix: the whole pwpc-have block (input + Unlock
+   button + status line) is omitted for paypal_native releases.
+   Button-wiring null-guarded so a missing .pwpc-unlock element
+   doesn't throw at render time.
+
+Together with the previous batch (dead-code _pwShowGate replaced
+with _pwShowPreview + provider-aware _serialShowLockModal), the
+PayPal Native paywall flow now works end-to-end with the pressure
+Jacob wanted: reader lands on the paywall, sees the main CTA card
+with Buttons, sees per-chapter locks each with their own buy
+button, clicking any lock scrolls back to the buttons with a
+pulse — every locked surface has a purchase path visible from
+where the reader is.
+
+---
+
+Previous batch — kept in commit history:
+
 fix(paywall): route paid folios through inline CTA + paypal_native aware lock modal
 
 Two root causes for "PayPal Buttons don't appear + clicking a lock
