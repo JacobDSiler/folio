@@ -93,6 +93,37 @@ $sc2.IconLocation = $folderIcon
 $sc2.Save()
 Write-Host "Created: $folderLnk" -ForegroundColor Green
 
+# Also update any ALREADY-PINNED taskbar copies -----------------
+# When you first pin a .lnk, Windows copies it into
+# %APPDATA%\Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar\
+# and USES THAT copy from then on. Later edits to the desktop
+# original don't propagate. So we walk the pinned dir and refresh
+# any shortcut whose filename matches ours. Silently skips if the
+# pinned copy doesn't exist yet (user hasn't pinned).
+$pinnedDir = Join-Path $env:APPDATA 'Microsoft\Internet Explorer\Quick Launch\User Pinned\TaskBar'
+if (Test-Path $pinnedDir) {
+    foreach ($pair in @(
+        @{ name = 'Deploy Folio.lnk';  source = $deployLnk },
+        @{ name = 'Folio folder.lnk';  source = $folderLnk }
+    )) {
+        $pinned = Join-Path $pinnedDir $pair.name
+        if (Test-Path $pinned) {
+            try {
+                Copy-Item -Path $pair.source -Destination $pinned -Force
+                Write-Host "Refreshed pinned copy: $pinned" -ForegroundColor Green
+            } catch {
+                Write-Host "Could not refresh pinned copy at $pinned - unpin + re-pin manually." -ForegroundColor Yellow
+                Write-Host "  Reason: $($_.Exception.Message)" -ForegroundColor DarkGray
+            }
+        }
+    }
+    Write-Host ""
+    Write-Host "You may need to sign out + back in (or restart explorer.exe)" -ForegroundColor DarkGray
+    Write-Host "for the pinned icon changes to take effect. Or, easier: right-" -ForegroundColor DarkGray
+    Write-Host "click the pinned Deploy icon, unpin it, then right-click the" -ForegroundColor DarkGray
+    Write-Host "desktop shortcut and Pin to taskbar again." -ForegroundColor DarkGray
+}
+
 # Done --------------------------------------------------------------
 Write-Host ""
 Write-Host "Two shortcuts are on your Desktop." -ForegroundColor Cyan
