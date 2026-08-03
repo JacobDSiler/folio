@@ -211,7 +211,7 @@ try {
     & git add admin\shelf\index.html
     & git add admin\metrics\index.html
     & git add press\index.html
-    & git add docs\METRICS_PLAN.md
+    & git add docs\METRICS_PLAN.md docs\BISAC_CLASSIFICATION_PLAN.md docs\folio-taxonomy.json docs\CRITICAL_PATHS.md
     & git add folio-paywall-worker.js
     & git add scripts\deploy-2026-07-07.ps1 scripts\deploy-2026-07-07.cmd scripts\create-taskbar-shortcuts.ps1
 
@@ -219,6 +219,129 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+fix(rules): unblock imprint LIST + CRITICAL_PATHS.md tracking table
+
+P0 imprint fix
+──────────────
+Second query pattern that broke after the `allow get: if true`
+rules change: /imprint/?uid=X couldn't load for anonymous readers.
+The imprint query is `where('uid','==',X).where('release.published',
+'==',true).limit(200)` — every result IS published, but the LIST
+rule only covered owner + listOnShelf + admin. Anonymous readers
+hit "Missing or insufficient permissions" trying to view any
+author's public folios.
+
+Added LIST branch 3: allow when `resource.data.release.published
+== true`. Every returned doc satisfies via the query's WHERE
+clause. Anonymous readers can now browse author pages without
+signing in — as designed.
+
+CRITICAL_PATHS.md — ongoing tracking table
+──────────────────────────────────────────
+Both the shelf break (earlier this session) and this imprint break
+were the same class of bug: adding a new client query without
+checking the LIST rule covers it. docs/CRITICAL_PATHS.md is now
+the ground truth for "which client query relies on which rule
+branch." Maps every surface (/shelf, /imprint, /admin/shelf,
+sidebar my-folios, share links, etc.) to its exact query shape
++ the rule branch that allows it.
+
+Includes:
+  - Adding-a-new-query checklist (walk through this before
+    deploying any new query).
+  - Debugging-a-permissions-error checklist (cross-reference the
+    table before guessing).
+  - Recent incidents log (both permission bugs from today
+    logged as append-only history).
+
+Next new page or query MUST update this table. Reviewers can
+challenge PRs that don't.
+
+---
+
+Previous batch — kept in commit history:
+
+feat(classify): Folio open taxonomy + power-tags shipped end-to-end
+
+Full Stages 1-4 of the v2 classification plan (docs/BISAC_CLASSIFICATION_
+PLAN.md). Free, Folio-owned, no license. Solves the tone-signalling
+problem BISAC couldn't have (The Kept Hour = Brontë-chaste fantasy
+romance, NOT Romantasy-spicy) via reader-side tag filters.
+
+Backend / data
+──────────────
+  - docs/folio-taxonomy.json — 37 hand-curated codes across Fiction,
+    Crossovers, Young readers, Non-fiction. Includes legacyMap
+    (shelfGenre string → FOL code) and reverseMap (FOL code →
+    shelfGenre string) so the current single-select Genre dropdown
+    keeps working during migration.
+  - release.genreCodes[] — new field. Ordered array; [0] is primary.
+    Each entry carries { code, label } so display doesn't need
+    runtime taxonomy lookups.
+  - release.tags[] — new field. Free-text, case-normalised (lower-
+    case, hyphenated, 32-char cap), soft cap 24 per folio.
+  - Save auto-derives shelfGenre from genreCodes[0] via reverseMap —
+    so old shelf's Genre filter dropdown stays populated correctly
+    without any client-side change.
+
+Release modal
+─────────────
+  - New "Genre + tags" section under the Shelf-fields block.
+  - Primary genre dropdown, grouped by Fiction / Crossovers /
+    Young readers / Non-fiction.
+  - Secondary genres (up to 4) as removable chips with a "+ Add
+    secondary" chooser.
+  - Tag input: type + Enter (or comma) to add a chip; backspace
+    on empty input removes the last tag. Per-primary-genre
+    starter suggestions ("Popular in Fantasy Romance: slow-burn ·
+    enemies-to-lovers · found-family · dark-academia · bronte-chaste").
+  - Suggest-on-open banner: when a legacy folio (has shelfGenre,
+    no genreCodes) opens in the release modal, offers to convert
+    to the picker with a suggested FOL code — one click accepts.
+
+Runtime (window._folioClassify)
+───────────────────────────────
+  - Loads docs/folio-taxonomy.json lazily on first modal open,
+    caches for the session. Falls back to empty taxonomy on fetch
+    failure — picker degrades gracefully rather than breaking the
+    modal.
+  - collectCodes() / collectTags() read out ephemeral picker state
+    at save time. Both exposed on window for the save code to call.
+  - Tag normalisation is centralised: lowercase, spaces→hyphens,
+    strip non-word except hyphen, collapse hyphens, 32-char cap.
+    Prevents "slow burn" / "slow-burn" / "slowburn" fragmentation.
+
+Shelf display + filters
+───────────────────────
+  - Card render: primary genre label pulled from genreCodes[0]
+    (falls back to legacy GENRE_LABELS[shelfGenre] for old folios).
+    Top-3 tags appear as pill chips below the card foot; each links
+    to /shelf?tag=<tag>.
+  - New filter row under the primary controls: "With any of:"
+    include input (comma-separated, ANY-OF semantics) + "Hide any:"
+    exclude input (NONE-OF semantics). ?tag= and ?nottag= URL
+    params combine with the input values so tag-chip clicks feed
+    the include list.
+  - The Kept Hour test at ship: filter Include tag 'spicy' → The
+    Kept Hour does NOT appear (because it's tagged
+    'no-explicit-content'). This is the operator combination
+    that authorial-intent-respects. Reader arrives at the right
+    book, not the wrong one.
+
+Slotted into TOMORROW_PLAN.md as Stage 3.6 (SHIPPED) with the
+deferred items called out: Genre multi-select popover with
+operators, cross-folio tag autocomplete, folio-page render of
+secondaries + tags, admin surface counts.
+
+Small follow-on polish in same batch: the tag-filter inputs on the
+shelf now hydrate from ?tag= / ?nottag= URL params on boot, so
+readers arriving via a tag chip SEE the active filter in the input
+rather than experiencing its effect without visual context.
+
+---
+
+Previous batch — kept in commit history:
+
 fix(rules): unblock anonymous shelf LIST + open-taxonomy plan pivot
 
 Rules — P0 shelf regression

@@ -121,6 +121,52 @@ Concrete work:
 3. Fill in yours (Jacob) first — sets a visual reference for what "good" looks like
 4. Prompt family cohort to fill theirs before sending Stage 4 mailing list
 
+## STAGE 3.6 — Classification + power-tags (SHIPPED 2026-08-03)
+
+See `docs/BISAC_CLASSIFICATION_PLAN.md` v2 for the design (open-taxonomy
++ power-tag pivot away from paid BISAC).
+
+**What shipped in this batch:**
+
+- `docs/folio-taxonomy.json` — 37-entry Folio-owned classification with
+  legacy `shelfGenre` mapping tables both directions.
+- Release modal: new Genre + Tags picker (primary + up to 4
+  secondaries + free-text tags with autocomplete suggestions per
+  primary genre). Suggest-on-open banner offers to convert legacy
+  `shelfGenre` on next edit.
+- Save/hydrate: `release.genreCodes[]` + `release.tags[]` fields.
+  Legacy `shelfGenre` auto-derived from `genreCodes[0]` via
+  reverse-map so the old shelf Genre dropdown keeps working.
+- Shelf card: primary genre label from `genreCodes[0]` (falls back
+  to legacy shelfGenre); top-3 tag pill row below the foot; each
+  tag pill links to `/shelf?tag=<tag>`.
+- Shelf filter row: new **With any of** / **Hide any** tag inputs
+  with ANY-OF include semantics and NONE-OF exclude semantics.
+  `?tag=X` and `?nottag=X` URL params supported for link-in flows.
+
+**The Kept Hour test to run once deployed** (from the plan doc,
+step 9): filter shelf with Include tag `spicy` — The Kept Hour
+should NOT appear (because it's tagged `no-explicit-content`, not
+`spicy`). If it DOES appear, authorial intent isn't being respected
+and we've regressed.
+
+**Deferred to a follow-up session:**
+
+- Multi-select Genre popover with INCLUDE (ANY/ALL) + EXCLUDE
+  operators (right now the Genre dropdown stays single-select via
+  legacy `shelfGenre`). The tag filter carries the power-user
+  story for MVP; genre multi-select is polish.
+- Tag autocomplete against existing tags across the shelf (right
+  now suggestions are a curated per-primary-genre starter list).
+  Needs a small aggregation pass over `_allFolios` once shelves
+  are populated enough to be interesting.
+- Public folio-page (`/app.html?read=...`) render of primary +
+  secondaries + tags row.
+- Admin surfaces (`/admin/shelf/` moderation card gets a small
+  "+2 codes · 5 tags" summary).
+
+---
+
 ## STAGE 4 — Mailing list send (60 min)
 
 Content is in `docs/EMAIL_FOLIO_LAUNCH.md`. Read it end-to-end, tweak for anything that feels not-quite-you.

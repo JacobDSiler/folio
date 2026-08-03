@@ -22642,6 +22642,15 @@
           if (_shelfGenre)   _shelfGenre.value     = _rlCurrent.shelfGenre || '';
           if (_shelfBlurb)   _shelfBlurb.value     = _rlCurrent.shelfBlurb || '';
           if (_shelfUseDesc) _shelfUseDesc.checked = !!_rlCurrent.shelfUseDescription;
+          // Hydrate the new classification picker (genreCodes + tags).
+          // Suggest-on-open banner fires inside populateFromRelease when
+          // genreCodes is empty and legacy shelfGenre carries a value —
+          // keeps backwards-compat painless.
+          try {
+            if (window._folioClassify && typeof window._folioClassify.populateFromRelease === 'function') {
+              window._folioClassify.populateFromRelease(_rlCurrent);
+            }
+          } catch (e) { console.warn('[classify] populate threw:', e); }
           // Series fields (Phase 3 task #53).
           const _seriesNameEl  = document.getElementById('rlSeriesName');
           const _seriesOrderEl = document.getElementById('rlSeriesOrder');
@@ -22783,6 +22792,12 @@
             _freshRadios.forEach(function(r){ r.checked = (r.value === 'all'); });
             const _freshAdult = document.getElementById('rlHasAdultContent');
             if (_freshAdult) _freshAdult.checked = false;
+          } catch (_) {}
+          // Fresh folio — reset classification picker to empty state.
+          try {
+            if (window._folioClassify && typeof window._folioClassify.populateFromRelease === 'function') {
+              window._folioClassify.populateFromRelease({});
+            }
           } catch (_) {}
           const previewField2 = document.getElementById('rlPreviewN');
           if (previewField2) previewField2.value = '1';
@@ -23184,8 +23199,47 @@
           if (window._user && window._user.isAnonymous) return false;
           return true;
         })(),
-        shelfGenre: ((document.getElementById('rlShelfGenre') && document.getElementById('rlShelfGenre').value) || '').trim().slice(0, 40) || null,
+        // Legacy single-string genre (still populated for the current
+        // shelf's Genre-filter dropdown backwards-compat). Auto-derived
+        // from genreCodes[0] via the reverse-map when the new picker
+        // has values; falls back to the legacy dropdown otherwise.
+        shelfGenre: (function(){
+          try {
+            const codes = window._folioClassify && window._folioClassify.collectCodes && window._folioClassify.collectCodes();
+            if (Array.isArray(codes) && codes.length > 0 && codes[0].code) {
+              const reverse = (window._folioTaxonomy && window._folioTaxonomy.reverseMap) || {};
+              const mapped = reverse[codes[0].code];
+              if (mapped) return mapped;
+            }
+          } catch (_) {}
+          return ((document.getElementById('rlShelfGenre') && document.getElementById('rlShelfGenre').value) || '').trim().slice(0, 40) || null;
+        })(),
         shelfBlurb: ((document.getElementById('rlShelfBlurb') && document.getElementById('rlShelfBlurb').value) || '').trim().slice(0, 280) || null,
+        // NEW — Folio classification (see docs/BISAC_CLASSIFICATION_PLAN.md
+        // v2). Ordered array; genreCodes[0] is the PRIMARY genre used for
+        // shelf categorisation + display, subsequent entries are
+        // secondaries surfaced on the folio's own page and included in
+        // multi-select filter matches. Each entry carries both the
+        // canonical Folio-owned code (FOL_*) and the human-readable
+        // label at save time so display doesn't need runtime lookups.
+        genreCodes: (function(){
+          try {
+            const codes = window._folioClassify && window._folioClassify.collectCodes && window._folioClassify.collectCodes();
+            return Array.isArray(codes) ? codes.slice(0, 5) : [];
+          } catch (_) { return []; }
+        })(),
+        // NEW — free-text tags. Case-normalised (lowercase, single-
+        // spaced), soft-cap 24 per folio, 32 chars each. The
+        // discovery layer that BISAC couldn't have given us — this is
+        // what lets a Brontë-chaste fantasy romance be honestly
+        // distinguished from a Romantasy-spicy one via reader-side
+        // INCLUDE / EXCLUDE tag filters on the shelf.
+        tags: (function(){
+          try {
+            const tags = window._folioClassify && window._folioClassify.collectTags && window._folioClassify.collectTags();
+            return Array.isArray(tags) ? tags : [];
+          } catch (_) { return []; }
+        })(),
         // Content rating tier + moderation queue flag.
         //   ageRating — author-declared audience tier. One of:
         //     'all'  → universal (no advisory)
@@ -25197,6 +25251,349 @@
     }
     window._rlSetProvider = _rlSetProvider;
     let _rlProvider = 'custom';
+
+    /* ════════════════════════════════════════════════════════════════════
+       CLASSIFICATION RUNTIME — window._folioClassify
+       ────────────────────────────────────────────────────────────────────
+       Owns the release modal's Genre + Tags picker. Loads the taxonomy
+       (docs/folio-taxonomy.json) lazily on first use, populates the
+       primary/secondary dropdowns + tag chip input, provides collect*
+       accessors that the release save code reads at write time.
+
+       Free, Folio-owned; ~35 codes. Tags are unlimited-ish (soft cap 24
+       per folio, 32 chars each), case-normalised (lowercase, single-
+       spaced, hyphen-preserved). See docs/BISAC_CLASSIFICATION_PLAN.md
+       v2 for the design rationale.
+       ════════════════════════════════════════════════════════════════════ */
+    (function _installFolioClassify(){
+      let _tax = null;        // { codes, legacyMap, reverseMap }
+      let _loaded = false;
+      let _loadingPromise = null;
+
+      // Ephemeral picker state — reset every time the release modal opens.
+      // Not persisted; the release save reads collect*() at write time.
+      const state = {
+        primary: '',         // e.g. "FOL_FAN_ROM"
+        secondaries: [],     // ["FOL_FAN", "FOL_SCI"] — ordered
+        tags: [],            // ["slow-burn", "bronte-chaste", ...]
+      };
+
+      async function loadTaxonomy() {
+        if (_loaded) return _tax;
+        if (_loadingPromise) return _loadingPromise;
+        _loadingPromise = (async function(){
+          try {
+            const r = await fetch('/docs/folio-taxonomy.json', { cache: 'default' });
+            if (!r.ok) throw new Error('taxonomy fetch ' + r.status);
+            const data = await r.json();
+            _tax = {
+              codes: Array.isArray(data.codes) ? data.codes : [],
+              legacyMap: data.legacyMap || {},
+              reverseMap: data.reverseMap || {},
+            };
+            window._folioTaxonomy = _tax; // exposed for the save code's reverseMap lookup
+            _loaded = true;
+            return _tax;
+          } catch (e) {
+            console.warn('[classify] taxonomy load failed:', e && e.message);
+            // Fall back to an empty taxonomy — the picker just shows a
+            // "genres unavailable" message rather than breaking the whole
+            // release modal.
+            _tax = { codes: [], legacyMap: {}, reverseMap: {} };
+            window._folioTaxonomy = _tax;
+            _loaded = true;
+            return _tax;
+          }
+        })();
+        return _loadingPromise;
+      }
+
+      function _labelForCode(code) {
+        if (!_tax || !code) return code || '';
+        const hit = _tax.codes.find(function(c){ return c.code === code; });
+        return hit ? hit.label : code;
+      }
+
+      function _renderPrimaryOptions() {
+        const sel = document.getElementById('rlClassifyPrimary');
+        if (!sel || !_tax) return;
+        // Group by "group" field for a cleaner dropdown.
+        const groups = {};
+        _tax.codes.forEach(function(c){
+          const g = c.group || 'Other';
+          if (!groups[g]) groups[g] = [];
+          groups[g].push(c);
+        });
+        const groupOrder = ['Fiction', 'Crossovers', 'Young readers', 'Non-fiction'];
+        const orderedGroups = groupOrder.filter(function(g){ return groups[g]; })
+          .concat(Object.keys(groups).filter(function(g){ return groupOrder.indexOf(g) < 0; }));
+        let html = '<option value="">— pick a genre —</option>';
+        orderedGroups.forEach(function(g){
+          html += '<optgroup label="' + esc(g) + '">';
+          groups[g].forEach(function(c){
+            const selAttr = (c.code === state.primary) ? ' selected' : '';
+            html += '<option value="' + esc(c.code) + '"' + selAttr + '>' + esc(c.label) + '</option>';
+          });
+          html += '</optgroup>';
+        });
+        sel.innerHTML = html;
+      }
+
+      function _renderSecondaries() {
+        const host = document.getElementById('rlClassifySecondaries');
+        if (!host) return;
+        const canAdd = state.secondaries.length < 4;
+        const usedSet = new Set([state.primary].concat(state.secondaries).filter(Boolean));
+        const chips = state.secondaries.map(function(code, i){
+          const label = _labelForCode(code) || code;
+          return '<span style="display:inline-flex;align-items:center;gap:5px;padding:4px 8px 4px 10px;background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;font-size:11.5px;color:var(--text)">' +
+                 esc(label) +
+                 '<button type="button" onclick="window._folioClassify.removeSecondary(' + i + ')" title="Remove" style="background:none;border:none;color:var(--hint);cursor:pointer;font-size:13px;line-height:1;padding:0 2px">×</button>' +
+                 '</span>';
+        }).join('');
+        // "+ Add secondary" chip → clicking swaps in an inline picker.
+        const addBtn = canAdd
+          ? '<button type="button" onclick="window._folioClassify.openAddSecondary(this)" ' +
+            'style="padding:4px 10px;font-size:11.5px;border:.5px dashed var(--border-mid);background:transparent;color:var(--hint);border-radius:14px;cursor:pointer">+ Add secondary</button>'
+          : '<span style="font-size:10.5px;color:var(--hint);padding:4px 8px">Max 4 secondaries — remove one to add another</span>';
+        host.innerHTML = chips + addBtn;
+        // Update the used-set on any open add picker so it doesn't offer
+        // duplicates.
+      }
+
+      function _renderTags() {
+        const host = document.getElementById('rlClassifyTags');
+        const input = document.getElementById('rlClassifyTagInput');
+        if (!host || !input) return;
+        // Wipe existing chips (leave the input in place).
+        Array.from(host.querySelectorAll('.folio-tag-chip')).forEach(function(el){ el.remove(); });
+        // Prepend chips before the input.
+        state.tags.forEach(function(tag, i){
+          const chip = document.createElement('span');
+          chip.className = 'folio-tag-chip';
+          chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;padding:2px 6px 2px 9px;background:rgba(6,95,70,0.08);color:var(--accent-ui,#065f46);border-radius:12px;font-size:11px;font-weight:500';
+          chip.innerHTML = esc(tag) + '<button type="button" onclick="window._folioClassify.removeTag(' + i + ')" title="Remove" style="background:none;border:none;color:currentColor;cursor:pointer;font-size:12px;line-height:1;padding:0 2px;opacity:.7">×</button>';
+          host.insertBefore(chip, input);
+        });
+        _renderTagSuggestions();
+      }
+
+      function _renderTagSuggestions() {
+        const host = document.getElementById('rlClassifyTagSuggest');
+        if (!host) return;
+        // Suggestions come from tag-frequency analysis on window._allFolios
+        // when it's populated (e.g. reader has browsed the shelf). For now
+        // we ship a curated starter list grouped by genre — helps authors
+        // establish vocabulary without polling the whole shelf.
+        const primary = state.primary;
+        const starters = {
+          FOL_FAN_ROM: ['slow-burn', 'enemies-to-lovers', 'found-family', 'dark-academia', 'no-explicit-content', 'bronte-chaste'],
+          FOL_HIS_ROM: ['slow-burn', 'period', 'class-tragedy', 'regency', 'enemies-to-lovers', 'bronte-chaste'],
+          FOL_HIS_FAN: ['period', 'political-intrigue', 'dark-academia', 'class-tragedy', 'ensemble-cast'],
+          FOL_ROM_GOT: ['gothic', 'slow-burn', 'atmospheric', 'unreliable-narrator', 'bronte-chaste'],
+          FOL_FAN:     ['epic', 'coming-of-age', 'political-intrigue', 'magic-system', 'dark-academia', 'hopepunk'],
+          FOL_SCI:     ['space-opera', 'hard-scifi', 'first-contact', 'dystopian', 'hopepunk', 'climate-fiction'],
+          FOL_ROM:     ['slow-burn', 'enemies-to-lovers', 'friends-to-lovers', 'found-family', 'cozy', 'spicy'],
+          FOL_MYS:     ['cozy', 'noir', 'amateur-sleuth', 'small-town', 'unreliable-narrator'],
+          FOL_LIT:     ['character-driven', 'literary', 'grief', 'coming-of-age', 'unreliable-narrator'],
+          FOL_HOR:     ['atmospheric', 'psychological', 'gothic', 'slow-burn', 'body-horror'],
+        };
+        const suggested = starters[primary] || ['slow-burn', 'character-driven', 'found-family', 'atmospheric', 'no-explicit-content'];
+        const remaining = suggested.filter(function(t){ return state.tags.indexOf(t) < 0; });
+        if (!remaining.length) { host.innerHTML = ''; return; }
+        host.innerHTML = 'Suggestions: ' + remaining.map(function(t){
+          return '<button type="button" onclick="window._folioClassify.addTag(' + JSON.stringify(t) + ')" ' +
+                 'style="margin:0 3px 2px 0;font-size:11px;padding:2px 8px;border:.5px dashed var(--border-mid);background:transparent;color:var(--accent-ui,#065f46);border-radius:10px;cursor:pointer;font-family:inherit">+' + esc(t) + '</button>';
+        }).join('');
+      }
+
+      function _normaliseTag(raw) {
+        return String(raw || '').toLowerCase().trim()
+          .replace(/\s+/g, '-')       // spaces → hyphen
+          .replace(/[^\w-]/g, '')      // strip non-word except hyphen
+          .replace(/-+/g, '-')          // collapse hyphens
+          .replace(/^-|-$/g, '')       // trim leading/trailing hyphens
+          .slice(0, 32);
+      }
+
+      function addTag(raw) {
+        const t = _normaliseTag(raw);
+        if (!t) return;
+        if (state.tags.indexOf(t) >= 0) return;
+        if (state.tags.length >= 24) {
+          if (typeof toastInfo === 'function') toastInfo('Soft cap of 24 tags — remove one to add another', { duration: 2400 });
+          return;
+        }
+        state.tags.push(t);
+        _renderTags();
+      }
+      function removeTag(idx) {
+        state.tags.splice(idx, 1);
+        _renderTags();
+      }
+
+      function addSecondary(code) {
+        if (!code) return;
+        if (code === state.primary) return;
+        if (state.secondaries.indexOf(code) >= 0) return;
+        if (state.secondaries.length >= 4) return;
+        state.secondaries.push(code);
+        _renderSecondaries();
+      }
+      function removeSecondary(idx) {
+        state.secondaries.splice(idx, 1);
+        _renderSecondaries();
+      }
+
+      function openAddSecondary(btn) {
+        if (!_tax) return;
+        const usedSet = new Set([state.primary].concat(state.secondaries).filter(Boolean));
+        // Build a small inline dropdown listing codes not already in use.
+        const remaining = _tax.codes.filter(function(c){ return !usedSet.has(c.code); });
+        if (!remaining.length) return;
+        const sel = document.createElement('select');
+        sel.style.cssText = 'font-size:12px;padding:4px 8px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);font-family:inherit;cursor:pointer';
+        let opts = '<option value="">Pick a genre…</option>';
+        // Preserve group order.
+        const groups = {};
+        remaining.forEach(function(c){
+          const g = c.group || 'Other';
+          if (!groups[g]) groups[g] = [];
+          groups[g].push(c);
+        });
+        Object.keys(groups).forEach(function(g){
+          opts += '<optgroup label="' + esc(g) + '">';
+          groups[g].forEach(function(c){
+            opts += '<option value="' + esc(c.code) + '">' + esc(c.label) + '</option>';
+          });
+          opts += '</optgroup>';
+        });
+        sel.innerHTML = opts;
+        sel.onchange = function() {
+          if (sel.value) addSecondary(sel.value);
+        };
+        btn.parentNode.replaceChild(sel, btn);
+        sel.focus();
+      }
+
+      function onPrimaryChange() {
+        const sel = document.getElementById('rlClassifyPrimary');
+        if (!sel) return;
+        state.primary = sel.value || '';
+        // Remove primary from secondaries if it got promoted.
+        state.secondaries = state.secondaries.filter(function(c){ return c !== state.primary; });
+        _renderSecondaries();
+        _renderTagSuggestions(); // suggestions depend on primary genre
+        _dismissSuggestBanner();
+      }
+
+      function _showSuggestBanner(currentShelfGenre) {
+        const banner = document.getElementById('rlClassifySuggest');
+        if (!banner || !_tax) return;
+        const suggestedCode = (_tax.legacyMap && _tax.legacyMap[currentShelfGenre]) || null;
+        if (!suggestedCode) { banner.style.display = 'none'; return; }
+        const suggestedLabel = _labelForCode(suggestedCode);
+        banner.innerHTML =
+          '<strong>Your legacy genre is “' + esc(currentShelfGenre) + '”.</strong> ' +
+          'Convert to the new picker with <strong>' + esc(suggestedLabel) + '</strong> as your primary? ' +
+          'You can refine or add more codes after.' +
+          '<div style="margin-top:6px;display:flex;gap:8px">' +
+          '<button type="button" onclick="window._folioClassify.acceptSuggestion(' + JSON.stringify(suggestedCode) + ')" ' +
+          'style="font-size:11.5px;padding:4px 10px;border-radius:5px;border:none;background:#5c3d00;color:#fff;cursor:pointer;font-weight:500;font-family:inherit">Convert</button>' +
+          '<button type="button" onclick="window._folioClassify.dismissSuggestion()" ' +
+          'style="font-size:11.5px;padding:4px 10px;border-radius:5px;border:.5px solid #e8d9a8;background:transparent;color:#5c3d00;cursor:pointer;font-family:inherit">Skip — I\'ll pick manually</button>' +
+          '</div>';
+        banner.style.display = '';
+      }
+      function _dismissSuggestBanner() {
+        const banner = document.getElementById('rlClassifySuggest');
+        if (banner) banner.style.display = 'none';
+      }
+
+      // Called from the release modal's hydrate step. Called with an empty
+      // object for fresh folios (resets state).
+      async function populateFromRelease(release) {
+        release = release || {};
+        state.primary = '';
+        state.secondaries = [];
+        state.tags = [];
+        _dismissSuggestBanner();
+        await loadTaxonomy();
+        // Hydrate from new fields (genreCodes + tags) if present.
+        if (Array.isArray(release.genreCodes) && release.genreCodes.length) {
+          const codes = release.genreCodes.filter(function(c){ return c && c.code; }).map(function(c){ return c.code; });
+          state.primary = codes[0] || '';
+          state.secondaries = codes.slice(1, 5);
+        } else if (release.shelfGenre) {
+          // Legacy folio — show the suggest banner. State stays empty
+          // until the author accepts / rejects.
+          _showSuggestBanner(release.shelfGenre);
+        }
+        if (Array.isArray(release.tags)) {
+          state.tags = release.tags.map(_normaliseTag).filter(Boolean).slice(0, 24);
+        }
+        _renderPrimaryOptions();
+        _renderSecondaries();
+        _renderTags();
+      }
+
+      function acceptSuggestion(code) {
+        state.primary = code;
+        _dismissSuggestBanner();
+        _renderPrimaryOptions();
+        _renderSecondaries();
+        _renderTagSuggestions();
+      }
+      function dismissSuggestion() { _dismissSuggestBanner(); }
+
+      // Read-out functions used by the release save code.
+      function collectCodes() {
+        const out = [];
+        if (state.primary) out.push({ code: state.primary, label: _labelForCode(state.primary) });
+        state.secondaries.forEach(function(code){
+          if (code) out.push({ code: code, label: _labelForCode(code) });
+        });
+        return out;
+      }
+      function collectTags() { return state.tags.slice(); }
+
+      // Wire the tag input once the DOM is ready. Delegates so the input
+      // works even if it's re-rendered inside the modal.
+      document.addEventListener('keydown', function(e){
+        if (!e.target || e.target.id !== 'rlClassifyTagInput') return;
+        if (e.key === 'Enter' || e.key === ',' ) {
+          e.preventDefault();
+          const val = e.target.value;
+          e.target.value = '';
+          addTag(val);
+        } else if (e.key === 'Backspace' && !e.target.value && state.tags.length) {
+          e.preventDefault();
+          removeTag(state.tags.length - 1);
+        }
+      });
+      document.addEventListener('blur', function(e){
+        if (!e.target || e.target.id !== 'rlClassifyTagInput') return;
+        if (e.target.value.trim()) {
+          addTag(e.target.value);
+          e.target.value = '';
+        }
+      }, true);
+
+      window._folioClassify = {
+        loadTaxonomy: loadTaxonomy,
+        populateFromRelease: populateFromRelease,
+        onPrimaryChange: onPrimaryChange,
+        addSecondary: addSecondary,
+        removeSecondary: removeSecondary,
+        openAddSecondary: openAddSecondary,
+        addTag: addTag,
+        removeTag: removeTag,
+        acceptSuggestion: acceptSuggestion,
+        dismissSuggestion: dismissSuggestion,
+        collectCodes: collectCodes,
+        collectTags: collectTags,
+      };
+    })();
 
     // Re-open the picker (undo the collapse). Called from the "Change
     // vendor" button in the collapsed-state chip.
@@ -33216,6 +33613,43 @@
             style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;resize:vertical;font-family:inherit"></textarea>
           <div style="font-size:10px;color:var(--hint);margin-top:3px">
             Customising the card visuals (colours, fonts, background) is a <strong>Folio Press</strong> Pro feature — coming soon.
+          </div>
+
+          <!-- ═══ CLASSIFICATION (Folio open taxonomy + tags) ═══════════
+               Primary + secondary genre codes from docs/folio-taxonomy.json
+               plus free-text discovery tags. Readers filter the shelf with
+               ANY-OF / NONE-OF operators on both dimensions — see
+               docs/BISAC_CLASSIFICATION_PLAN.md v2 for the design.
+               Populated + collected by window._folioClassify (defined in
+               the classification runtime script block later in this file). -->
+          <div id="rlClassifySection" style="margin:14px 0 4px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
+            <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:0 0 4px">
+              🏷 <strong>Genre + tags</strong>
+              <span style="opacity:.7;font-weight:400;font-size:11px">(helps readers find your book with the right expectations)</span>
+            </div>
+            <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:2px 0 10px 24px">
+              Pick a <strong>primary genre</strong> (used for shelf categorisation) plus optional secondaries. Add <strong>tags</strong> for tone, tropes, and content advisories — this is what lets readers filter on "fantasy romance BUT NOT spicy" and land on the right books.
+            </p>
+            <!-- Suggest-on-open banner (populated at hydrate time when
+                 genreCodes is empty AND legacy shelfGenre exists). -->
+            <div id="rlClassifySuggest" style="display:none;margin:0 0 10px;padding:8px 10px;background:#fdfaf3;border:.5px solid #e8d9a8;border-radius:6px;font-size:11.5px;color:#5c3d00;line-height:1.5"></div>
+            <!-- Primary genre -->
+            <label style="display:block;font-size:11px;font-weight:500;color:var(--hint);margin:0 0 4px;text-transform:uppercase;letter-spacing:.05em">Primary genre</label>
+            <select id="rlClassifyPrimary" onchange="window._folioClassify && window._folioClassify.onPrimaryChange && window._folioClassify.onPrimaryChange()"
+              style="width:100%;max-width:340px;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+              <option value="">— pick a genre —</option>
+            </select>
+            <!-- Secondary genres — dynamically rendered as chips + a
+                 "+ Add secondary" button that reveals a dropdown. -->
+            <label style="display:block;font-size:11px;font-weight:500;color:var(--hint);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.05em">Secondary genres <span style="opacity:.6;font-weight:400;letter-spacing:0;text-transform:none">(up to 4 more)</span></label>
+            <div id="rlClassifySecondaries" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center"></div>
+            <!-- Tags -->
+            <label style="display:block;font-size:11px;font-weight:500;color:var(--hint);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.05em">Tags <span style="opacity:.6;font-weight:400;letter-spacing:0;text-transform:none">(free-text: slow-burn, cozy, dark-academia, no-explicit-content, etc.)</span></label>
+            <div id="rlClassifyTags" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);min-height:34px">
+              <input id="rlClassifyTagInput" type="text" placeholder="Type a tag + Enter…"
+                style="flex:1;min-width:140px;border:none;outline:none;background:none;color:var(--text);font-family:inherit;font-size:12px;padding:3px 4px">
+            </div>
+            <div id="rlClassifyTagSuggest" style="font-size:10.5px;color:var(--hint);margin-top:6px;line-height:1.55"></div>
           </div>
         </div>
       </div>

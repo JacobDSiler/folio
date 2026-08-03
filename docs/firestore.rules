@@ -119,27 +119,31 @@ service cloud.firestore {
       // but Thomas / Jacob want it to work BEFORE any release is
       // configured too. This is that.
       //
-      // LIST: three ways a query is allowed.
-      //   1. Owner-scoped queries: `where('uid','==', <me>)` matches
-      //      each result's uid to the caller. Powers the "my folios"
-      //      sidebar list.
+      // LIST: four ways a query is allowed. Each branch corresponds
+      // to a CLIENT-side query pattern documented in
+      // docs/CRITICAL_PATHS.md — keep that file in sync when adding
+      // a new branch here.
+      //   1. Owner-scoped queries: `where('uid','==', <me>)`
+      //      matches each result's uid to the caller. Powers the
+      //      "my folios" sidebar list (app.html).
       //   2. Shelf queries: `where('release.listOnShelf','==',true)`
-      //      matches each result's listOnShelf flag. Every returned
-      //      folio is one the author explicitly opted into public
-      //      listing, so anonymous readers can see them. Powers the
-      //      public /shelf/ page. Without this branch anonymous
-      //      readers get FirebaseError: Missing or insufficient
-      //      permissions on shelf load — which is exactly what broke
-      //      the shelf on mobile/incognito after the earlier "allow
-      //      get: if true" rule change opened per-doc GET but left
-      //      LIST locked.
-      //   3. Admin bypass — /admin/shelf/ needs to enumerate
+      //      matches each result's listOnShelf flag. Powers the
+      //      public /shelf/ page.
+      //   3. Published queries: `where('release.published','==',true)`
+      //      (optionally combined with `where('uid','==',<author>)`).
+      //      Every returned folio has been released for public reading,
+      //      so anonymous LIST is safe. Powers the /imprint/ page,
+      //      any future author-page renderers, and any "browse by
+      //      author" flow.
+      //   4. Admin bypass — /admin/shelf/ needs to enumerate
       //      pending + rejected listings that aren't publicly visible.
       //
       // Any unfiltered `collection(folio_projects)` query is still
       // denied — nobody can enumerate every folio in the system just
-      // by hitting the collection without one of these three
-      // constraints in their query.
+      // by hitting the collection without one of these constraints
+      // in their query. Every returned doc must PROVABLY satisfy the
+      // rule based on the query's WHERE clauses — that's what
+      // Firestore's rule engine checks.
       //
       // Sensitive content still gated separately: body/paid stays
       // owner-only (see match /body/{doc} below); the paywall worker's
@@ -149,6 +153,8 @@ service cloud.firestore {
       allow list:   if isUser(resource.data.uid)
                     || (resource.data.release != null
                         && resource.data.release.listOnShelf == true)
+                    || (resource.data.release != null
+                        && resource.data.release.published == true)
                     || isAdmin();
 
       // Create: the new doc must be stamped with the creator's own uid.
