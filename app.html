@@ -24307,10 +24307,52 @@
       _serialShowLockModal(release, chIdx, chTitle);
     }, true);
 
+    // Scroll the reader to the paywall's inline purchase CTA card and
+    // give it a brief pulse so the reader can see it's the target of
+    // the "Go to purchase" click. Used by the PayPal Native path in
+    // the lock modal — the Buttons SDK is mounted INSIDE that CTA
+    // (see _pwBuildPreviewCta + _pwMountPaypalNative). Without this
+    // scroll, clicking a lock icon buried in the TOC could leave the
+    // reader confused about where the buttons actually are, because
+    // the CTA is inserted after the last visible page (which may be
+    // many screens up).
+    window._pwScrollToCTA = function _pwScrollToCTA() {
+      const bp = document.getElementById('bookPreview');
+      if (!bp) return;
+      const cta = bp.querySelector('.pw-preview-cta');
+      if (!cta) {
+        // No CTA yet — probably the reader is on an owner-view or
+        // signed-teaser path where _pwShowPreview didn't run. Fall
+        // back to a toast pointing the reader at the buy flow.
+        if (typeof toastInfo === 'function') {
+          toastInfo('Scroll to the end of the free preview to purchase.', { duration: 4000 });
+        }
+        return;
+      }
+      try {
+        cta.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } catch (_) {
+        cta.scrollIntoView();
+      }
+      // Brief pulse — outline + shadow that fades. Feels like "this
+      // is the thing you were looking for" without being obnoxious.
+      cta.style.transition = 'box-shadow 0.4s ease, outline-color 0.4s ease';
+      cta.style.outline = '2px solid var(--accent-ui,#0a7)';
+      cta.style.outlineOffset = '3px';
+      cta.style.boxShadow = '0 0 0 4px rgba(10,119,102,0.15)';
+      setTimeout(function(){
+        cta.style.outline = '';
+        cta.style.outlineOffset = '';
+        cta.style.boxShadow = '';
+      }, 1400);
+    };
+
     // ── Lock CTA modal ─────────────────────────────────────────────────
     // One reusable modal, built once and reshown. Opened from a locked
     // TOC row click. Shows the chapter title + unlock date, a subscribe
-    // email form, and — for paid releases — a Buy-on-Gumroad button.
+    // email form, and — for paid releases — a provider-aware purchase
+    // button (PayPal Buttons scroll for paypal_native, external anchor
+    // for redirect vendors).
     function _serialShowLockModal(release, chIdx, chTitle) {
       let modal = document.getElementById('serialLockModal');
       if (!modal) {
@@ -24327,8 +24369,26 @@
       }
 
       const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
-      const isPaid = release.priceMode === 'paid' && (release.product || release.checkoutUrl);
-      const buyUrl = isPaid ? _pwBuyURL(release) : null;
+      // isPaid: paid folios with EITHER an external checkout (product +
+      // Gumroad, or a custom checkoutUrl) OR PayPal Native. Without the
+      // paypal_native branch, the modal would render as if the release
+      // had no purchase path at all — that's why Jacob's "click a lock"
+      // showed nothing when he was on PayPal Native.
+      const _isPn = release.provider === 'paypal_native';
+      const isPaid = release.priceMode === 'paid' && (
+        release.product || release.checkoutUrl || _isPn
+      );
+      const buyUrl = (isPaid && !_isPn) ? _pwBuyURL(release) : null;
+      // Vendor label — used in the CTA label. For redirect vendors,
+      // guess from the URL (Ko-fi / Payhip / etc). For PayPal Native,
+      // fixed label. Otherwise falls back to "Gumroad" (the historic
+      // default when release.product was set).
+      const _vg = (release.provider === 'custom' && typeof _pwGuessVendor === 'function')
+        ? _pwGuessVendor(_pwBuyURL(release))
+        : null;
+      const buyLabel = _isPn ? 'Go to purchase (PayPal) →'
+                     : _vg   ? ('Buy on ' + _vg.name + ' →')
+                             : '💳 Read it all now on Gumroad →';
 
       let when = 'when it unlocks';
       try {
@@ -24350,10 +24410,21 @@
         _esc(chTitle || ('Chapter ' + chIdx)) + '</div>' +
         '<div style="font-size:12.5px;color:var(--muted,#666);margin-bottom:18px">This chapter unlocks ' + _esc(when) + '.</div>' +
         (isPaid
-          ? ('<a href="' + buyUrl + '" target="_blank" rel="noopener" ' +
-            'style="display:block;font-size:13.5px;font-weight:600;padding:11px 18px;border-radius:8px;' +
-            'background:var(--accent-ui,#0a7);color:#fff;text-decoration:none;margin-bottom:8px">' +
-            '💳 Read it all now on Gumroad →</a>' +
+          ? ((_isPn
+              // PayPal Native — no external URL; close the modal and
+              // scroll to the inline CTA card that has the Buttons SDK
+              // mounted. That card is inserted into #bookPreview by
+              // _pwShowPreview and can be far below the current
+              // scroll position, so we do a smooth scroll + brief
+              // highlight so the buttons don't feel hidden.
+              ? ('<button type="button" onclick="_serialCloseLockModal();_pwScrollToCTA()" ' +
+                'style="display:block;width:100%;font-size:13.5px;font-weight:600;padding:11px 18px;border-radius:8px;' +
+                'background:var(--accent-ui,#0a7);color:#fff;border:none;cursor:pointer;font-family:inherit;margin-bottom:8px">' +
+                _esc(buyLabel) + '</button>')
+              : ('<a href="' + buyUrl + '" target="_blank" rel="noopener" ' +
+                'style="display:block;font-size:13.5px;font-weight:600;padding:11px 18px;border-radius:8px;' +
+                'background:var(--accent-ui,#0a7);color:#fff;text-decoration:none;margin-bottom:8px">' +
+                _esc(buyLabel) + '</a>')) +
             '<div style="font-size:10.5px;color:var(--hint,#888);margin-bottom:16px">' +
             'Buying unlocks every chapter immediately.</div>' +
             '<div style="font-size:11px;color:var(--hint,#888);letter-spacing:.04em;margin-bottom:8px;' +
@@ -26326,25 +26397,22 @@
       }
 
 
-      // Expired or absent. Branch on whether the release offers a free preview.
+      // Expired or absent. Route ALL paid releases through _pwShowPreview
+      // — the inline CTA card is the single canonical purchase surface,
+      // and it's where PayPal Native's Buttons SDK mounts. Previously we
+      // branched to _pwShowGate when previewSections=0 AND no teasers,
+      // but #pwGate is dead HTML (the template was removed at some point
+      // and the function early-returns); readers with a zero-preview
+      // release saw locked TOC rows and nothing to click through to.
+      //
+      // Passing numChapters=0 to _pwShowPreview correctly hides every
+      // chapter (no free preview) and inserts the CTA card at the
+      // top of the hidden region. Teasers still get honoured via
+      // release.teasers + the signed-teaser set.
       const previewN = Number((release && release.previewSections) || 0) || 0;
-      // Teasers are part of the always-free reader view. If any chapter is
-      // ticked as a teaser, route through _pwShowPreview (which honours the
-      // teaser set + inserts the inline CTA) even when previewSections = 0.
-      // Otherwise the gate modal pops up and the teaser chapter never
-      // becomes visible, and the reader sees no CTA at all.
-      const _hasTeasers = Array.isArray(release && release.teasers) && release.teasers.length > 0;
-      if (previewN > 0 || _hasTeasers) {
-        _pwShowPreview(folioId, release, previewN);
-        // Trigger per-chapter lock cards (matches _pwReapply). Without this,
-        // the reader path only ever gets the single CTA _pwShowPreview adds
-        // at the bottom — the editor preview shows per-chapter cards only
-        // because a render hook there fires _serialApplyLocks separately.
-        if (typeof _serialApplyLocks === 'function') {
-          setTimeout(() => _serialApplyLocks(release), 60);
-        }
-      } else {
-        _pwShowGate(folioId, release);
+      _pwShowPreview(folioId, release, previewN);
+      if (typeof _serialApplyLocks === 'function') {
+        setTimeout(() => _serialApplyLocks(release), 60);
       }
       return false;
     }
@@ -26361,15 +26429,13 @@
       const folioId = _pwActiveFolioId || (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
 
       // Preview-as-reader sim: same bypass as _pwCheckAccess — force the
-      // gate to render even when the owner has tokens cached.
+      // CTA to render even when the owner has tokens cached. Same
+      // routing as _pwCheckAccess: always _pwShowPreview (with
+      // previewN=0 when there's no free preview), never the dead
+      // _pwShowGate path.
       if (window._editorReaderPreview) {
         const previewN = Number((release && release.previewSections) || 0) || 0;
-        const _hasTeasers = Array.isArray(release && release.teasers) && release.teasers.length > 0;
-        if (previewN > 0 || _hasTeasers) {
-          _pwShowPreview(folioId, release, previewN);
-        } else {
-          _pwShowGate(folioId, release);
-        }
+        _pwShowPreview(folioId, release, previewN);
         return;
       }
 
