@@ -217,7 +217,7 @@ try {
     & git add admin\shelf\index.html
     & git add admin\metrics\index.html
     & git add press\index.html
-    & git add docs\METRICS_PLAN.md docs\BISAC_CLASSIFICATION_PLAN.md docs\folio-taxonomy.json docs\CRITICAL_PATHS.md docs\FOLIO_INFO_SURFACES_PLAN.md
+    & git add docs\METRICS_PLAN.md docs\BISAC_CLASSIFICATION_PLAN.md docs\folio-taxonomy.json docs\CRITICAL_PATHS.md docs\FOLIO_INFO_SURFACES_PLAN.md docs\MODULAR_UI_PLAN.md
     & git add folio-paywall-worker.js
     & git add scripts\deploy-2026-07-07.ps1 scripts\deploy-2026-07-07.cmd scripts\create-taskbar-shortcuts.ps1
 
@@ -225,6 +225,98 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+fix+feat: markdown heading shortcut + running-title bug + drag-handle rewrite + modular UI plan
+
+Four items — three shipping fixes plus a design doc for the next
+big workspace conversation.
+
+Markdown headings (##, ###, ####) in the paragraph renderer
+────────────────────────────────────────────────────────────
+Author-facing shortcut: a paragraph that starts with 2-4 hashes
++ a space is now rendered as an in-chapter section heading.
+  ## Foo   -> H2 (Playfair 1.4x, centered, bold)
+  ### Foo  -> H3 (body font 1.2x, left, bold)
+  #### Foo -> H4 (body font 1.05x, left, italic bold)
+Stored text keeps the hashes so re-render is idempotent. In edit
+mode the hashes render at 28% opacity so authors see the marker;
+in reader mode they hide entirely so the finished book is clean.
+Backspace at line-start still deletes to a plain paragraph
+(inherits ordinary editable behaviour).
+
+DOES NOT overlap with the import pipeline's chapter-split logic
+(that uses # / ## for chapter breaks at import time only). Once
+in an existing chapter's body, these shortcuts are safe.
+
+Running-title dropdown "Author (left) . Chapter (right)"
+────────────────────────────────────────────────────────
+Bug: the recto slot fell back to book title when the chapter title
+was missing, so users saw the book title on the right of every
+non-first page even after selecting the chapter-title option.
+Root cause: pageWrap(inner, pn, isFirst, chapId, chTitle) — the
+5th arg was never passed at chapter render sites, defaulting to
+'' and triggering the `chapterTitle || title` fallback.
+
+Fixed by (a) passing ch.title as the 5th arg at both pageWrap call
+sites in the chapter render loop, and (b) changing the fallback
+from `|| title` to `chapterTitle ? title : ''` so untitled
+chapters render a blank recto slot instead of masquerading as the
+book title.
+
+Sidebar resize handle
+─────────────────────
+Rewrote from mousedown/document-mousemove/mouseup to modern
+pointer events with setPointerCapture. The old implementation
+failed on Jacob's setup: clicking + dragging started text
+selection instead of resizing because Chromium began a selection
+gesture between mousedown firing and the JS setting
+body.folio-resizing. Pointer capture keeps events routed to the
+handle regardless of what's under the cursor.
+
+Also:
+- Widened handle from 6px to 8px + a 4px overhang each side
+  (::after pseudo-element) for a 16px effective hit target so
+  imprecise clicks still land on the handle.
+- Added `user-select: none` + `touch-action: none` on the handle
+  itself as belt-and-braces against selection races.
+- Added `selectstart` document listener that preventDefaults
+  while dragging is active — final line of defence.
+- draggable="false" on the handle so native drag-drop can't
+  start.
+
+MODULAR_UI_PLAN.md — design doc
+───────────────────────────────
+Jacob's ask: "modularize it in such a way that top and bottom
+clutter is not cramping the UI. Maybe if we can click and drag
+different boxes/widgets and move them around and save/load
+common layouts."
+
+Doc explores three tiers of ambition:
+  §1a Preset layouts     (4-6h, ships value immediately)
+  §1b Dockable widgets   (30-40h, real workspace reconfiguration)
+  §1c Free-floating      (60h+, recommend against)
+
+Plus §5 sidebar-tab grouping (Write / Design / Produce / Ship) as
+an independent 3-hour ship that stands alone. Names the actual
+sources of chrome (top bar, mode strip, bottom bar) so future
+work can target real elements. Ends with four decision points for
+Jacob to answer before Phase 1 starts.
+
+Recommendation: §5 + §1a with 3 presets this or next session.
+Watch which presets get used before investing in §1b's drag
+infrastructure.
+
+Files touched
+─────────────
+  app.html    — heading shortcut in _apRenderPreviewParagraph,
+                running-title fallback fix, ch.title through
+                pageWrap x2, drag-handle CSS rewrite + pointer-
+                events implementation, handle HTML draggable=false
+  docs/MODULAR_UI_PLAN.md — new design doc, 4 decision points
+
+---
+
+Previous batch — kept in commit history:
+
 feat: chapter preview strip on shelf info modal (Phase 2, per-folio configurable)
 
 Phase 2 of FOLIO_INFO_SURFACES_PLAN.md — the Indie-tier enhancement
