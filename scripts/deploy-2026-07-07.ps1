@@ -225,6 +225,108 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat: info button inline + image sharpness upscale + workspace presets (§1a)
+
+Big turn. Three shipping changes, one plan-doc phase now live.
+
+Shelf info button — moved inline below the blurb
+────────────────────────────────────────────────
+Jacob: "put it right after the ellipsis on the description that
+shows already. If it's at the end of that box, it won't overlap
+chips and will actually communicate its job instantly."
+
+Old bottom-right corner button collided with the boost chip,
+paid/free/rating badges. Now renders as a subtle "ⓘ more" button
+on its own line right below the -webkit-line-clamp blurb, flush
+right, styled as the natural continuation of the ellipsis. Only
+renders when the folio has a blurb (no dangling more link into
+an empty modal). Hover state highlights in the accent-UI green.
+
+Image sharpness — optional upscale-before-WebP
+──────────────────────────────────────────────
+Physics honesty: upscaling doesn't create real detail. But on 2x
+DPR displays (Retina, most modern screens), shelf cards render
+at 520x780 device px — sources smaller than that force the
+browser to upscale at RENDER time, which looks blurry. Providing
+a bigger source at UPLOAD means the browser only ever downscales,
+which browsers do well.
+
+Added `upscaleTo` opt to _maybeConvertToWebP. When set, sources
+whose SHORTER edge is below the threshold get upscaled (preserving
+aspect ratio) using canvas imageSmoothingQuality: 'high' (best
+resampling filter available). Cover uploads (handleImages) now
+pass `upscaleTo: 1600` — covers are 2:3, so this gives at least
+1600x2400 source pixels, comfortably above 2x-DPR shelf display.
+
+Inline images (via _imgModalUpload) do NOT upscale — they render
+at author-chosen inline sizes inside the book, different physics.
+
+Upscaled files skip the "must be 15% smaller" check (goal was
+dimensions, not size); capped at 2MB to keep Firestore/Storage
+happy. Console log honest: "[webp] upscaling foo.png 800x1200 →
+1600x2400 (shorter edge < 1600px — no real detail added, but
+avoids browser-upscale blur on high-DPI displays)".
+
+Also added upload guidance note under the cover dropzone:
+"Upload covers at 1600x2400 or larger for crisp shelf display.
+Smaller sources are auto-scaled at upload but this doesn't add
+real detail. WebP conversion applied automatically."
+
+Workspace presets — Phase 1 of MODULAR_UI_PLAN.md (§1a)
+───────────────────────────────────────────────────────
+Three named workspace layouts, toggled via `data-preset` on
+<body>, persisted per browser in localStorage `folio_preset`:
+
+  Full (default) — everything visible, current behaviour
+  Write          — sidebar shortcuts collapsed + preview toolbar
+                   minimised (page size selector, dividers,
+                   edit-hint band hidden). Sidebar-header
+                   subtitle hidden. Maximises vertical writing
+                   space without hiding the sidebar itself.
+  Focus          — sidebar + resize handle + preview toolbar +
+                   scroll-top/bottom buttons ALL hidden. Preview
+                   area expands to full width via grid override.
+                   For deep-write sessions.
+
+Picker lives in the sidebar-header (small select next to dark-mode
+toggle). Escape-hatch floating button (⚙, bottom-right) appears
+in Write / Focus so the author can always change preset back —
+opens a small preset menu with hint text explaining each mode.
+Outside-click + Escape key both dismiss the menu.
+
+CSS-driven show/hide via body[data-preset="..."] rules — no
+JS-generated inline styles, so the transition is instant and
+undoable by clearing the attribute. Sidebar-width + scroll
+persistence (previous batches) keep working across preset
+changes because they read from localStorage independently.
+
+Thomas's "wider editor / fewer distractions" ask that lived on
+the TODO list is largely resolved by Write mode.
+
+Deferred (per plan doc):
+  §5 sidebar tab grouping (Write/Design/Produce/Ship) — small
+     independent ship, kept for a future turn since presets alone
+     already solve the main cramping complaint.
+  §1b dockable widgets — awaits demand signal from preset usage.
+
+Files touched
+─────────────
+  app.html    — _maybeConvertToWebP upscaleTo opt + high-quality
+                imageSmoothing + upscale-branch size handling,
+                handleImages upscaleTo:1600, cover-dropzone
+                guidance text; workspace preset CSS block (~120
+                lines), sidebar-header preset picker, floating
+                escape-hatch button + menu, preset JS runtime
+                (apply/set/toggleMenu + hydrate on boot)
+  shelf.html  — .shelf-card-info-inline styles + .info-row wrapper,
+                removed .shelf-card-info corner button rules,
+                infoBtn markup now renders as inline "ⓘ more"
+                below the blurb (only if folio has a blurb)
+
+---
+
+Previous batch — kept in commit history:
+
 fix: sidebar drag handle actually draggable + scroll persistence actually persists
 
 Jacob 2026-08-04 follow-up — the previous "fix" batch shipped both

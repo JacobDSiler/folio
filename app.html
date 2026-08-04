@@ -636,6 +636,177 @@
       pointer-events: none;
     }
 
+    /* ══════════════════════════════════════════════════════════════
+       WORKSPACE PRESETS (Phase 1 of MODULAR_UI_PLAN.md, §1a).
+       Three modes toggled via data-preset on <body>:
+         (unset / "full")   → default, everything visible
+         "write"            → collapses sidebar chrome + minimises the
+                              preview toolbar so the preview + editable
+                              paragraphs get maximum vertical space.
+                              Sidebar itself stays available at ~280px.
+         "focus"            → hides sidebar + preview toolbar entirely.
+                              Only a small floating escape-hatch button
+                              (bottom-right) remains, letting the author
+                              switch back. For deep-write sessions.
+       Persisted per-browser in localStorage key `folio_preset`. Reset
+       to Full via the escape hatch or the sidebar-header picker.
+       ══════════════════════════════════════════════════════════════ */
+
+    /* WRITE preset — sidebar shortcuts collapsed to icons; preview
+       toolbar hides the least-used buttons. Sidebar width auto-narrows
+       to 280px unless user has manually resized it (which the JS
+       respects — see _presetApply). */
+    body[data-preset="write"] .sidebar-header p,
+    body[data-preset="write"] #sidebarShortcuts,
+    body[data-preset="write"] .preview-toolbar .tb-divider,
+    body[data-preset="write"] .preview-toolbar #toolbarPageSize,
+    body[data-preset="write"] .preview-toolbar #customSizeInputs {
+      display: none !important;
+    }
+    body[data-preset="write"] .sidebar-header {
+      padding-top: 0.5rem;
+      padding-bottom: 0.5rem;
+    }
+    body[data-preset="write"] .sidebar-header h1 {
+      font-size: 13px;
+    }
+    /* Give the writing space the reclaimed vertical: shrink preview
+       toolbar padding + hide edit-mode hint band. */
+    body[data-preset="write"] .preview-toolbar {
+      padding-top: 5px;
+      padding-bottom: 5px;
+    }
+    body[data-preset="write"] #editModeHint {
+      display: none !important;
+    }
+
+    /* FOCUS preset — the strongest chrome removal. Sidebar + resize
+       handle + preview toolbar all hidden. Preview area expands to
+       full width via grid override. Escape hatch (floating button)
+       lives above everything so the author can always get back. */
+    body[data-preset="focus"] .sidebar,
+    body[data-preset="focus"] .sidebar-resize-handle,
+    body[data-preset="focus"] .preview-toolbar,
+    body[data-preset="focus"] #editModeHint,
+    body[data-preset="focus"] #scrollTopBtn,
+    body[data-preset="focus"] #scrollBottomBtn {
+      display: none !important;
+    }
+    body[data-preset="focus"] .app {
+      grid-template-columns: 1fr !important;
+    }
+
+    /* Escape-hatch floating button — visible in ALL presets that
+       collapse chrome so the author can always change preset back.
+       In Full mode it stays hidden (the sidebar picker is enough).
+       In Write / Focus it appears bottom-right. Opens the preset
+       menu on click. */
+    #presetEscapeHatch {
+      display: none;
+      position: fixed;
+      bottom: 18px;
+      right: 18px;
+      z-index: 200;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: var(--surface);
+      border: 0.5px solid var(--border-mid);
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1;
+      cursor: pointer;
+      box-shadow: 0 3px 12px rgba(0,0,0,0.14);
+      transition: transform 0.12s, background 0.12s, color 0.12s, border-color 0.12s;
+      font-family: inherit;
+      padding: 0;
+      align-items: center;
+      justify-content: center;
+    }
+    body[data-preset="write"] #presetEscapeHatch,
+    body[data-preset="focus"] #presetEscapeHatch {
+      display: flex;
+    }
+    #presetEscapeHatch:hover {
+      transform: scale(1.08);
+      color: var(--accent-ui, #065f46);
+      border-color: var(--accent-ui, #065f46);
+      background: var(--bg);
+    }
+    /* Menu that pops from the escape hatch — small floating card
+       listing all presets. Toggled via .open class on the button. */
+    #presetEscapeMenu {
+      display: none;
+      position: fixed;
+      bottom: 68px;
+      right: 18px;
+      z-index: 201;
+      background: var(--surface);
+      border: 0.5px solid var(--border-mid);
+      border-radius: 10px;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.18);
+      padding: 6px;
+      min-width: 200px;
+      font-size: 12px;
+      font-family: inherit;
+    }
+    #presetEscapeMenu.open {
+      display: block;
+    }
+    #presetEscapeMenu button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: none;
+      border: none;
+      padding: 8px 10px;
+      color: var(--text);
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      border-radius: 6px;
+      line-height: 1.35;
+    }
+    #presetEscapeMenu button:hover {
+      background: var(--bg);
+    }
+    #presetEscapeMenu button.active {
+      background: rgba(6,95,70,0.10);
+      color: var(--accent-ui, #065f46);
+      font-weight: 500;
+    }
+    #presetEscapeMenu button .preset-hint {
+      display: block;
+      font-size: 10.5px;
+      color: var(--hint);
+      font-weight: 400;
+      margin-top: 2px;
+    }
+
+    /* Sidebar-header preset picker (Full mode). Small select styled
+       to match the dark-mode toggle beside it. Hidden in Focus mode
+       because the sidebar itself is hidden there — Focus users rely
+       on the escape hatch. */
+    .sidebar-preset-picker {
+      display: inline-block;
+      margin-left: 6px;
+      font-size: 11px;
+      padding: 2px 6px;
+      background: var(--bg);
+      color: var(--hint);
+      border: 0.5px solid var(--border-mid);
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: inherit;
+      outline: none;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .sidebar-preset-picker:hover,
+    .sidebar-preset-picker:focus {
+      color: var(--text);
+      border-color: var(--accent-ui, #065f46);
+    }
+
     .sidebar {
       background: var(--surface);
       border-right: 0.5px solid var(--border);
@@ -6126,6 +6297,18 @@
         <button id="darkModeBtn" onclick="toggleDarkMode()" title="Toggle dark mode"
           style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 5px;color:var(--hint);border-radius:4px;transition:color .15s"
           onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--hint)'">☽</button>
+        <!-- Workspace preset picker (Phase 1 of MODULAR_UI_PLAN.md).
+             Change modes: Full (default), Write (minimal chrome for
+             active writing), Focus (deep-write, everything hidden
+             except an escape hatch). Choice persists per browser via
+             localStorage `folio_preset`. -->
+        <select id="sidebarPresetPicker" class="sidebar-preset-picker"
+                onchange="window._presetSet && window._presetSet(this.value)"
+                title="Workspace layout — see docs/MODULAR_UI_PLAN.md">
+          <option value="full">Full workspace</option>
+          <option value="write">Write mode</option>
+          <option value="focus">Focus (distraction-free)</option>
+        </select>
         <!-- Sidebar shortcuts — collapsible after Jacob's 2026-07-17
              feedback that 6 utility buttons eat ~half the sidebar top
              before you can see any actual work. `<details>` remembers
@@ -6253,6 +6436,70 @@
             const DEFAULT_W = 360;
             const MIN_W = 260;
             const MAX_W = 640;
+
+            // ═══════════════════════════════════════════════════════════
+            // (0) Workspace presets (Phase 1 of MODULAR_UI_PLAN.md).
+            // Applied FIRST so the sidebar width + scroll wiring below
+            // sees the correct chrome state on first paint. Hydrates
+            // from localStorage `folio_preset`; falls back to 'full'.
+            // ═══════════════════════════════════════════════════════════
+            const PRESETS = ['full', 'write', 'focus'];
+            const _presetApply = function(name){
+              const p = PRESETS.indexOf(name) >= 0 ? name : 'full';
+              if (p === 'full') {
+                document.body.removeAttribute('data-preset');
+              } else {
+                document.body.setAttribute('data-preset', p);
+              }
+              // Keep the sidebar-header <select> and any escape-menu
+              // buttons in sync with the current preset.
+              try {
+                const picker = document.getElementById('sidebarPresetPicker');
+                if (picker && picker.value !== p) picker.value = p;
+                const menu = document.getElementById('presetEscapeMenu');
+                if (menu) {
+                  menu.querySelectorAll('button[data-preset-value]').forEach(function(b){
+                    if (b.dataset.presetValue === p) b.classList.add('active');
+                    else b.classList.remove('active');
+                  });
+                }
+              } catch (_) {}
+              return p;
+            };
+            const _presetSet = function(name){
+              const p = _presetApply(name);
+              try { localStorage.setItem('folio_preset', p); } catch (_) {}
+            };
+            window._presetSet = _presetSet;
+            const _presetToggleMenu = function(force){
+              const menu = document.getElementById('presetEscapeMenu');
+              const btn = document.getElementById('presetEscapeHatch');
+              if (!menu) return;
+              const willOpen = (typeof force === 'boolean') ? force : !menu.classList.contains('open');
+              menu.classList.toggle('open', willOpen);
+              if (btn) btn.setAttribute('aria-expanded', String(willOpen));
+            };
+            window._presetToggleMenu = _presetToggleMenu;
+            // Dismiss the escape menu on outside click / Escape key.
+            document.addEventListener('click', function(e){
+              const menu = document.getElementById('presetEscapeMenu');
+              const btn = document.getElementById('presetEscapeHatch');
+              if (!menu || !menu.classList.contains('open')) return;
+              if (e.target === btn || (btn && btn.contains(e.target))) return;
+              if (menu.contains(e.target)) return;
+              _presetToggleMenu(false);
+            });
+            document.addEventListener('keydown', function(e){
+              if (e.key === 'Escape') {
+                const menu = document.getElementById('presetEscapeMenu');
+                if (menu && menu.classList.contains('open')) _presetToggleMenu(false);
+              }
+            });
+            // Hydrate — apply the saved preset on boot.
+            try {
+              const saved = localStorage.getItem('folio_preset');
+              _presetApply(saved || 'full');
+            } catch (_) { _presetApply('full'); }
 
             // (1) Resize handle — pointer-events implementation with
             // setPointerCapture so drags survive fast movement, moving
@@ -6909,6 +7156,12 @@
             </div>
             <input type="file" id="imgInput" accept="image/*" multiple style="display:none"
               onchange="handleImages(this)">
+            <p class="small-note" style="margin:6px 0 0;font-size:10.5px;line-height:1.5;opacity:0.85">
+              For crisp shelf display, upload covers at <strong>1600×2400 or larger</strong>.
+              Smaller sources are auto-scaled to 1600px on their short edge at upload — this
+              avoids browser-upscale blur on high-DPI screens but doesn't add real detail.
+              WebP conversion applied automatically where it saves bandwidth.
+            </p>
             <div class="img-chips" id="imgList"></div>
             <label style="margin-top:12px">Cover layout</label>
             <select id="coverPos" onchange="renderPreview()">
@@ -7734,6 +7987,34 @@
     </main>
 
   </div><!-- /app -->
+
+  <!-- Workspace preset escape hatch (Phase 1 of MODULAR_UI_PLAN.md).
+       Only visible in Write / Focus presets (see body[data-preset=...]
+       CSS above). Click to open the preset menu; click a preset to
+       switch. Bottom-right corner so it's out of the reading/writing
+       path but always reachable. Never rendered in Full mode — the
+       sidebar-header picker handles it there. -->
+  <button id="presetEscapeHatch" type="button"
+          onclick="window._presetToggleMenu && window._presetToggleMenu()"
+          title="Change workspace layout" aria-label="Change workspace layout"
+          aria-haspopup="menu" aria-expanded="false">⚙</button>
+  <div id="presetEscapeMenu" role="menu" aria-label="Workspace preset">
+    <button type="button" role="menuitem" data-preset-value="full"
+            onclick="window._presetSet && window._presetSet('full');window._presetToggleMenu&&window._presetToggleMenu(false)">
+      Full workspace
+      <span class="preset-hint">Sidebar + preview toolbar + all controls visible</span>
+    </button>
+    <button type="button" role="menuitem" data-preset-value="write"
+            onclick="window._presetSet && window._presetSet('write');window._presetToggleMenu&&window._presetToggleMenu(false)">
+      Write mode
+      <span class="preset-hint">Sidebar shortcuts collapsed, toolbar minimised</span>
+    </button>
+    <button type="button" role="menuitem" data-preset-value="focus"
+            onclick="window._presetSet && window._presetSet('focus');window._presetToggleMenu&&window._presetToggleMenu(false)">
+      Focus (distraction-free)
+      <span class="preset-hint">Sidebar + toolbar hidden; only preview visible</span>
+    </button>
+  </div>
 
   <!-- (Right-side floating footer removed — was overlapping the editor's
      up/down arrows. The sidebar footer above carries the privacy/terms
@@ -15374,6 +15655,20 @@
       opts = opts || {};
       const quality = opts.quality || 0.85;
       const minSize = opts.minSize || 40 * 1024;
+      // upscaleTo: if the source's SHORTER edge is below this many px,
+      // upscale (preserving aspect ratio) so the shorter edge equals
+      // upscaleTo. Rationale: shelf cards render at ~260x390 CSS px, and
+      // on 2x-DPR displays that's 520x780 device px. A source smaller
+      // than that forces the browser to upscale at render time, which
+      // looks blurry. Providing a larger source means the browser only
+      // ever DOWNSCALES, which it does well.
+      //
+      // Honest disclaimer: upscaling at upload does NOT add real
+      // detail — canvas.drawImage uses browser-default interpolation,
+      // typically bilinear/bicubic. The win is purely that we hand the
+      // browser a downscale problem instead of an upscale one.
+      // Recommended default: 1600 for cover art (2:3 → 1600x2400).
+      const upscaleTo = Number(opts.upscaleTo) || 0;
       try {
         if (!file || typeof file.size !== 'number') return file;
         if (file.size < minSize) return file;
@@ -15401,29 +15696,71 @@
           });
         }
         if (!w || !h) return file;
-        // Draw to canvas + toBlob('image/webp').
+        // Compute target dimensions. If upscaleTo is set AND the shorter
+        // edge of the source is below the threshold, scale up so the
+        // shorter edge matches. Never downscale here — that's a
+        // different tool with different tradeoffs.
+        let targetW = w, targetH = h;
+        if (upscaleTo > 0) {
+          const shortEdge = Math.min(w, h);
+          if (shortEdge < upscaleTo) {
+            const scale = upscaleTo / shortEdge;
+            targetW = Math.round(w * scale);
+            targetH = Math.round(h * scale);
+            console.log('[webp] upscaling', file.name,
+              w + 'x' + h, '→', targetW + 'x' + targetH,
+              '(shorter edge < ' + upscaleTo + 'px — no real detail added,',
+              'but avoids browser-upscale blur on high-DPI displays)');
+          }
+        }
+        // Draw to canvas + toBlob('image/webp'). imageSmoothingQuality
+        // 'high' asks the browser to use the best resampling filter
+        // available (typically bicubic/Lanczos) — best possible pixels
+        // out of what's already there.
         const canvas = document.createElement('canvas');
-        canvas.width = w; canvas.height = h;
+        canvas.width = targetW; canvas.height = targetH;
         const ctx = canvas.getContext('2d');
-        ctx.drawImage(bitmap, 0, 0);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(bitmap, 0, 0, targetW, targetH);
         const webpBlob = await new Promise(function(res){
           canvas.toBlob(function(b){ res(b); }, 'image/webp', quality);
         });
         if (!webpBlob) return file; // toBlob returned null → browser doesn't support webp encoding
-        // Only swap if the webp is meaningfully smaller (>= 15% saving).
-        // Otherwise keep the original so we don't churn on already-
-        // optimised source images (e.g. author uploaded a hand-tuned PNG).
-        const saving = 1 - (webpBlob.size / file.size);
-        if (saving < 0.15) {
-          console.log('[webp] skipped', file.name, '-', 'saving too small (' + Math.round(saving * 100) + '%)');
-          return file;
+        // Only apply the "≥15% smaller" saving-check when we DIDN'T
+        // upscale. If we did upscale, the goal was pixel dimensions,
+        // not file size — always swap in that case (the WebP will
+        // often be larger than the tiny original, but larger with more
+        // pixels beats smaller with too few). Cap upscaled files at
+        // 2 MB so a runaway upscale can't overflow Firestore/Storage.
+        const wasUpscaled = (targetW !== w || targetH !== h);
+        if (wasUpscaled) {
+          if (webpBlob.size > 2 * 1024 * 1024) {
+            console.warn('[webp] upscaled result is', Math.round(webpBlob.size/1024) + 'KB',
+              '— larger than 2MB cap, keeping original');
+            return file;
+          }
+          console.log('[webp] upscaled+converted', file.name,
+                      Math.round(file.size / 1024) + 'KB',
+                      '→', Math.round(webpBlob.size / 1024) + 'KB');
+        } else {
+          const saving = 1 - (webpBlob.size / file.size);
+          if (saving < 0.15) {
+            console.log('[webp] skipped', file.name, '-', 'saving too small (' + Math.round(saving * 100) + '%)');
+            return file;
+          }
         }
         const baseName = file.name.replace(/\.(jpe?g|png|bmp|tiff?)$/i, '') || 'image';
         const newFile = new File([webpBlob], baseName + '.webp', { type: 'image/webp' });
-        console.log('[webp] converted', file.name,
-                    Math.round(file.size / 1024) + 'KB',
-                    '→', Math.round(webpBlob.size / 1024) + 'KB',
-                    '(' + Math.round(saving * 100) + '% smaller)');
+        if (!wasUpscaled) {
+          // The upscale branch already logged; only the plain-convert
+          // branch still needs its own "converted" line.
+          const saving = 1 - (webpBlob.size / file.size);
+          console.log('[webp] converted', file.name,
+                      Math.round(file.size / 1024) + 'KB',
+                      '→', Math.round(webpBlob.size / 1024) + 'KB',
+                      '(' + Math.round(saving * 100) + '% smaller)');
+        }
         return newFile;
       } catch (e) {
         console.warn('[webp] conversion failed for', file && file.name, e && e.message);
@@ -15439,7 +15776,18 @@
         // shelf/reader loads across the platform without any per-
         // author configuration. Falls through to the raw file on
         // skip / failure.
-        const f = await _maybeConvertToWebP(raw);
+        //
+        // upscaleTo: 1600 — Book-tab covers are 2:3 aspect ratio and
+        // render on the shelf at ~260x390 CSS px, which is 520x780 on
+        // 2x-DPR displays (most modern screens). Sources below 1600px
+        // on the short edge get upscaled at upload so the browser
+        // only ever downscales at render time — no perceptible detail
+        // added, but eliminates the browser-upscale blur that made
+        // Jacob's smaller covers look soft. Inline images (via
+        // _imgModalUpload) DON'T get upscaled — they render at
+        // author-chosen sizes inside the book and the physics is
+        // different for embedded illustrations.
+        const f = await _maybeConvertToWebP(raw, { upscaleTo: 1600 });
         const r = new FileReader();
         r.onload = e => {
           const img = { id: _imgGenId(), name: f.name, type: f.type, data: e.target.result };
