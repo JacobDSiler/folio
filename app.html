@@ -561,13 +561,33 @@
        without adding visual noise when idle. */
     .sidebar-resize-handle {
       display: block;
-      width: 6px;
+      width: 8px;
       height: 100%;
       background: transparent;
       cursor: col-resize;
       position: relative;
       z-index: 5;
       transition: background 0.15s;
+      /* Belt-and-braces text-selection blocker. mousedown handler
+         also flips body class, but Chromium can start a selection
+         gesture before the JS lands — user-select on the handle
+         itself + touch-action: none stops that at the source. */
+      user-select: none;
+      -webkit-user-select: none;
+      -ms-user-select: none;
+      touch-action: none;
+    }
+    .sidebar-resize-handle::after {
+      /* Wider invisible hit target (4px overhang each side → 16px
+         effective width) so a stray click near the seam still lands
+         on the handle instead of the sidebar/preview edges. */
+      content: '';
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: -4px;
+      right: -4px;
+      cursor: col-resize;
     }
     .sidebar-resize-handle:hover,
     .sidebar-resize-handle.dragging {
@@ -6217,32 +6237,57 @@
             const MIN_W = 260;
             const MAX_W = 640;
 
-            // (1) Resize handle
+            // (1) Resize handle — pointer-events implementation with
+            // setPointerCapture so drags survive fast movement, moving
+            // off the handle, and browsers where mousemove is racy while
+            // text selection is starting. Old mousedown+document-mousemove
+            // implementation lost the drag mid-move on some setups because
+            // Chromium began text-selecting the sidebar/preview content
+            // between the mousedown and the JS setting body.folio-resizing
+            // — the "clicking and dragging just highlights frames" bug
+            // Jacob reported 2026-08-04. Pointer capture keeps the events
+            // routed to the handle regardless of what's under the cursor.
             const handle = document.getElementById('sidebarResizeHandle');
             if (handle) {
               let dragging = false;
               let startX = 0, startW = 0;
-              handle.addEventListener('mousedown', function(e){
+              let activePointer = null;
+              // selectstart guard — prevents Chromium starting a text
+              // selection the instant mousedown fires (before our class
+              // toggle lands). Only active while dragging so ordinary
+              // text selection in the sidebar/preview isn't disturbed.
+              const _blockSelect = function(e){ if (dragging) e.preventDefault(); };
+              document.addEventListener('selectstart', _blockSelect);
+
+              handle.addEventListener('pointerdown', function(e){
+                // Only left-button / primary pointer starts a drag.
+                if (e.button !== 0 && e.pointerType === 'mouse') return;
                 dragging = true;
+                activePointer = e.pointerId;
                 startX = e.clientX;
                 const cs = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w');
                 startW = parseInt(cs, 10) || DEFAULT_W;
                 document.body.classList.add('folio-resizing');
                 handle.classList.add('dragging');
+                try { handle.setPointerCapture(e.pointerId); } catch (_) {}
                 e.preventDefault();
               });
-              document.addEventListener('mousemove', function(e){
-                if (!dragging) return;
+              handle.addEventListener('pointermove', function(e){
+                if (!dragging || e.pointerId !== activePointer) return;
                 let w = startW + (e.clientX - startX);
                 if (w < MIN_W) w = MIN_W;
                 if (w > MAX_W) w = MAX_W;
                 document.documentElement.style.setProperty('--sidebar-w', w + 'px');
+                e.preventDefault();
               });
-              const endDrag = function(){
+              const endDrag = function(e){
                 if (!dragging) return;
+                if (e && e.pointerId != null && e.pointerId !== activePointer) return;
                 dragging = false;
                 document.body.classList.remove('folio-resizing');
                 handle.classList.remove('dragging');
+                try { if (activePointer != null) handle.releasePointerCapture(activePointer); } catch (_) {}
+                activePointer = null;
                 try {
                   const cs = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w');
                   const w = parseInt(cs, 10);
@@ -6251,8 +6296,9 @@
                   }
                 } catch (_) {}
               };
-              document.addEventListener('mouseup', endDrag);
-              document.addEventListener('mouseleave', endDrag);
+              handle.addEventListener('pointerup', endDrag);
+              handle.addEventListener('pointercancel', endDrag);
+              handle.addEventListener('lostpointercapture', endDrag);
               // Double-click resets to the default width — matches
               // most IDE panel behaviour.
               handle.addEventListener('dblclick', function(){
@@ -7381,7 +7427,8 @@
          sidebar is a slide-in panel, not a fixed column. -->
     <div class="sidebar-resize-handle" id="sidebarResizeHandle"
          title="Drag to resize sidebar (double-click to reset)"
-         aria-label="Resize sidebar"></div>
+         aria-label="Resize sidebar"
+         draggable="false"></div>
 
     <!-- ════════════════ PREVIEW ════════════════ -->
     <main class="preview-area" id="previewArea">
@@ -16591,8 +16638,14 @@
           if (hdrMode === 'both') { hL = esc(author.toUpperCase()); hR = esc(title.toUpperCase()); }
           else if (hdrMode === 'recto') {
             // Odd pages (recto): chapter title right. Even pages (verso): author left.
+            // Chapter title is BLANK — not book title — when the chapter title is
+            // missing/untitled. Falling back to the book title on 'recto' misled
+            // Jacob into thinking the dropdown was showing the wrong side (his
+            // running title read "THE VEIL OF HOURS" on page 9 even though the
+            // dropdown promised "Author (left) · Chapter (right)"). Fixed here
+            // by keeping the recto slot chapter-only.
             if (pageN % 2 === 0) { hL = esc(author.toUpperCase()); hR = ''; }
-            else { hL = ''; hR = esc((chapterTitle || title).toUpperCase()); }
+            else { hL = ''; hR = chapterTitle ? esc(chapterTitle.toUpperCase()) : ''; }
           }
           else if (hdrMode === 'author') { hL = esc(author.toUpperCase()); }
           else if (hdrMode === 'title') { hR = esc(title.toUpperCase()); }
@@ -17194,7 +17247,7 @@
               _titleHTML = ''; // do not render a chapter title page
               _chIdUsed = false; // let the image page carry the ch.id anchor
             } else {
-              pagesHTML += pageWrap(_titleHTML, pageNum++, false, ch.id);
+              pagesHTML += pageWrap(_titleHTML, pageNum++, false, ch.id, ch.title || '');
               _titleHTML = ''; _chIdUsed = true;
             }
           }
@@ -17259,7 +17312,7 @@
             const _useTitle = _titleHTML; _titleHTML = '';
             const _anchor = _chIdUsed ? null : ch.id;
             _chIdUsed = true;
-            pagesHTML += pageWrap(_useTitle + parasHTML, pageNum, false, _anchor);
+            pagesHTML += pageWrap(_useTitle + parasHTML, pageNum, false, _anchor, ch.title || '');
             pageNum++;
           }
         }
@@ -31938,6 +31991,57 @@
               oncontextmenu="if(_editMode)_ctxOpen(event,this)"
               onkeydown="if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();_insertBlankParaAfter(this)}else if(_editMode&&event.key==='Backspace'&&!this.innerText.trim()){event.preventDefault();_deleteBlankPara(this)}"
               style="font-family:${font};font-size:${pt(fsize)};line-height:${lspace};color:${textColor};margin:0;text-align:${justify};text-indent:0;margin-bottom:${indentMode === '0' ? mm(1.3) : '0'};min-height:${pt(fsize * parseFloat(lspace))};">&nbsp;</p>`;
+      }
+
+      // ── Inline markdown headings (## and ### and ####) ─────────────
+      // Author-facing shortcut: a paragraph that starts with 2-4 hashes
+      // + a space is rendered as an in-chapter section heading. Kept
+      // OUT of the import pipeline (which uses # / ## for chapter
+      // splits) — those only apply at import time. Once a chapter is
+      // written, `##`/`###`/`####` at line-start inside its body are
+      // safe to treat as visual section-heading shortcuts. The stored
+      // text keeps the hashes so re-render is idempotent and the
+      // author can edit them out to demote back to prose.
+      //   ## Foo   → H2 (big, centered, bold)
+      //   ### Foo  → H3 (medium, left, bold, more space above)
+      //   #### Foo → H4 (small, left, italic bold)
+      // Editable inline — same contenteditable wiring as ordinary
+      // paragraphs so Backspace at line-start deletes the marker and
+      // the paragraph falls back to prose on the next render.
+      if (typeof text === 'string' && !isContObj) {
+        const _hMatch = text.match(/^(#{2,4})\s+(.+)$/);
+        if (_hMatch) {
+          const _level = _hMatch[1].length; // 2, 3, or 4
+          const _hSize = _level === 2 ? fsize * 1.42
+                       : _level === 3 ? fsize * 1.22
+                       : fsize * 1.08;
+          const _hWeight = _level === 4 ? '600' : '700';
+          const _hAlign = _level === 2 ? 'center' : 'left';
+          const _hMarginTop = _level === 2 ? mm(4.2) : mm(3.0);
+          const _hMarginBottom = _level === 2 ? mm(2.2) : mm(1.4);
+          const _hFontStyle = _level === 4 ? 'italic' : 'normal';
+          const _hFontFamily = _level === 2
+            ? `'Playfair Display',Georgia,serif`
+            : font;
+          const _hStyle = `font-family:${_hFontFamily};font-size:${pt(_hSize)};` +
+            `font-weight:${_hWeight};font-style:${_hFontStyle};color:${textColor};` +
+            `line-height:1.25;margin:${_hMarginTop} 0 ${_hMarginBottom};` +
+            `text-align:${_hAlign};text-indent:0;letter-spacing:${_level === 2 ? '0.01em' : '0'}`;
+          // Render the hashes with reduced opacity so the author sees
+          // them in edit mode (as a "this is a heading" marker) but
+          // they don't visually dominate. Reader mode (editMode=false)
+          // hides them entirely so the finished book looks clean.
+          const _hashesInline = editMode
+            ? `<span style="opacity:0.28;font-weight:400;margin-right:0.35em;font-family:ui-monospace,Menlo,monospace">${_hMatch[1]}</span>`
+            : '';
+          const _headingHTML = _hashesInline + esc(_hMatch[2]);
+          return `<p class="preview-editable preview-heading preview-heading-${_level}" data-chid="${chId}" data-paraidx="${paraIdx}" data-line-id="${lineId}"
+                contenteditable="${String(editMode)}" spellcheck="true"
+                onblur="if(_editMode)_onParaBlur(this)"
+                oncontextmenu="if(_editMode)_ctxOpen(event,this)"
+                onkeydown="if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();_insertBlankParaAfter(this)}"
+                style="${_hStyle}">${_headingHTML}</p>`;
+        }
       }
 
       // Character-specific highlighting now happens at the QUOTE level,
