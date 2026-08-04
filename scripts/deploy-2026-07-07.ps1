@@ -225,6 +225,70 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+fix: sidebar drag handle actually draggable + scroll persistence actually persists
+
+Jacob 2026-08-04 follow-up — the previous "fix" batch shipped both
+of these but each had a lingering bug that made them not work.
+
+Sidebar drag handle
+───────────────────
+Root cause of the previous fix not working: the grid template still
+had `6px` for the handle column, so the handle's own `width: 8px`
+CSS was overridden by the grid track (grid track always wins over
+inline width on the grid item). Handle stayed 6px visible, clicks
+just outside landed on the sidebar content (which is a scrollable
+div with default text selection), and Jacob's cursor started
+highlighting frames instead of dragging.
+
+Fix:
+- Widened the grid track from 6px to 10px (the ONLY place that
+  actually controls handle width — noted in the CSS comment so we
+  don't hunt for it next time).
+- Handle CSS now `width: 100%` (fills its 10px track).
+- ::after overhang reduced from 4px each side to 2px (now 14px
+  effective vs the underlying 10px visible) — no longer needed to
+  compensate for a 6px track.
+- Added `pointer-events: auto` + `z-index: 1` on ::after so nothing
+  underneath can steal clicks in the overhang zone.
+- Made the vertical ridge (::before) always visible at 35% opacity
+  so users see the affordance at rest. Brightens to full opacity in
+  the accent-UI color on hover / drag.
+
+Sidebar scroll persistence
+──────────────────────────
+Root cause of the previous fix not working: on refresh, the sidebar's
+tab content re-renders across ~600-1200ms (chapter list, metrics
+Firestore query, etc.). Each re-render resets scrollTop to 0. The
+save listener saw the 0 and dutifully saved it back to localStorage,
+clobbering the real saved position. Restore only tried at 40ms and
+400ms so late-rendering tabs never got a working restore.
+
+Fix:
+- Added a suppression flag around programmatic scrollTop sets, so
+  the "restore" doesn't itself trigger a save.
+- Five restore attempts across likely render windows: 40ms, 400ms,
+  900ms, 1800ms, 3000ms. Each is a no-op if we've already landed
+  within 12px of the saved position, so no visible re-jumping.
+- Wrapped window.switchTab() to save-then-restore around every tab
+  change so tab-switch-then-close-tab-and-refresh still persists
+  the LAST tab's position (the shared .sidebar-scroll gets stomped
+  by the incoming tab's layout otherwise).
+- Save on beforeunload + pagehide as a safety net — never lose
+  position to a crashed save timer.
+- Console log `[sidebar-scroll] restored to N via <reason>` on
+  successful restores so debugging is trivial next time.
+
+Files touched
+─────────────
+  app.html    — .app grid-template-columns 6px→10px, handle CSS
+                width:100%, ::after overhang 4px→2px + pointer-events
+                + z-index, ::before always-visible + accent color on
+                hover, scroll persistence rewrite
+
+---
+
+Previous batch — kept in commit history:
+
 fix+feat: markdown heading shortcut + running-title bug + drag-handle rewrite + modular UI plan
 
 Four items — three shipping fixes plus a design doc for the next
