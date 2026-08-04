@@ -544,12 +544,15 @@
 
     .app {
       display: grid;
-      /* Three columns now — sidebar / resize-handle / preview.
-         The 6px handle sits between sidebar and preview and drives
-         the draggable width change. Handle stays a fixed 6px so
-         only the sidebar column changes width during drag; the
-         preview column absorbs the delta via the 1fr. */
-      grid-template-columns: var(--sidebar-w) 6px 1fr;
+      /* Three columns — sidebar / resize-handle / preview.
+         Handle track widened to 10px (was 6px) after Jacob reported
+         2026-08-04 that the drag was unhittable — clicks just outside
+         the 6px landed on sidebar content and started text selection
+         instead of the drag. Handle track width DRIVES the visible
+         handle size (grid track wins over the handle's own width CSS),
+         so this is the only place to change it. Preview column
+         absorbs the 4px delta via the 1fr. */
+      grid-template-columns: var(--sidebar-w) 10px 1fr;
       flex: 1;
       overflow: hidden;
       height: 100%;
@@ -561,14 +564,15 @@
        without adding visual noise when idle. */
     .sidebar-resize-handle {
       display: block;
-      width: 8px;
+      width: 100%;
+      /* Fills its 10px grid track (see .app grid-template-columns). */
       height: 100%;
       background: transparent;
       cursor: col-resize;
       position: relative;
       z-index: 5;
       transition: background 0.15s;
-      /* Belt-and-braces text-selection blocker. mousedown handler
+      /* Belt-and-braces text-selection blocker. pointerdown handler
          also flips body class, but Chromium can start a selection
          gesture before the JS lands — user-select on the handle
          itself + touch-action: none stops that at the source. */
@@ -578,37 +582,50 @@
       touch-action: none;
     }
     .sidebar-resize-handle::after {
-      /* Wider invisible hit target (4px overhang each side → 16px
-         effective width) so a stray click near the seam still lands
-         on the handle instead of the sidebar/preview edges. */
+      /* Slight overhang (2px each side → 14px total effective hit
+         zone against the 10px visible bar) so an imprecise click
+         still lands on the handle instead of the sidebar's content
+         area (which would start a text selection). */
       content: '';
       position: absolute;
       top: 0;
       bottom: 0;
-      left: -4px;
-      right: -4px;
+      left: -2px;
+      right: -2px;
       cursor: col-resize;
+      /* Explicit — some browsers were falling through to underlying
+         grid cells because ::after inherited pointer-events: none
+         from an ancestor during body.folio-resizing. */
+      pointer-events: auto;
+      /* Keep the hit-zone above ANY sidebar/preview content that
+         might sit at the seam (scroll thumbs, chapter row hovers). */
+      z-index: 1;
     }
     .sidebar-resize-handle:hover,
     .sidebar-resize-handle.dragging {
       background: rgba(6, 95, 70, 0.15);
     }
     .sidebar-resize-handle::before {
-      /* A 1-px hint line down the middle — reads as a divider without
-         intruding on the sidebar's own border. */
+      /* Vertical ridge marking the drag zone. Always visible (low
+         opacity) so users see the affordance without hunting for it,
+         then brightens on hover / drag. Centred on the 10px track
+         (~4.5px offset for a 1px line). Solves Jacob's report where
+         the handle was invisible and clicks landed 8px off, on the
+         sidebar content, starting a text selection instead. */
       content: '';
       position: absolute;
-      top: 12px;
-      bottom: 12px;
-      left: 2.5px;
+      top: 14px;
+      bottom: 14px;
+      left: 4.5px;
       width: 1px;
-      background: var(--border);
-      opacity: 0;
-      transition: opacity 0.15s;
+      background: var(--border-mid, var(--border));
+      opacity: 0.35;
+      transition: opacity 0.15s, background 0.15s;
     }
     .sidebar-resize-handle:hover::before,
     .sidebar-resize-handle.dragging::before {
       opacity: 1;
+      background: var(--accent-ui, #065f46);
     }
     body.folio-resizing {
       /* Prevent text selection + interactivity flicker mid-drag. */
@@ -6307,38 +6324,101 @@
               });
             }
 
-            // (2) Sidebar scroll position persistence. Debounced save so
-            // scrolling doesn't spam localStorage; restore on next
-            // animation frame so the DOM is populated with the current
-            // tab's content before we set scrollTop.
+            // (2) Sidebar scroll position persistence. Rewrote 2026-08-04
+            // after Jacob reported the previous implementation didn't
+            // survive refreshes. Two bugs it had:
+            //
+            //   (a) Programmatic scrollTop = y fires a 'scroll' event,
+            //       which the listener saved back to localStorage. So
+            //       far so good — but if the sidebar's tab content
+            //       re-rendered AFTER restore (e.g. chapter list at
+            //       ~600ms, metrics query at ~1200ms), the DOM re-layout
+            //       reset scrollTop to 0, and the save listener saved
+            //       that 0 back over the real value. Lost on next reload.
+            //
+            //   (b) Restore only tried at 40ms + 400ms. Late-rendering
+            //       tabs (Metrics does a Firestore round-trip) never
+            //       got a working restore attempt.
+            //
+            // Fix: suppression flag around programmatic scrollTop sets +
+            // several restore attempts spaced across likely render times +
+            // save on tab switch + save on beforeunload (as a safety net).
             const scroller = document.querySelector('.sidebar-scroll');
             if (scroller) {
               let saveTimer = null;
+              let suppressSave = false;
+              let restoredOnce = false;
+              const KEY = 'folio_sidebar_scroll';
+
+              const saveNow = function(){
+                if (suppressSave) return;
+                try { localStorage.setItem(KEY, String(scroller.scrollTop)); }
+                catch (_) {}
+              };
               scroller.addEventListener('scroll', function(){
+                if (suppressSave) return;
                 if (saveTimer) clearTimeout(saveTimer);
-                saveTimer = setTimeout(function(){
-                  try { localStorage.setItem('folio_sidebar_scroll', String(scroller.scrollTop)); }
-                  catch (_) {}
-                }, 250);
+                saveTimer = setTimeout(saveNow, 250);
               });
-              // Restore. Wait one frame so the initial tab-panel display
-              // rules have applied — otherwise scrollHeight is 0 and
-              // scrollTop can't be set. Also re-restore on tab change so
-              // switching tab-then-back returns you to the same place
-              // within that tab's content flow (tab groups share the
-              // same scroller, so this is one shared scroll offset).
-              const restoreScroll = function() {
+
+              const restoreScroll = function(reason) {
                 try {
-                  const raw = localStorage.getItem('folio_sidebar_scroll');
+                  const raw = localStorage.getItem(KEY);
                   const y = parseInt(raw || '0', 10);
-                  if (y > 0 && scroller.scrollHeight > scroller.clientHeight) {
-                    scroller.scrollTop = y;
+                  if (!(y > 0)) return;
+                  if (scroller.scrollHeight <= scroller.clientHeight) return;
+                  // Only skip if we've already landed CLOSE to the saved
+                  // position (within 12px). Small drifts happen when the
+                  // sidebar's content re-flows around variable-height
+                  // rows; forcing back to exact-y would fight normal
+                  // scrolling.
+                  if (Math.abs(scroller.scrollTop - y) < 12) {
+                    restoredOnce = true;
+                    return;
                   }
+                  suppressSave = true;
+                  scroller.scrollTop = y;
+                  restoredOnce = true;
+                  // Release suppression after the scroll event settles.
+                  setTimeout(function(){ suppressSave = false; }, 60);
+                  console.log('[sidebar-scroll] restored to', y, 'via', reason);
                 } catch (_) {}
               };
-              // Fire on load + a moment later to catch late-rendered content.
-              requestAnimationFrame(function(){ setTimeout(restoreScroll, 40); });
-              setTimeout(restoreScroll, 400);
+
+              // Multiple restore attempts spaced across likely content-
+              // render windows. Each is a no-op if we've already landed
+              // near the saved position, so no visible re-jump.
+              requestAnimationFrame(function(){ setTimeout(function(){ restoreScroll('40ms'); }, 40); });
+              setTimeout(function(){ restoreScroll('400ms'); }, 400);
+              setTimeout(function(){ restoreScroll('900ms'); }, 900);
+              setTimeout(function(){ restoreScroll('1800ms'); }, 1800);
+              setTimeout(function(){ restoreScroll('3000ms'); }, 3000);
+
+              // Save immediately when the user switches tabs so a rapid
+              // click-tab-then-close-tab still persists the last position.
+              // Wrap the existing switchTab (if present) rather than
+              // re-listen — cheaper + covers every call site.
+              try {
+                if (typeof window.switchTab === 'function' && !window.switchTab.__wrappedForScroll) {
+                  const _origSwitchTab = window.switchTab;
+                  window.switchTab = function(id, btn){
+                    saveNow();
+                    const r = _origSwitchTab.apply(this, arguments);
+                    // After the switch, re-attempt restore because the
+                    // new tab's content might have overwritten scrollTop.
+                    // 60ms is enough for the tab's display:'' to layout.
+                    setTimeout(function(){ restoreScroll('post-switchTab'); }, 60);
+                    return r;
+                  };
+                  window.switchTab.__wrappedForScroll = true;
+                }
+              } catch (e) { console.warn('[sidebar-scroll] switchTab wrap failed:', e); }
+
+              // Safety net — always save on unload so we never lose the
+              // last position to a crashed save timer.
+              window.addEventListener('beforeunload', saveNow);
+              // pagehide fires more reliably than beforeunload on mobile.
+              window.addEventListener('pagehide', saveNow);
             }
           })();
         </script>
