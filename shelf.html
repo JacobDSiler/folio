@@ -91,7 +91,17 @@ a:hover{text-decoration:underline}
 .shelf-card-author{font-size:12px;color:var(--muted);margin:0 0 8px;font-style:italic}
 .shelf-card-author a{color:inherit;text-decoration:underline dotted var(--border-mid);text-underline-offset:2px}
 .shelf-card-author a:hover{color:var(--accent-ui);text-decoration-color:var(--accent-ui)}
-.shelf-card-blurb{font-size:12.5px;color:var(--muted);line-height:1.45;margin:0 0 10px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.shelf-card-blurb{font-size:12.5px;color:var(--muted);line-height:1.45;margin:0 0 4px;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+/* Info "more" link — sits on its own line directly below the blurb,
+   flush right, styled as a subtle continuation of the ellipsis. Old
+   position (bottom-right corner of the card) collided with the boost
+   chip + paid/free/rating badges. Placing it here reads as "…more →"
+   without fighting the -webkit-line-clamp truncation on the blurb
+   itself (line-clamp + absolute positioning don't mix cleanly). */
+.shelf-card-info-row{display:flex;justify-content:flex-end;margin:0 0 10px}
+.shelf-card-info-inline{padding:2px 8px 2px 4px;border:none;background:none;color:var(--accent-ui,#065f46);font-size:11.5px;line-height:1.2;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:4px;font-weight:500;border-radius:6px;transition:background .12s,color .12s}
+.shelf-card-info-inline:hover{background:rgba(6,95,70,0.06);color:var(--accent,#c98c2a)}
+.shelf-card-info-inline .info-glyph{font-size:14px;line-height:1;opacity:0.85}
 .shelf-card-foot{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:auto;padding-top:8px;border-top:.5px dotted var(--border-mid)}
 .shelf-badge{display:inline-block;font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;padding:2px 8px;border-radius:10px}
 .shelf-badge.free{background:var(--badge-free);color:var(--badge-free-t)}
@@ -134,8 +144,9 @@ a:hover{text-decoration:underline}
    Positioned bottom-right of the card, minimal visual weight so the
    card body reads clean. Grows subtly on hover so the affordance is
    there when the reader goes looking. */
-.shelf-card-info{position:absolute;bottom:10px;right:10px;z-index:2;width:26px;height:26px;padding:0;border:.5px solid var(--border-mid,rgba(0,0,0,0.14));border-radius:50%;background:var(--surface,#fff);color:var(--muted,#5a5347);font-size:15px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,0.06);transition:transform .12s ease,color .12s ease,border-color .12s ease;font-family:inherit}
-.shelf-card-info:hover{transform:scale(1.12);color:var(--accent-ui,#065f46);border-color:var(--accent-ui,#065f46)}
+/* .shelf-card-info corner button removed 2026-08-04 — info UI moved
+   inline below the blurb (see .shelf-card-info-inline above) after
+   Jacob reported it collided with the boost chip + rating badges. */
 .shelf-card{position:relative}
 
 /* Folio info modal — opened by the (i) button. Reads the folio object
@@ -540,16 +551,25 @@ function renderShelf(){
     // per Jacob's design intent). Uses window._openFolioInfo which
     // reads from the folio object passed in — we stash it on the
     // button via _folioInfoStash so we don't need to re-query.
-    const infoBtn = '<button class="shelf-card-info" type="button" ' +
-      'onclick="event.stopPropagation();window._openFolioInfo(\'' + esc(f.id) + '\')" ' +
-      'aria-label="More about this folio" title="More info">' +
-      '<span aria-hidden="true">ⓘ</span></button>';
+    // Info "more" link — inline below the blurb, styled as "…more →".
+    // Only rendered when there's actually something to read (skip on
+    // folios with no blurb text so we don't dangle a "more" pointing
+    // to a modal whose body would be empty). Card body click still
+    // opens the reader directly; this only opens the info modal.
+    const infoBtn = f.blurb
+      ? '<div class="shelf-card-info-row">' +
+        '<button class="shelf-card-info-inline" type="button" ' +
+        'onclick="event.stopPropagation();window._openFolioInfo(\'' + esc(f.id) + '\')" ' +
+        'aria-label="More about this folio" title="Show full description and details">' +
+        '<span class="info-glyph" aria-hidden="true">ⓘ</span>' +
+        '<span>more</span>' +
+        '</button></div>'
+      : '';
     return '<div class="shelf-card'+(isFeatured?' featured':'')+'" data-folio-id="'+esc(f.id)+'" onclick="if(!event.target.closest(\'a\')&&!event.target.closest(\'button\'))window.location=\''+esc(href)+'\'" tabindex="0" onkeydown="if(event.key===\'Enter\')window.location=\''+esc(href)+'\'">'+
       pendingChip+
-      infoBtn+
       cover+
       '<h2 class="shelf-card-title"><a href="'+esc(href)+'">'+esc(f.title)+'</a></h2>'+
-      authorPart+blurb+
+      authorPart+blurb+infoBtn+
       '<div class="shelf-card-foot">'+badge+genre+seriesLink+langChip+boostChip+'</div>'+
       tagChips+
       '</div>';
