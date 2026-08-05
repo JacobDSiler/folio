@@ -5453,6 +5453,15 @@
 
     /* ══════ Reader mode (Phase 1: ?read=<folioId>) ══════ */
     /* ══════ Reader mode (Phase 1: ?read=<folioId>) ══════ */
+    /* Reader-mode image affordance — cursor:zoom-in tells the reader
+       the image can be clicked to open full-screen (lightbox added
+       2026-08-04). Skips images the paginator has marked with
+       data-imgmarker (edit-mode drag handles), which shouldn't appear
+       in reader mode anyway but belt-and-braces. */
+    html[data-reader] #bookPreview img:not([data-imgmarker]) {
+      cursor: zoom-in;
+    }
+
     html[data-reader] .sidebar {
       display: none !important;
     }
@@ -28877,6 +28886,108 @@
       }
     }
     window._rdShowTeaserBanner = _rdShowTeaserBanner;
+
+    // ─────────────────────────────────────────────────────────────────────
+    // Image lightbox — click any image in the preview / reader to open
+    // it full-screen. Click again (backdrop OR image) or press Escape
+    // to close. Author-requested 2026-08-04: readers were struggling to
+    // see cover / illustration details on smaller cards.
+    //
+    // Delegated click on document — cheap, and covers every image the
+    // paginator emits (inline, full-page, full-bleed, quad plates).
+    // Skips edit mode (where image click opens the image editor via
+    // _imgClickMarker) and skips images inside modals / release UI /
+    // shelf-info elements (which have their own click semantics).
+    // ─────────────────────────────────────────────────────────────────────
+    function _openImageLightbox(src, alt) {
+      if (!src) return;
+      if (document.getElementById('imgLightbox')) return; // already open
+      const backdrop = document.createElement('div');
+      backdrop.id = 'imgLightbox';
+      backdrop.setAttribute('role', 'dialog');
+      backdrop.setAttribute('aria-modal', 'true');
+      backdrop.setAttribute('aria-label', 'Image viewer');
+      backdrop.style.cssText =
+        'position:fixed;inset:0;z-index:99999;background:rgba(10,8,6,0.94);' +
+        'display:flex;align-items:center;justify-content:center;' +
+        'cursor:zoom-out;padding:24px;box-sizing:border-box;' +
+        'animation:folioLbFadeIn 0.14s ease-out';
+      // Full-size image. Preserve aspect via object-fit; cap to
+      // viewport so tall images don't scroll off-screen.
+      const img = document.createElement('img');
+      img.src = src;
+      if (alt) img.alt = alt;
+      img.draggable = false;
+      img.style.cssText =
+        'max-width:100%;max-height:100%;object-fit:contain;' +
+        'box-shadow:0 8px 40px rgba(0,0,0,0.55);border-radius:4px;' +
+        'display:block;user-select:none;-webkit-user-select:none';
+      // Close button — always in the corner regardless of image aspect.
+      const closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.setAttribute('aria-label', 'Close image viewer');
+      closeBtn.textContent = '×';
+      closeBtn.style.cssText =
+        'position:absolute;top:16px;right:16px;background:rgba(255,255,255,0.14);' +
+        'border:none;color:#fff;font-size:26px;width:42px;height:42px;' +
+        'border-radius:50%;cursor:pointer;line-height:1;padding:0;' +
+        'display:flex;align-items:center;justify-content:center;' +
+        'font-family:inherit;transition:background 0.12s';
+      closeBtn.addEventListener('mouseover', function(){ closeBtn.style.background = 'rgba(255,255,255,0.25)'; });
+      closeBtn.addEventListener('mouseout', function(){ closeBtn.style.background = 'rgba(255,255,255,0.14)'; });
+
+      const close = function(){
+        try { backdrop.remove(); } catch (_) {}
+        document.removeEventListener('keydown', escHandler);
+      };
+      const escHandler = function(e){ if (e.key === 'Escape') close(); };
+
+      // Click ANY part of the lightbox to close — the backdrop, the
+      // image, or the × button all dismiss. Matches Jacob's requested
+      // behaviour: "clicking on it again closes it out."
+      backdrop.addEventListener('click', close);
+      document.addEventListener('keydown', escHandler);
+
+      backdrop.appendChild(img);
+      backdrop.appendChild(closeBtn);
+      document.body.appendChild(backdrop);
+    }
+    window._openImageLightbox = _openImageLightbox;
+
+    // Fade-in keyframes — injected once. Kept lightweight so the
+    // lightbox feels instant rather than animated-heavy.
+    (function _installLightboxKeyframes(){
+      if (document.getElementById('__folio-lb-anim')) return;
+      const s = document.createElement('style');
+      s.id = '__folio-lb-anim';
+      s.textContent = '@keyframes folioLbFadeIn{from{opacity:0}to{opacity:1}}';
+      document.head.appendChild(s);
+    })();
+
+    // Delegated click listener — catches every <img> click anywhere
+    // in the document, then filters to "images actually in the book
+    // preview and not currently in edit mode."
+    document.addEventListener('click', function(e){
+      const t = e.target;
+      if (!t || t.tagName !== 'IMG') return;
+      // Skip when we're editing paragraphs — the image editor UI takes
+      // over image clicks in that mode via _imgClickMarker. Uses typeof
+      // guard because _editMode is a module-scoped let in this file.
+      if (typeof _editMode !== 'undefined' && _editMode) return;
+      // Only trigger for images inside the book preview area. Images
+      // in modals, shelf cards (there aren't any here but future-proof),
+      // release UI, boost picker, etc. keep their own click semantics.
+      const bookPreview = document.getElementById('bookPreview');
+      if (!bookPreview || !bookPreview.contains(t)) return;
+      // Skip drag markers — those are edit-mode only anyway, but
+      // belt-and-braces in case one ever escapes into reader render.
+      if (t.closest && t.closest('[data-imgmarker]')) return;
+      // Skip if the image has no meaningful src (placeholder, etc.).
+      if (!t.src || t.src === window.location.href) return;
+      e.preventDefault();
+      e.stopPropagation();
+      _openImageLightbox(t.src, t.alt);
+    });
 
     // ─────────────────────────────────────────────────────────────────────
     // Reader hamburger menu + Export.

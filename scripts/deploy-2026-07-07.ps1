@@ -225,6 +225,49 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat: reader image lightbox — click any book image to zoom, click again to close
+
+Jacob 2026-08-04: readers were struggling to see cover / illustration
+details on smaller cards. Now every image in the paginated book
+preview is click-to-zoom in reader (and non-edit) mode.
+
+Behaviour
+─────────
+Delegated click listener on document. When a click's target is an
+<img> that's inside #bookPreview AND we're NOT in edit mode AND the
+image isn't a drag-marker, opens a full-screen lightbox: dark
+backdrop (rgba(10,8,6,0.94)) with the image centered via object-fit:
+contain, plus a × button in the corner and a subtle 140ms fade-in.
+
+Any click on the backdrop / image / × button OR pressing Escape
+dismisses. Matches Jacob's exact ask: "clicking on it again closes
+it out."
+
+Cursor affordance
+─────────────────
+html[data-reader] #bookPreview img (excluding [data-imgmarker])
+gets cursor:zoom-in so readers see the image is clickable at hover.
+Skipped in edit mode because those clicks route to _imgClickMarker
+(image editor).
+
+Coverage
+────────
+Delegated pattern catches every image the paginator emits —
+inline, full-page, full-bleed, quad plates — because they all
+render as <img> tags inside #bookPreview. No per-render wiring
+needed. Explicitly skips images inside modals, release UI, boost
+picker, etc. because those are outside #bookPreview.
+
+Files touched
+─────────────
+  app.html    — _openImageLightbox + delegated click listener +
+                fade-in keyframes, reader-mode img cursor:zoom-in
+                CSS
+
+---
+
+Previous batch — kept in commit history:
+
 feat: info button inline + image sharpness upscale + workspace presets (§1a)
 
 Big turn. Three shipping changes, one plan-doc phase now live.
