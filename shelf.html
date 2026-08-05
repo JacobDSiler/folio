@@ -174,15 +174,39 @@ a:hover{text-decoration:underline}
    and has an ⓘ that opens the series info modal listing all books
    in the series. Cover uses the earliest-order book's cover as
    backdrop. Author-requested 2026-08-05 (Jacob). */
-.shelf-series-card{flex:0 0 260px;background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px;color:var(--text);transition:transform .12s,box-shadow .12s,border-color .12s;box-shadow:var(--shadow);cursor:pointer;overflow:hidden;position:relative;min-height:200px}
+.shelf-series-card{flex:0 0 240px;background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px;color:var(--text);transition:transform .12s,box-shadow .12s,border-color .12s;box-shadow:var(--shadow);cursor:pointer;overflow:hidden;position:relative}
 .shelf-series-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-h);border-color:var(--accent,#c98c2a)}
-.shelf-series-card-cover{width:100%;aspect-ratio:16/9;object-fit:cover;background-size:cover;background-position:center;background-color:var(--bg,#f6f4ee);border-radius:8px;border:.5px solid var(--border-mid);flex-shrink:0;position:relative}
-.shelf-series-card-cover::after{content:'';position:absolute;inset:0;border-radius:8px;background:linear-gradient(180deg,transparent 30%,rgba(0,0,0,0.35) 100%)}
+/* Cover slot — 3:4 (nearly-square, still card-shaped) with
+   `background-size: contain` so the whole book cover shows
+   without cropping title text or characters' heads. Backdrop
+   colour handles the letterboxing when a cover's native aspect
+   is taller (most book covers are ~2:3) so it letterboxes
+   elegantly on the top/bottom edges rather than slicing content.
+   Fixed 2026-08-05 after Jacob's screenshot showed titles being
+   cropped off the top of every series card. */
+.shelf-series-card-cover{width:100%;aspect-ratio:3/4;background-size:contain;background-repeat:no-repeat;background-position:center;background-color:var(--bg,#f6f4ee);border-radius:8px;border:.5px solid var(--border-mid);flex-shrink:0;position:relative}
 .shelf-series-card-name{font-family:'Playfair Display',Georgia,serif;font-size:16px;font-weight:600;line-height:1.25;color:var(--text);margin:0}
 .shelf-series-card-meta{font-size:11px;color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .shelf-series-card-meta strong{color:var(--text);font-weight:600}
 .shelf-series-card-blurb{font-size:12px;color:var(--muted);line-height:1.5;margin:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .shelf-series-card-info-row{display:flex;justify-content:flex-end;margin-top:auto}
+/* Saga grouping (2026-08-05). A saga is the level above series — a
+   shared universe holding several independently-readable series. The
+   heading bar sits above that saga's series row. Only rendered when at
+   least one folio in view has a saga set, so single-series authors see
+   the flat series row exactly as before. */
+.shelf-saga-block{margin-bottom:18px}
+.shelf-saga-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:0 4px 6px}
+.shelf-saga-name{font-family:'Playfair Display',Georgia,serif;font-size:15px;font-weight:600;color:var(--text);text-decoration:none;margin:0}
+.shelf-saga-name:hover{color:var(--accent,#c98c2a)}
+.shelf-saga-meta{font-size:11px;color:var(--muted)}
+.shelf-saga-blurb{font-size:11.5px;color:var(--muted);line-height:1.5;margin:0 0 8px;padding:0 4px;max-width:70ch}
+/* In-world era for a series within its saga. Free text, never a number —
+   it positions the series on a timeline without implying reading order. */
+.shelf-series-card-anchor{font-size:10.5px;color:var(--muted);font-style:italic;letter-spacing:.01em}
+/* "A new reader can begin here." Sits alongside the anchor: the anchor
+   says where a series sits, this says whether you may start with it. */
+.shelf-series-card-start{display:inline-flex;align-items:center;gap:3px;font-size:10px;font-weight:600;letter-spacing:.03em;padding:2px 7px;border-radius:9px;background:rgba(6,95,70,0.09);color:var(--accent-ui,#065f46);text-transform:uppercase}
 .shelf-series-card-info{padding:2px 8px 2px 4px;border:none;background:none;color:var(--accent-ui,#065f46);font-size:11.5px;line-height:1.2;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:4px;font-weight:500;border-radius:6px;transition:background .12s,color .12s}
 .shelf-series-card-info:hover{background:rgba(6,95,70,0.06);color:var(--accent,#c98c2a)}
 /* Series info modal — reuses .folio-info-modal shell + backdrop
@@ -314,6 +338,7 @@ const GENRE_LABELS = {literary:'Literary',general:'Fiction',mystery:'Mystery',th
 const LANG_LABELS = {en:'English',fr:'French',de:'German',es:'Spanish',it:'Italian',pt:'Portuguese',nl:'Dutch',ja:'Japanese',zh:'Chinese',ru:'Russian',ar:'Arabic',hi:'Hindi',ko:'Korean',pl:'Polish',sv:'Swedish',da:'Danish',fi:'Finnish',no:'Norwegian',tr:'Turkish',cs:'Czech',el:'Greek',he:'Hebrew',ga:'Irish',cy:'Welsh'};
 let _allFolios = [];
 let _fbDb=null,_fbQuery=null,_fbGetDocs=null,_fbCollection=null,_fbWhere=null,_fbLimit=null;
+let _fbDoc=null,_fbUpdateDoc=null; // for the owner-only series editor (below)
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
 function applyTheme(t){document.documentElement.setAttribute('data-theme',t);const b=document.getElementById('shelfThemeBtn');if(b)b.textContent=t==='dark'?'☀':'☽'}
 function toggleTheme(){const c=document.documentElement.getAttribute('data-theme')==='dark'?'dark':'light';const n=c==='dark'?'light':'dark';try{localStorage.setItem('shelf_theme',n)}catch(e){}applyTheme(n)}
@@ -380,6 +405,13 @@ function renderShelf(){
   // "Embers of Elekra" without needing exact URL encoding.
   const _urlSeries = (function(){
     try { return (new URLSearchParams(window.location.search).get('series') || '').trim().toLowerCase(); }
+    catch (e) { return ''; }
+  })();
+  // /shelf?saga=<name> — same idea one level up. Pins the view to every
+  // series in a shared universe, which is the link an author sends when
+  // they want a reader to see the whole world rather than one cycle.
+  const _urlSaga = (function(){
+    try { return (new URLSearchParams(window.location.search).get('saga') || '').trim().toLowerCase(); }
     catch (e) { return ''; }
   })();
   let items=_allFolios.slice();
@@ -461,9 +493,52 @@ function renderShelf(){
     // the default sort dropdown only for series-filtered views.
     items.sort((a,b)=>(a.seriesOrder||9999)-(b.seriesOrder||9999)||a.title.localeCompare(b.title));
   }
-  if(so==='alpha')items.sort((a,b)=>a.title.localeCompare(b.title));
-  else if(so==='author')items.sort((a,b)=>a.author.localeCompare(b.author)||a.title.localeCompare(b.title));
-  else items.sort((a,b)=>b.listedAt-a.listedAt);
+  if(_urlSaga){
+    items=items.filter(f=>String(f.saga||'').toLowerCase().includes(_urlSaga));
+    const banner=document.getElementById('shelfSeriesBanner');
+    const nameEl=document.getElementById('shelfSeriesName');
+    if(banner&&nameEl){
+      nameEl.textContent=(items[0]&&items[0].saga)||_urlSaga;
+      banner.style.display='';
+    }
+    // Saga view keeps each series together and in reading order, then
+    // orders the series against each other by in-world anchor (free
+    // text, so a natural-language compare) — never by a book number,
+    // because a saga has no numbering of its own by design. Entry-point
+    // series float to the front so a new reader meets a safe start.
+    //
+    // Anchor and entry-point are resolved PER SERIES, not per book:
+    // authors set them once (usually on book one), so reading them off
+    // each individual folio would scatter a series' later books away
+    // from its first.
+    const _sagaMeta = Object.create(null);
+    items.forEach(function(f){
+      const k = String(f.series||'').toLowerCase();
+      if(!_sagaMeta[k]) _sagaMeta[k] = { anchor:'', entry:false };
+      if(!_sagaMeta[k].anchor && f.sagaAnchor) _sagaMeta[k].anchor = f.sagaAnchor;
+      if(f.entryPoint) _sagaMeta[k].entry = true;
+    });
+    items.sort(function(a,b){
+      const as=String(a.series||''), bs=String(b.series||'');
+      const am=_sagaMeta[as.toLowerCase()]||{}, bm=_sagaMeta[bs.toLowerCase()]||{};
+      if(!!am.entry !== !!bm.entry) return am.entry ? -1 : 1;
+      const an=am.anchor||'', bn=bm.anchor||'';
+      if(!!an !== !!bn) return an ? -1 : 1;
+      const byAnchor = an.localeCompare(bn, undefined, { numeric:true });
+      if(byAnchor) return byAnchor;
+      if(as!==bs) return as.localeCompare(bs);
+      return (a.seriesOrder||9999)-(b.seriesOrder||9999)||a.title.localeCompare(b.title);
+    });
+  }
+  // Sort dropdown must not clobber a pinned series/saga view — those
+  // impose their own reading order above and it's the whole point of
+  // the link. (Before this guard the `else` branch below re-sorted by
+  // listedAt and silently undid the reading-order sort.)
+  if(!_urlSeries && !_urlSaga){
+    if(so==='alpha')items.sort((a,b)=>a.title.localeCompare(b.title));
+    else if(so==='author')items.sort((a,b)=>a.author.localeCompare(b.author)||a.title.localeCompare(b.title));
+    else items.sort((a,b)=>b.listedAt-a.listedAt);
+  }
   const existing=document.getElementById('shelfEmptyState');
   if(items.length===0){
     grid.innerHTML='';grid.style.display='none';
@@ -533,8 +608,15 @@ function renderShelf(){
     // that series. Positioned in the card footer alongside the genre.
     // Uses event.stopPropagation on click so the outer card's
     // navigate-to-reader onclick doesn't also fire.
+    // Series pill shows the book's position within its own series only
+    // ("The Fain Cycle · 2"), never a saga-wide number — see the saga
+    // notes in the folio mapper below.
     const seriesLink = f.series
-      ? '<a class="shelf-card-series-link" href="/shelf?series=' + encodeURIComponent(f.series) + '" onclick="event.stopPropagation()" title="Browse the ' + esc(f.series) + ' series">📚 ' + esc(f.series) + '</a>'
+      ? '<a class="shelf-card-series-link" href="/shelf?series=' + encodeURIComponent(f.series) + '" onclick="event.stopPropagation()" title="Browse the ' + esc(f.series) + ' series">📚 ' + esc(f.series) + (f.seriesOrder > 0 ? ' · ' + f.seriesOrder : '') + '</a>'
+      : '';
+    // Saga pill — the universe above the series. Only rendered when set.
+    const sagaLink = f.saga
+      ? '<a class="shelf-card-series-link" href="/shelf?saga=' + encodeURIComponent(f.saga) + '" onclick="event.stopPropagation()" title="Browse the ' + esc(f.saga) + ' universe">✦ ' + esc(f.saga) + '</a>'
       : '';
     const blurb=f.blurb?'<p class="shelf-card-blurb">'+esc(f.blurb)+'</p>':'';
     const href='/app.html?read='+encodeURIComponent(f.id);
@@ -603,7 +685,7 @@ function renderShelf(){
       cover+
       '<h2 class="shelf-card-title"><a href="'+esc(href)+'">'+esc(f.title)+'</a></h2>'+
       authorPart+blurb+infoBtn+
-      '<div class="shelf-card-foot">'+badge+genre+seriesLink+langChip+boostChip+'</div>'+
+      '<div class="shelf-card-foot">'+badge+genre+sagaLink+seriesLink+langChip+boostChip+'</div>'+
       tagChips+
       '</div>';
   };
@@ -686,9 +768,12 @@ window._openFolioInfo = function _openFolioInfo(folioId) {
   const ratingChip = (folio.ageRating && folio.ageRating !== 'all')
     ? '<span class="fi-chip" style="background:#f5d3d3;color:#8c1c1c">' + esc(folio.ageRating) + '</span>'
     : '';
+  // "book N" here is always the position within `folio.series`, not
+  // within the saga — sagas are unnumbered by design.
   const seriesLine = folio.series
-    ? '<span><strong>Series:</strong> ' + esc(folio.series) + (folio.seriesOrder ? ' · book ' + folio.seriesOrder : '') + '</span>'
-    : '';
+    ? '<span><strong>Series:</strong> ' + esc(folio.series) + (folio.seriesOrder ? ' · book ' + folio.seriesOrder : '') +
+      (folio.saga ? ' <span style="opacity:.75">— part of ' + esc(folio.saga) + '</span>' : '') + '</span>'
+    : (folio.saga ? '<span><strong>Universe:</strong> ' + esc(folio.saga) + '</span>' : '');
   const pubDate = folio.publishedAt
     ? new Date(folio.publishedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
     : '';
@@ -826,11 +911,16 @@ function _renderSeriesRow(items) {
     if (!groups[k]) groups[k] = { name: name, folios: [] };
     groups[k].folios.push(f);
   });
-  // Only include series with 2+ folios. A single-book "series" isn't
-  // one worth advertising as a discovery anchor.
+  // Only include series with 2+ folios — a single-book "series" isn't
+  // worth advertising as a discovery anchor on its own. EXCEPT when the
+  // series belongs to a saga: there a one-book cycle is still a real
+  // part of the universe, and hiding it would make the saga's "N series
+  // · M books" count contradict the shelf below it.
   const seriesList = Object.keys(groups)
     .map(function(k){ return groups[k]; })
-    .filter(function(s){ return s.folios.length >= 2; })
+    .filter(function(s){
+      return s.folios.length >= 2 || s.folios.some(function(f){ return f.saga; });
+    })
     .map(function(s){
       // Sort books by seriesOrder ascending; unset order sinks to the end.
       s.folios.sort(function(a, b){
@@ -843,6 +933,18 @@ function _renderSeriesRow(items) {
       s.seriesBlurb = blurbFolio ? blurbFolio.seriesBlurb : '';
       // Cover: use the earliest-order book's cover as the backdrop.
       s.coverUrl = (s.folios[0] && s.folios[0].coverUrl) || '';
+      // Saga membership + timeline anchor. Taken from the first folio in
+      // the series that declares one, so an author only has to fill it in
+      // once per series rather than on every book.
+      const sagaFolio = s.folios.find(function(f){ return f.saga; });
+      s.saga = sagaFolio ? sagaFolio.saga : '';
+      const sagaBlurbFolio = s.folios.find(function(f){ return f.sagaBlurb; });
+      s.sagaBlurb = sagaBlurbFolio ? sagaBlurbFolio.sagaBlurb : '';
+      const anchorFolio = s.folios.find(function(f){ return f.sagaAnchor; });
+      s.sagaAnchor = anchorFolio ? anchorFolio.sagaAnchor : '';
+      // A series is an entry point if ANY of its books is flagged — in
+      // practice authors tick it on book one.
+      s.entryPoint = s.folios.some(function(f){ return f.entryPoint; });
       return s;
     })
     // Alphabetical by series name — deterministic ordering across
@@ -853,7 +955,40 @@ function _renderSeriesRow(items) {
     return;
   }
   container.style.display = '';
-  row.innerHTML = seriesList.map(function(s){
+  // ── Saga bucketing ──────────────────────────────────────────────
+  // When no series in view belongs to a saga (the common case, and
+  // every shelf that existed before 2026-08-05), this collapses to a
+  // single unnamed bucket and the markup is byte-identical to the flat
+  // series row. Sagas only add structure for the authors who use them.
+  const sagaBuckets = [];
+  const sagaIndex = Object.create(null);
+  seriesList.forEach(function(s){
+    const key = s.saga ? s.saga.toLowerCase() : '';
+    if (!sagaIndex[key]) {
+      sagaIndex[key] = { name: s.saga || '', blurb: s.sagaBlurb || '', series: [] };
+      sagaBuckets.push(sagaIndex[key]);
+    }
+    if (!sagaIndex[key].blurb && s.sagaBlurb) sagaIndex[key].blurb = s.sagaBlurb;
+    sagaIndex[key].series.push(s);
+  });
+  const hasAnySaga = sagaBuckets.some(function(b){ return !!b.name; });
+  // Named sagas first (alphabetical), unaffiliated series last.
+  sagaBuckets.sort(function(a, b){
+    if (!a.name !== !b.name) return a.name ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  // Within a saga: entry-point series first, then by in-world anchor,
+  // then alphabetically. Never by a number — a saga has no numbering.
+  sagaBuckets.forEach(function(b){
+    b.series.sort(function(x, y){
+      if (x.entryPoint !== y.entryPoint) return x.entryPoint ? -1 : 1;
+      const xa = x.sagaAnchor || '', ya = y.sagaAnchor || '';
+      if (!!xa !== !!ya) return xa ? -1 : 1;
+      return xa.localeCompare(ya, undefined, { numeric: true }) || x.name.localeCompare(y.name);
+    });
+  });
+
+  function _seriesCardHtml(s){
     const key = s.name;
     const bookCount = s.folios.length;
     const totalPages = s.folios.reduce(function(sum, f){ return sum + (f.pageCount || 0); }, 0);
@@ -870,6 +1005,29 @@ function _renderSeriesRow(items) {
     const coverBg = s.coverUrl
       ? ' style="background-image:url(&quot;' + esc(s.coverUrl) + '&quot;)"'
       : '';
+    // Anchor + entry-point row. Both optional; the whole line vanishes
+    // when neither is set, so non-saga series cards are unchanged.
+    const anchorLine = (s.sagaAnchor || s.entryPoint)
+      ? '<div class="shelf-series-card-meta">' +
+          (s.entryPoint ? '<span class="shelf-series-card-start">✦ Start here</span>' : '') +
+          (s.sagaAnchor ? '<span class="shelf-series-card-anchor">' + esc(s.sagaAnchor) + '</span>' : '') +
+        '</div>'
+      : '';
+    // Owner-only ✏ Edit affordance. Series-level metadata (blurb,
+    // saga, saga-blurb, anchor, entry-point) is currently stored
+    // per-folio; the editor writes back to ALL of the owner's folios
+    // in this series so a single edit propagates. Non-owners never
+    // see this button. Uses window._myUid (set by onAuthStateChanged
+    // in boot).
+    const _seriesOwnerUid = (s.folios[0] && s.folios[0].uid) || '';
+    const _viewerIsOwner = !!(window._myUid && _seriesOwnerUid && window._myUid === _seriesOwnerUid);
+    const editBtn = _viewerIsOwner
+      ? '<button class="shelf-series-card-info shelf-series-card-edit" type="button" ' +
+        'onclick="event.stopPropagation();window._openSeriesEditor(\'' + esc(key) + '\')" ' +
+        'aria-label="Edit the ' + esc(s.name) + ' series info" ' +
+        'title="Edit series-wide info (blurb, saga, anchor, entry-point). Applies to all your books in this series.">' +
+        '<span aria-hidden="true">✏</span><span>edit</span></button>'
+      : '';
     return '<div class="shelf-series-card" tabindex="0" ' +
       'onclick="if(!event.target.closest(\'button\'))window.location=\'' + esc(seriesHref) + '\'" ' +
       'onkeydown="if(event.key===\'Enter\')window.location=\'' + esc(seriesHref) + '\'" ' +
@@ -877,13 +1035,50 @@ function _renderSeriesRow(items) {
       '<div class="shelf-series-card-cover"' + coverBg + '></div>' +
       '<h3 class="shelf-series-card-name">' + esc(s.name) + '</h3>' +
       '<div class="shelf-series-card-meta">' + meta + '</div>' +
+      anchorLine +
       (blurbShort ? '<p class="shelf-series-card-blurb">' + esc(blurbShort) + '</p>' : '') +
       '<div class="shelf-series-card-info-row">' +
+      editBtn +
       '<button class="shelf-series-card-info" type="button" ' +
       'onclick="event.stopPropagation();window._openSeriesInfo(\'' + esc(key) + '\')" ' +
       'aria-label="More about the ' + esc(s.name) + ' series" ' +
       'title="Show full series details">' +
       '<span aria-hidden="true">ⓘ</span><span>more</span></button></div>' +
+      '</div>';
+  }
+
+  const rowStyle = 'display:flex;gap:14px;overflow-x:auto;padding:4px 4px 12px;' +
+                   'scrollbar-width:thin;scrollbar-color:var(--border-mid) transparent';
+  if (!hasAnySaga) {
+    // Flat row — identical to pre-saga behaviour. The container keeps
+    // its markup-declared inline flex styles.
+    row.style.display = 'flex';
+    row.style.overflowX = 'auto';
+    row.innerHTML = seriesList.map(_seriesCardHtml).join('');
+    return;
+  }
+  // Saga mode stacks blocks vertically; each block owns its own
+  // horizontal scroller, so the outer container must stop being a
+  // flex row or the blocks would sit side by side.
+  row.style.display = 'block';
+  row.style.overflowX = 'visible';
+  row.innerHTML = sagaBuckets.map(function(b){
+    const bookCount = b.series.reduce(function(n, s){ return n + s.folios.length; }, 0);
+    const head = b.name
+      ? '<div class="shelf-saga-head">' +
+          '<a class="shelf-saga-name" href="/shelf?saga=' + encodeURIComponent(b.name) + '">' +
+            '✦ ' + esc(b.name) +
+          '</a>' +
+          '<span class="shelf-saga-meta">' +
+            b.series.length + ' series · ' + bookCount + ' book' + (bookCount === 1 ? '' : 's') +
+          '</span>' +
+        '</div>' +
+        (b.blurb ? '<p class="shelf-saga-blurb">' + esc(b.blurb) + '</p>' : '')
+      // Series that aren't part of any saga still need a heading once a
+      // saga block exists above them, or they'd look like part of it.
+      : '<div class="shelf-saga-head"><span class="shelf-saga-meta">Other series</span></div>';
+    return '<div class="shelf-saga-block">' + head +
+      '<div style="' + rowStyle + '">' + b.series.map(_seriesCardHtml).join('') + '</div>' +
       '</div>';
   }).join('');
 }
@@ -910,6 +1105,13 @@ window._openSeriesInfo = function _openSeriesInfo(seriesKey) {
   });
   const blurbFolio = s.folios.find(function(f){ return f.seriesBlurb; });
   const blurb = blurbFolio ? blurbFolio.seriesBlurb : '';
+  // Saga context for the modal header — which universe this series
+  // belongs to, when it sits, and whether it's safe to start here.
+  const _sagaF   = s.folios.find(function(f){ return f.saga; });
+  const _sagaNm  = _sagaF ? _sagaF.saga : '';
+  const _anchorF = s.folios.find(function(f){ return f.sagaAnchor; });
+  const _anchor  = _anchorF ? _anchorF.sagaAnchor : '';
+  const _isEntry = s.folios.some(function(f){ return f.entryPoint; });
   const author = s.folios[0] && s.folios[0].author ? s.folios[0].author : '';
   const authorUid = s.folios[0] && s.folios[0].uid ? s.folios[0].uid : '';
   const totalPages = s.folios.reduce(function(sum, f){ return sum + (f.pageCount || 0); }, 0);
@@ -948,7 +1150,17 @@ window._openSeriesInfo = function _openSeriesInfo(seriesKey) {
     '<div class="folio-info-modal" role="dialog" aria-modal="true" style="position:relative">' +
     '<button class="fi-close" onclick="_closeFolioInfo()" aria-label="Close">×</button>' +
     '<div style="margin-bottom:8px;font-size:11px;color:var(--muted,#5a5347);text-transform:uppercase;letter-spacing:.08em">📚 Series</div>' +
+    (_sagaNm
+      ? '<div style="margin-bottom:4px;font-size:12px"><a href="/shelf?saga=' + encodeURIComponent(_sagaNm) +
+        '" style="color:var(--accent,#c98c2a);text-decoration:none">✦ ' + esc(_sagaNm) + '</a></div>'
+      : '') +
     '<h2 style="margin:0 0 6px">' + esc(s.name) + '</h2>' +
+    ((_anchor || _isEntry)
+      ? '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 8px">' +
+          (_isEntry ? '<span class="shelf-series-card-start">✦ Start here</span>' : '') +
+          (_anchor ? '<span class="shelf-series-card-anchor">' + esc(_anchor) + '</span>' : '') +
+        '</div>'
+      : '') +
     (author
       ? '<p class="fi-author">by ' + (imprintHref
           ? '<a href="' + esc(imprintHref) + '" style="color:inherit">' + esc(author) + '</a>'
@@ -972,6 +1184,171 @@ window._openSeriesInfo = function _openSeriesInfo(seriesKey) {
   document.addEventListener('keydown', escHandler);
 };
 
+// ── Owner-only series editor ──────────────────────────────────────
+// Jacob 2026-08-05: "Can we make the Series pages have a centralized
+// editing location where the user can put info? The shelf series
+// listings could show an edit facility if the owner of the series
+// views them perhaps."
+//
+// Series-level metadata (seriesBlurb, saga, sagaBlurb, sagaAnchor,
+// entryPoint) is stored per-folio; propagation happens via a bulk
+// update from this modal — writes to release.<field> on ALL of the
+// owner's folios in the series in one batch. Firestore rules already
+// gate on ownership (isUser(resource.data.uid)) so no rules change
+// needed. Non-owner clicks are impossible (button is hidden), but
+// the save handler double-checks viewer uid vs each folio's uid
+// before writing so a manipulated call still bounces.
+window._openSeriesEditor = function _openSeriesEditor(seriesKey) {
+  const items = window._allFolios || [];
+  const key = String(seriesKey || '').toLowerCase();
+  const owned = items.filter(function(f){
+    return f && f.series && String(f.series).toLowerCase() === key
+        && f.uid && window._myUid && f.uid === window._myUid;
+  });
+  if (!owned.length) {
+    console.warn('[series-editor] no owned folios for', seriesKey);
+    return;
+  }
+  // Sort so the "first with a value" lookup is deterministic — matches
+  // the shelf render's sort (seriesOrder asc, unset → 999).
+  owned.sort(function(a, b){
+    const ao = (a.seriesOrder > 0) ? a.seriesOrder : 999;
+    const bo = (b.seriesOrder > 0) ? b.seriesOrder : 999;
+    return ao - bo;
+  });
+  // Resolve current values via "first folio with a truthy value" so
+  // the editor pre-fills with whatever is currently rendering.
+  const _first = function(field){
+    const f = owned.find(function(x){ return x[field]; });
+    return f ? String(f[field]) : '';
+  };
+  const seriesName = owned[0].series || seriesKey;
+  const curSeriesBlurb = _first('seriesBlurb');
+  const curSaga        = _first('saga');
+  const curSagaBlurb   = _first('sagaBlurb');
+  const curSagaAnchor  = _first('sagaAnchor');
+  const curEntryPoint  = owned.some(function(f){ return f.entryPoint; });
+
+  let backdrop = document.getElementById('folioInfoBackdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'folioInfoBackdrop';
+    backdrop.className = 'folio-info-backdrop';
+    backdrop.addEventListener('click', function(ev){
+      if (ev.target === backdrop) _closeFolioInfo();
+    });
+    document.body.appendChild(backdrop);
+  }
+
+  // Inline styles kept short — the fi-* classes carry the modal
+  // shell + typography from the folio-info-modal CSS block.
+  const _row = 'display:block;font-size:11.5px;font-weight:500;color:var(--muted,#5a5347);margin:12px 0 4px;text-transform:uppercase;letter-spacing:.04em';
+  const _input = 'width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:.5px solid var(--border-mid,rgba(0,0,0,0.14));border-radius:7px;background:var(--surface,#fff);color:var(--text,#1a1611);outline:none;font-family:inherit';
+  const _textarea = _input + ';resize:vertical;line-height:1.5';
+  const _hint = 'font-size:10.5px;color:var(--hint,#8a8272);line-height:1.5;margin:3px 0 0';
+
+  backdrop.innerHTML =
+    '<div class="folio-info-modal" role="dialog" aria-modal="true" style="position:relative">' +
+    '<button class="fi-close" onclick="_closeFolioInfo()" aria-label="Close">×</button>' +
+    '<div style="margin-bottom:8px;font-size:11px;color:var(--muted,#5a5347);text-transform:uppercase;letter-spacing:.08em">📚 Edit series</div>' +
+    '<h2 style="margin:0 0 6px">' + esc(seriesName) + '</h2>' +
+    '<p style="font-size:12px;color:var(--muted,#5a5347);margin:0 0 16px;line-height:1.55">' +
+      'Changes here apply to <strong>all ' + owned.length + ' of your books in this series</strong>. ' +
+      'Fields left blank are unset on every book (choose consciously — a blank saga clears it everywhere).' +
+    '</p>' +
+    '<label style="' + _row + '">Series blurb <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— shown on the shelf series card + info modal</span></label>' +
+    '<textarea id="_seEditSeriesBlurb" rows="3" maxlength="800" style="' + _textarea + '">' + esc(curSeriesBlurb) + '</textarea>' +
+    '<label style="' + _row + '">Saga name <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— the shared universe this series belongs to. Optional.</span></label>' +
+    '<input type="text" id="_seEditSaga" maxlength="80" value="' + esc(curSaga) + '" style="' + _input + '" placeholder="e.g., Sky Bridge Saga">' +
+    '<label style="' + _row + '">Saga blurb <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— the whole-universe pitch. Write once per saga.</span></label>' +
+    '<textarea id="_seEditSagaBlurb" rows="4" maxlength="800" style="' + _textarea + '">' + esc(curSagaBlurb) + '</textarea>' +
+    '<label style="' + _row + '">Saga anchor <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— an in-world era placing this cycle on a timeline</span></label>' +
+    '<input type="text" id="_seEditSagaAnchor" maxlength="80" value="' + esc(curSagaAnchor) + '" style="' + _input + '" placeholder="e.g., Year 412 of the Sky Age">' +
+    '<p style="' + _hint + '">Free text on purpose — sorts naturally, survives prequels. Never rendered as "Cycle II".</p>' +
+    '<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text,#1a1611);margin:16px 0 4px;cursor:pointer">' +
+      '<input type="checkbox" id="_seEditEntryPoint"' + (curEntryPoint ? ' checked' : '') + ' style="margin:0">' +
+      '<span>✦ <strong>Entry point</strong> — a new reader can begin this series without reading anything else</span>' +
+    '</label>' +
+    '<div id="_seEditStatus" style="font-size:11.5px;color:var(--hint,#8a8272);margin-top:14px;min-height:1.5em"></div>' +
+    '<div class="fi-actions">' +
+      '<button class="fi-btn secondary" onclick="_closeFolioInfo()" type="button">Cancel</button>' +
+      '<button class="fi-btn primary" type="button" onclick="window._saveSeriesEditor(\'' + esc(key) + '\')">Save to all ' + owned.length + ' book' + (owned.length === 1 ? '' : 's') + '</button>' +
+    '</div>' +
+    '</div>';
+  backdrop.classList.add('visible');
+  const escHandler = function(e){ if (e.key === 'Escape') { _closeFolioInfo(); document.removeEventListener('keydown', escHandler); } };
+  document.addEventListener('keydown', escHandler);
+};
+
+window._saveSeriesEditor = async function _saveSeriesEditor(seriesKey) {
+  const status = document.getElementById('_seEditStatus');
+  const setStatus = function(msg, color){
+    if (!status) return;
+    status.textContent = msg;
+    status.style.color = color || 'var(--hint)';
+  };
+  if (!_fbDb || !_fbDoc || !_fbUpdateDoc) {
+    setStatus('Firestore not ready — reload the shelf and try again.', '#c04040');
+    return;
+  }
+  if (!window._myUid) {
+    setStatus('Sign in required to edit series info.', '#c04040');
+    return;
+  }
+  const items = window._allFolios || [];
+  const key = String(seriesKey || '').toLowerCase();
+  const owned = items.filter(function(f){
+    return f && f.series && String(f.series).toLowerCase() === key && f.uid === window._myUid;
+  });
+  if (!owned.length) {
+    setStatus('No owned folios found in this series.', '#c04040');
+    return;
+  }
+  // Read form values — same normalisation rules as the release-modal
+  // save path (trim + slice + null-when-empty for strings; strict
+  // boolean for entryPoint). See app.html line 24740-ish.
+  const _v = function(id, cap){
+    const el = document.getElementById(id);
+    const s = ((el && el.value) || '').trim().slice(0, cap);
+    return s || null;
+  };
+  const patch = {
+    'release.seriesBlurb': _v('_seEditSeriesBlurb', 800),
+    'release.saga':        _v('_seEditSaga', 80),
+    'release.sagaBlurb':   _v('_seEditSagaBlurb', 800),
+    'release.sagaAnchor':  _v('_seEditSagaAnchor', 80),
+    'release.entryPoint':  !!(document.getElementById('_seEditEntryPoint') && document.getElementById('_seEditEntryPoint').checked),
+  };
+  setStatus('Saving to ' + owned.length + ' book' + (owned.length === 1 ? '' : 's') + '…');
+  let ok = 0, err = 0;
+  for (const f of owned) {
+    try {
+      const ref = _fbDoc(_fbDb, 'folio_projects', f.id);
+      await _fbUpdateDoc(ref, patch);
+      // Mirror the write onto the in-memory copy so a subsequent
+      // renderShelf without a full re-fetch reflects the change.
+      f.seriesBlurb = patch['release.seriesBlurb'] || '';
+      f.saga        = patch['release.saga'] || '';
+      f.sagaBlurb   = patch['release.sagaBlurb'] || '';
+      f.sagaAnchor  = patch['release.sagaAnchor'] || '';
+      f.entryPoint  = patch['release.entryPoint'];
+      ok++;
+    } catch (e) {
+      console.error('[series-editor] update failed for', f.id, e);
+      err++;
+    }
+  }
+  if (err === 0) {
+    setStatus('✓ Saved to ' + ok + ' book' + (ok === 1 ? '' : 's') + '. Reloading shelf…', 'var(--accent-ui,#065f46)');
+    setTimeout(function(){
+      _closeFolioInfo();
+      try { renderShelf(); } catch (_) {}
+    }, 700);
+  } else {
+    setStatus('Saved ' + ok + ', failed ' + err + '. See console for details.', '#c04040');
+  }
+};
+
 async function boot(){
   try{
     console.log('[shelf] booting — loading Firebase modules dynamically…');
@@ -982,9 +1359,10 @@ async function boot(){
     const authMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
     console.log('[shelf] ✅ firebase-auth.js imported');
     const {initializeApp}=appMod;
-    const {getFirestore,collection,query,where,getDocs,limit}=fsMod;
+    const {getFirestore,collection,query,where,getDocs,limit,doc,updateDoc}=fsMod;
     const {getAuth,onAuthStateChanged}=authMod;
     _fbCollection=collection;_fbQuery=query;_fbWhere=where;_fbGetDocs=getDocs;_fbLimit=limit;
+    _fbDoc=doc;_fbUpdateDoc=updateDoc;
     const firebaseConfig={apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",authDomain:"auth.jacobsiler.com",projectId:"miscellaneous-117e9",storageBucket:"miscellaneous-117e9.firebasestorage.app",messagingSenderId:"514858431339",appId:"1:514858431339:web:8b3acbe89966b45fe3922e"};
     console.log('[shelf] initializing Firebase app…');
     const app=initializeApp(firebaseConfig);
@@ -1097,6 +1475,20 @@ async function fetchShelf(){
         // Kept per-folio (not a new collection) so no schema migration
         // or extra query is needed.
         seriesBlurb:String(r.seriesBlurb||''),
+        // ── Saga: the level above series (2026-08-05) ────────────────
+        // A saga is a shared universe containing several series
+        // ("cycles"), each of which is independently readable. Series
+        // numbering is local to its series, so a saga deliberately has
+        // NO number of its own — `sagaAnchor` is free text (an in-world
+        // era) that positions a series on the saga's timeline without
+        // implying a required reading order, and `entryPoint` marks the
+        // series a new reader can safely begin with.
+        // All empty on pre-saga folios, which then render exactly as
+        // they did before this shipped.
+        saga:String(r.saga||''),
+        sagaBlurb:String(r.sagaBlurb||''),
+        sagaAnchor:String(r.sagaAnchor||''),
+        entryPoint:!!r.entryPoint,
         // Folio open-taxonomy classification (v2 plan). Ordered array;
         // [0] is primary genre. Legacy folios without genreCodes
         // gracefully fall through to the derived shelfGenre string.

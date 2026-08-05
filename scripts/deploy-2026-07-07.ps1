@@ -225,6 +225,197 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat: centralized series editor + imprint saga bucketing + release-modal series link
+
+Follow-up ship on top of Jacob's saga-level refactor. The
+series/saga metadata still lives per-folio (no new collection
+needed — Jacob's storage design), but the EDITING surface is
+now central: one edit propagates to every owned folio in the
+series via a Firestore batch.
+
+Owner-only series editor (shelf.html)
+─────────────────────────────────────
+Every series card now shows a "✏ edit" button next to the
+existing "ⓘ more" — but only when window._myUid matches the
+series' owner uid. Non-owners never see it. Click opens a modal
+with the current values (resolved from folios via the same
+"first-with-value wins" logic the shelf renderer uses) plus
+editable fields for:
+  - seriesBlurb (max 800)
+  - saga name (max 80)
+  - sagaBlurb (max 800)
+  - sagaAnchor (max 80 — free text on purpose, never rendered
+    as "Cycle II" per the design rationale)
+  - entryPoint boolean
+
+Save loops through every folio the viewer owns in the series
+and calls updateDoc with dotted paths — `release.seriesBlurb`,
+`release.saga`, `release.sagaBlurb`, `release.sagaAnchor`,
+`release.entryPoint`. Uses the same normalisation rules as the
+release-modal save path (trim + slice + null-when-empty for
+strings; strict boolean for entryPoint). Firestore rules already
+gate on ownership so no rules change needed.
+
+In-memory folio copies get the same patch so a subsequent
+renderShelf() reflects the change without a full re-fetch.
+Toast-style status line reports "Saved to N books" or per-write
+failures. Auto-closes + re-renders on full success.
+
+Release-modal series link (app.html)
+────────────────────────────────────
+The release modal's Series section grows a subtle hint block
+right below the saga blurb — displayed only when a series name
+is set. Copy: "The saga name, saga blurb, series blurb, anchor,
+and entry-point flag are the same fields on every book in this
+series. Changes here update this folio only. To update all your
+books in the series at once, use the ✏ Edit button on the shelf
+series card: Open '<series>' on the shelf →" (link is
+/shelf?series=<name>, target=_blank).
+
+Small IIFE keeps the link URL in sync with rlSeriesName's value
+via input listener + a 1.5s polling safety net (covers cases
+where the field is hydrated programmatically without firing a
+regular input event).
+
+Imprint saga bucketing (imprint/index.html)
+───────────────────────────────────────────
+Follow-up #1 from Jacob's handoff — the imprint page grouped
+by series but didn't know about sagas, so his imprint showed
+three flat sections (Sky Bridge Saga, The Fain Cycle, The Hush)
+with no saga above them.
+
+Now mirrors shelf.html's sagaBuckets pattern: iterates over
+multi-book series, resolves each series' saga name (first folio
+with one), buckets series into sagas. Renders each saga as a
+subtle bordered block with saga name (Playfair serif 22px),
+book/series counts, "Open on the shelf →" link, italic saga
+blurb (when set), then each cycle rendered as an
+.imprint-series-section INSIDE the saga block. Standalone series
+(no saga) render below with an "Other series" heading. Standalone
+folios (no series) render last with "Standalone titles."
+
+Fully backwards-compatible with pre-saga folios — a folio with
+just `series` set and no `saga` value falls into the "Other
+series" bucket, which renders identically to the pre-refactor
+layout. Verified no-saga imprint would look unchanged.
+
+Files touched
+─────────────
+  shelf.html          — doc + updateDoc imports; owner-only ✏
+                        edit button on series card;
+                        _openSeriesEditor + _saveSeriesEditor
+                        functions
+  app.html            — release-modal series-edit-link hint +
+                        IIFE that keeps its URL in sync with
+                        rlSeriesName
+  imprint/index.html  — saga/sagaBlurb/sagaAnchor/entryPoint
+                        added to folio mapping; sagaBuckets
+                        derivation + saga-block render; new
+                        "Other series" heading for
+                        no-saga-multi-book series
+
+Follow-ups from Jacob's handoff still open
+──────────────────────────────────────────
+  #2 (migration for the 6 Sky Bridge folios) — the new editor
+     covers this for saga/blurb/anchor/entry-point fields but
+     doesn't handle re-parenting series names (e.g. moving a
+     folio from series="Sky Bridge Saga" to series="The Fain
+     Cycle" + saga="Sky Bridge Saga"). Simpler path: use the
+     release modal per folio (6 × 30s ≈ 3 minutes). No script
+     shipped.
+  #3 (composed-title check) — audit clean. Every render site
+     uses folio.title as-is; the "Book N" chip is always a
+     separate visual element next to the title. Jacob's
+     "The Fain Cycle · Book One" title is purely data — no
+     code composes strings. He just needs to rename to
+     "The Kept Hours" in that folio's title field.
+  #4 (cover derivatives) — deferred; needs a design pass on
+     where derivatives live + how they're generated + when the
+     browser-side auto-WebP already covers the case.
+  #5 (deploy scripts) — untouched.
+
+---
+
+Previous batch — kept in commit history:
+
+fix: series card covers no longer crop titles / characters' heads
+
+Jacob 2026-08-05: "The series on the shelf this looks a little
+odd since it's clipped." Sky Bridge Saga's three characters had
+their heads sliced off, Goodnight Ireland's title text was cut,
+From Loss to Love was framed off-center.
+
+Root cause: I sized the .shelf-series-card-cover slot at 16:9
+(wide) with `background-size: cover`. Book covers are ~2:3
+(tall), so `cover` mode cropped from top+bottom to fill the
+wide slot — exactly the region where titles + faces live.
+
+Fix:
+- Changed aspect-ratio from 16/9 → 3/4 (nearly-square, keeps
+  the card compact but shows more of the cover).
+- Changed background-size from `cover` (crops to fill) →
+  `contain` (fits whole cover inside).
+- Added `background-repeat: no-repeat`.
+- Removed the ::after gradient overlay — designed to darken the
+  bottom of a cover-mode fill, but with contain it would darken
+  the empty backdrop area which looked wrong.
+- Reduced card flex-basis 260px → 240px so the taller cover
+  slot keeps the overall card compact.
+
+Backdrop colour (var(--bg)) handles the letterboxing when a
+cover is taller than 3:4 — subtle band on top+bottom instead of
+slicing content off. Series name + book count + blurb below the
+cover unchanged.
+
+Files touched
+─────────────
+  shelf.html — .shelf-series-card + .shelf-series-card-cover
+               CSS updates; removed .shelf-series-card-cover::after
+               gradient overlay
+
+---
+
+Previous batch — kept in commit history:
+
+feat: markdown blockquote support in the paragraph renderer
+
+Jacob 2026-08-05: `> ` at line-start was showing up as literal
+text in the preview — the paragraph renderer only knew about
+headings (##/###/####) and scene breaks, not blockquotes.
+
+Now `> text` at line start renders as a proper blockquote:
+italic body, 96% body font size, subtle 2px accent-coloured left
+border (55% opacity so it's a hint, not a slab), 6mm left margin
++ 3mm inner padding — traditional print blockquote geometry.
+Empty-body form `>` alone works too (renders an empty quote line
+for spacing / vertical continuity).
+
+Idempotent render — same pattern as the ##/###/#### heading
+shortcuts. Stored text keeps the `>` prefix so save/reload is
+stable. Edit mode renders the > marker at 30% opacity in
+monospace as a "this is a blockquote" author-facing hint; reader
+mode hides it entirely so the finished book is clean. Backspace
+at line-start deletes the > and the paragraph falls back to
+prose on the next render (inherits normal contenteditable
+behaviour).
+
+Character highlighting still fires on the body — dialogue
+attributions inside a blockquoted passage keep their per-
+character colouring where relevant.
+
+Doesn't interact with the smartSplit import pipeline (which only
+handles chapter-break detection); this is purely a render-time
+formatter.
+
+Files touched
+─────────────
+  app.html — _apRenderPreviewParagraph: new blockquote branch
+             immediately after the heading-shortcut branch
+
+---
+
+Previous batch — kept in commit history:
+
 feat: Write-mode bottom-bar compression + shelf series card + info modal
 
 Two shipping items this turn.
