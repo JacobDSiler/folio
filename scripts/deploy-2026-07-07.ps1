@@ -225,6 +225,87 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat: Write-mode bottom-bar compression + shelf series card + info modal
+
+Two shipping items this turn.
+
+Write-mode bottom bar
+─────────────────────
+Jacob 2026-08-05: "Write mode still has a huge honking bottom bar
+with export button. Can we make the export bar much smaller /
+minimized for the write mode? Maybe a little (i) button next to
+it that displays a tooltip on hover/press with the folio stats
+would be an elegant way to minimize this all much more."
+
+Added a compact ⓘ #pageStatsInfoBtn beside the export primary /
+drawer-toggle buttons. Populated with the same page + word +
+chapter counts (and short-chapter warning) that the textual
+#pageCountLine gets, via native title tooltip. Hidden in Full
+preset (where the textual line has the room); shown only in
+Write preset.
+
+Write-preset CSS additions hide the whole bottom stack:
+  #pageCountLine, #statusBar, #sidebarCtaBar, .sidebar-footer
+And shrink the export section itself (padding + button font-size).
+Full preset unaffected — this is purely opt-in through the preset
+picker.
+
+Series card on the shelf + series info modal
+────────────────────────────────────────────
+Jacob 2026-08-05: "make a series card on the shelf, that has an
+info button which leads to a bigger series blurb. Many authors
+will want this I think."
+
+Author-side (app.html)
+- New release.seriesBlurb field (up to 800 chars). Textarea in
+  the Series section of the release modal, right below the name
+  + book# inputs. Hint tells authors it only needs to live on
+  ONE folio in the series — the shelf picks the earliest-order
+  book that has one populated.
+- Hydrate + save wired in the normal release payload path. Nulled
+  when blank so the picker falls through cleanly.
+
+Shelf-side (shelf.html)
+- New #shelfSeriesContainer row between #shelfStatus and
+  #shelfFeaturedContainer. Horizontal-scroll ("📚 series on the
+  shelf"), shown only when at least one series has 2+ folios in
+  the current filtered view.
+- _renderSeriesRow() groups by folio.series (case-insensitive
+  match, case-preserving display), sorts each group by
+  seriesOrder, picks the series blurb from the earliest-order
+  folio that has one, alphabetical across series so ordering is
+  deterministic between renders.
+- .shelf-series-card CSS: 260px flex-basis, 16:9 cover backdrop
+  (from earliest-order folio), Playfair serif name, meta row
+  (book count · pages), 3-line clamp blurb, ⓘ "more" button.
+- Card CLICK = filter shelf to that series (existing
+  /shelf?series=X behaviour).
+- ⓘ CLICK = _openSeriesInfo(seriesKey) which re-derives the
+  group from window._allFolios and opens a modal listing every
+  folio in order with book # + title + price ("Free" or
+  "$X.XX"). Primary CTA "Browse series →" filters the shelf.
+
+Reuses the existing folio-info-modal shell + backdrop for zero
+extra CSS — only the book-row list styling is bespoke
+(.fi-series-books + .fi-series-book).
+
+Files touched
+─────────────
+  app.html    — Write-preset CSS block extended (bottom-bar hide
+                + export-section shrink + #pageStatsInfoBtn CSS),
+                #pageStatsInfoBtn added to .exp-primary-wrap,
+                pageStatsInfoBtn title update in renderPreview
+                stats block, rlSeriesBlurb textarea + hydrate +
+                save in release modal Series section
+  shelf.html  — .shelf-series-card + .fi-series-books CSS,
+                #shelfSeriesContainer + #shelfSeriesRow HTML,
+                _renderSeriesRow() + _openSeriesInfo(), folio
+                mapping now includes seriesBlurb
+
+---
+
+Previous batch — kept in commit history:
+
 feat: chapter lock — 🔒 button preserves chapters through re-imports
 
 Jacob 2026-08-05: "It is work to set up a frontispiece and when a

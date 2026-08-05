@@ -169,6 +169,30 @@ a:hover{text-decoration:underline}
 .folio-info-modal .fi-chip{font-size:11.5px;padding:3px 9px;background:var(--bg,#f6f4ee);color:var(--text,#1a1611);border-radius:11px}
 .folio-info-modal .fi-chip.tag{background:rgba(6,95,70,0.08);color:var(--accent-ui,#065f46);font-weight:500}
 .folio-info-modal .fi-preview-strip{display:flex;flex-direction:column;gap:6px;margin-bottom:4px}
+/* Series card — horizontal-scroll row above Featured. Each card
+   summarises a series (name, book count, series-level blurb hint)
+   and has an ⓘ that opens the series info modal listing all books
+   in the series. Cover uses the earliest-order book's cover as
+   backdrop. Author-requested 2026-08-05 (Jacob). */
+.shelf-series-card{flex:0 0 260px;background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px;color:var(--text);transition:transform .12s,box-shadow .12s,border-color .12s;box-shadow:var(--shadow);cursor:pointer;overflow:hidden;position:relative;min-height:200px}
+.shelf-series-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-h);border-color:var(--accent,#c98c2a)}
+.shelf-series-card-cover{width:100%;aspect-ratio:16/9;object-fit:cover;background-size:cover;background-position:center;background-color:var(--bg,#f6f4ee);border-radius:8px;border:.5px solid var(--border-mid);flex-shrink:0;position:relative}
+.shelf-series-card-cover::after{content:'';position:absolute;inset:0;border-radius:8px;background:linear-gradient(180deg,transparent 30%,rgba(0,0,0,0.35) 100%)}
+.shelf-series-card-name{font-family:'Playfair Display',Georgia,serif;font-size:16px;font-weight:600;line-height:1.25;color:var(--text);margin:0}
+.shelf-series-card-meta{font-size:11px;color:var(--muted);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.shelf-series-card-meta strong{color:var(--text);font-weight:600}
+.shelf-series-card-blurb{font-size:12px;color:var(--muted);line-height:1.5;margin:0;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.shelf-series-card-info-row{display:flex;justify-content:flex-end;margin-top:auto}
+.shelf-series-card-info{padding:2px 8px 2px 4px;border:none;background:none;color:var(--accent-ui,#065f46);font-size:11.5px;line-height:1.2;cursor:pointer;font-family:inherit;display:inline-flex;align-items:center;gap:4px;font-weight:500;border-radius:6px;transition:background .12s,color .12s}
+.shelf-series-card-info:hover{background:rgba(6,95,70,0.06);color:var(--accent,#c98c2a)}
+/* Series info modal — reuses .folio-info-modal shell + backdrop
+   for zero extra CSS. Only the book list styling is bespoke. */
+.folio-info-modal .fi-series-books{display:flex;flex-direction:column;gap:6px;margin-bottom:4px}
+.folio-info-modal .fi-series-book{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:9px 12px;background:var(--bg,#f6f4ee);border:.5px solid var(--border-mid,rgba(0,0,0,0.10));border-radius:8px;text-decoration:none;color:var(--text,#1a1611);font-size:12.5px;line-height:1.35;transition:background .15s,border-color .15s}
+.folio-info-modal .fi-series-book:hover{background:var(--surface,#fff);border-color:var(--accent-ui,#065f46)}
+.folio-info-modal .fi-series-book .fi-sb-num{font-family:'Playfair Display',Georgia,serif;font-size:14px;font-weight:600;color:var(--accent,#c98c2a);flex:0 0 auto;min-width:24px}
+.folio-info-modal .fi-series-book .fi-sb-title{flex:1;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.folio-info-modal .fi-series-book .fi-sb-price{font-size:11px;color:var(--muted,#5a5347);flex:0 0 auto;font-variant-numeric:tabular-nums}
 .folio-info-modal .fi-preview-chip{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:9px 12px;background:var(--bg,#f6f4ee);border:.5px solid var(--border-mid,rgba(0,0,0,0.10));border-radius:8px;text-decoration:none;color:var(--text,#1a1611);font-size:12.5px;line-height:1.35;transition:background .15s,border-color .15s}
 .folio-info-modal .fi-preview-chip:hover{background:var(--surface,#fff);border-color:var(--accent-ui,#065f46)}
 .folio-info-modal .fi-preview-chip .fi-pv-num{font-family:'Playfair Display',Georgia,serif;font-size:14px;font-weight:600;color:var(--accent,#c98c2a);flex:0 0 auto}
@@ -260,6 +284,15 @@ a:hover{text-decoration:underline}
     <a href="/shelf" style="float:right;font-size:12px;color:var(--muted);text-decoration:none;border:.5px solid var(--border-mid);padding:4px 10px;border-radius:6px;background:var(--surface)">✕ Clear</a>
   </div>
   <div class="shelf-status" id="shelfStatus">Loading the shelf…</div>
+  <!-- Series row — appears above Featured when any series has 2+
+       published folios. Horizontal scroll for many series. Each
+       card links a reader through to that series' books; the ⓘ
+       button opens a series info modal with the longer blurb.
+       Populated by _renderSeriesRow() in the renderShelf pipeline. -->
+  <div id="shelfSeriesContainer" style="display:none;margin-bottom:24px">
+    <div class="shelf-featured-divider" style="color:var(--muted)"><span style="text-transform:none;letter-spacing:.04em;font-weight:400">📚 series on the shelf</span></div>
+    <div id="shelfSeriesRow" style="display:flex;gap:14px;overflow-x:auto;padding:4px 4px 12px;scrollbar-width:thin;scrollbar-color:var(--border-mid) transparent"></div>
+  </div>
   <div id="shelfFeaturedContainer" style="display:none">
     <div class="shelf-featured-divider">✨ Featured</div>
     <div class="shelf-grid" id="shelfFeaturedGrid"></div>
@@ -583,6 +616,10 @@ function renderShelf(){
     if (featuredContainer) featuredContainer.style.display = 'none';
     if (regularDivider) regularDivider.style.display = 'none';
   }
+  // Series row — grouped from `items` so filter state is respected.
+  // Only shows when at least one series has 2+ folios in the current
+  // view (a "series" of one book isn't a series worth advertising).
+  _renderSeriesRow(items);
   grid.innerHTML=regular.map(f => cardHtml(f, false)).join('');
   return; // (below is legacy render that we've replaced — kept for safety, but return here)
   grid.innerHTML=items.map(f=>{
@@ -767,6 +804,174 @@ window._closeFolioInfo = function _closeFolioInfo() {
   if (backdrop) backdrop.classList.remove('visible');
 };
 
+// ── Series row + series info modal ────────────────────────────────
+// Groups the passed-in folio list by folio.series (case-preserving,
+// case-insensitive match). Any series with 2+ folios in the current
+// view gets a card in the horizontal series row at the top of the
+// shelf. Card ⓘ opens a series info modal listing every folio in
+// the series with book number, title, and price. The series-level
+// blurb is picked from whichever folio in the series has one set
+// (preferring the lowest seriesOrder). Author-requested 2026-08-05.
+function _renderSeriesRow(items) {
+  const container = document.getElementById('shelfSeriesContainer');
+  const row = document.getElementById('shelfSeriesRow');
+  if (!container || !row) return;
+  // Build a lowercase-key map so "Sky Bridge Saga" and "sky bridge saga"
+  // aggregate together; preserve the first-seen display casing.
+  const groups = Object.create(null);
+  (items || []).forEach(function(f){
+    const name = (f && f.series ? String(f.series).trim() : '');
+    if (!name) return;
+    const k = name.toLowerCase();
+    if (!groups[k]) groups[k] = { name: name, folios: [] };
+    groups[k].folios.push(f);
+  });
+  // Only include series with 2+ folios. A single-book "series" isn't
+  // one worth advertising as a discovery anchor.
+  const seriesList = Object.keys(groups)
+    .map(function(k){ return groups[k]; })
+    .filter(function(s){ return s.folios.length >= 2; })
+    .map(function(s){
+      // Sort books by seriesOrder ascending; unset order sinks to the end.
+      s.folios.sort(function(a, b){
+        const ao = (a.seriesOrder > 0) ? a.seriesOrder : 999;
+        const bo = (b.seriesOrder > 0) ? b.seriesOrder : 999;
+        return ao - bo;
+      });
+      // Pick series blurb from the first folio (in order) that has one.
+      const blurbFolio = s.folios.find(function(f){ return f.seriesBlurb; });
+      s.seriesBlurb = blurbFolio ? blurbFolio.seriesBlurb : '';
+      // Cover: use the earliest-order book's cover as the backdrop.
+      s.coverUrl = (s.folios[0] && s.folios[0].coverUrl) || '';
+      return s;
+    })
+    // Alphabetical by series name — deterministic ordering across
+    // renders so readers don't see the row reshuffle on refresh.
+    .sort(function(a, b){ return a.name.localeCompare(b.name); });
+  if (seriesList.length === 0) {
+    container.style.display = 'none';
+    return;
+  }
+  container.style.display = '';
+  row.innerHTML = seriesList.map(function(s){
+    const key = s.name;
+    const bookCount = s.folios.length;
+    const totalPages = s.folios.reduce(function(sum, f){ return sum + (f.pageCount || 0); }, 0);
+    const meta = '<strong>' + bookCount + '</strong> book' + (bookCount === 1 ? '' : 's') +
+                 (totalPages > 0 ? ' · <strong>~' + totalPages.toLocaleString() + '</strong> pages' : '');
+    // Short blurb hint on the card — either the series-level blurb
+    // (truncated by CSS line-clamp) or a fallback "N books by <author>".
+    const author = s.folios[0] && s.folios[0].author ? s.folios[0].author : '';
+    const blurbShort = s.seriesBlurb ||
+      (author ? bookCount + ' books' + (author ? ' by ' + author : '') + '.' : '');
+    // Card click = filter shelf to this series (existing behaviour of
+    // /shelf?series=X). ⓘ opens the info modal without navigating.
+    const seriesHref = '/shelf?series=' + encodeURIComponent(s.name);
+    const coverBg = s.coverUrl
+      ? ' style="background-image:url(&quot;' + esc(s.coverUrl) + '&quot;)"'
+      : '';
+    return '<div class="shelf-series-card" tabindex="0" ' +
+      'onclick="if(!event.target.closest(\'button\'))window.location=\'' + esc(seriesHref) + '\'" ' +
+      'onkeydown="if(event.key===\'Enter\')window.location=\'' + esc(seriesHref) + '\'" ' +
+      'data-series="' + esc(key) + '">' +
+      '<div class="shelf-series-card-cover"' + coverBg + '></div>' +
+      '<h3 class="shelf-series-card-name">' + esc(s.name) + '</h3>' +
+      '<div class="shelf-series-card-meta">' + meta + '</div>' +
+      (blurbShort ? '<p class="shelf-series-card-blurb">' + esc(blurbShort) + '</p>' : '') +
+      '<div class="shelf-series-card-info-row">' +
+      '<button class="shelf-series-card-info" type="button" ' +
+      'onclick="event.stopPropagation();window._openSeriesInfo(\'' + esc(key) + '\')" ' +
+      'aria-label="More about the ' + esc(s.name) + ' series" ' +
+      'title="Show full series details">' +
+      '<span aria-hidden="true">ⓘ</span><span>more</span></button></div>' +
+      '</div>';
+  }).join('');
+}
+
+window._openSeriesInfo = function _openSeriesInfo(seriesKey) {
+  // Re-derive the group from window._allFolios (already the latest
+  // items after any filter changes) so the modal always reflects
+  // current state.
+  const items = window._allFolios || [];
+  const groups = Object.create(null);
+  items.forEach(function(f){
+    const name = (f && f.series ? String(f.series).trim() : '');
+    if (!name) return;
+    const k = name.toLowerCase();
+    if (!groups[k]) groups[k] = { name: name, folios: [] };
+    groups[k].folios.push(f);
+  });
+  const s = groups[String(seriesKey || '').toLowerCase()];
+  if (!s || s.folios.length === 0) return;
+  s.folios.sort(function(a, b){
+    const ao = (a.seriesOrder > 0) ? a.seriesOrder : 999;
+    const bo = (b.seriesOrder > 0) ? b.seriesOrder : 999;
+    return ao - bo;
+  });
+  const blurbFolio = s.folios.find(function(f){ return f.seriesBlurb; });
+  const blurb = blurbFolio ? blurbFolio.seriesBlurb : '';
+  const author = s.folios[0] && s.folios[0].author ? s.folios[0].author : '';
+  const authorUid = s.folios[0] && s.folios[0].uid ? s.folios[0].uid : '';
+  const totalPages = s.folios.reduce(function(sum, f){ return sum + (f.pageCount || 0); }, 0);
+  const totalWords = 0; // wordCount not on shelf folio object today
+  const seriesHref = '/shelf?series=' + encodeURIComponent(s.name);
+  const imprintHref = authorUid ? '/imprint/?uid=' + encodeURIComponent(authorUid) : null;
+
+  let backdrop = document.getElementById('folioInfoBackdrop');
+  if (!backdrop) {
+    backdrop = document.createElement('div');
+    backdrop.id = 'folioInfoBackdrop';
+    backdrop.className = 'folio-info-backdrop';
+    backdrop.addEventListener('click', function(ev){
+      if (ev.target === backdrop) _closeFolioInfo();
+    });
+    document.body.appendChild(backdrop);
+  }
+  // Book list — each row deep-links straight into the reader for
+  // that folio. Shows book number + title + price ("Free" or "$X.XX").
+  const bookRows = s.folios.map(function(f, i){
+    const _priceSymbol = f.currency === 'GBP' ? '£' : f.currency === 'EUR' ? '€' : '$';
+    const isPaid = (f.priceMode === 'paid' && f.price > 0);
+    const priceStr = isPaid
+      ? (_priceSymbol + Number(f.price).toFixed(2))
+      : 'Free';
+    const num = f.seriesOrder > 0 ? String(f.seriesOrder) : String(i + 1);
+    const href = '/app.html?read=' + encodeURIComponent(f.id);
+    return '<a class="fi-series-book" href="' + esc(href) + '">' +
+      '<span class="fi-sb-num">' + esc(num) + '</span>' +
+      '<span class="fi-sb-title">' + esc(f.title) + '</span>' +
+      '<span class="fi-sb-price">' + esc(priceStr) + '</span>' +
+      '</a>';
+  }).join('');
+
+  backdrop.innerHTML =
+    '<div class="folio-info-modal" role="dialog" aria-modal="true" style="position:relative">' +
+    '<button class="fi-close" onclick="_closeFolioInfo()" aria-label="Close">×</button>' +
+    '<div style="margin-bottom:8px;font-size:11px;color:var(--muted,#5a5347);text-transform:uppercase;letter-spacing:.08em">📚 Series</div>' +
+    '<h2 style="margin:0 0 6px">' + esc(s.name) + '</h2>' +
+    (author
+      ? '<p class="fi-author">by ' + (imprintHref
+          ? '<a href="' + esc(imprintHref) + '" style="color:inherit">' + esc(author) + '</a>'
+          : esc(author)) + '</p>'
+      : '') +
+    '<div style="font-size:11.5px;color:var(--muted,#5a5347);margin-bottom:14px">' +
+      '<strong style="color:var(--text,#1a1611)">' + s.folios.length + '</strong> book' +
+      (s.folios.length === 1 ? '' : 's') +
+      (totalPages > 0 ? ' · <strong style="color:var(--text,#1a1611)">~' + totalPages.toLocaleString() + '</strong> pages total' : '') +
+    '</div>' +
+    (blurb ? '<p class="fi-blurb">' + esc(blurb) + '</p>' : '') +
+    '<div class="fi-section-lbl">Books in this series</div>' +
+    '<div class="fi-series-books">' + bookRows + '</div>' +
+    '<div class="fi-actions">' +
+    '<button class="fi-btn secondary" onclick="_closeFolioInfo()">Close</button>' +
+    '<a class="fi-btn primary" href="' + esc(seriesHref) + '" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px">Browse series →</a>' +
+    '</div>' +
+    '</div>';
+  backdrop.classList.add('visible');
+  const escHandler = function(e){ if (e.key === 'Escape') { _closeFolioInfo(); document.removeEventListener('keydown', escHandler); } };
+  document.addEventListener('keydown', escHandler);
+};
+
 async function boot(){
   try{
     console.log('[shelf] booting — loading Firebase modules dynamically…');
@@ -886,6 +1091,12 @@ async function fetchShelf(){
         // time in the release modal.
         series:String(r.series||''),
         seriesOrder:Number(r.seriesOrder||0),
+        // Series-level blurb (2026-08-05). Authors fill this on any
+        // ONE folio in the series; the shelf's series-card renderer
+        // picks the lowest-seriesOrder folio that has one populated.
+        // Kept per-folio (not a new collection) so no schema migration
+        // or extra query is needed.
+        seriesBlurb:String(r.seriesBlurb||''),
         // Folio open-taxonomy classification (v2 plan). Ordered array;
         // [0] is primary genre. Legacy folios without genreCodes
         // gracefully fall through to the derived shelfGenre string.

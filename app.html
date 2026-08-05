@@ -679,6 +679,59 @@
     body[data-preset="write"] #editModeHint {
       display: none !important;
     }
+    /* Write-preset bottom-bar compression (2026-08-05, Jacob).
+       Hide the chunky page-count textual line + "Preview updated"
+       status bar + Support/Press CTA row + footer link row. The
+       compact ⓘ #pageStatsInfoBtn beside the export button surfaces
+       the same page/word/chapter counts on hover, so the info isn't
+       lost — just moved. Shrink the export section itself so the
+       primary button + drawer toggle stay reachable but small. */
+    body[data-preset="write"] #pageCountLine,
+    body[data-preset="write"] #statusBar,
+    body[data-preset="write"] #sidebarCtaBar,
+    body[data-preset="write"] .sidebar-footer {
+      display: none !important;
+    }
+    body[data-preset="write"] .export-section {
+      padding: 6px 12px 8px !important;
+    }
+    body[data-preset="write"] .exp-primary {
+      padding: 4px 10px !important;
+      font-size: 11px !important;
+    }
+    body[data-preset="write"] .exp-toggle {
+      padding: 4px 8px !important;
+      font-size: 11px !important;
+    }
+    /* ⓘ stats button — hidden by default (Full preset uses the
+       #pageCountLine textual row above the export button). Only shown
+       in Write mode where the textual line is hidden. */
+    .exp-stats-info {
+      display: none;
+      background: none;
+      border: .5px solid var(--border-mid);
+      color: var(--hint);
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      cursor: help;
+      font-size: 12px;
+      line-height: 1;
+      padding: 0;
+      margin-left: 4px;
+      align-items: center;
+      justify-content: center;
+      font-family: inherit;
+      flex-shrink: 0;
+      transition: color .12s, border-color .12s;
+    }
+    .exp-stats-info:hover {
+      color: var(--accent-ui, #065f46);
+      border-color: var(--accent-ui, #065f46);
+    }
+    body[data-preset="write"] .exp-stats-info {
+      display: inline-flex;
+    }
 
     /* FOCUS preset — the strongest chrome removal. Sidebar + resize
        handle + preview toolbar all hidden. Preview area expands to
@@ -7707,7 +7760,12 @@
       <!-- Export -->
       <div class="export-section">
         <div id="pageCountLine" style="font-size:11px;color:var(--hint);margin-bottom:7px">— pages estimated</div>
-        <!-- Primary export button + toggle -->
+        <!-- Primary export button + toggle. Compact ⓘ stats button
+             sits beside them and appears only in Write preset (see
+             body[data-preset="write"] CSS below). Native title
+             tooltip shows the same content #pageCountLine would show
+             (page count + word count + short-chapter warning) so
+             Jacob doesn't lose the information — just hides the row. -->
         <div class="exp-primary-wrap">
           <button class="exp-primary" id="btnPrimary" onclick="runPrimaryExport()">
             <span class="ep-fmt" id="primFmt">PDF</span>
@@ -7715,6 +7773,10 @@
             <span class="ep-lbl" id="primLbl">Print-ready</span>
           </button>
           <button class="exp-toggle" id="expToggle" onclick="toggleExportDrawer()" title="All formats">▾</button>
+          <button class="exp-stats-info" id="pageStatsInfoBtn"
+                  type="button"
+                  aria-label="Folio stats"
+                  title="Folio stats">ⓘ</button>
         </div>
         <!-- Slide-up drawer with all 8 formats -->
         <div class="exp-drawer" id="expDrawer">
@@ -17980,6 +18042,23 @@
         ? 'Short chapters: ' + _shortChapters.map(c => c.title || 'Untitled').join(', ')
         : '';
       document.getElementById('statusBar').textContent = `Preview updated — ${bodyChapters.length} chapter${bodyChapters.length !== 1 ? 's' : ''}, ~${_pgEstimate} pages`;
+      // Mirror the same stats into the compact ⓘ button used by
+      // Write preset (visible only when the page-count line is
+      // hidden). Full multi-line tooltip via title attribute — most
+      // browsers render newlines in title tooltips.
+      try {
+        const _statBtn = document.getElementById('pageStatsInfoBtn');
+        if (_statBtn) {
+          const _shortList = _shortChapters.length
+            ? '\nShort chapters: ' + _shortChapters.map(function(c){ return c.title || 'Untitled'; }).join(', ')
+            : '';
+          _statBtn.title =
+            '~' + _pgEstimate + ' pages\n' +
+            formatWC(_wc) + ' words\n' +
+            bodyChapters.length + ' chapter' + (bodyChapters.length !== 1 ? 's' : '') +
+            _shortList;
+        }
+      } catch (_) {}
       // Schedule auto-save whenever the preview updates (content changed)
       if (_fbReady || chapters.length) _scheduleAutoSave();
       window.dispatchEvent(new Event('previewRendered'));
@@ -23929,8 +24008,10 @@
           // Series fields (Phase 3 task #53).
           const _seriesNameEl  = document.getElementById('rlSeriesName');
           const _seriesOrderEl = document.getElementById('rlSeriesOrder');
+          const _seriesBlurbEl = document.getElementById('rlSeriesBlurb');
           if (_seriesNameEl)  _seriesNameEl.value  = _rlCurrent.series || '';
           if (_seriesOrderEl) _seriesOrderEl.value = (_rlCurrent.seriesOrder != null) ? String(_rlCurrent.seriesOrder) : '';
+          if (_seriesBlurbEl) _seriesBlurbEl.value = _rlCurrent.seriesBlurb || '';
           // Content rating tier — new field (2026-07-27). Existing releases
           // that only have the legacy hasAdultContent boolean are mapped:
           // true → "18+", false/missing → "all". The hidden checkbox stays
@@ -24648,6 +24729,11 @@
         // Series / collection linking (Phase 3 task #53). Both nullable —
         // empty means standalone folio. Number is clamped 0-999 for sanity.
         series: ((document.getElementById('rlSeriesName') && document.getElementById('rlSeriesName').value) || '').trim().slice(0, 80) || null,
+        // Series blurb — shown on the shelf's series card + info modal.
+        // Nulled when empty so the shelf renderer can pick the first
+        // folio in the series that DOES have one populated. Author
+        // only needs to fill this on ONE folio per series.
+        seriesBlurb: ((document.getElementById('rlSeriesBlurb') && document.getElementById('rlSeriesBlurb').value) || '').trim().slice(0, 800) || null,
         seriesOrder: (function(){
           const raw = (document.getElementById('rlSeriesOrder') && document.getElementById('rlSeriesOrder').value) || '';
           const n = parseInt(raw, 10);
@@ -35515,8 +35601,21 @@
           </div>
         </div>
         <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:8px 0 0 24px">
-          Type the same series name on each book (spelling matters). Folios sharing a series show up together on your Imprint page, sorted by book number. Leave both blank for standalone books.
+          Type the same series name on each book (spelling matters). Folios sharing a series show up together on your Imprint page + as a series card on the shelf, sorted by book number. Leave both blank for standalone books.
         </p>
+        <!-- Series blurb — surfaces on the shelf's series card + its
+             info modal. Written once per series (on ANY folio in the
+             series — the shelf picks the earliest-order book that has
+             one populated). Kept optional so the field doesn't feel
+             like a chore on every folio. Author-requested 2026-08-05
+             (Jacob): "make a series card on the shelf, that has an
+             info button which leads to a bigger series blurb." -->
+        <label for="rlSeriesBlurb" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:14px 0 4px 24px">
+          Series blurb <span style="opacity:.6;font-weight:400">(shows on the shelf's series card — write once for the whole series)</span>
+        </label>
+        <textarea id="rlSeriesBlurb" rows="4" maxlength="800"
+          placeholder="What's the whole series about? The arc that spans the books, the world they share, the promise to the reader. Only needs to live on one folio in the series — the shelf picks the earliest-order book that has one filled in."
+          style="width:calc(100% - 24px);margin-left:24px;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;resize:vertical;font-family:inherit;line-height:1.5"></textarea>
       </div>
 
 
