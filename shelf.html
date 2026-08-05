@@ -283,6 +283,21 @@ a:hover{text-decoration:underline}
   <select class="shelf-select" id="shelfSort" onchange="renderShelf()">
     <option value="newest">Newest</option><option value="alpha">A → Z</option><option value="author">By author</option>
   </select>
+  <!-- Browse Series toggle — hides the series row by default so the
+       shelf loads with the individual folio grid prominent. Click
+       reveals the horizontally-scrolled series cards + universe
+       block(s). Choice persists per browser via localStorage
+       `folio_shelf_series_open` (default: closed). Count in the
+       label is refreshed by _renderSeriesRow so it always matches
+       what's actually available in the current filtered view.
+       Author-requested 2026-08-05 (Jacob). Hidden entirely when
+       there aren't any series to browse at all. -->
+  <button type="button" id="shelfBrowseSeriesBtn" class="shelf-select"
+          onclick="window._toggleSeriesRow()"
+          style="display:none;cursor:pointer;font-family:inherit;text-align:left;padding-right:24px;position:relative">
+    📚 <span id="shelfBrowseSeriesLabel">Browse series</span>
+    <span id="shelfBrowseSeriesCaret" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:10px;opacity:.7">▸</span>
+  </button>
 </div>
 <!-- Tag filter row — v2 classification plan's power-user layer. Two
      comma-separated inputs: "with any of" (include, ANY-of match) and
@@ -906,6 +921,35 @@ window._closeFolioInfo = function _closeFolioInfo() {
   if (backdrop) backdrop.classList.remove('visible');
 };
 
+// Series row user-preference toggle. Default closed — reader lands on
+// the folio grid with the series row tucked away, revealed one click
+// away via the "Browse N series" button in the filter row. Choice is
+// per-browser via localStorage so a reader who habitually browses by
+// series stays opened without re-clicking each visit.
+const _SERIES_ROW_KEY = 'folio_shelf_series_open';
+function _seriesRowIsOpen(){
+  try { return localStorage.getItem(_SERIES_ROW_KEY) === '1'; }
+  catch (_) { return false; }
+}
+window._toggleSeriesRow = function _toggleSeriesRow(){
+  const newState = !_seriesRowIsOpen();
+  try { localStorage.setItem(_SERIES_ROW_KEY, newState ? '1' : '0'); }
+  catch (_) {}
+  // Re-render the series row so display + button label + caret all
+  // update in sync. Full renderShelf() is cheap and covers this.
+  try { renderShelf(); } catch (_) {}
+  // If we just opened it, scroll it into view so the reader sees
+  // the content that was previously hidden.
+  if (newState) {
+    setTimeout(function(){
+      try {
+        const c = document.getElementById('shelfSeriesContainer');
+        if (c) c.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      } catch (_) {}
+    }, 60);
+  }
+};
+
 // ── Series row + series info modal ────────────────────────────────
 // Groups the passed-in folio list by folio.series (case-preserving,
 // case-insensitive match). Any series with 2+ folios in the current
@@ -967,11 +1011,37 @@ function _renderSeriesRow(items) {
     // Alphabetical by series name — deterministic ordering across
     // renders so readers don't see the row reshuffle on refresh.
     .sort(function(a, b){ return a.name.localeCompare(b.name); });
+  // Update the toggle button — show it only when there's at least one
+  // series to browse; label carries the count. Jacob's ask 2026-08-05:
+  // "Series on the Shelf section should be hidden by default, and
+  // opened with a Browse Series button." Container visibility now
+  // gates on user preference (localStorage `folio_shelf_series_open`,
+  // default false) so the shelf lands compact and series discovery
+  // is one click away.
+  try {
+    const btn = document.getElementById('shelfBrowseSeriesBtn');
+    const lbl = document.getElementById('shelfBrowseSeriesLabel');
+    const caret = document.getElementById('shelfBrowseSeriesCaret');
+    if (btn) {
+      if (seriesList.length === 0) {
+        btn.style.display = 'none';
+      } else {
+        btn.style.display = '';
+        const isOpen = _seriesRowIsOpen();
+        if (lbl) lbl.textContent = 'Browse ' + seriesList.length +
+          ' series' + (isOpen ? '' : ' →');
+        if (caret) caret.textContent = isOpen ? '▾' : '▸';
+      }
+    }
+  } catch (_) {}
   if (seriesList.length === 0) {
     container.style.display = 'none';
     return;
   }
-  container.style.display = '';
+  // Respect the user's toggle preference — populate the row's contents
+  // either way so opening the toggle is instant, but hide the container
+  // itself when they've collapsed it.
+  container.style.display = _seriesRowIsOpen() ? '' : 'none';
   // ── Saga bucketing ──────────────────────────────────────────────
   // When no series in view belongs to a saga (the common case, and
   // every shelf that existed before 2026-08-05), this collapses to a
