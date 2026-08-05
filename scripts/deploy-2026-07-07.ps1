@@ -205,7 +205,7 @@ try {
     & git add press\photos\index.html
     & git add press\index.html press\import\index.html
     & git add 404.html s\index.html
-    & git add help\index.html
+    & git add help\index.html serials-guide.html
     & git add admin\_shared.js admin\reviews\index.html
     & git add docs\AUTH_UNAUTHORIZED_DOMAIN_FIX.md docs\STABILITY_PLAN.md
     & git add docs\TUTORIAL_STRATEGY.md
@@ -225,6 +225,398 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat: chapter lock — 🔒 button preserves chapters through re-imports
+
+Jacob 2026-08-05: "It is work to set up a frontispiece and when a
+re-import clobbers it it's frustrating. Maybe we can set a lock
+button or something on all chapters so they will persist through
+re-imports, which would solve post chapters persisting and any
+other chapter persisting as well."
+
+What ships
+──────────
+Every chapter list row now has a 🔓/🔒 lock button between the
+writing-mode ✍ and the import ⇧. Click to toggle. Locked rows
+show a subtle accent-coloured left border so authors can see
+at a glance which chapters are protected.
+
+Preservation logic sits in applyImportToChapters(). Before the
+existing `chapters = newChapters` clobber, we snapshot any
+`ch.locked === true` entries with their original indices, sort
+by index ascending, then splice each one back into newChapters
+at (or as close as possible to) its original position. Position
+is clamped to newChapters.length so a locked chapter that was
+position 12 in a 15-chapter book doesn't overflow a freshly-
+imported 4-chapter draft — it just lands at the end.
+
+Toast on lock/unlock confirms the state change; toast on re-import
+tells the author how many locked chapters were preserved. Console
+logs `[import] preserved N locked chapter(s)` for later debugging.
+
+Solves the whole class of clobber pain
+──────────────────────────────────────
+Not just frontispieces — anything the author has hand-crafted
+around an auto-import: dedication, table of contents (though TOC
+regenerates itself so lock is often unnecessary), preface,
+appendix, acknowledgements, epilogue, author's note, colophon.
+Also lets authors freeze a specific chapter mid-draft when they
+want to iterate on the rest via re-import.
+
+Field shape
+───────────
+`ch.locked: boolean` — new field on the chapter object. Saves
+with the manuscript through the normal state persistence path;
+no schema migration needed (undefined is falsy, so existing
+chapters just default to unlocked). Pre-lock folios keep working
+identically until an author flips a lock.
+
+Files touched
+─────────────
+  app.html    — chItemHTML: 🔒/🔓 button + ch-locked class on
+                the row; toggleChapterLock() function + window
+                export; applyImportToChapters(): snapshot-and-
+                splice preservation of locked chapters; new
+                .ch-item.ch-locked CSS rule (accent left border)
+
+---
+
+Previous batch — kept in commit history:
+
+feat: long blurb + price/buy CTA prominence on info modal
+
+Jacob 2026-08-05: "the feature doesn't look like it has a great deal
+of purpose if both are the same, and the one fits the shelf listing
+anyway. The information button doesn't add more information at all."
+Plus: "make the information panel show the price directly on it or
+free according to the folio Release details. Seeing the prices and
+being exposed to the buy buttons as often as possible is going to
+serve my authors justly."
+
+Two distinct blurb fields
+─────────────────────────
+- release.shelfBlurb — the 280-char short blurb, shown on the shelf
+  card (was already there).
+- release.longBlurb — NEW field, up to 2,000 chars. Shown when a
+  reader opens the ⓘ info card. Nulled when blank so the shelf
+  renderer can gracefully fall back to shelfBlurb → description.
+
+Release modal UI
+────────────────
+New "Full description" textarea (rlLongBlurb, rows=6, maxlength=2000)
+right below the shelf blurb, labeled clearly:
+  "shown when readers open the info card — pitch harder, go longer"
+Hint below explains the fallback + notes rich text is Imprint-tier
+future work. Hydrated on release-modal open; saved with the
+release payload.
+
+Price line + buy CTA on info modal
+──────────────────────────────────
+Fixed a latent bug that Jacob's screenshot surfaced: the shelf's
+folio mapping never pulled price + currency out of the release
+doc, so the info modal's priceStr computation was always empty
+even for paid folios. Now:
+- price + currency added to the folio object mapping.
+- Price line ALWAYS renders in the modal — accent-coloured "$X.XX"
+  for paid, muted "Free" for free. No more silent-missing.
+- Primary CTA button adapts: "🛒 Buy for $X →" for paid folios,
+  "Open in reader →" for free. Both routes land on the same reader
+  URL — paywall takes over inside the reader for paid, plain
+  reader for free.
+
+Info-modal blurb precedence
+───────────────────────────
+Rendered blurb is now `folio.longBlurb || folio.blurb || folio.description`
+in that order. Existing folios (no longBlurb yet) still show the
+shelf blurb — no visible regression. Once an author writes a long
+blurb, the info modal starts showing meaningfully more content
+than the card, which is what makes the ⓘ button feel worth
+clicking.
+
+Files touched
+─────────────
+  app.html    — rlLongBlurb textarea in the release-modal shelf
+                section (below rlShelfBlurb), hydrate + save wiring
+  shelf.html  — folio mapping (longBlurb + price + currency),
+                info modal render (always-shown price line, longBlurb
+                precedence, buy-vs-open CTA)
+
+---
+
+Previous batch — kept in commit history:
+
+fix: lightbox image now actually fills the viewport (was staying at source size)
+
+Jacob 2026-08-05: "the zoomed in image is not full size. Currently
+the Folio preview/reading pane is larger than the zoomed in image,
+which somewhat defeats the purpose."
+
+Root cause: the lightbox `<img>` was styled with `max-width:100%;
+max-height:100%; object-fit:contain`. Those `max-*` caps only
+scale DOWN — they don't force UP. When the source image was
+smaller than the viewport (which is common for shelf covers
+uploaded at moderate resolution), the image rendered at its
+intrinsic dimensions surrounded by black. object-fit:contain
+doesn't upscale on its own; it just fits within given dimensions.
+
+Fix: explicit width/height on the image using viewport units
+minus the backdrop's 24px padding on each side:
+
+  width:  calc(100vw - 48px)
+  height: calc(100vh - 48px)
+  object-fit: contain
+
+Now the image is stretched to fill the viewport (minus padding),
+and object-fit:contain preserves aspect ratio within that stretched
+box. Tall images fit vertically, wide images fit horizontally, and
+smaller-than-viewport sources scale up to fill without cropping.
+Reader inspects detail the way Jacob intended.
+
+Files touched
+─────────────
+  app.html — _openImageLightbox img.style.cssText width/height rewrite
+
+---
+
+Previous batch — kept in commit history:
+
+feat: reader review CTA + drafts-unshipped metric + perpetual pricing on /press/
+
+Three ships triggered by Jacob's metrics questions + friend-comp
+context this turn.
+
+Reader review CTA
+─────────────────
+Root cause of the 172 shelf views / 0 reviews gap: readers literally
+had no entry point to leave one. The review modal only opened from
+an AUTHOR-side sidebar button in the editor. Every existing review
+must have come from an author who happened to know where the
+button lived.
+
+Fix: added a "★ Leave a review" button to the end-of-book panel
+(#rdEndOfBook) — the natural "you just finished, what did you
+think?" moment. Reuses the existing _openReviewModal() flow so no
+new submission UI to maintain. Small copy above it: "Enjoyed it?
+Help other readers find their next favourite book." Reviews are
+still platform-wide (per-book reviews are deferred until the
+Imprint product page ships).
+
+Drafts-unshipped metric
+───────────────────────
+Jacob greenlit the "authors with a folio but nothing published"
+metric from the earlier insights conversation. Turns out the
+existing /user-list worker endpoint already returns folioCount +
+publishedCount per uid, so no new endpoint needed — pure client-
+side count from _serverUsers:
+
+  draftAuthors = users where folioCount > 0 AND publishedCount === 0
+
+Rendered as a new tile in the Content section with subtitle
+"N% ship rate" (published / (draft + published)). Falls back to
+"— (needs ADMIN_DEBUG_TOKEN)" when the token isn't set, matching
+the existing pattern for Signed-in users.
+
+Perpetual pricing on /press/
+────────────────────────────
+Jacob told a friend (Chais) that Folio Press has perpetual
+pricing. Backfilling the commitment:
+
+- Added a third toggle button "Perpetual" alongside Monthly /
+  Yearly on the pricing page.
+- Added data-perpetual attributes to each tier's price + period +
+  yearly-note spans: Indie \$199 one-time, Imprint \$499 one-time
+  (roughly 4x yearly — friendly early-adopter pricing).
+- setBilling() extended to handle the new period.
+- subscribe() intercepts perpetual clicks and routes them to a
+  pre-composed mailto: (subject "Perpetual Indie/Imprint —
+  Folio Press", body with amount + placeholder for user email).
+  This lets Jacob process the payment via PayPal invoice + attach
+  an admin comp with paypalSubscriptionId set to LIFETIME-<n>.
+  Full self-serve perpetual checkout is a follow-up (needs the
+  worker to support one-time PayPal orders as a distinct flow
+  from recurring subscriptions).
+- Added a new FAQ entry explaining what Perpetual means, why it
+  exists, and how the two-step invoice handoff works today.
+
+Files touched
+─────────────
+  app.html                    — review CTA row in #rdEndOfBook
+  admin/metrics/index.html    — Drafts-unshipped tile + fill
+                                logic reading _serverUsers
+  press/index.html            — Perpetual toggle button, data-
+                                perpetual attributes on all three
+                                tiers, setBilling() + subscribe()
+                                perpetual routing, FAQ entry
+
+---
+
+Previous batch — kept in commit history:
+
+feat: sidebar tab grouping — Write / Design / Produce / Ship (§5 of MODULAR_UI_PLAN.md)
+
+Jacob greenlit §5 as the next thing. The 5-tab strip (Manuscript /
+Book / Audio / Folio / Metrics) is now 4 intent-forward top-level
+groups. Ship groups Folio + Metrics under a small sub-strip that
+appears only when Ship is active.
+
+Structure
+─────────
+Old:  [Manuscript] [Book] [Audio] [☁ Folio] [📊 Metrics]  (5 tabs
+      crammed into a repeat(4, 1fr) grid — 5th was wrapping)
+
+New:  [✍ Write] [🎨 Design] [🎧 Produce] [📤 Ship]
+      When Ship active, sub-strip appears below:
+      [☁ Folio] [📊 Metrics]
+
+Behaviour
+─────────
+- Click Write / Design / Produce → same as clicking the old
+  Manuscript / Book / Audio tabs (aliased via existing _tabNormalize).
+- Click Ship → routes to whichever sub-tab (Folio or Metrics) was
+  last active; defaults to Folio for first-time users.
+- Click a sub-tab → highlights BOTH the Ship top-level button AND
+  the sub-tab, persists the choice in localStorage
+  (`folio_lastShipSub`) so re-clicking Ship remembers.
+- Legacy switchTab('folio' / 'metrics' / 'project' / 'chapters' /
+  ...) call sites keep working unchanged — the Ship-active flag
+  attaches automatically when id is folio or metrics.
+- Boot-flicker script updated so refreshing on Folio or Metrics
+  lands with Ship highlighted + sub-strip visible immediately (no
+  visible flash of an unselected state before _restoreLastTabOr
+  fires).
+
+Grid fix (bonus)
+────────────────
+Also silently fixes a small visual bug: the tab strip's CSS was
+`grid-template-columns: repeat(4, 1fr)` while there were actually
+5 tabs, so the 5th (Metrics) was wrapping to a second row. Now
+that we're truly at 4 top-level tabs, the grid layout matches
+what the CSS always intended.
+
+Interaction with presets (from previous batch)
+──────────────────────────────────────────────
+Works cleanly in all three preset modes:
+  Full   → full tab strip + sub-strip when Ship active
+  Write  → shortcuts collapsed, tab strip normal
+  Focus  → sidebar hidden entirely (whole strip disappears)
+
+Files touched
+─────────────
+  app.html — tab strip HTML (5 → 4 buttons + sub-strip div),
+             _shipGroupClicked handler + _shipGetLastSub +
+             _SHIP_SUBTABS constant, switchTab rewrite that
+             routes Ship group's dual state, boot-flicker script
+             updated to handle Ship sub-tab hydration, .tab-btn
+             .ship-subtab CSS overrides for the flex sub-strip
+
+---
+
+Previous batch — kept in commit history:
+
+fix+docs: admin-digest tile err + tier docs surfaced + Author Guide refresh
+
+Small pass triggered by Jacob's admin-metrics screenshot + Adrian
+comp asking "What is the Imprint?" via mid-turn message.
+
+Admin digest "err" tile
+───────────────────────
+See previous commit for the Firestore rule fix. Now shipped.
+
+Sidebar footer — added Tiers + Help links
+─────────────────────────────────────────
+Jacob's read was "the docs are on the bottom of the editor bar,
+right?" — half right. There WAS a Guide link but no Tiers or
+Help link, so pointing a friend at "what is the Imprint?" meant
+opening a browser to type /press/ manually. Now the sidebar
+footer carries:
+  Guide · Tiers · Help · Keys · Privacy · Terms · Contact
+Tiers points at /press/ (the actual pricing page). Help points
+at /help/ (FAQ).
+
+Author Guide refresh — serials-guide.html
+─────────────────────────────────────────
+Retitled "Serials Guide" → "The Folio author guide" (still lives
+at /serials-guide.html for link compat, but the page identifies
+itself as the general guide now). Refreshed for the current
+platform:
+
+- New "The tiers — Free, Indie, Imprint" section at the top
+  answering Adrian's exact question, with a link to /press/ for
+  the full comparison. Notes the Founding Contributor comp path.
+- Paid fields section now mentions PayPal Native (Path A) as
+  the recommended default alongside Gumroad. Explains where the
+  Vendor Connections modal lives.
+- Step 4 restructured — PayPal Native setup instructions first,
+  Gumroad as the alternative flow. Matches current UX where the
+  release-modal provider picker offers both.
+- URLs updated from folio.jacobsiler.com/?read=... to
+  onfolio.press/app.html?read=... (current custom domain).
+- Step 5 now mentions the Folio Shelf + moderation gate.
+- Step 6 covers all three share flows: free, PayPal Native paid
+  (same reader URL), Gumroad paid (product URL).
+- New "Beyond serials — the rest of the platform" section:
+  Shelf, imprint page, ratings + moderation, genres + tags,
+  workspace layout presets, reader image lightbox.
+- Ends with a "Where to go next" pointer at /press/, /help/,
+  /shelf, and the contact email.
+
+Stale prices in help/index.html
+───────────────────────────────
+"How much does Folio cost?" FAQ had Indie at $2/mo + Imprint at
+$6/mo — contradicted /press/'s current $5 / $12. Updated to
+match /press/ + added yearly pricing ($50/yr Indie, $120/yr
+Imprint) + expanded the feature descriptions per tier. Also fixed
+the trailing /press → /press/ link.
+
+Files touched
+─────────────
+  app.html            — sidebar footer +Tiers +Help links
+  serials-guide.html  — retitled, added tiers section, PayPal
+                        Native throughout, current URLs, Beyond
+                        Serials section, Where to Next pointer
+  help/index.html     — cost FAQ prices reconciled with /press/
+
+---
+
+Previous batch — kept in commit history:
+
+fix: admin metrics "Last admin digest sent" tile — add missing Firestore rule branch
+
+Jacob 2026-08-04 (metrics screenshot): "Last admin digest sent"
+tile showed "err" instead of a timestamp. Root cause found via
+critical-paths audit — worker writes fine (service account
+bypasses rules) but client-side getDoc from admin/metrics/index.html
+hit the default-deny because folio_admin_digest_state had no rule
+branch at all.
+
+Fix:
+- Add `match /folio_admin_digest_state/{doc}` to
+  docs/firestore.rules with `allow read: if isAdmin()` and
+  `allow write: if false` (worker-only via service account).
+- Add the row to docs/CRITICAL_PATHS.md so future rule audits
+  catch this class of bug (same shape as the shelf + imprint
+  incidents from 2026-08-03).
+- Log the incident in CRITICAL_PATHS.md recent-incidents section.
+
+Same class of bug: worker writes fine → client reads blocked →
+silently surfaces as an "err" tile in an admin surface. This is
+now the THIRD instance of this pattern in a week, all caught
+against CRITICAL_PATHS.md as it exists. The pattern to remember:
+whenever you add a new collection touched by a worker AND read
+by any client surface (admin or otherwise), immediately add a
+rule branch AND a row to the critical-paths table.
+
+Files touched
+─────────────
+  docs/firestore.rules      — new match block for
+                              folio_admin_digest_state
+  docs/CRITICAL_PATHS.md    — added the collection to the reads
+                              table + logged the 2026-08-04
+                              incident
+
+---
+
+Previous batch — kept in commit history:
+
 feat: reader image lightbox — click any book image to zoom, click again to close
 
 Jacob 2026-08-04: readers were struggling to see cover / illustration

@@ -88,6 +88,12 @@ clients. The Vendor Connections modal in app.html goes through
 Firebase ID token; the worker validates ownership before touching
 the doc.
 
+## `folio_admin_digest_state/{doc}` (admin digest latch)
+
+| Surface | Viewer | Query | Rule | Notes |
+|---|---|---|---|---|
+| `/admin/metrics/` "Last admin digest sent" tile | admin | `getDoc('folio_admin_digest_state/latch')` | `allow read: if isAdmin()` | Read shows lastSentMs / lastPendingCount / lastRecipients populated by the email worker cron. Write is worker-only via service account. |
+
 ---
 
 ## Adding a new client query — checklist
@@ -132,3 +138,13 @@ Before shipping a new page or query, walk this:
   the same day, discovered separately. Fixed by adding LIST branch
   3 (`published==true`). Should have been caught by this table
   existing at the time; hence this doc.
+- **2026-08-04** — `/admin/metrics/` "Last admin digest sent" tile
+  rendered "err" instead of a timestamp. Root cause: the email
+  worker writes `folio_admin_digest_state/latch` via service account
+  (bypasses rules), but the collection had no rule branch, so the
+  client-side getDoc from the metrics page hit the default-deny
+  and threw permission-denied. Fixed by adding
+  `match /folio_admin_digest_state/{doc}` with `allow read: if isAdmin()`.
+  Same class of bug as the shelf + imprint incidents above — worker
+  writes fine, client reads blocked, silently visible in an admin
+  surface. This table would have caught it if the row existed.

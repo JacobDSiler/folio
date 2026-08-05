@@ -630,9 +630,15 @@ window._openFolioInfo = function _openFolioInfo(folioId) {
     });
     document.body.appendChild(backdrop);
   }
-  const priceStr = (folio.priceMode === 'paid' && folio.price)
-    ? ((folio.currency === 'GBP' ? '£' : folio.currency === 'EUR' ? '€' : '$') + Number(folio.price).toFixed(2))
-    : '';
+  // Price string — always populated so the info modal can show
+  // "Free" for free folios and "$X" for paid. Jacob 2026-08-05:
+  // "seeing the prices and being exposed to the buy buttons as
+  // often as possible is going to serve my authors justly."
+  const _priceSymbol = folio.currency === 'GBP' ? '£' : folio.currency === 'EUR' ? '€' : '$';
+  const isPaid = (folio.priceMode === 'paid' && folio.price > 0);
+  const priceStr = isPaid
+    ? (_priceSymbol + Number(folio.price).toFixed(2))
+    : 'Free';
   const primaryGenre = (folio.genreCodes && folio.genreCodes[0] && folio.genreCodes[0].label)
     ? folio.genreCodes[0].label
     : (folio.genre ? (GENRE_LABELS[folio.genre] || folio.genre) : '');
@@ -705,12 +711,22 @@ window._openFolioInfo = function _openFolioInfo(folioId) {
     (folio.author ? '<p class="fi-author">by ' + (imprintHref
       ? '<a href="' + esc(imprintHref) + '" style="color:inherit">' + esc(folio.author) + '</a>'
       : esc(folio.author)) + '</p>' : '<p class="fi-author"></p>') +
-    (priceStr ? '<div style="font-family:\'Playfair Display\',Georgia,serif;font-size:20px;color:var(--accent,#c98c2a);margin-bottom:12px">' + priceStr + '</div>' : '') +
+    // Price line — always shown so readers see whether it's free /
+    // paid at a glance. Coloured accent for paid; muted "Free" for
+    // free folios. Serial-only folios still show their price (serials
+    // can be either).
+    '<div style="font-family:\'Playfair Display\',Georgia,serif;font-size:22px;color:' + (isPaid ? 'var(--accent,#c98c2a)' : 'var(--muted,#5a5347)') + ';margin-bottom:12px;font-weight:600">' + esc(priceStr) + '</div>' +
     (primaryGenre ? '<div style="font-size:11.5px;color:var(--muted,#5a5347);margin-bottom:10px"><strong style="color:var(--text,#1a1611)">' + esc(primaryGenre) + '</strong>' + (ratingChip ? ' ' + ratingChip : '') + '</div>' : '') +
     '</div>' +
     '</div>' +
-    (folio.blurb ? '<p class="fi-blurb">' + esc(folio.blurb) + '</p>' :
-      folio.description ? '<p class="fi-blurb">' + esc(folio.description) + '</p>' : '') +
+    // Long blurb (info-modal content) takes precedence over the short
+    // shelfBlurb, which itself takes precedence over the release
+    // description. This is what makes the ⓘ info card feel like it's
+    // opening MORE information rather than just repeating what's on
+    // the card — Jacob's exact ask 2026-08-05.
+    ((folio.longBlurb || folio.blurb || folio.description)
+      ? '<p class="fi-blurb">' + esc(folio.longBlurb || folio.blurb || folio.description) + '</p>'
+      : '') +
     ((pubDate || pageCountLine || viewCountLine || seriesLine)
       ? '<div class="fi-meta-row">' +
         (pubDate ? '<span><strong>Published</strong> ' + esc(pubDate) + '</span>' : '') +
@@ -723,9 +739,21 @@ window._openFolioInfo = function _openFolioInfo(folioId) {
     previewStrip +
     secondaryChips +
     tagChips +
+    // Primary CTA — copy adapts to the folio's price mode. Paid
+    // folios lead with "Buy for $X" so readers see the value
+    // proposition on the button itself (which is what Jacob asked
+    // for: "seeing the prices and being exposed to the buy buttons
+    // as often as possible"). Free folios keep "Open in reader" —
+    // no need to fake commerce where none exists. Both routes land
+    // on the same reader URL where the paywall (for paid) or plain
+    // reader (for free) takes over.
     '<div class="fi-actions">' +
     '<button class="fi-btn secondary" onclick="_closeFolioInfo()">Close</button>' +
-    '<a class="fi-btn primary" href="' + esc(readerHref) + '" style="text-decoration:none;display:inline-flex;align-items:center">Open in reader →</a>' +
+    '<a class="fi-btn primary" href="' + esc(readerHref) + '" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px">' +
+    (isPaid
+      ? '🛒 Buy for ' + esc(priceStr) + ' →'
+      : 'Open in reader →') +
+    '</a>' +
     '</div>' +
     '</div>';
   backdrop.classList.add('visible');
@@ -829,6 +857,13 @@ async function fetchShelf(){
         author:String(r.author||''),
         description:String(r.description||''),
         blurb:String(r.shelfBlurb||(r.shelfUseDescription?r.description:'')||r.description||''),
+        // Long-form blurb for the info modal — distinct from the 280-char
+        // shelfBlurb shown on the card. Falls back to shelfBlurb +
+        // description at render time when empty, so pre-longBlurb folios
+        // keep working. Added 2026-08-05.
+        longBlurb:String(r.longBlurb||''),
+        price:Number(r.price||0),
+        currency:String(r.currency||'USD'),
         genre:String(r.shelfGenre||''),
         // Folio language — displayed as a small chip on the card so
         // readers can spot non-English folios at a glance. Missing
