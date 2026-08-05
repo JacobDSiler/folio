@@ -62,6 +62,13 @@ a:hover{text-decoration:underline}
 .shelf-card-cover-placeholder{display:flex;align-items:center;justify-content:center;color:var(--hint);font-family:'Playfair Display',Georgia,serif;font-size:14px;text-align:center;padding:12px;font-style:italic;line-height:1.3}
 .shelf-boost-chip{margin-left:auto;padding:3px 9px;border:.5px solid var(--accent);border-radius:12px;background:var(--surface);color:var(--accent);font-size:10.5px;font-weight:500;cursor:pointer;font-family:inherit;transition:background .12s ease,color .12s ease}
 .shelf-boost-chip:hover{background:var(--accent);color:#fff}
+/* Owner-only "Open in editor" chip — sits beside Boost on the author's
+   own folio cards. Jacob 2026-08-05: "easy to recognize to-do items
+   when you see your own folio on the shelf, and easy to miss them in
+   the editor." Uses the accent-UI (green) instead of accent (amber) so
+   it visually distinguishes from the Boost chip when both are shown. */
+.shelf-editor-chip{padding:3px 9px;border:.5px solid var(--accent-ui,#065f46);border-radius:12px;background:var(--surface);color:var(--accent-ui,#065f46);font-size:10.5px;font-weight:500;cursor:pointer;font-family:inherit;transition:background .12s ease,color .12s ease;text-decoration:none;display:inline-flex;align-items:center;gap:4px}
+.shelf-editor-chip:hover{background:var(--accent-ui,#065f46);color:#fff}
 .shelf-boost-chip.recommended{background:rgba(201,140,42,.14);color:var(--accent);border-color:var(--accent);font-weight:600}
 .shelf-boost-chip.recommended:hover{background:var(--accent);color:#fff}
 .shelf-quiet-hint{display:inline-block;font-size:10px;color:var(--accent);margin-left:6px;font-style:italic;opacity:.8}
@@ -634,6 +641,16 @@ function renderShelf(){
     const boostChip = isMine
       ? '<button class="shelf-boost-chip'+(isQuiet?' recommended':'')+'" onclick="event.stopPropagation();openBoostPicker(\''+esc(f.id)+'\',\''+esc(f.title).replace(/\'/g,"\\'")+'\')" title="'+(isQuiet?'This folio is quiet — a boost could 10× your reach':'Boost this folio')+'">'+(isQuiet?'📉 Boost →':'🚀 Boost')+'</button>'
       : '';
+    // Owner-only "Open in editor" chip. Jacob 2026-08-05: "easy to
+    // recognize to-do items when you see your own folio on the shelf,
+    // and easy to miss them in the editor." Links straight to the
+    // editor with ?folio=<id> which loadFolioById honours (see
+    // app.html priority-1 URL param). Rendered as an <a> not a
+    // <button> so Ctrl-click / middle-click opens in a new tab —
+    // useful if Jacob wants to keep the shelf open while working.
+    const editorChip = isMine
+      ? '<a class="shelf-editor-chip" href="/app.html?folio=' + encodeURIComponent(f.id) + '" onclick="event.stopPropagation()" title="Open this folio in the editor (Ctrl+click for a new tab)">✎ Edit</a>'
+      : '';
     // Pending review chip — owner-only, floats top-right of the card.
     // Only owners see the card at all when it's pending (see filter in
     // renderShelf); the chip makes clear it's not yet public.
@@ -685,7 +702,7 @@ function renderShelf(){
       cover+
       '<h2 class="shelf-card-title"><a href="'+esc(href)+'">'+esc(f.title)+'</a></h2>'+
       authorPart+blurb+infoBtn+
-      '<div class="shelf-card-foot">'+badge+genre+sagaLink+seriesLink+langChip+boostChip+'</div>'+
+      '<div class="shelf-card-foot">'+badge+genre+sagaLink+seriesLink+langChip+editorChip+boostChip+'</div>'+
       tagChips+
       '</div>';
   };

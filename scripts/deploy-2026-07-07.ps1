@@ -225,6 +225,39 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat: owner-only "✎ Edit" chip on shelf folio cards
+
+Jacob 2026-08-05: "Can you make the owned Folios have an open in
+editor button on them? It is easy to recognize to-do items when
+you see your own folio on the shelf, and easy to miss them in
+the editor."
+
+Every folio card the viewer owns now shows a small "✎ Edit"
+chip in the card foot beside the "🚀 Boost" chip. Anchor tag
+(not button) so Ctrl+click / middle-click opens the editor in
+a new tab — Jacob can keep the shelf open while working.
+Links to /app.html?folio=<id> which the editor's priority-1 URL
+param already handles (see loadFolioById at app.html:8412).
+
+Uses --accent-ui (green) instead of --accent (amber) so it
+visually distinguishes from the Boost chip when both are shown
+side-by-side. Same rounded-pill shape + font-size as Boost so
+they read as a matched pair of author actions.
+
+Owner detection: same isMine check the Boost chip already uses
+(window._myUid === f.uid). Non-owners never see it.
+
+Files touched
+─────────────
+  shelf.html — .shelf-editor-chip CSS (accent-ui coloured pill);
+               editorChip variable in card render; slotted into
+               .shelf-card-foot before the boost chip (which
+               keeps its margin-left:auto float-right anchor)
+
+---
+
+Previous batch — kept in commit history:
+
 feat+fix: rebrand saga→universe in UI + fix entry-point to per-book selection
 
 Jacob 2026-08-05: "The verbiage had become very specific for
