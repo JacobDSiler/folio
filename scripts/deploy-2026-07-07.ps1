@@ -225,6 +225,47 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat: hide series row by default + "Browse N series" toggle in filters
+
+Jacob 2026-08-05: "the Series on the Shelf section should be
+hidden by default, and opened with a Browse Series button at the
+bottom right/end of the search filters please."
+
+What ships
+──────────
+- New button "📚 Browse N series ▸" at the end of the shelf's
+  filter row (right after the sort dropdown), styled to match the
+  other .shelf-select controls so it reads as part of the same
+  strip. Only rendered when there's at least one series to browse
+  in the current filtered view — hidden entirely on shelves with
+  no series.
+- Series-row container starts hidden by default (localStorage
+  `folio_shelf_series_open`, default '0'). Click the button and
+  it flips open, saves the state, re-renders the shelf, and
+  scrolls the container into view.
+- Caret indicator flips ▸ (closed) / ▾ (open); label loses the
+  "→" arrow when open. Count in the label ("Browse 3 series")
+  refreshes on every render so it always matches the current
+  filtered view (e.g. if the user narrows genre and only 1 series
+  remains, it says "Browse 1 series").
+- Choice persists per-browser so a reader who habitually opens
+  the series row stays opened across visits.
+
+The series row's CONTENTS are still populated on every render
+(no work saved) so opening the toggle is instant with no
+skeleton. Only the container's `display` gates on the flag.
+
+Files touched
+─────────────
+  shelf.html — #shelfBrowseSeriesBtn button in .shelf-controls;
+               _seriesRowIsOpen + window._toggleSeriesRow helpers;
+               _renderSeriesRow now updates button label/caret,
+               respects the toggle state for container display
+
+---
+
+Previous batch — kept in commit history:
+
 feat: owner-only "✎ Edit" chip on shelf folio cards
 
 Jacob 2026-08-05: "Can you make the owned Folios have an open in
