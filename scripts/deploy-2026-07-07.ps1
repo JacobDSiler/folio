@@ -225,6 +225,62 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+fix: bulletproof image click + context menu in full-preview edit mode
+
+Jacob 2026-08-05: "Half the time, images don't open the insert
+image modal when they are clicked in the full preview pane. The
+custom context menu doesn't fire at all, even though it's in
+edit mode. When I come straight from chapter edit mode to the
+full preview pane, it generally works."
+
+Root cause
+──────────
+toggleEditMode() flipped _editMode + attached edit handlers, but
+never called renderPreview(). The image/paragraph render pipeline
+bakes inline onclick + oncontextmenu attributes based on `ed =
+_editMode` at RENDER time — so stale markup rendered with
+ed=false kept its bare-no-handler attributes forever after
+toggling into edit mode. Clicks and right-clicks fell through
+to nothing.
+
+"Works coming from chapter edit mode" made sense once seen: that
+path forces a fresh render with ed=true, so the inline handlers
+are stamped in and everything works. But toggling the ✏ Edit
+button on a preview that had rendered in view mode left the DOM
+un-updated.
+
+Fix — primary path
+──────────────────
+Added `renderPreview()` at the end of toggleEditMode() so the
+DOM markup ALWAYS matches the current _editMode state. Wrapped
+in try/catch so a render error doesn't break the toggle itself.
+
+Fix — belt-and-braces delegated fallback
+────────────────────────────────────────
+Installed a delegated click + contextmenu listener on
+#bookPreview that fires ONLY when:
+  1. _editMode is true, AND
+  2. The wrapper (.folio-inline-img for images, .preview-editable
+     for paragraphs) is MISSING the marker attribute that the
+     inline handler path would have stamped.
+When both conditions hit — meaning render didn't populate the
+inline handler for some reason — it force-triggers a fresh
+renderPreview() and calls _imgClickMarker / _ctxOpen after a
+40ms yield so the fresh markup can settle. Never double-fires
+with the primary path because it bails as soon as the marker
+attribute is present.
+
+Files touched
+─────────────
+  app.html — toggleEditMode() now calls renderPreview() after
+             toggling; _installImgClickFallback IIFE installs
+             delegated click + contextmenu listeners on
+             #bookPreview
+
+---
+
+Previous batch — kept in commit history:
+
 feat: centralized series editor + imprint saga bucketing + release-modal series link
 
 Follow-up ship on top of Jacob's saga-level refactor. The

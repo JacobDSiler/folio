@@ -16353,6 +16353,63 @@
     }
     window._imgClickMarker = _imgClickMarker;
 
+    // Delegated fallback for image clicks in edit mode. The primary
+    // path is the inline `onclick="_imgClickMarker(this)"` baked onto
+    // .folio-inline-img wrappers by the render pipeline when ed=true.
+    // But toggleEditMode used to leave stale markup (rendered with
+    // ed=false) in the DOM, so half the time in full preview the
+    // inline attribute wasn't there and clicks did nothing. The
+    // renderPreview() call added to toggleEditMode covers 99% of the
+    // path; this delegated listener is the belt-and-braces for the
+    // remaining edge cases (fast toggles, partial re-renders, etc.).
+    //
+    // Fires ONLY when the wrapper is missing `data-imgmarker` —
+    // presence of that attribute means the inline onclick is already
+    // wired and will handle the click. So this listener never
+    // double-fires with the inline path.
+    (function _installImgClickFallback(){
+      const preview = document.getElementById('bookPreview');
+      if (!preview) return;
+      preview.addEventListener('click', function(e){
+        if (typeof _editMode === 'undefined' || !_editMode) return;
+        const wrap = e.target && e.target.closest && e.target.closest('.folio-inline-img');
+        if (!wrap) return;
+        // If the wrapper already carries the inline handler attributes,
+        // the inline onclick handles it — don't duplicate.
+        if (wrap.hasAttribute && wrap.hasAttribute('data-imgmarker')) return;
+        // Wrapper doesn't have the marker attrs (stale render). Best-
+        // effort: read chid + paraidx if they're present, and force
+        // the render pipeline to re-emit them, then invoke.
+        if (typeof renderPreview === 'function') {
+          try { renderPreview(); } catch (_) {}
+        }
+        // After the fresh render, find the same wrapper and fire
+        // through the normal path.
+        setTimeout(function(){
+          const fresh = e.target && e.target.closest && e.target.closest('.folio-inline-img');
+          if (fresh && fresh.hasAttribute && fresh.hasAttribute('data-imgmarker')) {
+            _imgClickMarker(fresh);
+          }
+        }, 40);
+      });
+      // Same fallback for right-click / long-press context menu on
+      // paragraphs. _ctxOpen is normally wired via inline
+      // `oncontextmenu` on preview paragraphs; if the paragraph was
+      // rendered with ed=false, that attribute is missing. Fire the
+      // context menu manually in edit mode when it isn't there.
+      preview.addEventListener('contextmenu', function(e){
+        if (typeof _editMode === 'undefined' || !_editMode) return;
+        const p = e.target && e.target.closest && e.target.closest('.preview-editable');
+        if (!p) return;
+        // If the para already has oncontextmenu, let that fire.
+        if (p.hasAttribute && p.hasAttribute('oncontextmenu')) return;
+        if (typeof _ctxOpen === 'function') {
+          e.preventDefault();
+          _ctxOpen(e, p);
+        }
+      });
+    })();
+
     // ── Drag-to-reorder inline images in the preview ─────────────────
     // In edit mode every rendered image marker is draggable="true".
     // Dragging one onto another swaps their positions in the underlying
@@ -19223,6 +19280,18 @@
         hint.classList.remove('visible');
         _detachEditHandlers();
       }
+      // Re-render so paragraph/image markup bakes in the correct
+      // edit-mode onclick + contenteditable attributes. Fixes Jacob's
+      // 2026-08-05 report: "Half the time, images don't open the
+      // insert image modal when they are clicked in the full preview
+      // pane. The custom context menu doesn't fire at all, even though
+      // it's in edit mode." Root cause: the render pipeline stamps
+      // handlers based on `ed = _editMode` at render time. Without a
+      // re-render after toggling, the previously-painted markup keeps
+      // its stale ed=false attributes and clicks/right-clicks fall
+      // through to nothing.
+      try { if (typeof renderPreview === 'function') renderPreview(); }
+      catch (e) { console.warn('[toggleEditMode] renderPreview threw:', e); }
     }
 
     /* ── Preview-as-Reader (editor-side paywall sim) ──────────────
