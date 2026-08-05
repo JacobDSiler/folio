@@ -901,9 +901,16 @@ window._openFolioInfo = function _openFolioInfo(folioId) {
     // no need to fake commerce where none exists. Both routes land
     // on the same reader URL where the paywall (for paid) or plain
     // reader (for free) takes over.
+    // Paid folios get `&buy=1` appended so the reader auto-scrolls
+    // to (and pulses) the paywall CTA on load. Fixes Jacob's ask
+    // 2026-08-05: "right now it actually navigates to the folio, and
+    // it's hard to figure out/find where to buy it." The sticky
+    // "🛒 Buy for $X" button in the reader top bar (added same day)
+    // handles the same problem for readers who already landed on
+    // the reader without the &buy=1 hint.
     '<div class="fi-actions">' +
     '<button class="fi-btn secondary" onclick="_closeFolioInfo()">Close</button>' +
-    '<a class="fi-btn primary" href="' + esc(readerHref) + '" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px">' +
+    '<a class="fi-btn primary" href="' + esc(readerHref) + (isPaid ? '&buy=1' : '') + '" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px">' +
     (isPaid
       ? '🛒 Buy for ' + esc(priceStr) + ' →'
       : 'Open in reader →') +
