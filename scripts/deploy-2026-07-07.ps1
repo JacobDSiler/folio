@@ -225,6 +225,72 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat: sticky "🛒 Buy for $X" in reader bar + shelf buy auto-scrolls to CTA
+
+Jacob 2026-08-05: "Can the shelf buy button actually just activate
+the pay link for the folio? Right now it actually navigates to
+the folio, and it's hard to figure out/find where to buy it.
+Maybe the Buy buttons should be stuck to the navigation bar or
+something when it's not owned."
+
+Two-part fix that surfaces the purchase flow prominently without
+duplicating the PayPal Buttons integration outside the reader.
+
+Sticky Buy button in the reader top bar (app.html)
+──────────────────────────────────────────────────
+New #rdBuyBtn beside the other reader-bar controls (between the
+audio 🎧 and the bookmark 🔖 buttons). Amber background so it
+reads as the primary action. Hidden by default; shown by the
+new _pwUpdateBuyButton helper which reads window paid-unlocked
+state + the current release's priceMode/price/currency and shows
+"🛒 Buy £X.XX" (localized symbol). Click triggers the existing
+_pwScrollToCTA which scrolls to the inline PayPal Buttons card
+and pulses it.
+
+Hooked into every _pwCheckAccess branch so the button state
+tracks the paywall gate exactly:
+  - Free/private → hidden
+  - Paid + unlocked (token or share JWT) → hidden
+  - Paid + locked → shown with the price
+And replace_all wired into every setAttribute('data-paid-unlocked',
+'1') site so the button hides the instant a purchase completes
+(vendor webhook, share-token accept, key entry, etc.) without
+waiting for the next _pwCheckAccess pass.
+
+Shelf buy → &buy=1 auto-scroll (shelf.html + app.html)
+──────────────────────────────────────────────────────
+Shelf info modal's primary CTA — "🛒 Buy for $X →" — now appends
+&buy=1 to the reader URL. Reader boot parses it and calls
+_pwScrollToCTA on a triple-retry timer (800/1800/2400ms) that
+matches the paid-load timing pattern the ?teaser and ?goto
+handlers use. Each retry is idempotent — _pwScrollToCTA is
+no-op when the CTA is already in view, so the retries only
+matter for slow-loading paid folios where the CTA card lands
+late.
+
+Together these mean a reader tapping "🛒 Buy for $X →" on the
+shelf lands directly on the PayPal Buttons with the CTA card
+pulsing to draw the eye — no scroll-hunting required. And once
+they're in the reader, the sticky bar button is a permanent
+"where do I pay?" anchor while they browse the preview.
+
+Files touched
+─────────────
+  app.html   — #rdBuyBtn + #rdBuyBtnLabel in readerBar;
+               _pwUpdateBuyButton helper; wired into
+               _pwCheckAccess return paths; replace_all appended
+               _pwUpdateBuyButton(null) after every
+               setAttribute('data-paid-unlocked','1');
+               _autoBuy = params.get('buy') === '1' in reader
+               boot + triple-retry _pwScrollToCTA trigger
+  shelf.html — info-modal primary CTA appends &buy=1 for paid
+               folios; comment references the sticky button as
+               the companion fix
+
+---
+
+Previous batch — kept in commit history:
+
 feat: hide series row by default + "Browse N series" toggle in filters
 
 Jacob 2026-08-05: "the Series on the Shelf section should be

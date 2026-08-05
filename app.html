@@ -27454,7 +27454,7 @@
       if (!gate) return;
       gate.classList.remove('open');
       gate.setAttribute('aria-hidden', 'true');
-      document.documentElement.setAttribute('data-paid-unlocked', '1');
+      document.documentElement.setAttribute('data-paid-unlocked', '1'); try { if (typeof _pwUpdateBuyButton === 'function') _pwUpdateBuyButton(null); } catch(_){}
     }
 
     async function _pwSubmitKey() {
@@ -27552,6 +27552,32 @@
     // // ── end VIP bypass ───────────────────────────────────────────────────────────
 
     // Check gating on reader-mode boot. Returns true when access is granted.
+    // Show/hide + label the sticky Buy button in the reader bar.
+    // Called from every branch of _pwCheckAccess so the button state
+    // matches the current paywall gate exactly. Priced in the folio's
+    // own currency (£/€/$). Reader owner never sees it because owners
+    // fall through the unlocked path (either via token cache or via
+    // Firestore body/paid read).
+    function _pwUpdateBuyButton(release) {
+      try {
+        const btn = document.getElementById('rdBuyBtn');
+        const lbl = document.getElementById('rdBuyBtnLabel');
+        if (!btn) return;
+        const isPaid = !!(release && release.priceMode === 'paid' && Number(release.price) > 0);
+        const unlocked = document.documentElement.getAttribute('data-paid-unlocked') === '1';
+        if (!isPaid || unlocked) {
+          btn.style.display = 'none';
+          return;
+        }
+        const sym = release.currency === 'GBP' ? '£' : release.currency === 'EUR' ? '€' : '$';
+        if (lbl) lbl.textContent = 'Buy ' + sym + Number(release.price).toFixed(2);
+        btn.style.display = 'inline-flex';
+        btn.style.alignItems = 'center';
+        btn.style.gap = '4px';
+      } catch (_) {}
+    }
+    window._pwUpdateBuyButton = _pwUpdateBuyButton;
+
     async function _pwCheckAccess(folioId) {
 
       const release = await _pwFetchRelease(folioId);
@@ -27560,6 +27586,7 @@
         document.documentElement.removeAttribute('data-paid-unlocked');
         _pwActiveRelease = null;
         _pwActiveFolioId = null;
+        _pwUpdateBuyButton(null); // hide sticky buy button
         return true;
       }
 
@@ -27597,7 +27624,8 @@
 
       if (_pwIsValid(cached) || _pwIsValid(shareTk)) {
         _pwHidePreview(); // Ensure preview gate is removed
-        document.documentElement.setAttribute('data-paid-unlocked', '1');
+        document.documentElement.setAttribute('data-paid-unlocked', '1'); try { if (typeof _pwUpdateBuyButton === 'function') _pwUpdateBuyButton(null); } catch(_){}
+        _pwUpdateBuyButton(release); // hide — unlocked
 
         if (release.serial && typeof _serialApplyLocks === 'function') {
           setTimeout(() => _serialApplyLocks(release), 50);
@@ -27625,6 +27653,7 @@
       if (typeof _serialApplyLocks === 'function') {
         setTimeout(() => _serialApplyLocks(release), 60);
       }
+      _pwUpdateBuyButton(release); // show — still locked
       return false;
     }
 
@@ -27655,7 +27684,7 @@
 
       if (_pwIsValid(cached) || _pwIsValid(shareTk)) {
         _pwHidePreview();
-        document.documentElement.setAttribute('data-paid-unlocked', '1');
+        document.documentElement.setAttribute('data-paid-unlocked', '1'); try { if (typeof _pwUpdateBuyButton === 'function') _pwUpdateBuyButton(null); } catch(_){}
         try { _lockApplyTocRows(release); } catch (e) { }
         try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) { }
       // Show end-of-book panel (reader mode only; helper self-guards)
@@ -27980,7 +28009,7 @@
           status.textContent = 'Unlocked! Loading the rest of the book...';
           setTimeout(() => {
             _pwHidePreview();
-            document.documentElement.setAttribute('data-paid-unlocked', '1');
+            document.documentElement.setAttribute('data-paid-unlocked', '1'); try { if (typeof _pwUpdateBuyButton === 'function') _pwUpdateBuyButton(null); } catch(_){}
           }, 600);
         } catch (e) {
           status.classList.add('error');
@@ -28089,7 +28118,7 @@
               setTimeout(() => {
                 try {
                   if (typeof _pwHidePreview === 'function') _pwHidePreview();
-                  document.documentElement.setAttribute('data-paid-unlocked', '1');
+                  document.documentElement.setAttribute('data-paid-unlocked', '1'); try { if (typeof _pwUpdateBuyButton === 'function') _pwUpdateBuyButton(null); } catch(_){}
                   // Trigger a content re-render if there's a hook for it.
                   if (typeof _pwCheckAccess === 'function') _pwCheckAccess(releaseId);
                 } catch (_) {}
@@ -28228,6 +28257,15 @@
       // lands on that chapter's opening page. Doesn't unlock anything;
       // just scrolls. See docs/FOLIO_INFO_SURFACES_PLAN.md.
       const _gotoChId = params.get('goto');
+      // ?buy=1 — reader landed here from the shelf's "🛒 Buy for $X"
+      // CTA. Auto-scrolls to the paywall CTA card after load so the
+      // reader sees the PayPal Buttons immediately instead of hunting
+      // for them in the preview scroll. Same double-fire retry as
+      // ?goto — the CTA card is inserted by _pwShowPreview after
+      // _pwCheckAccess resolves, which can be a few hundred ms in.
+      // Added 2026-08-05 (Jacob's ask: "hard to figure out/find
+      // where to buy it").
+      const _autoBuy = params.get('buy') === '1';
 
       const startLoad = () => {
         if (typeof loadFolioById !== 'function') {
@@ -28273,6 +28311,24 @@
             };
             setTimeout(function(){ _plainJump('600ms'); }, 600);
             setTimeout(function(){ _plainJump('1600ms'); }, 1600);
+          }
+          // Auto-scroll to paywall CTA (?buy=1 from shelf). _pwShowPreview
+          // inserts .pw-preview-cta after _pwCheckAccess resolves, which
+          // can lag the initial render by a few hundred ms — same double-
+          // fire retry pattern the goto/teaser paths use, plus a final
+          // 2400ms retry for slow paid loads that need the release
+          // fetch + gate build to settle. _pwScrollToCTA is idempotent
+          // (pulses each time — visible feedback the click landed).
+          if (_autoBuy) {
+            const _tryScroll = function(label) {
+              try {
+                if (typeof _pwScrollToCTA === 'function') _pwScrollToCTA();
+                console.log('[buy] auto-scroll attempt (' + label + ')');
+              } catch (e) { console.warn('[buy] scroll failed:', e); }
+            };
+            setTimeout(function(){ _tryScroll('800ms'); }, 800);
+            setTimeout(function(){ _tryScroll('1800ms'); }, 1800);
+            setTimeout(function(){ _tryScroll('2400ms'); }, 2400);
           }
         }).catch(err => {
           const code = err && err.code;
@@ -34842,6 +34898,19 @@
     <select id="rdLangSwitch" onchange="_rdSwitchLanguage(this.value)" title="Change reading language" style="display:none;font-size:11.5px;padding:4px 7px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);cursor:pointer"></select>
     <button id="rdTypoBtn" onclick="_rdToggleTypo()" title="Typography">Aa</button>
     <button id="rdPronBtn" onclick="_rdTogglePronTips()" title="Show pronunciations on hover">🗣</button>
+    <!-- Sticky Buy button — persistent, always-visible entry point to
+         the paywall for paid folios the viewer hasn't purchased. Jacob
+         2026-08-05: "Right now it actually navigates to the folio, and
+         it's hard to figure out/find where to buy it." Click scrolls
+         to _pwScrollToCTA (the inline PayPal Buttons card) + pulses
+         it. Toggled + labelled by _pwUpdateBuyButton (in the paywall
+         module) — hidden for free folios, owners, and buyers who have
+         already unlocked. -->
+    <button id="rdBuyBtn" onclick="if(typeof _pwScrollToCTA==='function')_pwScrollToCTA()"
+      title="Buy this folio — scroll to the checkout"
+      style="display:none;background:var(--accent,#c98c2a);color:#fff;border:none;font-size:11.5px;font-weight:600;cursor:pointer;padding:5px 12px;border-radius:7px;letter-spacing:.01em;line-height:1;margin:0 4px;font-family:var(--sans);white-space:nowrap">
+      🛒 <span id="rdBuyBtnLabel">Buy</span>
+    </button>
     <button id="rdBmBtn" onclick="_rdOpenDrawer('bookmarks')" title="Bookmarks">🔖</button>
     <button id="rdAnBtn" onclick="_rdOpenDrawer('annotations')" title="Notes">✍</button>
     <button id="rdAudioBtn" onclick="_rdAudioToggleDrawer()" title="Audiobook">🎧</button>
