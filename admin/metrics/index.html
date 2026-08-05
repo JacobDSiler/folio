@@ -110,6 +110,13 @@
       <div class="metric loading danger"><div class="metric-label">Rated content</div><div class="metric-value">…</div></div>
       <div class="metric loading accent"><div class="metric-label">Featured right now</div><div class="metric-value">…</div></div>
       <div class="metric loading"><div class="metric-label">Total shelf views</div><div class="metric-value">…</div><div class="metric-sub">all-time viewCount sum</div></div>
+      <!-- Drafts-unshipped tile (added 2026-08-04). Authors who signed
+           in, created at least one folio_projects doc, but have zero
+           published. Signal: is our onboarding conversion funnel
+           leaking, or are they actively drafting? Requires
+           ADMIN_DEBUG_TOKEN because it needs the cross-user folioCount
+           / publishedCount aggregation from /user-list. -->
+      <div class="metric loading warn"><div class="metric-label">Drafts, unshipped</div><div class="metric-value">…</div><div class="metric-sub">authors with a project, none published</div></div>
     </div>
 
     <!-- ── Revenue section ─────────────────────────────────────── -->
@@ -330,7 +337,26 @@
       if (_serverUsers) {
         setMetric('contentGrid', 'Signed-in users', _serverUsers.length.toLocaleString(),
           _serverUsers.length + ' total accounts');
+        // Drafts-unshipped: authors with at least one folio_projects
+        // doc but zero published. The /user-list endpoint already
+        // returns folioCount + publishedCount per uid (see paywall
+        // worker handleUserList around line 3049), so this is a
+        // cheap client-side count.
+        const draftAuthors = _serverUsers.filter(function(u){
+          return (u.folioCount || 0) > 0 && (u.publishedCount || 0) === 0;
+        }).length;
+        const publishedAuthors = _serverUsers.filter(function(u){
+          return (u.publishedCount || 0) > 0;
+        }).length;
+        const totalAuthors = draftAuthors + publishedAuthors;
+        const conversion = totalAuthors > 0
+          ? Math.round((publishedAuthors / totalAuthors) * 100) + '% ship rate'
+          : 'no authors yet';
+        setMetric('contentGrid', 'Drafts, unshipped', draftAuthors, conversion);
       } else {
+        // Drafts-unshipped also depends on _serverUsers — show —
+        // instead of leaving the tile in a permanent "loading" state.
+        setMetric('contentGrid', 'Drafts, unshipped', '—', 'needs ADMIN_DEBUG_TOKEN');
         // Show a click-to-configure prompt in the tile subtitle.
         const grid = document.getElementById('contentGrid');
         for (const cell of grid.querySelectorAll('.metric')) {

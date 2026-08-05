@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Serials Guide — Folio</title>
+<title>Author Guide — Folio</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Crimson+Pro:wght@400;600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
 <style>
@@ -127,13 +127,46 @@
 </head>
 <body>
   <main class="page">
-    <h1>Publishing a serial in Folio</h1>
-    <div class="sub">Folio &nbsp;·&nbsp; author guide</div>
+    <h1>The Folio author guide</h1>
+    <div class="sub">Folio &nbsp;·&nbsp; onfolio.press</div>
 
     <p class="lead">
-      Folio's serial mode lets you release a book chapter by chapter on a schedule &mdash;
-      like Substack, but for fiction. This guide walks through writing, publishing, selling,
-      and running a serial from start to finish.
+      Folio is a browser-based book publishing platform. Write, format, publish
+      to a public shelf, sell directly to readers (no middleman), and optionally
+      drip-release your book as a serial. This guide walks through the whole
+      workflow — writing, publishing, selling, and serialising — with the parts
+      most authors ask about first.
+    </p>
+
+    <h2>The tiers &mdash; Free, Indie, Imprint</h2>
+    <p>
+      Everything in this guide works on the <strong>Free</strong> tier. Folio doesn't
+      wall off the actual publishing workflow behind a paywall &mdash; writing,
+      formatting, releasing, selling, and building a subscriber list are all
+      included in Free. What the paid tiers add is <em>marketing surface</em>: a
+      customized imprint page, richer shelf info cards, product-page
+      customization, boost credits, and analytics.
+    </p>
+    <p>
+      Full side-by-side comparison lives at
+      <a href="/press/">onfolio.press/press/</a> &mdash; use that link if you want
+      to know exactly what each tier unlocks. Short version:
+    </p>
+    <ul>
+      <li><strong>Free ($0)</strong> &mdash; the full author toolkit + basic
+        shelf listing.</li>
+      <li><strong>Indie ($5/mo or $50/yr)</strong> &mdash; enhanced shelf card,
+        chapter preview strip on the info modal, custom imprint accent color,
+        engagement analytics.</li>
+      <li><strong>Imprint ($12/mo or $120/yr)</strong> &mdash; standalone
+        product page per folio, custom URL, product-photo studio, click-behavior
+        override (readers land on your sales page instead of the reader), full
+        analytics, priority moderation.</li>
+    </ul>
+    <p>
+      <em>If someone comped you a subscription:</em> welcome. Your ✨ Founding
+      Contributor badge appears on your imprint page automatically once the
+      comp lands. Everything paid-tier unlocks for you immediately.
     </p>
 
     <h2>What is a serial?</h2>
@@ -186,9 +219,20 @@
 
     <h3>Paid fields</h3>
     <p>
-      Only visible when you've picked Paid. Set your Gumroad product ID, price,
-      currency, free-preview chapters, and whether to include an audiobook.
+      Only visible when you've picked Paid. Set your price, currency,
+      free-preview chapters, whether to include an audiobook, and your
+      <strong>payment provider</strong>. Folio supports two:
     </p>
+    <ul>
+      <li><strong>PayPal Native (Path A)</strong> &mdash; recommended default.
+        Readers click Buy inside Folio, PayPal buttons appear inline, they pay,
+        Folio unlocks the book. No leaving the reader, no external license key.
+        You configure PayPal in the <strong>Vendor Connections</strong> modal
+        (account-wide, not per-folio).</li>
+      <li><strong>Gumroad</strong> &mdash; the original flow. Reader is sent to
+        gumroad.com to buy, Gumroad emails them a license key, they paste it
+        into Folio to unlock. See Step 4 below for the setup.</li>
+    </ul>
 
     <h3>Serial release section</h3>
     <p>
@@ -226,11 +270,28 @@
       subscribers can still sign up, but releases happen quietly.
     </p>
 
-    <h2>Step 4 &mdash; If you're selling: set up Gumroad</h2>
+    <h2>Step 4 &mdash; If you're selling: choose a payment provider</h2>
     <p>
-      For paid serials, payments go through <a href="https://gumroad.com" target="_blank" rel="noopener">Gumroad</a>.
-      Folio doesn't process money itself &mdash; it gates the reader on a Gumroad
-      license-key check.
+      Folio itself doesn't touch money &mdash; every sale goes through a
+      third-party payment processor you set up in your own account. Two options:
+    </p>
+
+    <h3>PayPal Native (recommended)</h3>
+    <p>
+      The buy flow stays inside Folio. Reader clicks Buy on any locked chapter,
+      PayPal Buttons render inline, they complete checkout, Folio unlocks
+      immediately. To set up: open the sidebar <strong>Folio</strong> tab, click
+      <strong>Vendor Connections</strong>, paste your PayPal Client ID + Secret
+      (from developer.paypal.com &rarr; Apps &amp; Credentials). These are
+      account-wide &mdash; every paid folio you publish uses the same PayPal
+      account. In the Release modal, pick <strong>PayPal Native</strong> as the
+      provider. No product ID or license key involved.
+    </p>
+
+    <h3>Gumroad (alternative)</h3>
+    <p>
+      For paid serials via <a href="https://gumroad.com" target="_blank" rel="noopener">Gumroad</a>,
+      Folio gates the reader on a Gumroad license-key check.
     </p>
     <p>
       Over in Gumroad, create a product. Either &ldquo;Digital download&rdquo; or
@@ -254,8 +315,17 @@
     <p>
       Click <strong>Publish</strong> in the Release modal. Folio saves the release
       and shows you a reader URL &mdash; something like
-      <code>folio.jacobsiler.com/?read=&lt;your-folio-id&gt;</code>. Click
+      <code>onfolio.press/app.html?read=&lt;your-folio-id&gt;</code>. Click
       &ldquo;Copy link&rdquo; to grab it.
+    </p>
+    <p>
+      If you also ticked <strong>List on the Folio Shelf</strong> in the release
+      modal, your folio appears on <a href="/shelf">onfolio.press/shelf</a>
+      alongside every other author's public folios &mdash; a browseable
+      marketplace. Free listings appear immediately; paid listings do too, gated
+      at read time by whatever provider you chose in Step 4. Any age rating
+      above &ldquo;All&rdquo; queues the listing for moderator review before
+      going fully public (you can still see it as the owner).
     </p>
     <p>
       The book is now live. If you set the first-unlock for the future, no
@@ -265,23 +335,28 @@
 
     <h2>Step 6 &mdash; Share the link</h2>
     <p>
-      For free serials, post the reader URL anywhere &mdash; your blog, Twitter,
-      Reddit, your newsletter. Anyone who clicks lands in reader mode and sees
-      whatever has been released so far, plus locked cards for upcoming chapters.
+      For free folios (serial or not), post the reader URL anywhere &mdash; your
+      blog, Twitter, Reddit, your newsletter, your imprint page. Anyone who
+      clicks lands in reader mode and sees whatever's released so far, plus
+      locked cards for upcoming chapters (if it's a serial).
     </p>
     <p>
-      For paid serials, share the <strong>Gumroad product URL</strong>
-      (<code>gumroad.com/l/your-product</code>), <em>not</em> the Folio reader URL.
-      Buyers land on Gumroad, pay, and get a license key emailed to them. In your
-      Gumroad product description, paste your Folio reader URL with a note like:
+      For <strong>paid folios on PayPal Native</strong>, share the same reader
+      URL. Readers see the free preview, click Buy on a locked chapter, PayPal
+      Buttons appear, they pay, the book unlocks. No separate purchase URL to
+      juggle.
+    </p>
+    <p>
+      For <strong>paid folios on Gumroad</strong>, share the
+      <a href="https://gumroad.com" target="_blank" rel="noopener">Gumroad</a>
+      product URL (<code>gumroad.com/l/your-product</code>) &mdash; buyers land
+      on Gumroad, pay, get a license key emailed. In your Gumroad product
+      description, paste your Folio reader URL with a note like:
     </p>
     <blockquote>
-      After purchase, head to folio.jacobsiler.com/?read=&hellip; and paste the
+      After purchase, head to onfolio.press/app.html?read=&hellip; and paste the
       license key when prompted.
     </blockquote>
-    <p>
-      This way buyers know exactly what to do with the key Gumroad sends them.
-    </p>
 
     <h2>Step 7 &mdash; Release chapters</h2>
     <p>Once your serial is live, chapters become available in two ways:</p>
@@ -359,10 +434,10 @@
       straight to the new chapter, and a one-click unsubscribe link.
     </p>
     <p>
-      For paid serials, this all happens behind the Gumroad paywall. The reader
-      buys the book once, enters their license key, and from that point on they
-      see the same locked-card-with-countdown experience that free serial readers
-      see.
+      For paid serials, this all happens behind the paywall (PayPal Native or
+      Gumroad, whichever you picked in Step 4). The reader buys the book once,
+      Folio unlocks, and from that point on they see the same locked-card-with-
+      countdown experience that free serial readers see.
     </p>
 
     <h2>Your serial dashboard</h2>
@@ -456,6 +531,75 @@
       If you hit any rough edges, drop a note &mdash;
       <a href="mailto:folio@jacobsiler.com">folio@jacobsiler.com</a>. The serial
       flow is new and feedback shapes what gets built next.
+    </p>
+
+    <h2>Beyond serials &mdash; the rest of the platform</h2>
+    <p>
+      Serials are one publishing mode. The full surface also includes:
+    </p>
+
+    <h3>The Folio Shelf</h3>
+    <p>
+      <a href="/shelf">onfolio.press/shelf</a> &mdash; the public marketplace.
+      Every folio with &ldquo;List on the Folio Shelf&rdquo; ticked appears
+      here, browseable by genre, tag, series, and language. Readers filter with
+      power-tags (&ldquo;fantasy romance BUT NOT spicy&rdquo; is a real query).
+      Each card shows the cover, blurb, price, chapter preview strip, and a
+      ⓘ more link that opens the full folio info without leaving the shelf.
+    </p>
+
+    <h3>Your imprint page</h3>
+    <p>
+      Every signed-in author gets an imprint page at
+      <code>onfolio.press/imprint/?uid=&lt;your-uid&gt;</code> &mdash; your
+      author bookshelf. All your published folios appear here. Indie+ tiers get
+      accent-color customization; Imprint tier gets custom hero image + font
+      overrides. Readers who click your name on any folio card land here.
+    </p>
+
+    <h3>Ratings + moderation</h3>
+    <p>
+      Content ratings (All / 12+ / 16+ / 18+) live in the release modal under
+      the shelf-fields section. Any rating above All queues the folio for
+      moderator review before going fully public. Owners can always see their
+      own pending listings. Ratings 16+ and 18+ hide from signed-out visitors.
+    </p>
+
+    <h3>Genres + tags</h3>
+    <p>
+      Two dimensions of classification: <strong>genre codes</strong> (Folio's
+      own open taxonomy, primary + up to 4 secondaries) and <strong>free-text
+      tags</strong> (slow-burn, cozy, dark-academia, no-explicit-content, etc.).
+      Both are used by the shelf's power-tag filter. Genres shape categorisation;
+      tags shape discovery.
+    </p>
+
+    <h3>Workspace layout presets</h3>
+    <p>
+      The picker next to the dark-mode toggle in the sidebar header switches
+      between <strong>Full</strong>, <strong>Write</strong>, and
+      <strong>Focus</strong> modes. Write mode collapses shortcut chrome for
+      more vertical writing space. Focus mode hides sidebar + toolbar entirely
+      for deep-write sessions (a ⚙ button in the corner lets you switch back).
+      Choice persists per browser.
+    </p>
+
+    <h3>Reader image lightbox</h3>
+    <p>
+      In reader mode, clicking any image opens it full-screen. Click again (or
+      press Escape) to close. Works for cover, inline illustrations, full-page
+      art, and quad plates.
+    </p>
+
+    <h2>Where to go next</h2>
+    <p>
+      <a href="/press/">Tiers &amp; pricing &rarr;</a> for what Free / Indie /
+      Imprint unlock in detail.<br>
+      <a href="/help/">Help &amp; FAQ &rarr;</a> for common questions.<br>
+      <a href="/shelf">The Shelf &rarr;</a> to browse what other authors have
+      published.<br>
+      <a href="mailto:folio@jacobsiler.com">folio@jacobsiler.com</a> for
+      anything not covered here &mdash; feedback shapes what gets built.
     </p>
 
     <h2>Quick checklist</h2>

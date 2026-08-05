@@ -497,6 +497,20 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── Admin digest latch (worker → admin metrics tile) ────────
+    // Populated by folio-email-worker.js runAdminDigest() after each
+    // digest send — stores lastSentMs, lastPendingCount,
+    // lastRecipients. Read from admin/metrics/index.html to render
+    // the "Last admin digest sent" tile. Worker writes via service
+    // account (bypasses rules); this branch grants admin-only READ
+    // so the metrics page can hydrate. Without it the client-side
+    // getDoc hit the default-deny and the tile rendered "err"
+    // (Jacob's screenshot 2026-08-04). See CRITICAL_PATHS.md.
+    match /folio_admin_digest_state/{doc} {
+      allow read:  if isAdmin();
+      allow write: if false; // worker-only via service account
+    }
+
     // Anything not matched above is denied by default.
   }
 }

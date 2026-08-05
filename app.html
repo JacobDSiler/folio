@@ -2448,6 +2448,30 @@
       color: var(--text);
       background: var(--bg)
     }
+    /* Ship sub-strip buttons — override the top-level .tab-btn width:100%
+       (which comes from the CSS Grid layout) so they lay out inline in
+       the flex sub-strip. Also lighter visual weight so it's clear
+       they're one level down from the primary strip. */
+    .tab-btn.ship-subtab {
+      width: auto;
+      flex: 0 0 auto;
+      border-bottom-width: 2px;
+      padding: 5px 10px 4px;
+    }
+    .tab-btn.ship-subtab.active {
+      border-bottom-color: var(--accent-ui);
+      background: transparent;
+    }
+    [data-dark] .tab-btn.ship-subtab.active {
+      background: transparent;
+    }
+    /* Presets: keep the sub-strip hidden in write / focus presets when
+       Ship isn't active. Handled by JS (display:none inline) but this
+       covers boot before the JS runs. */
+    #shipSubtabs {
+      padding-top: 4px;
+      padding-bottom: 4px;
+    }
 
     @media(max-width:768px) {
       .app {
@@ -2994,6 +3018,14 @@
     .ch-item.dragging {
       opacity: 0.5;
       cursor: grabbing
+    }
+
+    /* Locked chapter — subtle left-border accent so authors can see
+       at a glance which rows will survive a re-import. Kept muted so
+       the list doesn't feel busy. See toggleChapterLock in the main
+       script + the 🔒 button in chItemHTML. */
+    .ch-item.ch-locked {
+      border-left: 2px solid var(--accent, #c98c2a);
     }
 
     /* Drop indicator — a coloured line on the edge of the target row
@@ -6680,25 +6712,65 @@
         </script>
       </div>
 
+      <!-- Tab strip — intent-grouped after MODULAR_UI_PLAN.md §5.
+           Four top-level groups, one per author intent:
+             Write   → Manuscript
+             Design  → Book (cover, typography, layout)
+             Produce → Audio
+             Ship    → Folio (release + shelf), Metrics
+           Ship expands to a sub-strip below the main tabs (only when
+           it's active) letting the author toggle Folio ↔ Metrics
+           without cluttering the primary strip. All other groups have
+           exactly one sub-tab today, so the top-level button IS the
+           destination. Legacy switchTab('folio' / 'metrics' / …) call
+           sites keep working — the Ship logic just tracks which
+           sub-tab is currently active so the highlight is right. -->
       <div class="tabs">
-        <button class="tab-btn active" onclick="switchTab('manuscript',this)">Manuscript</button>
-        <button class="tab-btn" onclick="switchTab('book',this)">Book</button>
-        <button class="tab-btn" onclick="switchTab('audio',this)">Audio</button>
-        <button class="tab-btn" onclick="switchTab('folio',this)">☁ Folio</button>
-        <button class="tab-btn" onclick="switchTab('metrics',this)" title="How this folio is performing">📊 Metrics</button>
+        <button class="tab-btn active" onclick="switchTab('manuscript',this)" data-group="write">✍ Write</button>
+        <button class="tab-btn" onclick="switchTab('book',this)" data-group="design">🎨 Design</button>
+        <button class="tab-btn" onclick="switchTab('audio',this)" data-group="produce">🎧 Produce</button>
+        <button class="tab-btn" onclick="_shipGroupClicked(this)" data-group="ship" title="Publish, sell, track — Folio settings + Metrics">📤 Ship</button>
+      </div>
+      <!-- Ship sub-strip. Hidden by default; #shipSubtabs becomes
+           display:flex when the Ship group is active. Buttons route
+           through the existing switchTab() legacy ids so no downstream
+           code changes. -->
+      <div id="shipSubtabs"
+           style="display:none;padding:0 12px;gap:6px;background:var(--surface);border-bottom:.5px solid var(--border);flex-wrap:wrap">
+        <button class="tab-btn ship-subtab" onclick="switchTab('folio',this)"
+                style="font-size:11.5px;padding:4px 10px" data-ship-tab="folio">☁ Folio</button>
+        <button class="tab-btn ship-subtab" onclick="switchTab('metrics',this)"
+                style="font-size:11.5px;padding:4px 10px" data-ship-tab="metrics" title="How this folio is performing">📊 Metrics</button>
       </div>
       <script>
         /* Pair to the head-block bootRestoreTab — once the buttons exist,
-           swap the .active class to the saved tab's button. */
+           swap the .active class to the saved tab's button. Updated for
+           §5 tab grouping: if the saved tab is a Ship sub-tab (folio /
+           metrics), highlight the top-level Ship button + show the
+           sub-strip + activate the correct sub-tab. This prevents a
+           boot-flicker where nothing looked selected until
+           _restoreLastTabOr fired asynchronously. */
         (function () {
           try {
             var saved = window.__folioBootTab;
             if (!saved) return;
+            var isShipSub = (saved === 'folio' || saved === 'metrics');
             var btns = document.querySelectorAll('.tab-btn');
             for (var i = 0; i < btns.length; i++) {
-              var oc = btns[i].getAttribute('onclick') || '';
-              if (oc.indexOf("'" + saved + "'") !== -1) btns[i].classList.add('active');
-              else btns[i].classList.remove('active');
+              btns[i].classList.remove('active');
+            }
+            if (isShipSub) {
+              var shipBtn = document.querySelector('.tab-btn[data-group="ship"]');
+              if (shipBtn) shipBtn.classList.add('active');
+              var subStrip = document.getElementById('shipSubtabs');
+              if (subStrip) subStrip.style.display = 'flex';
+              var subBtn = document.querySelector('.ship-subtab[data-ship-tab="' + saved + '"]');
+              if (subBtn) subBtn.classList.add('active');
+            } else {
+              for (var j = 0; j < btns.length; j++) {
+                var oc = btns[j].getAttribute('onclick') || '';
+                if (oc.indexOf("'" + saved + "'") !== -1) btns[j].classList.add('active');
+              }
             }
           } catch (e) { }
         })();
@@ -7751,6 +7823,11 @@
         style="padding:6px 1.25rem 8px;font-size:10.5px;color:var(--hint);background:#faf9f7;border-top:0.5px solid var(--border);display:flex;gap:10px;flex-wrap:wrap;align-items:center;flex-shrink:0">
         <a href="/serials-guide.html"
           style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Guide</a>
+        <a href="/press/"
+          style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)"
+          title="Free / Indie / Imprint tiers — what each unlocks">Tiers</a>
+        <a href="/help/"
+          style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Help</a>
         <a href="/api-keys-guide.html"
           style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Keys</a>
         <a href="/privacy.html"
@@ -7984,6 +8061,23 @@
               onmouseover="this.style.borderColor='var(--accent-ui)'" onmouseout="this.style.borderColor='var(--border-mid)'">
               📚 Browse The Shelf
             </a>
+          </div>
+          <!-- Reader-facing review CTA (added 2026-08-04 after Jacob
+               noticed 172 shelf views / 0 reviews). Root cause of the
+               gap: no reader-facing entry point to the review modal
+               existed — only the author-sidebar "Review Folio" button.
+               End-of-book is the natural moment: reader has just
+               finished, peak "I have an opinion" energy. Opens the
+               existing _openReviewModal flow, so no new submission
+               UI to maintain. -->
+          <div style="margin-top:22px;padding-top:20px;border-top:.5px solid var(--border);display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap">
+            <span style="font-size:12px;color:var(--muted)">Enjoyed it? Help other readers find their next favourite book.</span>
+            <button type="button" onclick="if(typeof _openReviewModal==='function')_openReviewModal();else window.location='/app.html#review'"
+              style="padding:7px 14px;border:.5px solid var(--accent-ui);background:var(--surface);color:var(--accent-ui);font-size:12.5px;font-weight:500;border-radius:7px;cursor:pointer;font-family:inherit;transition:background .12s,color .12s"
+              onmouseover="this.style.background='var(--accent-ui)';this.style.color='#fff'"
+              onmouseout="this.style.background='var(--surface)';this.style.color='var(--accent-ui)'">
+              ★ Leave a review
+            </button>
           </div>
           <p style="font-size:10.5px;color:var(--hint);margin:20px 0 0;line-height:1.5">
             Folio takes 0% of tips — every cent goes to the author. Support keeps the platform ad-free.
@@ -12266,6 +12360,27 @@
       return map[id] || 'manuscript';
     }
 
+    // Ship group tracks which of its two sub-tabs (folio / metrics) is
+    // currently active. Used to (a) know which sub-tab to open when the
+    // user clicks the top-level Ship button and (b) which sub-tab-btn
+    // to visually highlight. Persisted in localStorage.
+    var _SHIP_SUBTABS = ['folio', 'metrics'];
+    function _shipIsGroupTab(id) { return _SHIP_SUBTABS.indexOf(id) >= 0; }
+    function _shipGetLastSub() {
+      try {
+        var s = localStorage.getItem('folio_lastShipSub');
+        if (_shipIsGroupTab(s)) return s;
+      } catch (_) {}
+      return 'folio';
+    }
+    // Handler for the top-level "📤 Ship" button — routes to whichever
+    // sub-tab (folio / metrics) was last active, defaulting to Folio.
+    function _shipGroupClicked(btn) {
+      var sub = _shipGetLastSub();
+      switchTab(sub, btn);
+    }
+    window._shipGroupClicked = _shipGroupClicked;
+
     function switchTab(id, btn) {
       // Drop the boot-flicker stylesheet on first switch — its !important
       // rules would otherwise override the inline display changes below.
@@ -12279,11 +12394,30 @@
         var el = document.getElementById(divId);
         if (el) el.style.display = (show.indexOf(divId) !== -1) ? '' : 'none';
       });
-      // Highlight the right button. Derive it from the (normalized) id
-      // so a stale btn arg from a legacy call site can't mis-highlight.
+      // Highlight the right button. Ship's two sub-tabs share a
+      // top-level parent, so both the Ship parent button AND the active
+      // sub-strip button get highlighted when id is folio/metrics.
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-      var activeBtn = (typeof _tabBtnFor === 'function' ? _tabBtnFor(id) : null) || btn;
-      if (activeBtn) activeBtn.classList.add('active');
+      if (_shipIsGroupTab(id)) {
+        // Top-level Ship button highlighted.
+        var shipBtn = document.querySelector('.tab-btn[data-group="ship"]');
+        if (shipBtn) shipBtn.classList.add('active');
+        // Sub-strip active state (routes to the specific sub-tab).
+        document.querySelectorAll('.ship-subtab').forEach(function(b){
+          if (b.dataset.shipTab === id) b.classList.add('active');
+        });
+        // Remember which sub was last used so re-clicking Ship reopens it.
+        try { localStorage.setItem('folio_lastShipSub', id); } catch (_) {}
+      } else {
+        // Non-Ship top-level tab. Legacy _tabBtnFor lookup by onclick.
+        var activeBtn = (typeof _tabBtnFor === 'function' ? _tabBtnFor(id) : null) || btn;
+        if (activeBtn) activeBtn.classList.add('active');
+      }
+      // Sub-strip visibility — flex when Ship is active, hidden otherwise.
+      try {
+        var sub = document.getElementById('shipSubtabs');
+        if (sub) sub.style.display = _shipIsGroupTab(id) ? 'flex' : 'none';
+      } catch (_) {}
       if (id === 'manuscript') { try { renderChapterList(); } catch (e) { } }
       if (id === 'metrics') { try { _mxRefresh(); } catch (e) { console.warn('[metrics] refresh failed:', e); } }
       // Remember the choice so a refresh lands on the same tab.
@@ -13235,6 +13369,36 @@
       });
 
       if (!newChapters.length) { setStatus('Nothing to import'); return; }
+
+      // Preserve any currently-locked chapters through the re-import.
+      // Jacob 2026-08-05: authors set up frontispieces / back matter
+      // by hand and get frustrated when a re-import wipes them out.
+      // The 🔒 lock button on each chapter row flips ch.locked; here
+      // we splice locked chapters back into the new list at (or as
+      // close as possible to) their original index. Sort by original
+      // index ascending so multi-lock preservations keep relative
+      // order. Clamped to newChapters.length so a locked chapter
+      // that was position 12 in a 15-chapter book doesn't overflow a
+      // freshly-imported 4-chapter draft.
+      const _locked = chapters
+        .map(function(c, i){ return c && c.locked ? { c: c, i: i } : null; })
+        .filter(function(x){ return x; })
+        .sort(function(a, b){ return a.i - b.i; });
+      if (_locked.length) {
+        _locked.forEach(function(entry){
+          const pos = Math.min(entry.i, newChapters.length);
+          newChapters.splice(pos, 0, entry.c);
+        });
+        console.log('[import] preserved', _locked.length, 'locked chapter(s) through re-import');
+        try {
+          if (typeof toastInfo === 'function') {
+            toastInfo('🔒 Preserved ' + _locked.length +
+              ' locked chapter' + (_locked.length === 1 ? '' : 's') +
+              ' through the re-import.', { duration: 3600 });
+          }
+        } catch (_) {}
+      }
+
       chapters = newChapters;
       _insertTOCIfNeeded();
       renderChapterList();
@@ -13856,7 +14020,16 @@
       // Word count for this chapter
       const wc = ch.content.trim() ? ch.content.trim().split(/\s+/).length : 0;
       const wcStr = wc > 0 ? (wc >= 1000 ? (wc / 1000).toFixed(1).replace(/\.0$/, '') + 'k' : wc) + ' w' : '';
-      return `<div class="ch-item" data-id="${ch.id}" data-i="${i}" draggable="true">
+      // Lock button (added 2026-08-05). Locked chapters survive a
+      // manuscript re-import — frontispieces, back matter, and any
+      // hand-crafted chapter that would otherwise be clobbered by
+      // applyImportToChapters(). Icon flips: 🔒 locked (full opacity),
+      // 🔓 unlocked (dimmed). Click toggles.
+      const _locked = !!ch.locked;
+      const _lockTitle = _locked
+        ? 'Locked — this chapter will survive future manuscript re-imports. Click to unlock.'
+        : 'Unlocked — will be replaced if you re-import the manuscript. Click to lock (persists this chapter through re-imports).';
+      return `<div class="ch-item${_locked ? ' ch-locked' : ''}" data-id="${ch.id}" data-i="${i}" draggable="true">
     <div class="ch-item-head">
       <span class="ch-drag-handle" title="Drag to reorder">⠿</span>
       <span class="chip-type ${typeClasses[ch.type]}" onclick="cycleChType('${ch.id}')" title="${typeTip[ch.type] || 'Click to change type'}">${typeLabel[ch.type]}</span>
@@ -13864,12 +14037,34 @@
       <span style="font-size:9.5px;color:var(--hint);flex-shrink:0;padding:0 3px;white-space:nowrap">${wcStr}</span>
       <button class="ch-expand-btn" onclick="scrollToChapter('${ch.id}')" title="Jump to chapter in preview">▶</button>
       <button class="ch-expand-btn" onclick="openWritingMode('${ch.id}')" title="Open in writing mode">✍</button>
+      <button class="ch-expand-btn" onclick="toggleChapterLock('${ch.id}')" title="${_lockTitle}" style="opacity:${_locked ? '1' : '0.5'};font-size:11px">${_locked ? '🔒' : '🔓'}</button>
       <button class="ch-expand-btn" onclick="_chImportInto('${ch.id}')" title="Import a file (docx / txt / md / rtf) — replaces this chapter's content, or split into multiple new chapters" style="opacity:0.65;font-size:11px">⇧</button>
       <button class="ch-expand-btn" onclick="showChapterExportMenu('${ch.id}',this)" title="Export this chapter" style="opacity:0.65;font-size:11px">⇩</button>
       <button class="ch-rm-btn" style="margin-left:2px;padding:1px 6px;font-size:10px" onclick="removeChapter('${ch.id}')">✕</button>
     </div>
   </div>`;
     }
+
+    // Toggle a chapter's locked flag. Locked chapters survive
+    // applyImportToChapters re-imports (see the preservation logic
+    // there). Persisted as ch.locked on the chapter object — saves
+    // with the manuscript normally.
+    function toggleChapterLock(id) {
+      const ch = chapters.find(function(c){ return c.id === id; });
+      if (!ch) return;
+      ch.locked = !ch.locked;
+      renderChapterList();
+      try {
+        if (typeof toastInfo === 'function') {
+          toastInfo(ch.locked
+            ? '🔒 "' + (ch.title || 'Untitled') + '" locked — will survive re-imports'
+            : '🔓 "' + (ch.title || 'Untitled') + '" unlocked',
+            { duration: 2400 });
+        }
+      } catch (_) {}
+      if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+    }
+    window.toggleChapterLock = toggleChapterLock;
 
 
     function estimatePageCount(wordCount) {
@@ -23712,6 +23907,12 @@
           if (_shelfGenre)   _shelfGenre.value     = _rlCurrent.shelfGenre || '';
           if (_shelfBlurb)   _shelfBlurb.value     = _rlCurrent.shelfBlurb || '';
           if (_shelfUseDesc) _shelfUseDesc.checked = !!_rlCurrent.shelfUseDescription;
+          // Long-blurb hydration (info-modal content). Falls through empty
+          // for older releases that never had the field — save handler
+          // stores null when blank so we don't stamp empty strings on
+          // every save.
+          const _longBlurbEl = document.getElementById('rlLongBlurb');
+          if (_longBlurbEl) _longBlurbEl.value = _rlCurrent.longBlurb || '';
           // Chapter preview strip toggle — default true (undefined + missing
           // both hydrate as checked). Only an explicit `false` unchecks it.
           const _showCpEl = document.getElementById('rlShowChapterPreview');
@@ -24305,6 +24506,11 @@
           return ((document.getElementById('rlShelfGenre') && document.getElementById('rlShelfGenre').value) || '').trim().slice(0, 40) || null;
         })(),
         shelfBlurb: ((document.getElementById('rlShelfBlurb') && document.getElementById('rlShelfBlurb').value) || '').trim().slice(0, 280) || null,
+        // Long blurb (info-modal content). Distinct from the 280-char
+        // shelfBlurb so authors can pitch longer/richer on the info
+        // card without cluttering the shelf card. Nulled when empty
+        // so shelf render can gracefully fall back to shelfBlurb.
+        longBlurb: ((document.getElementById('rlLongBlurb') && document.getElementById('rlLongBlurb').value) || '').trim().slice(0, 2000) || null,
         // NEW — Folio classification (see docs/BISAC_CLASSIFICATION_PLAN.md
         // v2). Ordered array; genreCodes[0] is the PRIMARY genre used for
         // shelf categorisation + display, subsequent entries are
@@ -28912,14 +29118,21 @@
         'display:flex;align-items:center;justify-content:center;' +
         'cursor:zoom-out;padding:24px;box-sizing:border-box;' +
         'animation:folioLbFadeIn 0.14s ease-out';
-      // Full-size image. Preserve aspect via object-fit; cap to
-      // viewport so tall images don't scroll off-screen.
+      // Full-size image. Explicit width/height (viewport minus 48px of
+      // total padding) so the image scales UP to fill when the source
+      // is smaller than the viewport — max-width/max-height alone won't
+      // do that. object-fit:contain preserves aspect ratio within the
+      // stretched box, so tall images still fit vertically and wide
+      // images still fit horizontally without cropping. Jacob's original
+      // intent: readers should be able to inspect detail, not see a
+      // thumbnail with black bars around it.
       const img = document.createElement('img');
       img.src = src;
       if (alt) img.alt = alt;
       img.draggable = false;
       img.style.cssText =
-        'max-width:100%;max-height:100%;object-fit:contain;' +
+        'width:calc(100vw - 48px);height:calc(100vh - 48px);' +
+        'object-fit:contain;' +
         'box-shadow:0 8px 40px rgba(0,0,0,0.55);border-radius:4px;' +
         'display:block;user-select:none;-webkit-user-select:none';
       // Close button — always in the corner regardless of image aspect.
@@ -35160,6 +35373,23 @@
             style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;resize:vertical;font-family:inherit"></textarea>
           <div style="font-size:10px;color:var(--hint);margin-top:3px">
             Customising the card visuals (colours, fonts, background) is a <strong>Folio Press</strong> Pro feature — coming soon.
+          </div>
+
+          <!-- Long blurb — shown when a reader opens the ⓘ info card
+               on the shelf. Distinct from the short shelfBlurb (280 chars,
+               shows on the card itself) so authors can pitch harder /
+               longer / richer in the info modal without cluttering the
+               card. Falls back to shelfBlurb + description at render
+               time if left empty. Author-requested 2026-08-05 (Jacob):
+               "the info modal doesn't have a great deal of purpose if
+               both are the same." -->
+          <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:14px 0 4px">
+            Full description <span style="opacity:.6;font-weight:400">(shown when readers open the info card — pitch harder, go longer)</span>
+          </label>
+          <textarea id="rlLongBlurb" rows="6" maxlength="2000" placeholder="The longer pitch. Set the tone, name the stakes, hint at what makes this book different. This is where you win a browsing reader. If you leave it blank, the short shelf blurb is used instead."
+            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;resize:vertical;font-family:inherit;line-height:1.5"></textarea>
+          <div style="font-size:10px;color:var(--hint);margin-top:3px">
+            2,000 characters. Plain text for now — rich formatting is an <strong>Imprint</strong> tier feature (coming with the standalone product page).
           </div>
 
           <!-- Chapter preview strip toggle (Phase 2 of FOLIO_INFO_SURFACES_PLAN.md).
