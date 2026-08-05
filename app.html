@@ -24012,6 +24012,17 @@
           if (_seriesNameEl)  _seriesNameEl.value  = _rlCurrent.series || '';
           if (_seriesOrderEl) _seriesOrderEl.value = (_rlCurrent.seriesOrder != null) ? String(_rlCurrent.seriesOrder) : '';
           if (_seriesBlurbEl) _seriesBlurbEl.value = _rlCurrent.seriesBlurb || '';
+          // Saga fields (2026-08-05). All absent on pre-saga releases, so
+          // every one falls back to empty/unchecked — a folio saved before
+          // this shipped hydrates identically to how it did before.
+          const _sagaNameEl   = document.getElementById('rlSagaName');
+          const _sagaBlurbEl  = document.getElementById('rlSagaBlurb');
+          const _sagaAnchorEl = document.getElementById('rlSagaAnchor');
+          const _entryPointEl = document.getElementById('rlEntryPoint');
+          if (_sagaNameEl)   _sagaNameEl.value   = _rlCurrent.saga || '';
+          if (_sagaBlurbEl)  _sagaBlurbEl.value  = _rlCurrent.sagaBlurb || '';
+          if (_sagaAnchorEl) _sagaAnchorEl.value = _rlCurrent.sagaAnchor || '';
+          if (_entryPointEl) _entryPointEl.checked = !!_rlCurrent.entryPoint;
           // Content rating tier — new field (2026-07-27). Existing releases
           // that only have the legacy hasAdultContent boolean are mapped:
           // true → "18+", false/missing → "all". The hidden checkbox stays
@@ -24740,6 +24751,20 @@
           if (!isFinite(n) || n < 0) return null;
           return Math.min(999, n);
         })(),
+        // ── Saga (outer grouping level, 2026-08-05) ──────────────────
+        // All four nullable. `saga` empty === this folio isn't part of a
+        // multi-series universe, which is the common case; the shelf
+        // then behaves exactly as it did before sagas existed.
+        saga: ((document.getElementById('rlSagaName') && document.getElementById('rlSagaName').value) || '').trim().slice(0, 80) || null,
+        // Same write-once-per-group contract as seriesBlurb, one level up.
+        sagaBlurb: ((document.getElementById('rlSagaBlurb') && document.getElementById('rlSagaBlurb').value) || '').trim().slice(0, 800) || null,
+        // Free text on purpose — see the form comment. An in-world era
+        // positions a cycle on the saga's timeline without implying that
+        // anything must be read before it. Never rendered as "Book N".
+        sagaAnchor: ((document.getElementById('rlSagaAnchor') && document.getElementById('rlSagaAnchor').value) || '').trim().slice(0, 80) || null,
+        // "A new reader could start here." Complements sagaAnchor: the
+        // anchor says where a cycle sits, this says where to begin.
+        entryPoint: !!(document.getElementById('rlEntryPoint') && document.getElementById('rlEntryPoint').checked),
         // Auto-computed page count — derived from the manuscript's word
         // count at publish time. 275 words/page is the standard paperback
         // fiction density (Mavens of publishing agree this is close to
@@ -26221,6 +26246,9 @@
         tipUrl: _v('rlTipUrl'),
         series: _v('rlSeriesName'),
         seriesOrder: _v('rlSeriesOrder'),
+        saga: _v('rlSagaName'),
+        sagaAnchor: _v('rlSagaAnchor'),
+        entryPoint: _c('rlEntryPoint'),
         ageRating: rated,
         genreCodes: genreCodes,
         tags: tags,
@@ -32882,6 +32910,49 @@
         }
       }
 
+      // ── Inline markdown blockquotes (> text) ────────────────────────
+      // A paragraph starting with `>` + space (or just `>` alone for a
+      // blank quote-line) renders as an italic, indented block with a
+      // subtle left accent — traditional print blockquote treatment.
+      // Handles the common attribution pattern `> — from Foo` too
+      // (author-facing input Jacob shipped 2026-08-05: raw > was
+      // rendering as literal text on the page).
+      //
+      // Same idempotent-render property as headings: the stored text
+      // keeps the `>` prefix so save/reload is stable. Edit mode
+      // shows the > marker at 30% opacity as a "this is a blockquote"
+      // hint; reader mode hides it entirely so the finished book is
+      // clean. Backspace at line-start deletes the > and the paragraph
+      // falls back to prose on the next render (inherits normal
+      // contenteditable behaviour).
+      if (typeof text === 'string' && !isContObj) {
+        const _bqMatch = text.match(/^>\s*(.*)$/);
+        if (_bqMatch) {
+          const _bqBody = _bqMatch[1] || '';
+          const _bqMarker = editMode
+            ? `<span style="opacity:0.30;font-weight:400;margin-right:0.35em;font-family:ui-monospace,Menlo,monospace">&gt;</span>`
+            : '';
+          // Character-highlight the body just like ordinary prose so
+          // dialogue attributions in a blockquoted passage still get
+          // per-character colouring where relevant.
+          const _bqInner = _charHighlightDialogue(_bqBody, chId, dialogueGetCharacter, allCharacters, paraIdx);
+          const _bqStyle =
+            `font-family:${font};font-size:${pt(fsize * 0.96)};` +
+            `line-height:${lspace};color:${textColor};opacity:0.88;` +
+            `font-style:italic;` +
+            `margin:${mm(1.2)} 0 ${mm(1.2)} ${mm(6)};` +
+            `padding-left:${mm(3)};` +
+            `border-left:2px solid ${accentColor}55;` +
+            `text-align:left;text-indent:0;`;
+          return `<p class="preview-editable preview-blockquote" data-chid="${chId}" data-paraidx="${paraIdx}" data-line-id="${lineId}"
+                contenteditable="${String(editMode)}" spellcheck="true"
+                onblur="if(_editMode)_onParaBlur(this)"
+                oncontextmenu="if(_editMode)_ctxOpen(event,this)"
+                onkeydown="if(_editMode&&event.key==='Enter'&&!event.shiftKey){event.preventDefault();_insertBlankParaAfter(this)}"
+                style="${_bqStyle}">${_bqMarker}${_bqInner}</p>`;
+        }
+      }
+
       // Character-specific highlighting now happens at the QUOTE level,
       // not the paragraph level — see _charHighlightDialogue below. The
       // old per-paragraph border-left was dead code (assignments are
@@ -35583,15 +35654,50 @@
            serials, boxed sets). When two folios by the same author share a
            series name, they cluster together on the imprint page sorted by
            book number. Simple free-text; author matches spelling across
-           their own books. Wrong-spelling = no grouping; fix by editing. -->
+           their own books. Wrong-spelling = no grouping; fix by editing.
+
+           2026-08-05 — TWO-LEVEL GROUPING (author-requested, Jacob).
+           A single `series` field couldn't express "a saga made of
+           cycles, each of which is its own standalone series". Authors
+           were forced to put the saga name in `series`, which made
+           `seriesOrder` mean "book N of the whole saga" — a number
+           nobody wants to maintain and which breaks the moment a new
+           cycle is written. So:
+
+             saga        → the shared universe. Membership, NOT sequence.
+                           Never numbered.
+             series      → the cycle a reader reads in order. Unchanged
+                           field, narrower meaning.
+             seriesOrder → position WITHIN the cycle. Restarts at 1.
+
+           Cycles are deliberately not numbered against each other. A
+           number would imply a required reading order, which contradicts
+           "each cycle is standalone", and would break on the first
+           prequel. Instead `sagaAnchor` is free text (an in-world era)
+           that positions a cycle on a timeline without obliging anyone,
+           and `entryPoint` flags the cycles that are good starting
+           points. Position and permission are different questions.
+
+           Fully backwards-compatible: a folio with `series` set and
+           `saga` empty behaves exactly as it did before. -->
       <div style="margin:14px 0;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
         <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:0 0 8px">
-          📚 <strong>Series</strong> <span style="opacity:.7;font-weight:400">(optional — group this folio with its siblings)</span>
+          📚 <strong>Series &amp; saga</strong> <span style="opacity:.7;font-weight:400">(optional — group this folio with its siblings)</span>
         </div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-left:24px">
+        <!-- Saga / universe — the OUTER level. Optional, and only worth
+             filling in when the author has more than one series sharing
+             a world. Sits above Series so the hierarchy reads top-down. -->
+        <div style="margin-left:24px">
+          <label for="rlSagaName" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">
+            Universe or saga <span style="opacity:.6;font-weight:400">(only if several series share one world)</span>
+          </label>
+          <input type="text" id="rlSagaName" maxlength="80" placeholder="e.g., Sky Bridge Saga"
+            style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit">
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-left:24px;margin-top:10px">
           <div style="flex:2;min-width:200px">
-            <label for="rlSeriesName" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Series name</label>
-            <input type="text" id="rlSeriesName" maxlength="80" placeholder="e.g., Sky Bridge Saga"
+            <label for="rlSeriesName" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Series or cycle name</label>
+            <input type="text" id="rlSeriesName" maxlength="80" placeholder="e.g., The Fain Cycle"
               style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit">
           </div>
           <div style="flex:1;min-width:100px;max-width:140px">
@@ -35602,6 +35708,28 @@
         </div>
         <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:8px 0 0 24px">
           Type the same series name on each book (spelling matters). Folios sharing a series show up together on your Imprint page + as a series card on the shelf, sorted by book number. Leave both blank for standalone books.
+          <br><strong style="color:var(--text);font-weight:500">Book # counts within this series only</strong> — each series starts again at 1. If several series share a universe, name it in the field above and they'll group under it on your shelf.
+        </p>
+        <!-- Where the cycle sits in the saga — deliberately free text
+             rather than a number. Sorts the saga's timeline view; never
+             renders as "Book N" and never implies a reading order. -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-left:24px;margin-top:12px;align-items:flex-end">
+          <div style="flex:2;min-width:200px">
+            <label for="rlSagaAnchor" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">
+              When in the saga <span style="opacity:.6;font-weight:400">(optional)</span>
+            </label>
+            <input type="text" id="rlSagaAnchor" maxlength="80" placeholder="e.g., Year 412 of the Sky Age"
+              style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit">
+          </div>
+          <div style="flex:1;min-width:160px;padding-bottom:8px">
+            <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text);cursor:pointer">
+              <input type="checkbox" id="rlEntryPoint" style="margin:0;flex-shrink:0">
+              <span>Good place to start</span>
+            </label>
+          </div>
+        </div>
+        <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:6px 0 0 24px">
+          Use an in-world date or era rather than a number — it places this series on the saga's timeline without telling readers they have to read the others first. Tick <em>Good place to start</em> on any series a new reader could safely begin with.
         </p>
         <!-- Series blurb — surfaces on the shelf's series card + its
              info modal. Written once per series (on ANY folio in the
@@ -35616,7 +35744,72 @@
         <textarea id="rlSeriesBlurb" rows="4" maxlength="800"
           placeholder="What's the whole series about? The arc that spans the books, the world they share, the promise to the reader. Only needs to live on one folio in the series — the shelf picks the earliest-order book that has one filled in."
           style="width:calc(100% - 24px);margin-left:24px;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;resize:vertical;font-family:inherit;line-height:1.5"></textarea>
+        <!-- Saga blurb — same "write once" contract as the series blurb,
+             one level up. Only rendered when a saga name is set, so it
+             stays invisible for the single-series authors who are the
+             common case. -->
+        <label for="rlSagaBlurb" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:14px 0 4px 24px">
+          Saga blurb <span style="opacity:.6;font-weight:400">(the whole universe — write once, on any folio in it)</span>
+        </label>
+        <textarea id="rlSagaBlurb" rows="3" maxlength="800"
+          placeholder="What ties every series in this universe together? The world, the era, the shared history. Readers see this on the saga card before they pick which series to start with."
+          style="width:calc(100% - 24px);margin-left:24px;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;resize:vertical;font-family:inherit;line-height:1.5"></textarea>
+
+        <!-- Link to the shelf's owner-only series editor. When the
+             author has a series name set, they can jump straight to
+             /shelf?series=<name> where the series card exposes an ✏
+             Edit button (visible only to the folio owner). Clicking
+             it opens the centralized editor which propagates changes
+             across ALL their books in the series in one save. This
+             hint lives here so the release modal makes the "central
+             source of truth" obvious — edits here update ONE folio;
+             edits on the shelf's series page update ALL of them.
+             Added 2026-08-05 (Jacob). -->
+        <div id="rlSeriesEditLinkRow" style="display:none;margin:12px 0 0 24px;padding:10px 12px;background:rgba(6,95,70,0.05);border:.5px dashed rgba(6,95,70,0.25);border-radius:7px;font-size:11.5px;color:var(--muted);line-height:1.55">
+          <strong style="color:var(--text)">Series-wide info:</strong>
+          The saga name, saga blurb, series blurb, anchor, and entry-point flag are
+          the same fields on every book in this series. Changes here update this
+          folio only. To update <strong>all</strong> your books in the series at once,
+          use the ✏ Edit button on the shelf series card:
+          <a id="rlSeriesEditLink" href="#" target="_blank" rel="noopener"
+             style="color:var(--accent-ui);font-weight:500;text-decoration:none;border-bottom:.5px dotted var(--accent-ui)">
+            Open series page →
+          </a>
+        </div>
       </div>
+      <script>
+        // Toggle the "Open series page" hint whenever the series-name
+        // input has a value + point it at /shelf?series=<name>. Runs
+        // on modal open (release-modal hydrate calls renderPreview
+        // which no-ops here), on rlSeriesName input, and on window
+        // load as a safety net.
+        (function(){
+          function _rlUpdateSeriesEditLink(){
+            var el = document.getElementById('rlSeriesName');
+            var row = document.getElementById('rlSeriesEditLinkRow');
+            var a = document.getElementById('rlSeriesEditLink');
+            if (!el || !row || !a) return;
+            var v = (el.value || '').trim();
+            if (v) {
+              row.style.display = '';
+              a.href = '/shelf?series=' + encodeURIComponent(v);
+              a.textContent = 'Open "' + v + '" on the shelf →';
+            } else {
+              row.style.display = 'none';
+            }
+          }
+          document.addEventListener('input', function(e){
+            if (e.target && e.target.id === 'rlSeriesName') _rlUpdateSeriesEditLink();
+          });
+          // Re-check whenever the release modal opens (openReleaseModal
+          // hydrates rlSeriesName from _rlCurrent.series).
+          window.addEventListener('load', _rlUpdateSeriesEditLink);
+          setInterval(function(){
+            var m = document.getElementById('releaseModal');
+            if (m && m.style.display !== 'none') _rlUpdateSeriesEditLink();
+          }, 1500);
+        })();
+      </script>
 
 
 
