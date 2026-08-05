@@ -225,6 +225,73 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat+fix: rebrand saga→universe in UI + fix entry-point to per-book selection
+
+Jacob 2026-08-05: "The verbiage had become very specific for
+Saga and Cycle and these are specific to sky bridge saga, are
+there terms that will work better for authors in general? Also,
+each book in an individual cycle says Start Here on it. I don't
+think that's intended past the first in the cycle."
+
+Rebrand: saga → Universe (UI only; field name preserved)
+────────────────────────────────────────────────────────
+Every author-facing label that read "Saga" now reads "Universe".
+The internal `saga` / `sagaBlurb` / `sagaAnchor` field names
+stay put — no schema migration, all existing writes still round-
+trip. Chose "Universe" as the neutral term (Marvel / DC / Star
+Wars / Cosmere have all normalised it in book publishing) —
+works for literary fiction as well as fantasy/sci-fi, unlike
+"saga" (Norse epic connotation) or "cycle" (fantasy specific).
+
+Labels changed in the release modal (app.html):
+  "Universe or saga"     → "Universe"
+  "Series or cycle name" → "Series name"
+  "When in the saga"     → "When in the universe"
+  "Series & saga"        → "Series & universe"
+  "Saga blurb"           → "Universe blurb"
+  "Good place to start"  → "✦ Start here" (matches shelf pill)
+  Rationale block updated to explain the neutrality.
+
+Labels changed in the shelf series editor:
+  "Saga name" / "Saga blurb" / "Saga anchor" → "Universe" /
+  "Universe blurb" / "When in the universe". Placeholder changed
+  from "Sky Bridge Saga" to "The Wayfarer Chronicles" (generic).
+
+Also updated the release-modal series-edit-link hint block to
+say "universe name, universe blurb..." + adds the note that the
+shelf editor is where you pick which single book is the ✦ Start
+here entry point.
+
+Entry-point picker: checkbox → per-book dropdown
+────────────────────────────────────────────────
+The bug: the series editor's Entry Point checkbox was a single
+boolean applied to the whole series. Save wrote entryPoint=true
+to every book in the series via the bulk update. Since the shelf
+render aggregates entryPoint per-series with .some(), the pill
+still only appeared once on the series card — but the underlying
+data was wrong (every book flagged), and if Jacob was inspecting
+via the release modal per book, they all read as entry points.
+
+Fix: replaced the checkbox with a <select> that lists every book
+in the series ("Book 1 — Title", "Book 2 — Title", ...) plus a
+"— none —" option. Save writes entryPoint=true to the selected
+book AND entryPoint=false to every other book in the series (in
+one per-folio patch each, so the write is atomic per doc). Now
+only the picked book has the flag set.
+
+Files touched
+─────────────
+  app.html   — release modal Series section labels + placeholder
+               rewrites; series-edit-link hint text
+  shelf.html — series editor modal: Universe labels; entry-point
+               checkbox → book-picker <select>; _saveSeriesEditor
+               builds per-folio patch that toggles entryPoint per
+               selection instead of one shared value
+
+---
+
+Previous batch — kept in commit history:
+
 fix: bulletproof image click + context menu in full-preview edit mode
 
 Jacob 2026-08-05: "Half the time, images don't open the insert

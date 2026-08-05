@@ -35751,22 +35751,27 @@
            `saga` empty behaves exactly as it did before. -->
       <div style="margin:14px 0;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
         <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:0 0 8px">
-          📚 <strong>Series &amp; saga</strong> <span style="opacity:.7;font-weight:400">(optional — group this folio with its siblings)</span>
+          📚 <strong>Series &amp; universe</strong> <span style="opacity:.7;font-weight:400">(optional — group this folio with its siblings)</span>
         </div>
-        <!-- Saga / universe — the OUTER level. Optional, and only worth
-             filling in when the author has more than one series sharing
-             a world. Sits above Series so the hierarchy reads top-down. -->
+        <!-- Universe — the OUTER grouping level. Optional. Fill in only
+             when the author has more than one series sharing one world.
+             Sits above Series so the hierarchy reads top-down. The
+             internal field name (`saga`) stays for backwards compat
+             with earlier writes; the UI label is now "Universe" for
+             genre-neutrality (Jacob 2026-08-05: "Saga and Cycle became
+             very specific... are there terms that will work better for
+             authors in general?"). -->
         <div style="margin-left:24px">
           <label for="rlSagaName" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">
-            Universe or saga <span style="opacity:.6;font-weight:400">(only if several series share one world)</span>
+            Universe <span style="opacity:.6;font-weight:400">(only if several series share one world — a saga, a shared setting, a chronicle)</span>
           </label>
-          <input type="text" id="rlSagaName" maxlength="80" placeholder="e.g., Sky Bridge Saga"
+          <input type="text" id="rlSagaName" maxlength="80" placeholder="e.g., The Wayfarer Chronicles"
             style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit">
         </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-left:24px;margin-top:10px">
           <div style="flex:2;min-width:200px">
-            <label for="rlSeriesName" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Series or cycle name</label>
-            <input type="text" id="rlSeriesName" maxlength="80" placeholder="e.g., The Fain Cycle"
+            <label for="rlSeriesName" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Series name</label>
+            <input type="text" id="rlSeriesName" maxlength="80" placeholder="e.g., The First Trilogy"
               style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit">
           </div>
           <div style="flex:1;min-width:100px;max-width:140px">
@@ -35779,26 +35784,27 @@
           Type the same series name on each book (spelling matters). Folios sharing a series show up together on your Imprint page + as a series card on the shelf, sorted by book number. Leave both blank for standalone books.
           <br><strong style="color:var(--text);font-weight:500">Book # counts within this series only</strong> — each series starts again at 1. If several series share a universe, name it in the field above and they'll group under it on your shelf.
         </p>
-        <!-- Where the cycle sits in the saga — deliberately free text
-             rather than a number. Sorts the saga's timeline view; never
-             renders as "Book N" and never implies a reading order. -->
+        <!-- Where the series sits in the universe — deliberately free
+             text rather than a number. Sorts the universe timeline view;
+             never renders as "Series II" and never implies a reading
+             order across series. -->
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-left:24px;margin-top:12px;align-items:flex-end">
           <div style="flex:2;min-width:200px">
             <label for="rlSagaAnchor" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">
-              When in the saga <span style="opacity:.6;font-weight:400">(optional)</span>
+              When in the universe <span style="opacity:.6;font-weight:400">(optional)</span>
             </label>
             <input type="text" id="rlSagaAnchor" maxlength="80" placeholder="e.g., Year 412 of the Sky Age"
               style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit">
           </div>
           <div style="flex:1;min-width:160px;padding-bottom:8px">
-            <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text);cursor:pointer">
+            <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text);cursor:pointer" title="Tick on ONE book per series — usually book 1. New readers see the ✦ Start here pill on that series' card.">
               <input type="checkbox" id="rlEntryPoint" style="margin:0;flex-shrink:0">
-              <span>Good place to start</span>
+              <span>✦ Start here</span>
             </label>
           </div>
         </div>
         <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:6px 0 0 24px">
-          Use an in-world date or era rather than a number — it places this series on the saga's timeline without telling readers they have to read the others first. Tick <em>Good place to start</em> on any series a new reader could safely begin with.
+          Use an in-world date or era rather than a number — it places this series on the universe's timeline without telling readers they have to read the others first. Tick <em>✦ Start here</em> on ONE book per series (usually book 1) — a new reader can safely begin there.
         </p>
         <!-- Series blurb — surfaces on the shelf's series card + its
              info modal. Written once per series (on ANY folio in the
@@ -35818,7 +35824,7 @@
              stays invisible for the single-series authors who are the
              common case. -->
         <label for="rlSagaBlurb" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:14px 0 4px 24px">
-          Saga blurb <span style="opacity:.6;font-weight:400">(the whole universe — write once, on any folio in it)</span>
+          Universe blurb <span style="opacity:.6;font-weight:400">(the whole universe — write once, on any folio in it)</span>
         </label>
         <textarea id="rlSagaBlurb" rows="3" maxlength="800"
           placeholder="What ties every series in this universe together? The world, the era, the shared history. Readers see this on the saga card before they pick which series to start with."
@@ -35836,9 +35842,10 @@
              Added 2026-08-05 (Jacob). -->
         <div id="rlSeriesEditLinkRow" style="display:none;margin:12px 0 0 24px;padding:10px 12px;background:rgba(6,95,70,0.05);border:.5px dashed rgba(6,95,70,0.25);border-radius:7px;font-size:11.5px;color:var(--muted);line-height:1.55">
           <strong style="color:var(--text)">Series-wide info:</strong>
-          The saga name, saga blurb, series blurb, anchor, and entry-point flag are
+          The universe name, universe blurb, series blurb, and timeline anchor are
           the same fields on every book in this series. Changes here update this
-          folio only. To update <strong>all</strong> your books in the series at once,
+          folio only. To update <strong>all</strong> your books in the series at once
+          (and pick which single book is the ✦ Start here entry point),
           use the ✏ Edit button on the shelf series card:
           <a id="rlSeriesEditLink" href="#" target="_blank" rel="noopener"
              style="color:var(--accent-ui);font-weight:500;text-decoration:none;border-bottom:.5px dotted var(--accent-ui)">

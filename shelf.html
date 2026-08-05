@@ -1025,7 +1025,7 @@ function _renderSeriesRow(items) {
       ? '<button class="shelf-series-card-info shelf-series-card-edit" type="button" ' +
         'onclick="event.stopPropagation();window._openSeriesEditor(\'' + esc(key) + '\')" ' +
         'aria-label="Edit the ' + esc(s.name) + ' series info" ' +
-        'title="Edit series-wide info (blurb, saga, anchor, entry-point). Applies to all your books in this series.">' +
+        'title="Edit series-wide info (blurb, universe, anchor, entry-point). Applies to all your books in this series.">' +
         '<span aria-hidden="true">✏</span><span>edit</span></button>'
       : '';
     return '<div class="shelf-series-card" tabindex="0" ' +
@@ -1254,21 +1254,33 @@ window._openSeriesEditor = function _openSeriesEditor(seriesKey) {
     '<h2 style="margin:0 0 6px">' + esc(seriesName) + '</h2>' +
     '<p style="font-size:12px;color:var(--muted,#5a5347);margin:0 0 16px;line-height:1.55">' +
       'Changes here apply to <strong>all ' + owned.length + ' of your books in this series</strong>. ' +
-      'Fields left blank are unset on every book (choose consciously — a blank saga clears it everywhere).' +
+      'Fields left blank are unset on every book (choose consciously — a blank universe clears it everywhere).' +
     '</p>' +
     '<label style="' + _row + '">Series blurb <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— shown on the shelf series card + info modal</span></label>' +
     '<textarea id="_seEditSeriesBlurb" rows="3" maxlength="800" style="' + _textarea + '">' + esc(curSeriesBlurb) + '</textarea>' +
-    '<label style="' + _row + '">Saga name <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— the shared universe this series belongs to. Optional.</span></label>' +
-    '<input type="text" id="_seEditSaga" maxlength="80" value="' + esc(curSaga) + '" style="' + _input + '" placeholder="e.g., Sky Bridge Saga">' +
-    '<label style="' + _row + '">Saga blurb <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— the whole-universe pitch. Write once per saga.</span></label>' +
+    '<label style="' + _row + '">Universe <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— the shared universe this series belongs to. Optional.</span></label>' +
+    '<input type="text" id="_seEditSaga" maxlength="80" value="' + esc(curSaga) + '" style="' + _input + '" placeholder="e.g., The Wayfarer Chronicles">' +
+    '<label style="' + _row + '">Universe blurb <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— the whole-universe pitch. Write once per universe.</span></label>' +
     '<textarea id="_seEditSagaBlurb" rows="4" maxlength="800" style="' + _textarea + '">' + esc(curSagaBlurb) + '</textarea>' +
-    '<label style="' + _row + '">Saga anchor <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— an in-world era placing this cycle on a timeline</span></label>' +
+    '<label style="' + _row + '">When in the universe <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— an in-world era placing this series on a timeline</span></label>' +
     '<input type="text" id="_seEditSagaAnchor" maxlength="80" value="' + esc(curSagaAnchor) + '" style="' + _input + '" placeholder="e.g., Year 412 of the Sky Age">' +
-    '<p style="' + _hint + '">Free text on purpose — sorts naturally, survives prequels. Never rendered as "Cycle II".</p>' +
-    '<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text,#1a1611);margin:16px 0 4px;cursor:pointer">' +
-      '<input type="checkbox" id="_seEditEntryPoint"' + (curEntryPoint ? ' checked' : '') + ' style="margin:0">' +
-      '<span>✦ <strong>Entry point</strong> — a new reader can begin this series without reading anything else</span>' +
-    '</label>' +
+    '<p style="' + _hint + '">Free text on purpose — sorts naturally, survives prequels. Never rendered as "Series II".</p>' +
+    // Entry-point picker — per-BOOK now, not per-series. The old
+    // checkbox wrote entryPoint=true to every book in the series
+    // via the bulk update, which meant "past the first in the cycle"
+    // (Jacob's phrasing) all books were flagged. Now the author
+    // picks ONE book (or none) via a dropdown; save writes true to
+    // the selected book and false to every other book in the series.
+    '<label style="' + _row + '">✦ Start here <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— pick the ONE book in this series a new reader could safely begin with</span></label>' +
+    '<select id="_seEditEntryBook" style="' + _input + '">' +
+      '<option value="">— none — (no ✦ Start here pill on this series)</option>' +
+      owned.map(function(f){
+        const num = f.seriesOrder > 0 ? String(f.seriesOrder) : '?';
+        const sel = f.entryPoint ? ' selected' : '';
+        return '<option value="' + esc(f.id) + '"' + sel + '>Book ' + esc(num) + ' — ' + esc(f.title) + '</option>';
+      }).join('') +
+    '</select>' +
+    '<p style="' + _hint + '">Usually book 1, but for saga-anchored series with a natural jumping-in point you might pick a mid-series book. Every other book in the series will be un-flagged.</p>' +
     '<div id="_seEditStatus" style="font-size:11.5px;color:var(--hint,#8a8272);margin-top:14px;min-height:1.5em"></div>' +
     '<div class="fi-actions">' +
       '<button class="fi-btn secondary" onclick="_closeFolioInfo()" type="button">Cancel</button>' +
@@ -1305,33 +1317,43 @@ window._saveSeriesEditor = async function _saveSeriesEditor(seriesKey) {
     return;
   }
   // Read form values — same normalisation rules as the release-modal
-  // save path (trim + slice + null-when-empty for strings; strict
-  // boolean for entryPoint). See app.html line 24740-ish.
+  // save path (trim + slice + null-when-empty for strings). entryPoint
+  // is now per-book (see _seEditEntryBook dropdown), so it's NOT in
+  // the shared patch — instead each folio gets a per-folio patch
+  // that sets entryPoint=true if selected, false otherwise.
   const _v = function(id, cap){
     const el = document.getElementById(id);
     const s = ((el && el.value) || '').trim().slice(0, cap);
     return s || null;
   };
-  const patch = {
+  const sharedPatch = {
     'release.seriesBlurb': _v('_seEditSeriesBlurb', 800),
     'release.saga':        _v('_seEditSaga', 80),
     'release.sagaBlurb':   _v('_seEditSagaBlurb', 800),
     'release.sagaAnchor':  _v('_seEditSagaAnchor', 80),
-    'release.entryPoint':  !!(document.getElementById('_seEditEntryPoint') && document.getElementById('_seEditEntryPoint').checked),
   };
+  const entryBookSel = document.getElementById('_seEditEntryBook');
+  const entryBookId = (entryBookSel && entryBookSel.value) || '';
   setStatus('Saving to ' + owned.length + ' book' + (owned.length === 1 ? '' : 's') + '…');
   let ok = 0, err = 0;
   for (const f of owned) {
     try {
       const ref = _fbDoc(_fbDb, 'folio_projects', f.id);
-      await _fbUpdateDoc(ref, patch);
+      // Per-folio entryPoint — true for the picked book, false for
+      // every other book in the series. Bulk-writing shared fields +
+      // per-book entryPoint in a single updateDoc call keeps writes
+      // atomic per document.
+      const perFolioPatch = Object.assign({}, sharedPatch, {
+        'release.entryPoint': (entryBookId && f.id === entryBookId),
+      });
+      await _fbUpdateDoc(ref, perFolioPatch);
       // Mirror the write onto the in-memory copy so a subsequent
       // renderShelf without a full re-fetch reflects the change.
-      f.seriesBlurb = patch['release.seriesBlurb'] || '';
-      f.saga        = patch['release.saga'] || '';
-      f.sagaBlurb   = patch['release.sagaBlurb'] || '';
-      f.sagaAnchor  = patch['release.sagaAnchor'] || '';
-      f.entryPoint  = patch['release.entryPoint'];
+      f.seriesBlurb = perFolioPatch['release.seriesBlurb'] || '';
+      f.saga        = perFolioPatch['release.saga'] || '';
+      f.sagaBlurb   = perFolioPatch['release.sagaBlurb'] || '';
+      f.sagaAnchor  = perFolioPatch['release.sagaAnchor'] || '';
+      f.entryPoint  = perFolioPatch['release.entryPoint'];
       ok++;
     } catch (e) {
       console.error('[series-editor] update failed for', f.id, e);
