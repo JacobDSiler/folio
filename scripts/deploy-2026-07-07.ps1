@@ -205,7 +205,7 @@ try {
     & git add press\photos\index.html
     & git add press\index.html press\import\index.html
     & git add 404.html s\index.html
-    & git add help\index.html serials-guide.html
+    & git add help\index.html serials-guide.html help\tutorials\index.html docs\TUTORIAL_ROADMAP.md
     & git add admin\_shared.js admin\reviews\index.html
     & git add docs\AUTH_UNAUTHORIZED_DOMAIN_FIX.md docs\STABILITY_PLAN.md
     & git add docs\TUTORIAL_STRATEGY.md
@@ -225,6 +225,128 @@ try {
     # the round-trip through PowerShell -> git.
     $msgPath = Join-Path $env:TEMP "folio-deploy-2026-07-07.msg"
     $msg = @"
+feat: tutorial infrastructure — /help/tutorials/ + in-app walkthrough links
+
+Jacob's adoption strategy pivots to tutorials this week. He'll
+record + Allyson voices over. This ships the infra so tutorials
+can be dropped in one at a time as they land.
+
+/help/tutorials/ index page
+───────────────────────────
+Standalone HTML site mirroring the /help/ styling. Three sections
+(Start here / Grow / Deeper workflows) with 10 tutorial cards
+matching the TUTORIAL_ROADMAP.md priority order. Each card is a
+16:9 thumbnail slot that swaps between "Coming soon" placeholder
+and a real YouTube embed based on a data-yt="<video-id>"
+attribute — Jacob edits ONE attribute per card to go live.
+
+Each card has an id matching the tutorial slug (first-folio,
+public-domain, sell-a-book, imprint-page, series-universe,
+serial-release, workspace-modes, import-formats, reviews-boost,
+audiobook) so in-app deep-links like /help/tutorials/#sell-a-book
+land on the right card whether the video's live or coming soon.
+
+Sidebar footer: "🎬 Tutorials"
+──────────────────────────────
+Added between "Help" and "Keys" in the editor sidebar footer.
+Every author sees it every session. Points at /help/tutorials/.
+
+In-context "🎬 Watch a walkthrough" links
+─────────────────────────────────────────
+Release modal header — pill-style link on the right side, deep-
+links to #sell-a-book. Opens in a new tab so authors can watch
+and edit simultaneously.
+
+Series editor modal header (shelf.html) — same pattern, deep-
+links to #series-universe. Compact "🎬 Watch" chip beside the
+"Edit series" eyebrow.
+
+Imprint customize opens a new page (not a modal) so its
+walkthrough link lives naturally on the sidebar footer link;
+no in-context injection needed.
+
+Companion roadmap doc
+─────────────────────
+docs/TUTORIAL_ROADMAP.md — strategy + tutorial list + delivery
+plan + voiceover-ready scripts for the three Tier 1 tutorials
+(first-folio walkthrough, public-domain workflow, paid-book
+setup). Timing marks in the margin sync to picture; screen-
+action notes in brackets tell the recorder what should be on
+frame. Ready to hand to Allyson.
+
+Files touched
+─────────────
+  help/tutorials/index.html — new tutorial library page
+  app.html                   — sidebar footer "🎬 Tutorials"
+                               link; release modal header
+                               walkthrough link
+  shelf.html                 — series editor modal header
+                               walkthrough link
+  docs/TUTORIAL_ROADMAP.md   — strategy doc + Tier 1 scripts
+
+---
+
+Previous batch — kept in commit history:
+
+fix: sidebar drag handle + scroll persistence — real root cause (DOM-order bug)
+
+Jacob 2026-08-06: "Folio's edit bar width is still not freely
+adjustable. It's locked to the same fixed width."
+
+Every previous "fix" to the resize handle was dead code.
+─────────────────────────────────────────────────────────
+The _installSidebarUX IIFE runs at parse time (line ~6529 in
+the source order). The sidebar HTML — including the
+#sidebarResizeHandle div and .sidebar-scroll container — isn't
+parsed until line ~7909+. So getElementById('sidebarResizeHandle')
+returned null, the `if (handle)` guard bailed silently, and none
+of the pointer/mouse listeners ever attached to anything. Same
+for the scroll persistence code — .sidebar-scroll didn't exist
+yet either.
+
+Symptom: the handle was visible (CSS-only), the ridge indicator
+worked, hover cursor changed to col-resize — but click-and-drag
+did NOTHING because there was no JS listener bound.
+
+Fix: wrap the DOM-touching setup blocks in a _whenReady helper
+that either fires immediately (if DOM is already parsed, e.g.
+called after DOMContentLoaded) or defers via
+DOMContentLoaded, { once: true }. Now the getElementById calls
+find their targets and the listeners actually bind.
+
+Preset hydrate stays immediate — it sets a body attribute for
+FOUC-free paint and its picker/menu references are try/catch-
+guarded so the temporary DOM absence at parse-time is harmless.
+
+Console breadcrumbs added:
+  [sidebar] resize handle wired ✓            — success
+  [sidebar] resize handle STILL missing at
+    DOMContentLoaded — check the DOM tree    — genuine bug
+
+Why this survived multiple prior "fixes":
+  - The visible ridge (CSS) made the handle LOOK working.
+  - Hover cursor: col-resize (CSS) made the affordance LOOK live.
+  - Pointer-event rewrite didn't fix anything because it landed
+    in a code path that was never being executed.
+  - The double-click reset was similarly bound to a null handle.
+  - Every code-review pass assumed the drag was DOING something
+    because the getComputedStyle read + setProperty write are
+    both silent side-effect-free on null (they just don't run).
+
+Lesson: when a "fix" doesn't take, run getElementById at the
+same script-line in DevTools before assuming it's a bug in the
+listener wiring.
+
+Files touched
+─────────────
+  app.html — _whenReady helper + wrapper around the resize +
+             scroll wiring in _installSidebarUX; console.log +
+             console.warn breadcrumb for future debugging
+
+---
+
+Previous batch — kept in commit history:
+
 feat: sticky "🛒 Buy for $X" in reader bar + shelf buy auto-scrolls to CTA
 
 Jacob 2026-08-05: "Can the shelf buy button actually just activate

@@ -1,0 +1,356 @@
+<!doctype html>
+<!-- FOLIO TUTORIALS INDEX v2026.08.06.1 -->
+<!--
+  Tutorial library index — companion to /help/. Each tutorial card
+  reads its YouTube video ID from a data-yt attribute; when a video
+  isn't recorded yet, that attribute stays empty and the card
+  renders in a "Coming soon" state. Jacob just edits data-yt="<id>"
+  when a video goes live. Zero JS wiring changes needed per video.
+
+  Section anchors match the slugs used from in-app "🎬 Watch a
+  walkthrough" links (release modal, imprint customize, series editor)
+  so those deep-link straight to the right tutorial card.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tutorials — Folio</title>
+<meta name="description" content="Step-by-step video tutorials for Folio — from your first published book to selling, serial releases, and universe-building.">
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+:root {
+  --bg:#faf7f1; --surface:#fff; --text:#1a1611; --muted:#5a5347; --hint:#8a8174;
+  --border:rgba(0,0,0,0.10); --border-mid:rgba(0,0,0,0.14);
+  --accent:#c98c2a; --accent-ui:#065f46; --danger:#c04040;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.65;min-height:100vh}
+a{color:var(--accent-ui)}
+.pol-hdr{background:var(--surface);border-bottom:.5px solid var(--border);padding:16px 20px}
+.pol-hdr-row{max-width:960px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.pol-brand{font-family:'Playfair Display',Georgia,serif;font-size:20px;font-weight:600;margin:0;color:var(--text);text-decoration:none}
+.pol-brand .accent{color:var(--accent)}
+.pol-nav{display:flex;gap:14px;font-size:13px}
+.pol-nav a{color:var(--muted);text-decoration:none}
+.pol-nav a:hover{color:var(--text)}
+.pol-wrap{max-width:960px;margin:0 auto;padding:40px 24px 80px}
+.pol-eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--accent);font-weight:500;margin:0 0 8px}
+h1{font-family:'Playfair Display',Georgia,serif;font-size:38px;font-weight:600;line-height:1.2;margin:0 0 6px;letter-spacing:-0.01em}
+.lead{font-size:16px;color:var(--muted);line-height:1.7;margin:0 0 40px;max-width:640px}
+h2{font-family:'Playfair Display',Georgia,serif;font-size:22px;font-weight:600;margin:44px 0 10px;letter-spacing:-0.005em}
+.h2-note{font-size:13px;color:var(--hint);margin:0 0 22px;line-height:1.55}
+
+/* Tutorial cards */
+.tut-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin:0 0 20px}
+.tut-card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column;transition:transform .12s,box-shadow .15s,border-color .12s}
+.tut-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(0,0,0,.06);border-color:var(--border-mid)}
+.tut-thumb{aspect-ratio:16/9;background:linear-gradient(135deg,#f0ebe0 0%,#e5dfd0 100%);position:relative;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;overflow:hidden}
+.tut-thumb .tut-play{width:52px;height:52px;border-radius:50%;background:rgba(255,255,255,.94);display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--accent);box-shadow:0 2px 8px rgba(0,0,0,.15)}
+.tut-thumb iframe{width:100%;height:100%;border:0;position:absolute;inset:0}
+.tut-thumb .tut-coming{position:absolute;top:8px;right:8px;background:rgba(0,0,0,.55);color:#fff;font-size:10.5px;padding:3px 8px;border-radius:12px;font-weight:500;letter-spacing:.03em;text-transform:uppercase}
+.tut-body{padding:14px 16px 16px;display:flex;flex-direction:column;flex:1}
+.tut-title{font-family:'Playfair Display',Georgia,serif;font-size:16px;font-weight:600;margin:0 0 6px;line-height:1.3;color:var(--text)}
+.tut-meta{display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--hint);margin:0 0 8px;text-transform:uppercase;letter-spacing:.05em;font-weight:500}
+.tut-meta .tut-tier{color:var(--accent);border:.5px solid var(--accent);padding:1px 6px;border-radius:8px}
+.tut-desc{font-size:13.5px;color:var(--muted);line-height:1.55;margin:0 0 12px;flex:1}
+.tut-link{font-size:12px;color:var(--accent-ui);text-decoration:none;font-weight:500;margin-top:auto;display:inline-flex;align-items:center;gap:4px}
+.tut-link:hover{text-decoration:underline}
+
+/* Coming-soon variant */
+.tut-card.tut-pending .tut-thumb{background:linear-gradient(135deg,#e8e2d1 0%,#d5cdb8 100%);cursor:default}
+.tut-card.tut-pending{opacity:.85}
+
+/* Ask */
+.tut-ask{margin:32px 0 8px;padding:20px 22px;background:rgba(6,95,70,.05);border:.5px dashed rgba(6,95,70,.25);border-radius:10px;font-size:14px;color:var(--text);line-height:1.65}
+.tut-ask strong{color:var(--accent-ui)}
+.tut-ask a{color:var(--accent-ui);font-weight:500}
+
+.footlinks{margin-top:60px;padding-top:24px;border-top:.5px solid var(--border);font-size:13px;color:var(--hint);text-align:center;line-height:1.8}
+.footlinks a{color:var(--muted);margin:0 8px}
+</style>
+</head>
+<body>
+
+<header class="pol-hdr">
+  <div class="pol-hdr-row">
+    <a href="/" class="pol-brand"><span class="accent">✨</span> Folio</a>
+    <nav class="pol-nav">
+      <a href="/">Home</a>
+      <a href="/shelf">Shelf</a>
+      <a href="/press">For authors</a>
+      <a href="/help/">Help &amp; FAQ</a>
+      <a href="/app.html">Open editor</a>
+    </nav>
+  </div>
+</header>
+
+<div class="pol-wrap">
+
+  <p class="pol-eyebrow">🎬 Tutorials</p>
+  <h1>Learn Folio, one workflow at a time</h1>
+  <p class="lead">
+    Short walkthroughs, three to five minutes each. Pick the one that
+    matches what you're trying to do next.
+    If you're new here, start with the first-folio walkthrough — the
+    other tutorials assume you've published at least once.
+  </p>
+
+  <!-- ═════════ TIER 1 — CORE ONBOARDING ═════════ -->
+  <h2>Start here</h2>
+  <p class="h2-note">The essentials. If you watch nothing else, watch these three.</p>
+
+  <div class="tut-grid">
+
+    <!-- Tutorial #1 — First folio -->
+    <div class="tut-card" id="first-folio" data-yt="">
+      <div class="tut-thumb">
+        <div class="tut-play">▶</div>
+        <div class="tut-coming">Coming soon</div>
+      </div>
+      <div class="tut-body">
+        <h3 class="tut-title">Publish your first folio in 5 minutes</h3>
+        <div class="tut-meta">
+          <span class="tut-tier">Tier 1</span>
+          <span>~3:30</span>
+          <span>Onboarding</span>
+        </div>
+        <p class="tut-desc">Sign in with Google, paste a manuscript, add a cover, click Publish. From zero to live-on-the-shelf in five minutes.</p>
+        <a class="tut-link" href="/app.html">Try it in the editor →</a>
+      </div>
+    </div>
+
+    <!-- Tutorial #2 — Gutenberg / public domain -->
+    <div class="tut-card" id="public-domain" data-yt="">
+      <div class="tut-thumb">
+        <div class="tut-play">▶</div>
+        <div class="tut-coming">Coming soon</div>
+      </div>
+      <div class="tut-body">
+        <h3 class="tut-title">Publish a public-domain book</h3>
+        <div class="tut-meta">
+          <span class="tut-tier">Tier 1</span>
+          <span>~3:45</span>
+          <span>Import</span>
+        </div>
+        <p class="tut-desc">Gutenberg Cleaner strips Project Gutenberg's boilerplate. One click hands the clean manuscript to Folio. Publish your own edition — free or paid.</p>
+        <a class="tut-link" href="https://gutenbergcleaner.jacobsiler.com" target="_blank" rel="noopener">Open Gutenberg Cleaner →</a>
+      </div>
+    </div>
+
+    <!-- Tutorial #3 — Paid book / PayPal -->
+    <div class="tut-card" id="sell-a-book" data-yt="">
+      <div class="tut-thumb">
+        <div class="tut-play">▶</div>
+        <div class="tut-coming">Coming soon</div>
+      </div>
+      <div class="tut-body">
+        <h3 class="tut-title">Sell your book on Folio — 0% commission</h3>
+        <div class="tut-meta">
+          <span class="tut-tier">Tier 1</span>
+          <span>~3:00</span>
+          <span>Monetization</span>
+        </div>
+        <p class="tut-desc">One-time PayPal Native setup. Readers click Buy inside the reader, PayPal Checkout appears inline, they unlock instantly. Every cent goes to you.</p>
+        <a class="tut-link" href="/press/">See tier features →</a>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═════════ TIER 2 — GROW ═════════ -->
+  <h2>Grow your presence</h2>
+  <p class="h2-note">Once you've published, these workflows help readers find you.</p>
+
+  <div class="tut-grid">
+
+    <!-- Tutorial #4 — Imprint -->
+    <div class="tut-card" id="imprint-page" data-yt="">
+      <div class="tut-thumb">
+        <div class="tut-play">▶</div>
+        <div class="tut-coming">Coming soon</div>
+      </div>
+      <div class="tut-body">
+        <h3 class="tut-title">Set up your author imprint page</h3>
+        <div class="tut-meta">
+          <span class="tut-tier">Tier 2</span>
+          <span>~2:30</span>
+          <span>Branding</span>
+        </div>
+        <p class="tut-desc">Customize your accent color, hero image, and tagline. Your imprint is where readers land when they click your name on any folio card.</p>
+        <a class="tut-link" href="/press/">Unlock via Indie / Imprint →</a>
+      </div>
+    </div>
+
+    <!-- Tutorial #5 — Series / universe -->
+    <div class="tut-card" id="series-universe" data-yt="">
+      <div class="tut-thumb">
+        <div class="tut-play">▶</div>
+        <div class="tut-coming">Coming soon</div>
+      </div>
+      <div class="tut-body">
+        <h3 class="tut-title">Publish a series (and a universe)</h3>
+        <div class="tut-meta">
+          <span class="tut-tier">Tier 2</span>
+          <span>~4:00</span>
+          <span>Structure</span>
+        </div>
+        <p class="tut-desc">Group books into a series. Group series into a universe. Set entry points and anchor timelines — for authors writing multi-book worlds.</p>
+        <a class="tut-link" href="/shelf">See series cards on the shelf →</a>
+      </div>
+    </div>
+
+    <!-- Tutorial #6 — Serial -->
+    <div class="tut-card" id="serial-release" data-yt="">
+      <div class="tut-thumb">
+        <div class="tut-play">▶</div>
+        <div class="tut-coming">Coming soon</div>
+      </div>
+      <div class="tut-body">
+        <h3 class="tut-title">Serial releases — publish a chapter at a time</h3>
+        <div class="tut-meta">
+          <span class="tut-tier">Tier 2</span>
+          <span>~3:30</span>
+          <span>Serialization</span>
+        </div>
+        <p class="tut-desc">Substack-for-fiction workflow. Drip chapters weekly, monthly, or on your own custom cadence. Subscribers get emailed on each release.</p>
+        <a class="tut-link" href="/serials-guide.html">Read the serial guide →</a>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ═════════ TIER 3 — POLISH ═════════ -->
+  <h2>Deeper workflows</h2>
+  <p class="h2-note">Optional but valuable once you've settled into a rhythm.</p>
+
+  <div class="tut-grid">
+
+    <!-- Tutorial #7 — Workspace modes -->
+    <div class="tut-card" id="workspace-modes" data-yt="">
+      <div class="tut-thumb">
+        <div class="tut-play">▶</div>
+        <div class="tut-coming">Coming soon</div>
+      </div>
+      <div class="tut-body">
+        <h3 class="tut-title">The three workspace modes: Full, Write, Focus</h3>
+        <div class="tut-meta">
+          <span class="tut-tier">Tier 3</span>
+          <span>~2:00</span>
+          <span>Editor UX</span>
+        </div>
+        <p class="tut-desc">Switch between full workspace, minimal write mode, and distraction-free focus mode. Choice persists per browser. Great for deep-writing sessions.</p>
+        <a class="tut-link" href="/app.html">Open the editor →</a>
+      </div>
+    </div>
+
+    <!-- Tutorial #8 — Import -->
+    <div class="tut-card" id="import-formats" data-yt="">
+      <div class="tut-thumb">
+        <div class="tut-play">▶</div>
+        <div class="tut-coming">Coming soon</div>
+      </div>
+      <div class="tut-body">
+        <h3 class="tut-title">Import from Word, Google Docs, PDF, or Markdown</h3>
+        <div class="tut-meta">
+          <span class="tut-tier">Tier 3</span>
+          <span>~2:30</span>
+          <span>Import</span>
+        </div>
+        <p class="tut-desc">Bring your manuscript from wherever it lives. Chapter breaks detect automatically. Lock hand-crafted chapters so re-imports don't clobber them.</p>
+        <a class="tut-link" href="/app.html">Try an import →</a>
+      </div>
+    </div>
+
+    <!-- Tutorial #9 — Reviews + boost -->
+    <div class="tut-card" id="reviews-boost" data-yt="">
+      <div class="tut-thumb">
+        <div class="tut-play">▶</div>
+        <div class="tut-coming">Coming soon</div>
+      </div>
+      <div class="tut-body">
+        <h3 class="tut-title">Get reviews and boost your book on the shelf</h3>
+        <div class="tut-meta">
+          <span class="tut-tier">Tier 3</span>
+          <span>~3:00</span>
+          <span>Marketing</span>
+        </div>
+        <p class="tut-desc">Reviews build social proof. Featured Boosts put your book at the top of the shelf. The post-publish playbook that turns first readers into more readers.</p>
+        <a class="tut-link" href="/shelf">Browse featured folios →</a>
+      </div>
+    </div>
+
+    <!-- Tutorial #10 — Audio -->
+    <div class="tut-card" id="audiobook" data-yt="">
+      <div class="tut-thumb">
+        <div class="tut-play">▶</div>
+        <div class="tut-coming">Coming soon</div>
+      </div>
+      <div class="tut-body">
+        <h3 class="tut-title">Audiobook production</h3>
+        <div class="tut-meta">
+          <span class="tut-tier">Tier 3</span>
+          <span>~4:30</span>
+          <span>Audio</span>
+        </div>
+        <p class="tut-desc">Voice your characters, cast per-line dialogue, generate an audiobook. Or upload your own narration. Bundle the audio with the book on paid folios.</p>
+        <a class="tut-link" href="/app.html">Open the Audio tab →</a>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="tut-ask">
+    <strong>Not seeing what you need?</strong>
+    Every question you ask becomes the next tutorial's outline. Email
+    <a href="mailto:hello@onfolio.press">hello@onfolio.press</a> with what
+    you were trying to do and where you got stuck.
+  </div>
+
+  <div class="footlinks">
+    <a href="/">Home</a> ·
+    <a href="/shelf">Shelf</a> ·
+    <a href="/press">Tiers</a> ·
+    <a href="/help/">Help &amp; FAQ</a> ·
+    <a href="/app.html">Editor</a>
+    <br>
+    &copy; Jacob Siler
+  </div>
+
+</div>
+
+<!-- Progressive enhancement — cards with a data-yt attribute swap
+     their placeholder thumb for a YouTube embed at page load. No
+     video ID? The "Coming soon" card stays. Add a video by editing
+     just the data-yt="<11-char YouTube ID>" attribute on the card;
+     zero other changes needed. Deep-links (#first-folio, etc.) still
+     scroll to the right card whether the video is live or coming
+     soon, so in-context "Watch a walkthrough" links from the editor
+     land correctly either way. -->
+<script>
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('.tut-card[data-yt]').forEach(function(card){
+    var id = (card.getAttribute('data-yt') || '').trim();
+    if (!id) return; // Coming soon — keep placeholder
+    var thumb = card.querySelector('.tut-thumb');
+    if (!thumb) return;
+    thumb.innerHTML = ''; // clear the placeholder + coming-soon chip
+    var iframe = document.createElement('iframe');
+    iframe.src = 'https://www.youtube.com/embed/' + encodeURIComponent(id);
+    iframe.title = card.querySelector('.tut-title').textContent;
+    iframe.setAttribute('allow', 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share');
+    iframe.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
+    iframe.setAttribute('allowfullscreen', '');
+    iframe.setAttribute('loading', 'lazy');
+    thumb.appendChild(iframe);
+    card.classList.remove('tut-pending');
+  });
+  // Any card without data-yt is pending — style accordingly.
+  document.querySelectorAll('.tut-card:not([data-yt]), .tut-card[data-yt=""]')
+    .forEach(function(c){ c.classList.add('tut-pending'); });
+});
+</script>
+
+</body>
+</html>
