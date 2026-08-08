@@ -1344,7 +1344,14 @@ window._openSeriesEditor = function _openSeriesEditor(seriesKey) {
   backdrop.innerHTML =
     '<div class="folio-info-modal" role="dialog" aria-modal="true" style="position:relative">' +
     '<button class="fi-close" onclick="_closeFolioInfo()" aria-label="Close">×</button>' +
-    '<div style="margin-bottom:8px;font-size:11px;color:var(--muted,#5a5347);text-transform:uppercase;letter-spacing:.08em">📚 Edit series</div>' +
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap">' +
+      '<div style="font-size:11px;color:var(--muted,#5a5347);text-transform:uppercase;letter-spacing:.08em">📚 Edit series</div>' +
+      // Tutorial walkthrough link — jumps to the series/universe tutorial
+      // on the /help/tutorials/ index. Added 2026-08-06.
+      '<a href="/help/tutorials/#series-universe" target="_blank" rel="noopener" ' +
+        'style="font-size:11px;color:var(--accent-ui,#065f46);text-decoration:none;padding:3px 9px;border:.5px solid var(--accent-ui,#065f46);border-radius:12px;font-weight:500;white-space:nowrap" ' +
+        'title="Video walkthrough — series + universe workflow">🎬 Watch</a>' +
+    '</div>' +
     '<h2 style="margin:0 0 6px">' + esc(seriesName) + '</h2>' +
     '<p style="font-size:12px;color:var(--muted,#5a5347);margin:0 0 16px;line-height:1.55">' +
       'Changes here apply to <strong>all ' + owned.length + ' of your books in this series</strong>. ' +

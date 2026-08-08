@@ -6595,6 +6595,30 @@
               _presetApply(saved || 'full');
             } catch (_) { _presetApply('full'); }
 
+            // ⚠ CRITICAL DOM-ORDER FIX (2026-08-06). This IIFE runs at
+            // parse time (line ~6529 in the source order). The sidebar
+            // HTML — including #sidebarResizeHandle and .sidebar-scroll —
+            // isn't parsed until line ~7909+. Every prior "fix" to the
+            // resize handle silently no-op'd because getElementById()
+            // returned null and the `if (handle)` guard bailed. Same
+            // for scroll persistence. Deferring the DOM-touching code
+            // to DOMContentLoaded ensures the target elements exist
+            // before we try to attach listeners.
+            //
+            // Preset hydrate above (line ~6595) is fine to run
+            // immediately — it sets a body attribute for FOUC-free
+            // paint, and its picker/menu references are try/catch-
+            // guarded so silent skip while the DOM catches up is
+            // harmless (they get resynced on the first _presetSet).
+            const _whenReady = function(fn) {
+              if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', fn, { once: true });
+              } else {
+                fn();
+              }
+            };
+            _whenReady(function _wireSidebarDom() {
+
             // (1) Resize handle — pointer-events implementation with
             // setPointerCapture so drags survive fast movement, moving
             // off the handle, and browsers where mousemove is racy while
@@ -6606,7 +6630,9 @@
             // Jacob reported 2026-08-04. Pointer capture keeps the events
             // routed to the handle regardless of what's under the cursor.
             const handle = document.getElementById('sidebarResizeHandle');
+            if (!handle) console.warn('[sidebar] resize handle STILL missing at DOMContentLoaded — check the DOM tree');
             if (handle) {
+              console.log('[sidebar] resize handle wired ✓');
               let dragging = false;
               let startX = 0, startW = 0;
               let activePointer = null;
@@ -6761,6 +6787,7 @@
               // pagehide fires more reliably than beforeunload on mobile.
               window.addEventListener('pagehide', saveNow);
             }
+            }); // end _whenReady — DOM-order fix (2026-08-06)
           })();
         </script>
       </div>
@@ -7890,6 +7917,9 @@
           title="Free / Indie / Imprint tiers — what each unlocks">Tiers</a>
         <a href="/help/"
           style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Help</a>
+        <a href="/help/tutorials/"
+          style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)"
+          title="Video walkthroughs — first folio, publishing, series, and more">🎬 Tutorials</a>
         <a href="/api-keys-guide.html"
           style="color:var(--hint);text-decoration:none;border-bottom:.5px dotted var(--hint)">Keys</a>
         <a href="/privacy.html"
@@ -35213,9 +35243,15 @@
     style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:200;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);align-items:center;justify-content:center">
     <div
       style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:560px;width:94%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:26px 28px 22px;font-family:var(--sans);color:var(--text)">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:10px;flex-wrap:wrap">
         <h3 id="rlTitle" style="font-size:15px;font-weight:600;margin:0;letter-spacing:-0.01em">🔖 Release this Folio
         </h3>
+        <!-- Tutorial walkthrough link — added 2026-08-06. Points at the
+             tutorials index anchored to the release/paid-book tutorial.
+             Opens in a new tab so authors can watch and edit in parallel. -->
+        <a href="/help/tutorials/#sell-a-book" target="_blank" rel="noopener"
+           style="font-size:11.5px;color:var(--accent-ui);text-decoration:none;padding:4px 10px;border:.5px solid var(--accent-ui);border-radius:14px;font-weight:500;white-space:nowrap;margin-left:auto"
+           title="Video walkthrough — publishing + selling on Folio">🎬 Watch a walkthrough</a>
         <button onclick="closeReleaseModal()"
           style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint);padding:2px 6px;border-radius:4px">×</button>
       </div>
