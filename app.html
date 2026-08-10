@@ -33141,7 +33141,17 @@
       const charColorClass = '';
 
       const isFirst = !isContObj && isFirstOfChapter;
-      const noIndFinal = noIndent || (isFirstParagraphOfPage && indentMode !== '0'); // Apply no indent for first para of page too
+      // Author-override: when "Indent first paragraph too" is on
+      // (Design tab #indentFirstPara, Adrian's 2026-08-11 ask), we
+      // skip BOTH the caller-provided noIndent AND the
+      // isFirstParagraphOfPage override. Otherwise the caller's fix
+      // was correctly setting noIndent=false but this line was still
+      // flushing the first para of the page back to left.
+      const _indentFirstToo = !!(document.getElementById('indentFirstPara')
+                                  && document.getElementById('indentFirstPara').checked);
+      const noIndFinal = _indentFirstToo
+        ? isContObj  // only continuation lines skip indent when toggle is on
+        : (noIndent || (isFirstParagraphOfPage && indentMode !== '0')); // Apply no indent for first para of page too
       // Peel outer emphasis so drop cap picks a real letter.
       const _pe = dropCapEnabled && isFirst ? _peelOuterEmphasis(text) : { text: text, tag: null };
       const dcBody = _pe.text;
