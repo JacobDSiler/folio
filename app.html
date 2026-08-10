@@ -7228,6 +7228,18 @@
               <option value="1.2em" selected>Standard indent</option>
               <option value="2em">Wide indent</option>
             </select>
+            <!-- First-paragraph indent override — traditional print
+                 convention leaves the very first paragraph of a chapter
+                 (or after a scene break) flush against the left margin;
+                 only subsequent paragraphs get an indent. That's the
+                 default here. Authors who prefer indenting every
+                 paragraph — including the first — can tick this to
+                 override. Requested 2026-08-11 (Adrian via Jacob). -->
+            <div class="toggle-row" style="margin-top:10px">
+              <span>Indent first paragraph too <span class="small-note" style="font-size:10.5px;color:var(--hint)">(off = traditional print convention; first para flush-left)</span></span>
+              <label class="toggle"><input type="checkbox" id="indentFirstPara" onchange="renderPreview()"><span
+                  class="tog-track"></span></label>
+            </div>
             <label>Chapter Number Style</label>
             <select id="chNumStyle" onchange="renderPreview()">
               <option value="arabic">1, 2, 3…</option>
@@ -8308,6 +8320,9 @@
       // Paragraph indent
       const piEl = document.getElementById('paraIndent');
       if (piEl) piEl.value = p.paraIndent;
+      // First-paragraph indent override (Adrian's 2026-08-11 ask)
+      const ifpEl = document.getElementById('indentFirstPara');
+      if (ifpEl) ifpEl.checked = !!p.indentFirstPara;
 
       // Justify
       const jtEl = document.getElementById('justifyText');
@@ -10598,6 +10613,7 @@
           fontSize: getV('fontSize'),
           lineSpacing: getV('lineSpacing'),
           paraIndent: getV('paraIndent'),
+          indentFirstPara: getC('indentFirstPara'),
           chNumStyle: getV('chNumStyle'),
         },
         chapters: chapters.map(c => ({
@@ -18064,13 +18080,22 @@
             const contentW = pw - mg * 2; // Also used by image rendering
             // The global esc, orn, md, T, accent, S.accent are already available
 
+            // Author-override: when the "Indent first paragraph too"
+            // toggle is on, we DON'T flush-left the first para of the
+            // chapter / after a scene break. See Design tab checkbox
+            // #indentFirstPara. Default off = traditional print
+            // convention (Adrian via Jacob 2026-08-11).
+            const _indentFirstToo = !!(document.getElementById('indentFirstPara')
+                                        && document.getElementById('indentFirstPara').checked);
             let parasHTML = slice.map((p, pi) => {
               // p is either a plain string (full paragraph) or a continuation object
               const isContObj = (p && typeof p === 'object' && p.isCont);
               const text = isContObj ? p.text : p;
               const paraIdx = isContObj ? p.paraIdx : normParas.indexOf(text); // Use normParas.indexOf(text) to ensure correct index
               const isFirst = !isContObj && pg === 0 && pi === 0 && (ch.title || chNum);
-              const noInd = isContObj || (pg === 0 && pi === 0) || (pi > 0 && slice[pi - 1] === '__SCENE_BREAK__');
+              const noInd = _indentFirstToo
+                ? isContObj  // only continuation-lines skip indent when override is on
+                : (isContObj || (pg === 0 && pi === 0) || (pi > 0 && slice[pi - 1] === '__SCENE_BREAK__'));
 
               // Inline image marker — render an image block instead of a <p>
               if (p && typeof p === 'object' && p.__imgMeta) {
