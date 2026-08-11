@@ -1689,6 +1689,26 @@ async function fetchShelf(){
       }catch(diagE){console.error('[shelf] diagnostic query failed too:',diagE)}
     }
     renderShelf();
+    // Deep-link: /shelf?folio=<id> auto-opens that folio's info modal +
+    // scrolls its card into view. Used by the release-modal "See this
+    // Folio on the shelf →" button so authors can verify their listing
+    // looks right without hunting. If the folio is unpublished or
+    // pending-moderation it won't appear in the render, and the deep
+    // link will silently no-op (the release modal shows a toast in
+    // that case). Added 2026-08-11 (Jacob).
+    try {
+      const _urlFolio = (new URLSearchParams(window.location.search).get('folio') || '').trim();
+      if (_urlFolio && Array.isArray(window._allFolios)) {
+        const _f = window._allFolios.find(function(x){ return x && x.id === _urlFolio; });
+        if (_f) {
+          setTimeout(function(){
+            const card = document.querySelector('.shelf-card[data-folio-id="' + _urlFolio + '"]');
+            if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            try { window._openFolioInfo && window._openFolioInfo(_urlFolio); } catch (_) {}
+          }, 120);
+        }
+      }
+    } catch (_) {}
   }catch(e){
     console.error('[shelf] fetchShelf FAILED:',e);
     if(status)status.textContent='Couldn’t load the shelf. Check the console for the error.';

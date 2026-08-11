@@ -7237,7 +7237,7 @@
                  override. Requested 2026-08-11 (Adrian via Jacob). -->
             <div class="toggle-row" style="margin-top:10px">
               <span>Indent first paragraph too <span class="small-note" style="font-size:10.5px;color:var(--hint)">(off = traditional print convention; first para flush-left)</span></span>
-              <label class="toggle"><input type="checkbox" id="indentFirstPara" onchange="renderPreview()"><span
+              <label class="toggle"><input type="checkbox" id="indentFirstPara" onchange="try{document.documentElement.dataset.indentFirstPara=this.checked?'1':'0'}catch(_){};renderPreview()"><span
                   class="tog-track"></span></label>
             </div>
             <label>Chapter Number Style</label>
@@ -10712,6 +10712,16 @@
         ['bodyFont', 'fontSize', 'lineSpacing', 'paraIndent', 'chNumStyle', 'pageMargin', 'runningHeader'].forEach(k => {
           const el = document.getElementById(k); if (el && state.type[k] != null) el.value = state.type[k];
         });
+        // Checkbox-typed type settings — restore .checked, and mirror the
+        // value onto <html data-indent-first-para> so render code can read
+        // it in reader mode where the Design-tab checkbox doesn't exist.
+        // Without this mirror, Adrian's "indent first paragraph" toggle
+        // silently reverts to off every time a folio is opened in the
+        // reader (2026-08-11 fix).
+        const _ifp = !!state.type.indentFirstPara;
+        const _ifpEl = document.getElementById('indentFirstPara');
+        if (_ifpEl) _ifpEl.checked = _ifp;
+        try { document.documentElement.dataset.indentFirstPara = _ifp ? '1' : '0'; } catch (_) {}
         const fo = document.getElementById('fontSizeOut');
         if (fo) fo.textContent = document.getElementById('fontSize').value + 'pt';
         _updateFontPreview();
@@ -18085,8 +18095,16 @@
             // chapter / after a scene break. See Design tab checkbox
             // #indentFirstPara. Default off = traditional print
             // convention (Adrian via Jacob 2026-08-11).
-            const _indentFirstToo = !!(document.getElementById('indentFirstPara')
-                                        && document.getElementById('indentFirstPara').checked);
+            //
+            // Reader mode has no Design tab, so the checkbox isn't in
+            // the DOM. Fall back to the mirrored dataset attribute set
+            // by state restoration + the checkbox's onchange handler.
+            // Without this fallback, Adrian's toggle was silently
+            // ignored on the reader (Jacob 2026-08-11).
+            const _ifpCheck = document.getElementById('indentFirstPara');
+            const _indentFirstToo = _ifpCheck
+              ? !!_ifpCheck.checked
+              : (document.documentElement.dataset.indentFirstPara === '1');
             let parasHTML = slice.map((p, pi) => {
               // p is either a plain string (full paragraph) or a continuation object
               const isContObj = (p && typeof p === 'object' && p.isCont);
@@ -23828,6 +23846,39 @@
     // state stays "publish + shelf first" so tier buttons don't
     // misleadingly appear either. Non-anonymous users flow through
     // exactly as before.
+    // "See this Folio on the shelf" — opens /shelf?folio=<id> in a new
+    // tab, which shelf.html deep-links to _openFolioInfo(id) so the
+    // author lands directly on their listing's info modal. If the
+    // folio isn't published yet, we soft-warn — the shelf query
+    // filters unpublished/pending listings out entirely, so the deep
+    // link would appear to do nothing without the warning.
+    // Added 2026-08-11 (Jacob).
+    window._rlOpenOnShelf = function _rlOpenOnShelf(ev) {
+      try { ev && ev.preventDefault(); } catch (_) {}
+      const id = (typeof _projId !== 'undefined' && _projId) ? _projId : '';
+      if (!id) {
+        try { toastWarning && toastWarning('Save the folio first — no folio ID yet.'); } catch (_) {}
+        return false;
+      }
+      const _pubEl = document.getElementById('rlPublished');
+      const _isPub = _pubEl ? !!_pubEl.checked : false;
+      // Check pending-moderation flag on the loaded release (set by the
+      // shelf-listing worker after the first-time listing submission).
+      const _pending = !!(window._rlCurrent && window._rlCurrent.shelfPendingModeration);
+      if (!_isPub) {
+        try { toastInfo && toastInfo('Not published yet — the Shelf hides unpublished folios. Publishing this release will make the listing appear.'); } catch (_) {}
+      } else if (_pending) {
+        try { toastInfo && toastInfo('Awaiting shelf moderation — only you can see the listing until it\'s approved.'); } catch (_) {}
+      }
+      try {
+        window.open('/shelf?folio=' + encodeURIComponent(id), '_blank', 'noopener');
+      } catch (_) {
+        // Fallback: same-tab navigation.
+        try { window.location.href = '/shelf?folio=' + encodeURIComponent(id); } catch (__) {}
+      }
+      return false;
+    };
+
     window._rlShelfCheckboxChanged = function _rlShelfCheckboxChanged(cb) {
       const isAnon = !!(window._user && window._user.isAnonymous);
       if (cb.checked && isAnon) {
@@ -25800,7 +25851,14 @@
       //   free, no notifyOnUnlock → no CTA (countdown only, current behavior)
       const folioId = (typeof _readerFolioId !== 'undefined' && _readerFolioId) || _projId;
       let ctaHTML = '';
-      if (release.priceMode === 'paid' && (release.product || release.checkoutUrl)) {
+      // Include paypal_native even without a product/checkoutUrl — the CTA
+      // there is a button that scrolls the reader to the main PayPal Buttons
+      // slot at the top of the paywall. Without this, authors who set
+      // previewSections=0 (no free preview) with paypal_native and no
+      // Gumroad product got lock cards that showed only "🔒 Chapter N"
+      // with no purchase surface at all. Fixed 2026-08-11 (Jacob).
+      if (release.priceMode === 'paid' &&
+          (release.provider === 'paypal_native' || release.product || release.checkoutUrl)) {
         const buyUrl = _pwBuyURL(release);
         const subId = 'subForm_' + chIdx + '_' + Math.random().toString(36).slice(2, 6);
         // Provider-aware CTA copy. Three flavours:
@@ -27934,6 +27992,15 @@
       const cta = bp.querySelector('.pw-preview-cta');
       if (cta) cta.remove();
       bp.querySelectorAll('.pw-hidden-page').forEach(el => el.classList.remove('pw-hidden-page'));
+      // Tearing down the CTA also tears down every #pwpc-paypal-<releaseId>
+      // slot. If we don't release the mount lock here, the next
+      // _pwMountPaypalNative call short-circuits on _pwPaypalMounted.has(id)
+      // and never re-renders the buttons into the fresh slot. Clear it
+      // so subsequent _pwShowPreview → _tryMount cycles can actually mount.
+      // (2026-08-11: fixes "PayPal Buttons: Element does not exist" that
+      // hit authors with previewSections=0 + no teasers, where a rapid
+      // reapply cycle destroyed the slot mid-render.)
+      try { if (_pwPaypalMounted && _pwPaypalMounted.clear) _pwPaypalMounted.clear(); } catch (_) {}
     }
 
     function _pwBuildPreviewCta(releaseId, release) {
@@ -28122,6 +28189,7 @@
         const cfg = await r.json().catch(function(){ return {}; });
         if (!r.ok || !cfg.ok) {
           setStatus('PayPal checkout unavailable: ' + (cfg.error || r.status) + '. Contact the author.', true);
+          _pwPaypalMounted.delete(releaseId); // release lock so a fresh mount can retry
           return;
         }
         // Load the PayPal SDK once per Client ID. Multiple releases
@@ -28142,6 +28210,18 @@
         }
         if (!window.paypal || !window.paypal.Buttons) {
           setStatus('PayPal SDK loaded but Buttons unavailable.', true);
+          _pwPaypalMounted.delete(releaseId);
+          return;
+        }
+        // Between the initial slot check and now we've done TWO awaits
+        // (config fetch + SDK script load). A reapply cycle could have
+        // torn down the CTA card mid-flight, meaning `#slotId` no longer
+        // exists. Bail cleanly instead of calling .render() into thin
+        // air (which throws the "Element does not exist" console error
+        // Jacob reported when previewSections=0). Clearing the lock
+        // lets the next _pwShowPreview's _tryMount succeed.
+        if (!document.getElementById(slotId)) {
+          _pwPaypalMounted.delete(releaseId);
           return;
         }
         setStatus('');
@@ -28191,6 +28271,9 @@
       } catch (e) {
         console.warn('[paypal-native] mount failed:', e);
         setStatus('PayPal checkout failed to load: ' + (e.message || 'unknown'), true);
+        // Any failure past the guard should release the mount lock so
+        // the reader isn't stuck without a purchase surface forever.
+        try { _pwPaypalMounted.delete(releaseId); } catch (_) {}
       }
     }
     window._pwMountPaypalNative = _pwMountPaypalNative;
@@ -33147,8 +33230,14 @@
       // isFirstParagraphOfPage override. Otherwise the caller's fix
       // was correctly setting noIndent=false but this line was still
       // flushing the first para of the page back to left.
-      const _indentFirstToo = !!(document.getElementById('indentFirstPara')
-                                  && document.getElementById('indentFirstPara').checked);
+      //
+      // Reader mode fallback: no Design tab, so read the mirror
+      // dataset attribute set by state restoration (see load handler
+      // for state.type.indentFirstPara).
+      const _ifpCheckR = document.getElementById('indentFirstPara');
+      const _indentFirstToo = _ifpCheckR
+        ? !!_ifpCheckR.checked
+        : (document.documentElement.dataset.indentFirstPara === '1');
       const noIndFinal = _indentFirstToo
         ? isContObj  // only continuation lines skip indent when toggle is on
         : (noIndent || (isFirstParagraphOfPage && indentMode !== '0')); // Apply no indent for first para of page too
@@ -35689,6 +35778,28 @@
         </p>
 
         <div id="rlShelfFields" style="display:none;margin-left:24px">
+          <!-- "See this Folio on the Shelf" — quick jump to the public
+               listing so the author can verify how their card looks to
+               readers. Auto-opens the info modal via /shelf?folio=<id>
+               (shelf.html deep-links to _openFolioInfo on that param).
+               Only really useful once the folio is actually published +
+               approved; before that the shelf query filters it out. We
+               show the button anyway so the author knows where it will
+               live — the button label + tooltip warn about pending
+               state. Added 2026-08-11 (Jacob). -->
+          <div id="rlShelfPeekRow"
+            style="margin:4px 0 12px;padding:8px 10px;background:var(--bg);border:.5px dashed var(--border-mid);border-radius:7px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+            <div style="flex:1;font-size:11.5px;color:var(--text);line-height:1.4">
+              📖 <strong>Preview on the Shelf</strong>
+              <div style="font-size:10.5px;color:var(--hint);margin-top:2px">
+                Opens your folio's public listing card in a new tab. Requires the folio to be published and (if new) shelf-approved.
+              </div>
+            </div>
+            <a id="rlShelfPeekLink" href="#" target="_blank" rel="noopener"
+              onclick="return _rlOpenOnShelf(event);"
+              style="font-size:11.5px;padding:6px 12px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;text-decoration:none;font-weight:500;white-space:nowrap">See this Folio on the shelf →</a>
+          </div>
+
           <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:8px 0 4px">
             Genre
           </label>
