@@ -83,6 +83,54 @@
   <title>Folio — Beautiful Book Formatter</title>
   <meta name="description"
     content="Folio is a free book-formatting and reader tool. Write, format, and publish beautiful books from your browser.">
+  <!-- PWA / offline. Registered further down (see the sw.js
+       registration block). The manifest + theme-color + Apple meta
+       tags let Chrome / Edge / Safari install Folio as a real app
+       with an icon in the launcher, and let iOS give it a native-
+       looking status bar. Added 2026-08-11. -->
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#c9a86c">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Folio">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <!-- Service worker registration. Deferred to `load` so the SW
+       install doesn't compete with the initial paint. The SW
+       precaches the app shell + opportunistically caches Firebase
+       SDK / Google Fonts / vendor CDNs so a subsequent cold launch
+       works with no network. Firestore's built-in IndexedDB write
+       queue handles the actual chapter/edit persistence. See sw.js
+       for the caching strategy. -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        // Small delay so the first render finishes before the SW's
+        // install cache-warm kicks off — matters on slow devices.
+        setTimeout(function () {
+          navigator.serviceWorker.register('/sw.js').then(function (reg) {
+            // When a fresh version installs while a tab is open,
+            // promote it immediately (no "please reload" prompt).
+            // The worker sits in `waiting` state until we tell it
+            // to skipWaiting; do that as soon as it's installed so
+            // the next navigation gets the fresh shell.
+            if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+            reg.addEventListener('updatefound', function () {
+              const sw = reg.installing;
+              if (!sw) return;
+              sw.addEventListener('statechange', function () {
+                if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+                  sw.postMessage({ type: 'SKIP_WAITING' });
+                }
+              });
+            });
+          }).catch(function (err) {
+            // Non-fatal — Folio still works, just without offline cold-launch.
+            console.warn('[sw] registration failed:', err);
+          });
+        }, 800);
+      });
+    }
+  </script>
   <!-- Open Graph / Twitter Card — STATIC fallback only. Per-book
      previews for share links are served dynamically by the
      folio-share Cloudflare Worker (folio-share-worker.js) for
@@ -8282,6 +8330,42 @@
     function toastInfo(msg, opts) { return toast(msg, { type: 'info', ...(opts || {}) }); }
     function toastSuccess(msg, opts) { return toast(msg, { type: 'success', ...(opts || {}) }); }
     function toastWarning(msg, opts) { return toast(msg, { type: 'warning', ...(opts || {}) }); }
+
+    // ═══ Offline / online indicator ══════════════════════════════
+    // Turns the "works offline" claim into something users can SEE.
+    // When the browser goes offline:
+    //   - Toast: "Offline — your work saves locally and syncs when
+    //     you're back online."
+    //   - Sets <html data-offline="1"> so any UI (Save button, sync
+    //     status chip) can style itself accordingly.
+    // When it comes back online:
+    //   - Toast: "Back online — syncing your edits."
+    // Firestore's own IndexedDB queue does the actual sync; we just
+    // give the user visible confirmation the app knows what's up.
+    // Added 2026-08-11 with the service-worker offline upgrade.
+    (function _folioOnlineIndicator(){
+      let _lastState = navigator.onLine;
+      function _apply(online, announce) {
+        try {
+          document.documentElement.setAttribute('data-offline', online ? '0' : '1');
+        } catch (_) {}
+        if (!announce || online === _lastState) { _lastState = online; return; }
+        _lastState = online;
+        try {
+          if (!online) {
+            toastInfo("Offline — your work saves locally and syncs when you're back online.",
+                      { duration: 5000 });
+          } else {
+            toastSuccess("Back online — syncing your edits.", { duration: 3000 });
+          }
+        } catch (_) {}
+      }
+      // Prime the attribute on load without a toast (nothing changed
+      // yet — user opened the tab in whatever state they're in).
+      window.addEventListener('load', function () { _apply(navigator.onLine, false); });
+      window.addEventListener('online',  function () { _apply(true,  true); });
+      window.addEventListener('offline', function () { _apply(false, true); });
+    })();
 
 
     /* ═══════════════════════════════════════════════

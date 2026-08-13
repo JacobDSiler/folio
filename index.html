@@ -3,6 +3,34 @@
 <html lang="en"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- PWA / offline. Registered here so first-visit users installing
+     Folio to their home screen from the welcome page get the SW
+     immediately. See sw.js for caching strategy. Added 2026-08-11. -->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#c9a86c">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Folio">
+<link rel="apple-touch-icon" href="/icon.svg">
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      setTimeout(function () {
+        navigator.serviceWorker.register('/sw.js').then(function (reg) {
+          if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          reg.addEventListener('updatefound', function () {
+            const sw = reg.installing;
+            if (!sw) return;
+            sw.addEventListener('statechange', function () {
+              if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+                sw.postMessage({ type: 'SKIP_WAITING' });
+              }
+            });
+          });
+        }).catch(function (err) { console.warn('[sw] registration failed:', err); });
+      }, 800);
+    });
+  }
+</script>
 
 <script>
   // ── First-visit + deep-link router ──────────────────────────────────────
