@@ -1,0 +1,22 @@
+<!--
+  ADD THESE TAGS INSIDE <head> OF BOTH index.html AND app.html
+  (And shelf.html, or any other HTML page you want installable / TWA-aware.)
+  Put them near the existing <link rel="icon"> tags.
+  Safe to leave the existing base64 SVG favicon in place; browsers will
+  use the higher-res PNGs from the manifest for install / home screen.
+-->
+<link rel="manifest" href="/manifest.json">
+<meta name="theme-color" content="#c9a86c">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Folio">
+<link rel="apple-touch-icon" href="/icon-192.png">
+
+<!--
+  TWA detection + Play-compliant payment routing.
+  No-op on the regular website. Only affects behaviour when the page is
+  loaded inside the Android app wrapper. See the file itself for docs.
+  Put this AT THE END of <head> or just before </body> — either works.
+-->
+<script src="/folio-twa.js" defer></script>

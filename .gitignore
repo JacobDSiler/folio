@@ -23,3 +23,11 @@ press/photos/templates/*.psdt
 docs/THOMAS_*.md
 docs/AUTHORS.md
 docs/OUTREACH_*.md
+# .gitignore additions
+android.keystore
+app/
+build/
+.gradle/
+twa-manifest.json
+app-release-bundle.aab
+app-release-signed.apk

@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Folio → Android App: Morning Brief</title>
+<style>
+  :root {
+    --bg: #faf7f1;
+    --ink: #1a1611;
+    --muted: #6b5f4d;
+    --accent: #c98c2a;
+    --accent-dark: #8b5a10;
+    --accent-soft: #f5ead2;
+    --warn: #b45309;
+    --warn-soft: #fef3c7;
+    --danger: #9f1239;
+    --danger-soft: #fee2e2;
+    --success: #166534;
+    --success-soft: #dcfce7;
+    --card: #fffdf8;
+    --border: #e8dcc4;
+    --code-bg: #1e1a13;
+    --code-ink: #f0e6cf;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Georgia, serif;
+    background: var(--bg);
+    color: var(--ink);
+    line-height: 1.55;
+    font-size: 16px;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 24px 20px 80px; }
+  header {
+    padding: 20px 0 12px;
+    border-bottom: 3px double var(--accent);
+    margin-bottom: 28px;
+  }
+  header .kicker {
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent-dark);
+    font-weight: 600;
+  }
+  h1 {
+    margin: 6px 0 8px;
+    font-size: 30px;
+    line-height: 1.15;
+    font-weight: 700;
+    font-family: Georgia, serif;
+  }
+  header .sub { color: var(--muted); font-size: 15px; font-style: italic; }
+  h2 {
+    margin: 44px 0 12px;
+    font-size: 22px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    font-family: Georgia, serif;
+  }
+  h3 { margin: 24px 0 8px; font-size: 17px; }
+  p, li { font-size: 15px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    margin: 12px 0 20px;
+  }
+  .callout {
+    background: var(--warn-soft);
+    border-left: 4px solid var(--warn);
+    padding: 12px 14px;
+    margin: 16px 0;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  .callout strong { color: var(--warn); }
+  .danger {
+    background: var(--danger-soft);
+    border-left: 4px solid var(--danger);
+    padding: 12px 14px;
+    margin: 16px 0;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  .danger strong { color: var(--danger); }
+  .accent {
+    background: var(--accent-soft);
+    border-left: 4px solid var(--accent);
+    padding: 12px 14px;
+    margin: 16px 0;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  .success {
+    background: var(--success-soft);
+    border-left: 4px solid var(--success);
+    padding: 12px 14px;
+    margin: 16px 0;
+    border-radius: 4px;
+    font-size: 14px;
+  }
+  pre {
+    background: var(--code-bg);
+    color: var(--code-ink);
+    padding: 14px 16px;
+    border-radius: 6px;
+    overflow-x: auto;
+    font-size: 13px;
+    line-height: 1.45;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+  }
+  code {
+    background: #f0e6cf;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 13px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    color: #4a3a20;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0 20px;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    background: var(--accent-soft);
+    font-weight: 600;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent-dark);
+  }
+  td.field { font-weight: 600; width: 34%; color: var(--accent-dark); }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .badge.done { background: #d1fae5; color: #065f46; }
+  .badge.now  { background: #dbeafe; color: #1e40af; }
+  .badge.wait { background: #fef3c7; color: #92400e; }
+  .step {
+    padding-left: 46px;
+    position: relative;
+    margin: 20px 0;
+  }
+  .step::before {
+    content: attr(data-n);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 32px;
+    height: 32px;
+    background: var(--accent);
+    color: white;
+    border-radius: 50%;
+    font-weight: 700;
+    font-size: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: Georgia, serif;
+  }
+  ol.steps { list-style: none; padding: 0; }
+  .toc {
+    background: var(--card);
+    padding: 16px 20px;
+    border-radius: 8px;
+    margin: 8px 0 28px;
+    font-size: 14px;
+    border: 1px solid var(--border);
+  }
+  .toc ol { margin: 8px 0 0 22px; padding: 0; }
+  .toc li { margin: 5px 0; }
+  a { color: var(--accent-dark); }
+  hr {
+    border: 0;
+    border-top: 1px dashed var(--border);
+    margin: 28px 0;
+  }
+  .filelist {
+    background: var(--card);
+    padding: 12px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.8;
+  }
+  .filelist .name { color: var(--accent-dark); font-weight: 600; }
+  .phase {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--accent);
+    padding: 16px 18px;
+    margin: 16px 0;
+    border-radius: 6px;
+  }
+  .phase h4 {
+    margin: 0 0 8px;
+    color: var(--accent-dark);
+    font-family: Georgia, serif;
+    font-size: 16px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="kicker">Morning brief · Folio → Google Play</div>
+  <h1>Everything's built. Start here when you wake.</h1>
+  <div class="sub">~45 min from opening this doc to the app installed on your Redmi via Closed Testing.</div>
+</header>
+
+<div class="toc">
+  <strong style="font-family:Georgia,serif;font-size:16px;">Order of operations</strong>
+  <ol>
+    <li><span class="badge done">Done</span> Icons + manifest + head tags + <strong>TWA payment routing JS</strong> + <strong>feature graphic</strong> + <strong>Reader App application</strong></li>
+    <li><span class="badge now">Do first</span> Drop all delivered files into <code>C:\dev\folio\</code></li>
+    <li><span class="badge now">Do next</span> Add <code>&lt;head&gt;</code> tags to <code>index.html</code>, <code>app.html</code> (& optionally <code>shelf.html</code>)</li>
+    <li><span class="badge now">30 sec</span> Fix the CNAME file</li>
+    <li><span class="badge now">5 min</span> Deploy to onfolio.press &amp; verify manifest live</li>
+    <li><span class="badge now">10 min</span> Install prereqs, <code>bubblewrap init</code>, build AAB</li>
+    <li><span class="badge now">15 min</span> Play Console App content (tables below)</li>
+    <li><span class="badge wait">1–3 days</span> Upload AAB → Closed testing → Google review</li>
+    <li><span class="badge wait">Same day as upload</span> Publish assetlinks.json</li>
+    <li><span class="badge wait">Anytime after upload</span> Submit Reader Apps application</li>
+    <li><span class="badge wait">On Reader approval</span> Flip TWA mode to 'reader', rebuild AAB, publish to production</li>
+  </ol>
+</div>
+
+<h2>The monetization strategy — read this first</h2>
+
+<div class="phase">
+  <h4>Phase 1 — Closed testing (this week)</h4>
+  <p>TWA JavaScript is set to <code>MODE = 'safe'</code>. Inside the Android app, subscribe/upgrade buttons are <strong>hidden entirely</strong> and replaced with a small notice telling users to visit onfolio.press to see plans. On the web, everything works exactly as it always has.</p>
+  <p><strong>Result:</strong> Zero Play policy risk. No revenue path in the app = nothing for Play to enforce against. Closed testing goes through cleanly.</p>
+</div>
+
+<div class="phase">
+  <h4>Phase 2 — After Reader App approval (2–3 weeks out)</h4>
+  <p>Flip <code>MODE = 'reader'</code> in <code>folio-twa.js</code>, redeploy, rebuild AAB with a bumped version code, publish. Subscribe buttons come back — but now they open in the user's external browser (not the TWA container, not Chrome Custom Tabs) and appear with the required disclosure text. PayPal keeps working. No Play Store cut.</p>
+</div>
+
+<div class="phase">
+  <h4>What we're NOT doing</h4>
+  <p>No Google Play Billing integration. That would require moving off TWA to a hybrid shell (Capacitor) and integrating the Play Billing SDK — a large piece of native work. The Reader App exception exists precisely so book/media apps don't have to. If Reader status is denied, we'll reassess then.</p>
+</div>
+
+<p><strong>Answer to your question:</strong> Yes — the disclosure text is app-only. The JavaScript detects TWA mode and only shows it inside the wrapper. Web visitors never see any of it. And you're right that redirecting to the browser is the play; the module handles this with an <code>intent://</code> link that forces the external browser (not Chrome Custom Tabs, which Google's policy treats ambiguously).</p>
+
+<h2>Files delivered alongside this brief</h2>
+<div class="filelist">
+  <div><span class="name">icon-192.png</span> — 192×192 transparent PNG</div>
+  <div><span class="name">icon-512.png</span> — 512×512 transparent PNG</div>
+  <div><span class="name">icon-maskable-512.png</span> — 512×512, cream bg + safe zone, for Android launcher</div>
+  <div><span class="name">icon-512-opaque.png</span> — 512×512 opaque, for Play Store listing icon</div>
+  <div><span class="name">feature-graphic.png</span> — 1024×500, required for Play Store listing</div>
+  <div><span class="name">manifest.json</span> — drop at repo root</div>
+  <div><span class="name">folio-twa.js</span> — TWA detection + payment routing. Drop at repo root.</div>
+  <div><span class="name">head-tags-to-add.html</span> — 8 lines to paste into <code>&lt;head&gt;</code> of each HTML entry point</div>
+  <div><span class="name">assetlinks-template.json</span> — for later, after AAB uploads</div>
+  <div><span class="name">reader-app-application.md</span> — pre-drafted Reader Apps submission (save for later)</div>
+</div>
+
+<h2>Decisions locked</h2>
+<div class="card">
+  <table>
+    <tr><td class="field">Package name</td><td><code>press.onfolio.app</code> <span class="badge wait">Permanent</span></td></tr>
+    <tr><td class="field">Start URL</td><td><code>https://onfolio.press/app.html?src=twa</code></td></tr>
+    <tr><td class="field">Scope</td><td><code>/</code> — whole domain opens inside app</td></tr>
+    <tr><td class="field">Theme color</td><td><code>#c9a86c</code> (Folio amber)</td></tr>
+    <tr><td class="field">Background</td><td><code>#faf8f4</code> (Folio cream — splash)</td></tr>
+    <tr><td class="field">TWA payment mode</td><td><code>safe</code> initially, <code>reader</code> after approval</td></tr>
+    <tr><td class="field">Track</td><td>Closed testing</td></tr>
+  </table>
+</div>
+
+<hr>
+
+<h2 data-n="1">Step 1 — Drop files into the repo</h2>
+<p>All 10 delivered files go into <code>C:\dev\folio\</code> (root, next to <code>index.html</code>):</p>
+<pre><code>C:\dev\folio\
+├── icon-192.png              ← new
+├── icon-512.png              ← new
+├── icon-maskable-512.png     ← new
+├── icon-512-opaque.png       ← new (for Play Store, later)
+├── feature-graphic.png       ← new (for Play Store, later)
+├── manifest.json             ← new
+├── folio-twa.js              ← new
+├── index.html                ← edit (add link tags)
+├── app.html                  ← edit (add link tags)
+└── (existing files...)</code></pre>
+
+<h2 data-n="2">Step 2 — Paste head tags into HTML pages</h2>
+<p>Open <code>head-tags-to-add.html</code>, copy its 8 lines, paste inside the <code>&lt;head&gt;</code> of both <code>index.html</code> and <code>app.html</code>. Put them right after the existing <code>&lt;link rel="icon"&gt;</code> tags. If you want shelf.html or other pages to be TWA-aware too, add there as well.</p>
+<p>The existing base64 SVG favicon can stay — the manifest just gives the browser higher-res options for install / home screen.</p>
+
+<h2 data-n="3">Step 3 — Fix the CNAME file</h2>
+<div class="callout">
+  Your <code>CNAME</code> at the repo root has markdown link syntax (<code>[www.onfolio.press](https://www.onfolio.press)</code>) instead of just the hostname. GitHub Pages / Cloudflare Pages expect a single line with just the domain.
+</div>
+<pre><code>Set-Content -Path C:\dev\folio\CNAME -Value "www.onfolio.press" -NoNewline</code></pre>
+
+<h2 data-n="4">Step 4 — Deploy</h2>
+<p>I couldn't determine your host from the config (Firebase config only has Firestore/Storage rules, no hosting block). Whichever of these you're using:</p>
+<div class="card">
+  <table>
+    <tr><td class="field">GitHub Pages</td><td><code>git add . ; git commit -m "PWA manifest, icons, TWA module for Android app" ; git push</code></td></tr>
+    <tr><td class="field">Cloudflare Pages</td><td>Same — <code>git push</code>. Pages picks up automatically.</td></tr>
+    <tr><td class="field">Manual/FTP</td><td>Upload all new files to your web root.</td></tr>
+  </table>
+</div>
+
+<h2 data-n="5">Step 5 — Verify manifest &amp; TWA module are live</h2>
+<pre><code>https://onfolio.press/manifest.json         ← should return JSON
+https://onfolio.press/folio-twa.js          ← should return JS
+https://onfolio.press/icon-192.png          ← should render image
+https://onfolio.press/icon-512.png          ← should render image
+https://onfolio.press/icon-maskable-512.png ← should render image</code></pre>
+<p>All must return 200 OK. Any 404 = fix before continuing.</p>
+
+<h2 data-n="6">Step 6 — Install prereqs, init, build</h2>
+<pre><code>node --version              # need v18+
+java --version              # need 17+
+npm install -g @bubblewrap/cli
+
+cd C:\dev\folio
+bubblewrap init --manifest=https://onfolio.press/manifest.json</code></pre>
+
+<p>Answers to the ~12 prompts:</p>
+<div class="card">
+  <table>
+    <tr><td class="field">Domain</td><td><code>onfolio.press</code></td></tr>
+    <tr><td class="field">URL path</td><td><code>/app.html?src=twa</code></td></tr>
+    <tr><td class="field">Application name</td><td><code>Folio</code></td></tr>
+    <tr><td class="field">Short name</td><td><code>Folio</code></td></tr>
+    <tr><td class="field">Application ID</td><td><strong><code>press.onfolio.app</code></strong></td></tr>
+    <tr><td class="field">Starting version code</td><td><code>1</code></td></tr>
+    <tr><td class="field">Display mode</td><td><code>standalone</code></td></tr>
+    <tr><td class="field">Orientation</td><td><code>default</code></td></tr>
+    <tr><td class="field">Status bar / splash colors</td><td>Accept the defaults (pulled from manifest)</td></tr>
+    <tr><td class="field">Include app shortcuts?</td><td><code>No</code></td></tr>
+    <tr><td class="field">Signing key</td><td><strong>Create new.</strong> Accept default path. Choose a password you'll remember. Note the alias name.</td></tr>
+  </table>
+</div>
+
+<div class="danger">
+  <strong>Back up the keystore file NOW.</strong> After <code>bubblewrap init</code> finishes, copy <code>android.keystore</code> from the folio directory to a password manager / cloud drive / USB stick. This file + password is the ONLY way to publish updates. Losing it = forced to publish as a new app on Play Store.
+</div>
+
+<p>Then build:</p>
+<pre><code>bubblewrap build</code></pre>
+<p>Outputs:</p>
+<ul>
+  <li><code>app-release-bundle.aab</code> — <strong>upload this to Play Store</strong></li>
+  <li><code>app-release-signed.apk</code> — sideload to your Redmi immediately for instant testing (email/Drive → tap to install → allow "install from unknown source")</li>
+</ul>
+
+<h2 data-n="7">Step 7 — Play Console: App content</h2>
+<p><strong>Left sidebar → Policy → App content.</strong></p>
+
+<div class="card">
+<table>
+  <tr><th>Section</th><th>Answer</th></tr>
+  <tr><td class="field">Privacy policy</td><td><code>https://onfolio.press/privacy.html</code></td></tr>
+  <tr><td class="field">App access</td>
+    <td>If Folio's core features work without login: <em>"All functionality available without special access."</em><br>
+    If signup is required: <em>"Some functionality restricted"</em> → create <code>playreview@onfolio.press</code> with an active subscription, paste credentials.</td></tr>
+  <tr><td class="field">Ads</td><td><strong>No</strong>.</td></tr>
+  <tr><td class="field">Content rating</td>
+    <td>Start questionnaire → email defaults → Category: <strong>Reference, News, or Educational</strong> → all subsequent questions <strong>No</strong>. Submit. Generates PEGI 3 / Everyone.</td></tr>
+  <tr><td class="field">Target audience</td>
+    <td>Age group: <strong>18 and over</strong>. Adding under-18 triggers Families Policy — big extra workload. Skip unless teens are an explicit market.</td></tr>
+  <tr><td class="field">News app</td><td><strong>No</strong>.</td></tr>
+  <tr><td class="field">COVID-19 tracing/status</td><td><strong>No</strong>.</td></tr>
+  <tr><td class="field">Government apps</td><td><strong>No</strong>.</td></tr>
+  <tr><td class="field">Financial features</td>
+    <td><strong>None.</strong> Ko-fi tips and PayPal subscriptions are external web flows, not in-app financial features.</td></tr>
+  <tr><td class="field">Health apps</td><td><strong>No</strong>.</td></tr>
+  <tr><td class="field">Social features</td>
+    <td>Answer honestly. If Folio has no in-app user-to-user interaction: <strong>No</strong>. If there's commenting / sharing / public listings: <strong>Yes</strong> + answer follow-ups.</td></tr>
+</table>
+</div>
+
+<h3>Data safety — the one to think about, not rubber-stamp</h3>
+<p>Legal declaration. Answer based on what Folio actually collects. Typical shape:</p>
+<div class="card">
+<table>
+  <tr><th>Data type</th><th>Collected?</th><th>Shared?</th><th>Purpose</th></tr>
+  <tr><td>Email</td><td>Yes (signup)</td><td>No</td><td>Account management</td></tr>
+  <tr><td>Name</td><td>Yes (if provided)</td><td>No</td><td>Account management</td></tr>
+  <tr><td>User content (books, drafts)</td><td>Yes</td><td>Only on user-initiated export/publish</td><td>App functionality</td></tr>
+  <tr><td>Crash logs</td><td>Only if you use Sentry / Crashlytics</td><td>Vendor of that tool</td><td>Diagnostics</td></tr>
+  <tr><td>Payment info</td><td><strong>No</strong> — PayPal and Ko-fi handle payments</td><td>—</td><td>—</td></tr>
+  <tr><td>Location</td><td>No</td><td>—</td><td>—</td></tr>
+</table>
+</div>
+<p>For each "Yes": mark <em>Encrypted in transit</em> (TLS — you have HTTPS). If users can email you for deletion → mark deletion available.</p>
+
+<h2 data-n="8">Step 8 — Upload AAB → Closed testing</h2>
+<ol class="steps">
+  <li class="step" data-n="a"><strong>Testing → Closed testing.</strong> Create new track "Alpha" (or reuse your existing).</li>
+  <li class="step" data-n="b"><strong>Testers tab</strong> → Create email list → add your Gmail + friends. 12+ testers for 14 continuous days is required before promoting to production on a new personal account (doesn't block closed testing).</li>
+  <li class="step" data-n="c"><strong>Releases tab</strong> → Create new release → upload <code>app-release-bundle.aab</code>. Play will warn about URL handling / assetlinks — expected, fixed in Step 9.</li>
+  <li class="step" data-n="d">Release name: <code>1 (1.0.0)</code>. Notes: <code>Initial release.</code></li>
+  <li class="step" data-n="e"><strong>Save → Review release → Start rollout.</strong> Google review: 1–3 days for first submission on a personal account.</li>
+  <li class="step" data-n="f">After review, testers tab gives you an <strong>opt-in URL</strong>. Open on Redmi in Chrome → "Become a tester" → Play Store link → install. Done.</li>
+</ol>
+
+<h2 data-n="9">Step 9 — Publish assetlinks.json</h2>
+<p>Once AAB is uploaded, Play Console shows the App Signing SHA-256:</p>
+<p><strong>Setup → App integrity → App signing key certificate → SHA-256 certificate fingerprint.</strong> Copy it.</p>
+<p>Your upload key SHA-256 is in the auto-generated <code>assetlinks.json</code> Bubblewrap made in the project directory. Grab it there.</p>
+<p>Combine both into the template file I gave you, then host at:</p>
+<pre><code>https://onfolio.press/.well-known/assetlinks.json</code></pre>
+<p>Create <code>.well-known/</code> folder at repo root, drop the file, deploy. Verify with <a href="https://developers.google.com/digital-asset-links/tools/generator">Google's Asset Links tester</a>. Without this, users see a browser URL bar on the app. Everything else works.</p>
+
+<h2 data-n="10">Step 10 — Submit Reader App application</h2>
+<p>Once your closed-testing release is live in Play, submit the Reader Apps application. I've drafted the whole thing — see <code>reader-app-application.md</code>. Submit at:</p>
+<p><a href="https://support.google.com/googleplay/android-developer/answer/12570971">https://support.google.com/googleplay/android-developer/answer/12570971</a></p>
+<p>Review time: typically 7–21 days.</p>
+
+<h2 data-n="11">Step 11 — After Reader approval: flip to reader mode</h2>
+<pre><code># Edit folio-twa.js, change:
+#   const MODE = 'safe';
+# To:
+#   const MODE = 'reader';
+
+# Redeploy site
+git add folio-twa.js
+git commit -m "Enable reader-mode payment routing"
+git push
+
+# Bump version and rebuild AAB
+# Edit twa-manifest.json in project directory — bump appVersionCode from 1 to 2
+bubblewrap update
+bubblewrap build
+
+# Upload new AAB as a new release in the same Closed Testing track,
+# or promote to Production if you've hit the 14-day / 12-tester bar.</code></pre>
+
+<h2>Store listing (after AAB uploads)</h2>
+
+<h3>App name</h3>
+<div class="card"><code>Folio</code></div>
+
+<h3>Short description (80 chars max)</h3>
+<div class="card"><code>Beautiful books, written in your browser. Format, publish, share.</code> <span style="color:var(--muted);font-size:12px;">— 65 chars</span></div>
+
+<h3>Full description (edit freely)</h3>
+<div class="card" style="white-space:pre-wrap; font-size:14px;">Folio is a beautiful, browser-based book writing and formatting tool for authors who want their words to look as good as they read.
+
+Write drafts, structure chapters, and produce publication-ready books without wrestling with desktop software. Folio handles typography, layout, and export — you focus on the words.
+
+• Clean, distraction-free writing environment
+• Professional typography and layout, built-in
+• Export to formats compatible with every major publisher — you pick the vendor, you own the work
+• Optional voice narration to hear your prose read back
+• Runs anywhere: phone, tablet, laptop
+
+Folio is free to use. If it saves you time, you can tip on Ko-fi — entirely optional, no locked features on the free tier.
+
+This Android app is the Folio web experience, wrapped for quick launch from your home screen with all the same features one tap away.</div>
+
+<h3>Graphics</h3>
+<div class="card">
+  <table>
+    <tr><td class="field">App icon</td><td><code>icon-512-opaque.png</code> (delivered)</td></tr>
+    <tr><td class="field">Feature graphic</td><td><code>feature-graphic.png</code> (delivered) — 1024×500, Folio branded</td></tr>
+    <tr><td class="field">Phone screenshots</td><td>2–8 required. Take on your Redmi after install: Folio open on a chapter, shelf view, export screen. Portrait, 9:16.</td></tr>
+  </table>
+</div>
+
+<hr>
+
+<div class="success">
+  <strong>Bottom line:</strong> You can be on your Redmi via Closed Testing within a week. The monetization compliance path (Reader status + external redirect) is fully teed up — code written, application drafted, both waiting for the moment they're needed. You will not have to touch Google Play Billing.
+</div>
+
+<footer style="margin-top:60px; padding-top:20px; border-top:1px solid var(--border); font-size:12px; color:var(--muted); text-align:center;">
+  <em>Package: <code>press.onfolio.app</code> · Start: <code>onfolio.press/app.html?src=twa</code> · Theme: <code>#c9a86c</code> · TWA mode: <code>safe</code> (initial) → <code>reader</code> (after approval)</em>
+</footer>
+
+</div>
+</body>
+</html>
