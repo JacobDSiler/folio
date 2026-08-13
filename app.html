@@ -805,7 +805,13 @@
     #presetEscapeHatch {
       display: none;
       position: fixed;
-      bottom: 18px;
+      /* Stacked ABOVE the ↑/↓ scroll buttons (bottom:70 + 38 + 10 gap).
+         The scroll pair gets clicked constantly during writing/reading;
+         the preset switcher is used a handful of times per session. So
+         the scroll buttons keep the ergonomic corner and the gear sits
+         a row up. Was bottom:18px which collided with #scrollBottomBtn
+         (24px) and crowded #scrollTopBtn (70px). Fixed 2026-08-11. */
+      bottom: 118px;
       right: 18px;
       z-index: 200;
       width: 40px;
@@ -828,6 +834,11 @@
     body[data-preset="focus"] #presetEscapeHatch {
       display: flex;
     }
+    /* Focus preset hides the scroll buttons entirely, so the gear can
+       drop back to its natural corner spot (no collision to avoid).
+       Menu follows suit. */
+    body[data-preset="focus"] #presetEscapeHatch { bottom: 18px; }
+    body[data-preset="focus"] #presetEscapeMenu  { bottom: 68px; }
     #presetEscapeHatch:hover {
       transform: scale(1.08);
       color: var(--accent-ui, #065f46);
@@ -839,7 +850,10 @@
     #presetEscapeMenu {
       display: none;
       position: fixed;
-      bottom: 68px;
+      /* Anchored just above the (relocated) escape-hatch button so the
+         menu pops upward from it. Hatch is at bottom:118, height 40,
+         + 10px gap = 168. */
+      bottom: 168px;
       right: 18px;
       z-index: 201;
       background: var(--surface);
