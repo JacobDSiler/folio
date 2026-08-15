@@ -872,7 +872,12 @@ window._openFolioInfo = function _openFolioInfo(folioId) {
     ? '<div class="fi-section-lbl">Watch</div>' +
       '<div class="fi-videos" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">' +
       folio.videos.map(function(v){
-        const label = v.label || (v.embed ? 'Video' : '▶ Watch');
+        // Strip a leading ▶ glyph (with optional whitespace) — the link
+        // button already prepends its own arrow, so a label like
+        // "▶ Watch" would render as "▶ ▶ Watch ↗". Defensive against
+        // labels typed by authors AND against pre-fix saved data.
+        const rawLbl = String(v.label || '').replace(/^\s*[▶►▷]\s*/, '');
+        const label  = rawLbl || (v.embed ? 'Video' : 'Watch');
         if (v.embed) {
           // 16:9 responsive iframe wrapper. Nocookie domain so the
           // reader isn't tracked unless they actually play.
