@@ -23944,6 +23944,201 @@
     // state stays "publish + shelf first" so tier buttons don't
     // misleadingly appear either. Non-anonymous users flow through
     // exactly as before.
+    // ═══ Info-modal YouTube videos ═════════════════════════════════
+    // release.videos[] = [{ id, label, embed }]. `id` is the 11-char
+    // YouTube video id (extracted from whatever URL the author pasted
+    // — youtube.com/watch?v=…, youtu.be/…, /shorts/…, /embed/…, or a
+    // bare id all work). `label` is the button/caption text (defaults
+    // to "▶ Watch"). `embed=true` renders inline iframe on the shelf
+    // info modal; `false` renders a text link opening in a new tab.
+    // Tier caps: free 1, indie 3, imprint 5 (see _rlVideosCap).
+    // Added 2026-08-11 (Jacob's request; the release-modal refactor
+    // will lift these helpers into their own sub-modal later).
+
+    // Extract the 11-char YouTube id from anything the author might
+    // paste. Returns null when the input isn't parseable — the caller
+    // uses that to show an inline "not a YouTube URL" hint instead of
+    // silently dropping the row on save.
+    window._ytExtractId = function _ytExtractId(input) {
+      if (!input) return null;
+      const s = String(input).trim();
+      if (!s) return null;
+      // Bare 11-char id (YouTube ids match [A-Za-z0-9_-]{11}).
+      if (/^[A-Za-z0-9_-]{11}$/.test(s)) return s;
+      // Try to parse as URL; be forgiving about scheme.
+      let u;
+      try { u = new URL(s.match(/^https?:\/\//i) ? s : ('https://' + s)); }
+      catch (_) { return null; }
+      const host = u.hostname.toLowerCase().replace(/^www\./, '');
+      // youtu.be/<id>
+      if (host === 'youtu.be') {
+        const id = u.pathname.replace(/^\//, '').split('/')[0];
+        return /^[A-Za-z0-9_-]{11}$/.test(id) ? id : null;
+      }
+      if (host === 'youtube.com' || host === 'm.youtube.com' ||
+          host === 'youtube-nocookie.com' || host === 'music.youtube.com') {
+        // watch?v=<id>
+        const v = u.searchParams.get('v');
+        if (v && /^[A-Za-z0-9_-]{11}$/.test(v)) return v;
+        // /embed/<id>, /shorts/<id>, /v/<id>, /live/<id>
+        const m = u.pathname.match(/^\/(?:embed|shorts|v|live)\/([A-Za-z0-9_-]{11})/);
+        if (m) return m[1];
+      }
+      return null;
+    };
+
+    // Tier → max videos allowed on the info modal.
+    window._rlVideosCap = function _rlVideosCap() {
+      try {
+        const tier = (typeof window.pressSubscriberTier === 'function')
+          ? window.pressSubscriberTier() : null;
+        if (tier === 'imprint') return 5;
+        if (tier === 'indie')   return 3;
+      } catch (_) {}
+      return 1; // free / signed-out
+    };
+
+    // Build a single row's DOM. Rows are keyed by data-idx so
+    // remove/reorder logic can find their siblings without needing an
+    // external index array. `video` may be undefined (empty row).
+    function _rlVideosBuildRow(video, idx) {
+      const row = document.createElement('div');
+      row.className = 'rl-video-row';
+      row.dataset.idx = String(idx);
+      row.style.cssText =
+        'display:grid;grid-template-columns:1fr 160px auto auto;gap:6px;' +
+        'align-items:center;padding:8px 10px;border:.5px solid var(--border-mid);' +
+        'border-radius:7px;background:var(--surface)';
+      const urlV   = (video && video.id)    ? 'https://youtu.be/' + video.id : (video && video.url) || '';
+      const labelV = (video && video.label) || '';
+      const embedV = !!(video && video.embed);
+      row.innerHTML =
+        '<input type="url" class="rlv-url" placeholder="YouTube URL (youtu.be/… or youtube.com/watch?v=…)" ' +
+        'value="' + _rlvEsc(urlV) + '" ' +
+        'style="font-size:12px;padding:6px 8px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--bg);color:var(--text);outline:none;min-width:0">' +
+        '<input type="text" class="rlv-label" maxlength="40" placeholder="Label (e.g. Trailer)" ' +
+        'value="' + _rlvEsc(labelV) + '" ' +
+        'style="font-size:12px;padding:6px 8px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--bg);color:var(--text);outline:none">' +
+        '<label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text);cursor:pointer;white-space:nowrap">' +
+          '<input type="checkbox" class="rlv-embed"' + (embedV ? ' checked' : '') + ' style="margin:0">' +
+          '<span title="Play inline in the info modal instead of opening in a new tab">Embed</span>' +
+        '</label>' +
+        '<button type="button" class="rlv-remove" title="Remove this video" aria-label="Remove" ' +
+        'onclick="_rlVideosRemove(this)" ' +
+        'style="border:none;background:none;color:var(--hint);cursor:pointer;font-size:16px;line-height:1;padding:2px 6px;border-radius:4px">×</button>';
+      // Inline validation hint — only shown when the user has entered
+      // something that isn't a parseable YouTube URL.
+      const hint = document.createElement('div');
+      hint.className = 'rlv-hint';
+      hint.style.cssText = 'grid-column:1 / -1;font-size:10.5px;color:#c04040;margin-top:2px;display:none';
+      hint.textContent = 'That doesn’t look like a YouTube URL.';
+      row.appendChild(hint);
+      // Wire URL blur → validate + refresh hint.
+      const urlEl = row.querySelector('.rlv-url');
+      if (urlEl) {
+        urlEl.addEventListener('blur', function(){
+          const val = (urlEl.value || '').trim();
+          if (!val) { hint.style.display = 'none'; return; }
+          hint.style.display = window._ytExtractId(val) ? 'none' : 'block';
+        });
+      }
+      return row;
+    }
+
+    // Tiny attribute-safe escape (rows are constructed via innerHTML +
+    // template so we don't want quotes to break out).
+    function _rlvEsc(s) {
+      return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // Apply the tier cap to the DOM — updates the "N / M used" hint,
+    // disables the add-button at cap, shows the upsell copy below it
+    // when the author has hit the free/indie ceiling. Called on modal
+    // open + after every add/remove.
+    window._rlVideosApplyCap = function _rlVideosApplyCap() {
+      const list  = document.getElementById('rlVideosList');
+      const btn   = document.getElementById('rlVideosAddBtn');
+      const hint  = document.getElementById('rlVideosCapHint');
+      const up    = document.getElementById('rlVideosUpsell');
+      if (!list || !btn) return;
+      const cap = window._rlVideosCap();
+      const used = list.querySelectorAll('.rl-video-row').length;
+      if (hint) hint.textContent = used + ' / ' + cap + ' used';
+      const atCap = used >= cap;
+      btn.disabled = atCap;
+      btn.style.opacity = atCap ? '0.5' : '1';
+      btn.style.cursor  = atCap ? 'not-allowed' : 'pointer';
+      // Tier-aware upsell copy: nudge Free → Indie at 1 video, nudge
+      // Indie → Imprint at 3 videos. Imprint stays silent at 5.
+      if (up) {
+        let msg = '';
+        if (atCap && cap === 1) msg = '✨ Want more videos? <strong>Indie</strong> unlocks 3, <strong>Imprint</strong> unlocks 5.';
+        else if (atCap && cap === 3) msg = '✨ Want more videos? <strong>Imprint</strong> unlocks 5.';
+        up.innerHTML = msg;
+        up.style.display = msg ? 'block' : 'none';
+      }
+    };
+
+    // Add a new empty row (or up to the tier cap). Called by the
+    // "+ Add a video" button in the UI.
+    window._rlVideosAdd = function _rlVideosAdd() {
+      const list = document.getElementById('rlVideosList');
+      if (!list) return;
+      const cap  = window._rlVideosCap();
+      const used = list.querySelectorAll('.rl-video-row').length;
+      if (used >= cap) { window._rlVideosApplyCap(); return; }
+      list.appendChild(_rlVideosBuildRow(null, used));
+      window._rlVideosApplyCap();
+    };
+
+    // Remove the row containing the clicked × button.
+    window._rlVideosRemove = function _rlVideosRemove(btn) {
+      const row = btn && btn.closest && btn.closest('.rl-video-row');
+      if (row && row.parentElement) row.parentElement.removeChild(row);
+      window._rlVideosApplyCap();
+    };
+
+    // Populate the list from a loaded release.videos[]. Called when
+    // the release modal opens. Silently drops rows past the current
+    // tier cap so a former-Imprint author who's downgraded doesn't
+    // see their extra videos loaded then unable-to-save.
+    window._rlVideosPopulate = function _rlVideosPopulate(videos) {
+      const list = document.getElementById('rlVideosList');
+      if (!list) return;
+      list.innerHTML = '';
+      const cap = window._rlVideosCap();
+      const arr = Array.isArray(videos) ? videos.slice(0, cap) : [];
+      arr.forEach(function(v, i){ list.appendChild(_rlVideosBuildRow(v, i)); });
+      window._rlVideosApplyCap();
+    };
+
+    // Collect the array of videos for saving. Skips rows with no URL
+    // (empty rows are fine — author added and didn't fill in), warns
+    // on rows with unparseable URLs (kept in DOM, dropped from save).
+    // Enforces the cap defensively.
+    window._rlVideosCollect = function _rlVideosCollect() {
+      const list = document.getElementById('rlVideosList');
+      if (!list) return [];
+      const cap = window._rlVideosCap();
+      const rows = list.querySelectorAll('.rl-video-row');
+      const out  = [];
+      for (let i = 0; i < rows.length && out.length < cap; i++) {
+        const row  = rows[i];
+        const url  = (row.querySelector('.rlv-url')   || {}).value || '';
+        const lbl  = (row.querySelector('.rlv-label') || {}).value || '';
+        const emb  = !!(row.querySelector('.rlv-embed') || {}).checked;
+        const id   = window._ytExtractId(url);
+        if (!id) continue; // silently skip empty/invalid rows on save
+        out.push({
+          id: id,
+          label: String(lbl || '').trim().slice(0, 40),
+          embed: emb,
+        });
+      }
+      return out;
+    };
+
     // "See this Folio on the shelf" — opens /shelf?folio=<id> in a new
     // tab, which shelf.html deep-links to _openFolioInfo(id) so the
     // author lands directly on their listing's info modal. If the
@@ -24265,6 +24460,14 @@
           // every save.
           const _longBlurbEl = document.getElementById('rlLongBlurb');
           if (_longBlurbEl) _longBlurbEl.value = _rlCurrent.longBlurb || '';
+          // Info-modal YouTube videos — hydrate from release.videos[].
+          // Tier cap is applied inside _rlVideosPopulate so a downgrade
+          // never silently loads more rows than the current tier can save.
+          try {
+            if (typeof window._rlVideosPopulate === 'function') {
+              window._rlVideosPopulate(Array.isArray(_rlCurrent.videos) ? _rlCurrent.videos : []);
+            }
+          } catch (e) { console.warn('[videos] populate threw:', e); }
           // Chapter preview strip toggle — default true (undefined + missing
           // both hydrate as checked). Only an explicit `false` unchecks it.
           const _showCpEl = document.getElementById('rlShowChapterPreview');
@@ -24876,6 +25079,16 @@
         // card without cluttering the shelf card. Nulled when empty
         // so shelf render can gracefully fall back to shelfBlurb.
         longBlurb: ((document.getElementById('rlLongBlurb') && document.getElementById('rlLongBlurb').value) || '').trim().slice(0, 2000) || null,
+        // Info-modal YouTube videos. Tier-capped array; shelf.html
+        // reads release.videos[] and renders each as an embed iframe
+        // (embed=true) or an "open in new tab" link (embed=false).
+        // 2026-08-11 (Jacob).
+        videos: (function(){
+          try {
+            const list = (typeof window._rlVideosCollect === 'function') ? window._rlVideosCollect() : [];
+            return Array.isArray(list) ? list : [];
+          } catch (_) { return []; }
+        })(),
         // NEW — Folio classification (see docs/BISAC_CLASSIFICATION_PLAN.md
         // v2). Ordered array; genreCodes[0] is the PRIMARY genre used for
         // shelf categorisation + display, subsequent entries are
@@ -35965,6 +36178,36 @@
             style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;resize:vertical;font-family:inherit;line-height:1.5"></textarea>
           <div style="font-size:10px;color:var(--hint);margin-top:3px">
             2,000 characters. Plain text for now — rich formatting is an <strong>Imprint</strong> tier feature (coming with the standalone product page).
+          </div>
+
+          <!-- ═══ YOUTUBE VIDEOS (info modal) ═══════════════════════════
+               Author-supplied YouTube URLs surface on the shelf info
+               modal, below the blurb + above the chapter preview strip.
+               Each row: URL + label + embed toggle. Embed=on renders an
+               inline iframe (privacy-enhanced nocookie domain, lazy-
+               loaded); embed=off renders a text link that opens
+               youtu.be/<id> in a new tab.
+               Tier caps (populated by _rlVideosApplyCap on modal open):
+                 Free    → 1 video
+                 Indie   → 3 videos
+                 Imprint → 5 videos
+               Added 2026-08-11 (Jacob). See _rlVideos* helpers. -->
+          <div id="rlVideosSection" style="margin:14px 0 4px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
+            <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 6px">
+              <div style="font-size:12px;color:var(--text);font-weight:500">
+                🎬 YouTube videos on the info card
+              </div>
+              <div id="rlVideosCapHint" style="font-size:10.5px;color:var(--hint)"></div>
+            </div>
+            <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:0 0 8px">
+              Trailer, author interview, reading — paste a YouTube URL and choose whether it opens in a new tab or plays inline in the info modal. Each video is optional.
+            </p>
+            <div id="rlVideosList" style="display:flex;flex-direction:column;gap:8px"></div>
+            <button type="button" id="rlVideosAddBtn" onclick="_rlVideosAdd()"
+              style="margin-top:8px;font-size:11.5px;padding:6px 12px;border-radius:6px;border:.5px dashed var(--border-mid);background:transparent;color:var(--text);cursor:pointer;font-weight:500">
+              + Add a video
+            </button>
+            <div id="rlVideosUpsell" style="display:none;margin-top:8px;font-size:10.5px;color:var(--hint);line-height:1.5"></div>
           </div>
 
           <!-- Chapter preview strip toggle (Phase 2 of FOLIO_INFO_SURFACES_PLAN.md).
