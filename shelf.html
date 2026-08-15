@@ -860,6 +860,46 @@ window._openFolioInfo = function _openFolioInfo(folioId) {
   // Each chip deep-links to the reader with ?goto=<chId> so the reader
   // scrolls straight to that chapter's opening page — no "shared
   // chapter" banner (that's the ?teaser= path).
+  // Info-modal YouTube videos (release.videos[]). Sits BELOW the
+  // blurb and ABOVE the chapter preview strip — hook → visual →
+  // sample. Each entry renders as either an inline iframe
+  // (embed:true) or a compact "▶ Watch" button that opens youtu.be
+  // in a new tab (embed:false). Uses youtube-nocookie.com for
+  // embeds so no tracking cookies drop unless the reader actually
+  // hits play. Lazy-loaded so a card with 5 videos doesn't tank
+  // the modal's first paint.
+  const videosBlock = (folio.videos && folio.videos.length)
+    ? '<div class="fi-section-lbl">Watch</div>' +
+      '<div class="fi-videos" style="display:flex;flex-direction:column;gap:10px;margin-bottom:14px">' +
+      folio.videos.map(function(v){
+        const label = v.label || (v.embed ? 'Video' : '▶ Watch');
+        if (v.embed) {
+          // 16:9 responsive iframe wrapper. Nocookie domain so the
+          // reader isn't tracked unless they actually play.
+          return '<div class="fi-video-wrap">' +
+            '<div style="position:relative;width:100%;padding-top:56.25%;background:#000;border-radius:8px;overflow:hidden">' +
+            '<iframe src="https://www.youtube-nocookie.com/embed/' + encodeURIComponent(v.id) + '?rel=0" ' +
+            'title="' + esc(label) + '" loading="lazy" ' +
+            'allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" ' +
+            'allowfullscreen ' +
+            'style="position:absolute;top:0;left:0;width:100%;height:100%;border:0"></iframe>' +
+            '</div>' +
+            (v.label ? '<div style="font-size:11px;color:var(--muted,#5a5347);margin-top:4px">' + esc(label) + '</div>' : '') +
+            '</div>';
+        }
+        // Link mode — clean bordered button opening youtu.be in a new
+        // tab. rel=noopener so the video page can't reach back into
+        // the shelf window via window.opener.
+        return '<a href="https://youtu.be/' + encodeURIComponent(v.id) + '" target="_blank" rel="noopener" ' +
+          'class="fi-video-link" ' +
+          'style="display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border:.5px solid var(--border-mid,rgba(0,0,0,0.14));border-radius:8px;background:var(--surface,#fff);color:var(--text,#1a1611);text-decoration:none;font-size:13px;font-weight:500;width:fit-content">' +
+          '<span aria-hidden="true">▶</span>' +
+          '<span>' + esc(label) + '</span>' +
+          '<span aria-hidden="true" style="opacity:.6;font-size:11px">↗</span>' +
+          '</a>';
+      }).join('') +
+      '</div>'
+    : '';
   const previewStrip = (folio.showChapterPreview !== false
                         && folio.previewChapterMeta
                         && folio.previewChapterMeta.length)
@@ -919,6 +959,7 @@ window._openFolioInfo = function _openFolioInfo(folioId) {
         (langLabels ? '<span><strong>Language:</strong> ' + esc(langLabels) + '</span>' : '') +
         '</div>'
       : '') +
+    videosBlock +
     previewStrip +
     secondaryChips +
     tagChips +
@@ -1692,6 +1733,23 @@ async function fetchShelf(){
               wordCount: Number(c.wordCount || 0),
             };
           });
+        })(),
+        // Info-modal YouTube videos (author-supplied). Free 1 / Indie 3
+        // / Imprint 5 caps are enforced editor-side; we still trim to 5
+        // here as a belt-and-braces guard against a hand-edited doc.
+        // Only entries with a valid 11-char id survive the filter.
+        videos: (function(){
+          const raw = (r && Array.isArray(r.videos)) ? r.videos : [];
+          const RE  = /^[A-Za-z0-9_-]{11}$/;
+          return raw.filter(function(v){ return v && typeof v.id === 'string' && RE.test(v.id); })
+                    .slice(0, 5)
+                    .map(function(v){
+                      return {
+                        id:    String(v.id),
+                        label: String(v.label || '').slice(0, 40),
+                        embed: !!v.embed,
+                      };
+                    });
         })(),
         featuredUntil:(function(){
           const raw=(r&&r.featuredUntil)||data.featuredUntil||null;
