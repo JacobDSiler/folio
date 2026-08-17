@@ -215,7 +215,7 @@
     // script can ask the question.
     window._getDialogueAssignments = getDialogueAssignments;
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-    import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, deleteDoc, addDoc, onSnapshot, serverTimestamp, orderBy, limit, deleteField } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+    import { getFirestore, doc, getDoc, setDoc, collection, query, where, getDocs, deleteDoc, addDoc, onSnapshot, serverTimestamp, orderBy, limit, deleteField, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
     import { getStorage, ref, uploadBytes, getDownloadURL, deleteObject } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-storage.js';
     import { getAuth, setPersistence, browserLocalPersistence, indexedDBLocalPersistence, signInAnonymously, signInWithPopup, signInWithRedirect, linkWithPopup, linkWithRedirect, getRedirectResult, signInWithCredential, linkWithCredential, GoogleAuthProvider, onAuthStateChanged, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
     const FC = { apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0", authDomain: "auth.jacobsiler.com", projectId: "miscellaneous-117e9", storageBucket: "miscellaneous-117e9.firebasestorage.app", messagingSenderId: "514858431339", appId: "1:514858431339:web:8b3acbe89966b45fe3922e" };
@@ -239,7 +239,7 @@
     window._db = db; window._auth = auth;
     window._storage = getStorage(app);
     window._storageLib = { ref, uploadBytes, getDownloadURL, deleteObject };
-    window._fb = { doc, getDoc, setDoc, collection, query, where, getDocs, deleteDoc, addDoc, onSnapshot, serverTimestamp, orderBy, limit, deleteField };
+    window._fb = { doc, getDoc, setDoc, collection, query, where, getDocs, deleteDoc, addDoc, onSnapshot, serverTimestamp, orderBy, limit, deleteField, runTransaction };
     window._googleProvider = new GoogleAuthProvider();
     window._googleProvider.setCustomParameters({ prompt: 'select_account' });
     // Track if popup has failed this session so we can switch to redirect-first
@@ -37533,6 +37533,43 @@
         </p>
       </div>
 
+      <!-- ═══ CUSTOM SUBDOMAIN (Imprint tier) ═════════════════════════
+           Author claims <slug>.onfolio.press. Wildcard middleware
+           routes the subdomain → /imprint/?slug=<slug>, and the
+           imprint page resolves the slug to a uid via the public
+           folio_imprint_slugs collection. Gate: only enabled for
+           active Imprint (or Perpetual-Imprint) subscribers. Indie
+           tier sees a soft-lock explaining the upgrade path.
+           Reserved-list + shape validation happen at both the client
+           layer (this UI) and the middleware — keep them in sync.
+           Added 2026-08-11 (Jacob). -->
+      <div id="imprintSlugSection" style="margin:14px 0 4px;padding:14px 16px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 6px">
+          <div style="font-size:12.5px;color:var(--text);font-weight:600">
+            🌐 Custom subdomain
+          </div>
+          <div id="imprintSlugTierChip" style="font-size:10.5px;color:var(--hint)"></div>
+        </div>
+        <p style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:0 0 10px">
+          Claim <strong>yourname.onfolio.press</strong> as a short, memorable link to your imprint page. Only one author owns each name — first come, first served.
+        </p>
+        <div id="imprintSlugRow" style="display:flex;gap:6px;align-items:stretch">
+          <div style="display:flex;align-items:center;background:var(--surface);border:.5px solid var(--border-mid);border-right:none;border-radius:7px 0 0 7px;padding:0 10px;font-size:12px;color:var(--muted);font-family:ui-monospace,Menlo,monospace">https://</div>
+          <input type="text" id="imprintSlugInput" maxlength="30" spellcheck="false" autocomplete="off"
+            placeholder="yourname"
+            oninput="_imprintSlugValidate()" onblur="_imprintSlugCheckAvailability()"
+            style="flex:1;font-size:13px;padding:8px 10px;border:.5px solid var(--border-mid);border-left:none;border-right:none;background:var(--surface);color:var(--text);outline:none;font-family:ui-monospace,Menlo,monospace;min-width:0">
+          <div style="display:flex;align-items:center;background:var(--surface);border:.5px solid var(--border-mid);border-left:none;border-radius:0 7px 7px 0;padding:0 10px;font-size:12px;color:var(--muted);font-family:ui-monospace,Menlo,monospace">.onfolio.press</div>
+        </div>
+        <div id="imprintSlugStatus" style="font-size:11px;color:var(--hint);margin-top:6px;min-height:14px"></div>
+        <div id="imprintSlugRules" style="font-size:10px;color:var(--hint);margin-top:4px;line-height:1.5">
+          3–30 characters. Lowercase letters, digits, and hyphens. No leading or trailing hyphen. Reserved names (www, admin, shelf, press, api, etc.) can't be claimed.
+        </div>
+        <div id="imprintSlugImprintOnly" style="display:none;margin-top:8px;padding:8px 10px;background:rgba(6,95,70,0.06);border:.5px dashed rgba(6,95,70,0.35);border-radius:7px;font-size:11px;color:var(--text);line-height:1.5">
+          ✨ Custom subdomains are an <strong>Imprint tier</strong> feature. <a href="/press/" style="color:var(--accent-ui)">Upgrade to claim your name →</a>
+        </div>
+      </div>
+
       <!-- Action row — compact single-row layout per Jacob's mockup:
              [💾 Save] | Preview my imprint → | Cancel
            Save is the amber-tinted primary action but stays as an icon
@@ -37664,13 +37701,217 @@
             .map(function(l){ return (l && l.label ? (l.label + ' | ') : '') + (l && l.url || ''); })
             .join('\n');
         }
+        // Custom subdomain — hydrate the claimed slug into the picker
+        // input (theme doc's `slug` field mirrors the doc-id in
+        // folio_imprint_slugs; kept for fast display without a second
+        // Firestore round-trip).
+        const slugInp = document.getElementById('imprintSlugInput');
+        if (slugInp) slugInp.value = d.slug || '';
       } else {
         console.log('[imprint] no theme doc yet — showing defaults');
         _pickImprintColor('#c98c2a');
         _pickImprintBg('#faf7f1');
       }
+      // Apply tier gate to the slug picker section AFTER the theme
+      // load (so Indie users still see their other saved styling but
+      // the subdomain input reads as locked). Runs even on new users
+      // so the gate copy shows up on first open.
+      try { if (typeof _imprintSlugApplyTierGate === 'function') _imprintSlugApplyTierGate(); } catch (_) {}
     } catch (e) {
       console.warn('[imprint] theme load failed:', e && e.message, e);
+    }
+  };
+
+  // ═══ Custom subdomain (slug) — validation + availability + save ═══
+  // See functions/_middleware.js for the routing side and
+  // docs/SUBDOMAIN_SETUP.md for the Cloudflare dashboard steps.
+
+  // Keep this list byte-for-byte identical to the Set in
+  // functions/_middleware.js — a slug approved here but rejected at
+  // the edge would surface as a "why doesn't my subdomain work?"
+  // support ticket.
+  const _IMPRINT_SLUG_RESERVED = new Set([
+    'www', 'api', 'app', 'apps', 'admin', 'auth', 'account', 'accounts',
+    'shelf', 'press', 'imprint', 'help', 'docs', 'blog', 'news',
+    'about', 'contact', 'support', 'status', 'mail', 'email',
+    'signin', 'signup', 'login', 'logout', 'oauth', 'sso',
+    'test', 'dev', 'staging', 'prod', 'demo', 'preview',
+    'cdn', 'static', 'assets', 'media', 'img', 'images',
+    'folio', 'onfolio', 'official', 'staff', 'team',
+    's', 'go', 'l', 't',
+  ]);
+  const _IMPRINT_SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])?$/;
+
+  // Normalise + validate as the user types. Returns a small status
+  // object the picker uses to update UI: { ok, reason, value }.
+  // `value` is the input trimmed + lowercased; the picker MUTATES the
+  // input to match so the reserved-list check + availability lookup
+  // both operate on the canonical form.
+  window._imprintSlugValidate = function _imprintSlugValidate() {
+    const inp   = document.getElementById('imprintSlugInput');
+    const stat  = document.getElementById('imprintSlugStatus');
+    if (!inp || !stat) return { ok: false, reason: 'no-input' };
+    // Normalize inline — kill uppercase + whitespace + accidental
+    // "https://" pastes.
+    let v = String(inp.value || '').trim().toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/\.onfolio\.press.*$/, '')
+      .replace(/[^a-z0-9-]/g, '');
+    if (v !== inp.value) inp.value = v;
+    if (!v) {
+      stat.textContent = '';
+      stat.style.color = 'var(--hint)';
+      return { ok: true, reason: 'empty', value: '' };
+    }
+    if (v.length < 3) {
+      stat.textContent = 'Too short — need at least 3 characters.';
+      stat.style.color = '#c04040';
+      return { ok: false, reason: 'short', value: v };
+    }
+    if (!_IMPRINT_SLUG_RE.test(v)) {
+      stat.textContent = 'Only lowercase letters, digits, and hyphens (no leading/trailing hyphen).';
+      stat.style.color = '#c04040';
+      return { ok: false, reason: 'shape', value: v };
+    }
+    if (_IMPRINT_SLUG_RESERVED.has(v)) {
+      stat.textContent = '"' + v + '" is reserved for the platform.';
+      stat.style.color = '#c04040';
+      return { ok: false, reason: 'reserved', value: v };
+    }
+    stat.textContent = 'Looks good. Blur the field to check availability.';
+    stat.style.color = 'var(--hint)';
+    return { ok: true, reason: 'ok', value: v };
+  };
+
+  // On blur, look the slug up in folio_imprint_slugs. Public-readable
+  // so we don't need auth. Handles three outcomes:
+  //   1. Doc doesn't exist        → "available"
+  //   2. Doc belongs to this user → "you already own this"
+  //   3. Doc belongs to someone   → "taken"
+  window._imprintSlugCheckAvailability = async function _imprintSlugCheckAvailability() {
+    const v = _imprintSlugValidate();
+    if (!v || !v.ok || !v.value) return;
+    const stat = document.getElementById('imprintSlugStatus');
+    if (!stat) return;
+    if (!window._db || !window._fb) {
+      stat.textContent = 'Availability check unavailable — Firestore not loaded.';
+      stat.style.color = 'var(--hint)';
+      return;
+    }
+    stat.textContent = 'Checking availability…';
+    stat.style.color = 'var(--hint)';
+    try {
+      const { doc, getDoc } = window._fb;
+      const ref  = doc(window._db, 'folio_imprint_slugs', v.value);
+      const snap = await getDoc(ref);
+      const myUid = window._uid || (window._user && window._user.uid) || '';
+      if (!snap.exists()) {
+        stat.textContent = '✓ Available — click Save to claim it.';
+        stat.style.color = 'var(--accent-ui,#065f46)';
+      } else {
+        const ownerUid = (snap.data() || {}).uid;
+        if (ownerUid === myUid) {
+          stat.textContent = '✓ You already own this subdomain.';
+          stat.style.color = 'var(--accent-ui,#065f46)';
+        } else {
+          stat.textContent = '✗ "' + v.value + '" is already claimed by another author.';
+          stat.style.color = '#c04040';
+        }
+      }
+    } catch (e) {
+      console.warn('[imprint] slug availability check failed:', e);
+      stat.textContent = 'Availability check failed — try Save; the write will fail cleanly if taken.';
+      stat.style.color = 'var(--hint)';
+    }
+  };
+
+  // Tier gate — subdomain slug is Imprint-only. Indie users see the
+  // section but the input is disabled + the upgrade copy shows. Free
+  // users don't reach this code path (customize modal is subscriber-
+  // gated already), but the check is defensive in case that changes.
+  window._imprintSlugApplyTierGate = function _imprintSlugApplyTierGate() {
+    const tier = (typeof window.pressSubscriberTier === 'function')
+      ? window.pressSubscriberTier() : null;
+    const isImprint = (tier === 'imprint');
+    const inp   = document.getElementById('imprintSlugInput');
+    const chip  = document.getElementById('imprintSlugTierChip');
+    const gate  = document.getElementById('imprintSlugImprintOnly');
+    const rules = document.getElementById('imprintSlugRules');
+    if (inp)   { inp.disabled = !isImprint; inp.style.opacity = isImprint ? '1' : '0.5'; }
+    if (chip)  chip.textContent = isImprint ? 'Imprint tier' : (tier === 'indie' ? 'Upgrade to Imprint to claim' : '');
+    if (gate)  gate.style.display = isImprint ? 'none' : 'block';
+    if (rules) rules.style.display = isImprint ? 'block' : 'none';
+  };
+
+  // Save the slug atomically alongside the theme. Uses runTransaction
+  // so the {create new slug doc, delete old slug doc, update theme
+  // doc's slug field} triple is all-or-nothing. On uniqueness collision
+  // (someone else claimed the slug between availability check + save)
+  // the transaction aborts and the caller sees an error toast — no
+  // corrupt half-state where the theme thinks it owns a slug the
+  // reverse index disagrees about.
+  //
+  // Returns { ok: true } on success, { ok: false, reason } on any
+  // rejection. `_saveImprintTheme` calls this first and bails on
+  // failure so the whole save is transactional from the user's POV.
+  window._saveImprintSlug = async function _saveImprintSlug(desiredSlug, previousSlug) {
+    const uid = window._uid || (window._user && window._user.uid) || '';
+    if (!uid || !window._db || !window._fb) {
+      return { ok: false, reason: 'not-signed-in' };
+    }
+    const tier = (typeof window.pressSubscriberTier === 'function')
+      ? window.pressSubscriberTier() : null;
+    if (tier !== 'imprint') return { ok: false, reason: 'tier' };
+    const clean = String(desiredSlug || '').trim().toLowerCase();
+    const prev  = String(previousSlug || '').trim().toLowerCase();
+    // No-op cases: both empty, or slug unchanged.
+    if (!clean && !prev) return { ok: true, reason: 'noop' };
+    if (clean === prev)  return { ok: true, reason: 'unchanged' };
+    // Empty desired + previous present = the user cleared the field →
+    // release the old slug.
+    if (!clean && prev) {
+      try {
+        const { doc, deleteDoc } = window._fb;
+        await deleteDoc(doc(window._db, 'folio_imprint_slugs', prev));
+        return { ok: true, reason: 'released' };
+      } catch (e) {
+        console.warn('[imprint] slug release failed:', e);
+        return { ok: false, reason: 'release-failed', error: e };
+      }
+    }
+    // Shape / reserved check server-side too, so a bad slug doesn't
+    // even reach Firestore.
+    if (!_IMPRINT_SLUG_RE.test(clean) || _IMPRINT_SLUG_RESERVED.has(clean)) {
+      return { ok: false, reason: 'invalid' };
+    }
+    try {
+      const { doc, runTransaction } = window._fb;
+      await runTransaction(window._db, async function(tx){
+        const newRef = doc(window._db, 'folio_imprint_slugs', clean);
+        const newSnap = await tx.get(newRef);
+        if (newSnap.exists()) {
+          const ownerUid = (newSnap.data() || {}).uid;
+          if (ownerUid !== uid) {
+            throw new Error('slug-taken');
+          }
+        }
+        // Release the previous slug (if any and different) inside
+        // the same transaction so an interrupted save can't leave
+        // TWO claimed slugs pointing at the same uid.
+        if (prev && prev !== clean) {
+          const prevRef = doc(window._db, 'folio_imprint_slugs', prev);
+          const prevSnap = await tx.get(prevRef);
+          if (prevSnap.exists() && (prevSnap.data() || {}).uid === uid) {
+            tx.delete(prevRef);
+          }
+        }
+        tx.set(newRef, { uid: uid, createdAt: Date.now() });
+      });
+      return { ok: true, reason: 'claimed' };
+    } catch (e) {
+      const isTaken = e && (e.message === 'slug-taken');
+      console.warn('[imprint] slug save failed:', e);
+      return { ok: false, reason: isTaken ? 'taken' : 'transaction-failed', error: e };
     }
   };
 
@@ -37729,6 +37970,53 @@
       links.push({ label: label || url, url: url.slice(0, 400) });
     });
     const cappedLinks = links.slice(0, 8);
+    // Custom subdomain — Imprint-tier only. Save FIRST so a claim
+    // failure blocks the theme save (single-source-of-truth atomicity:
+    // theme.slug should never point at a folio_imprint_slugs doc we
+    // don't own). Reads the input value + the doc's currently-saved
+    // slug so we can release the old slug in the same transaction
+    // when it's been changed.
+    let slugToSave = null;
+    try {
+      const slugInp = document.getElementById('imprintSlugInput');
+      const desiredSlug = ((slugInp && slugInp.value) || '').trim().toLowerCase();
+      // Get the currently-saved slug (from the theme doc) so
+      // _saveImprintSlug can release the old one atomically. One
+      // extra read but it's a cache hit after the modal load.
+      let previousSlug = '';
+      try {
+        const { doc: _d, getDoc: _g } = window._fb;
+        const themeSnap = await _g(_d(window._db, 'folio_imprint_themes', uid));
+        if (themeSnap.exists()) previousSlug = (themeSnap.data() || {}).slug || '';
+      } catch (_) {}
+      const slugResult = await window._saveImprintSlug(desiredSlug, previousSlug);
+      if (!slugResult.ok) {
+        if (status) {
+          const msg = slugResult.reason === 'taken'
+              ? '"' + desiredSlug + '" was just claimed by another author — try a different name.'
+            : slugResult.reason === 'tier'
+              ? 'Custom subdomain is an Imprint-tier feature. Everything else is saved.'
+            : slugResult.reason === 'invalid'
+              ? 'Subdomain has invalid characters — fix it and Save again.'
+            : 'Subdomain save failed: ' + (slugResult.reason || 'unknown');
+          status.textContent = msg;
+          status.style.color = 'var(--danger,#c04040)';
+        }
+        // For tier-mismatch (Indie trying to claim), we DO continue
+        // saving the rest of the theme — the subdomain is bonus. For
+        // 'taken'/'invalid' we abort so the user fixes the field.
+        if (slugResult.reason !== 'tier') {
+          if (btn) btn.disabled = false;
+          return;
+        }
+        slugToSave = null; // don't write the slug field on the theme doc
+      } else {
+        slugToSave = desiredSlug || null;
+      }
+    } catch (e) {
+      console.warn('[imprint] slug save wrapper failed:', e);
+      // Non-fatal — don't block the whole theme save on a slug bug.
+    }
     if (btn) btn.disabled = true;
     if (status) { status.textContent = 'Saving…'; status.style.color = 'var(--hint)'; }
     try {
@@ -37748,6 +38036,11 @@
         bio:          bio || null,
         bioFull:      bioFull || null,
         links:        cappedLinks.length ? cappedLinks : null,
+        // Slug mirror: theme doc carries a copy of the currently-owned
+        // slug so the imprint editor can hydrate without a second read.
+        // Set to null when the user cleared the field. Only touched when
+        // the slug save leg didn't abort with a hard failure.
+        slug:         (typeof slugToSave === 'string') ? (slugToSave || null) : undefined,
         updatedAt:    Date.now(),
       }, { merge: true });
       if (status) { status.textContent = '✅ Saved. Refresh your imprint page to see it live.'; status.style.color = 'var(--accent-ui,#065f46)'; }

@@ -294,6 +294,30 @@ function getUidParam(){
   try { return (new URLSearchParams(window.location.search).get('uid')||'').trim(); }
   catch(e){ return ''; }
 }
+// Custom-subdomain path: the Cloudflare Pages middleware
+// (functions/_middleware.js) rewrites <slug>.onfolio.press → the
+// imprint page with ?slug=<slug>. We resolve the slug to a uid via
+// folio_imprint_slugs/{slug} which is public-readable specifically
+// so this anonymous lookup works. Returns the uid string on success,
+// null when the slug doesn't exist (caller falls through to the
+// "no author specified" empty state).
+function getSlugParam(){
+  try { return (new URLSearchParams(window.location.search).get('slug')||'').trim(); }
+  catch(e){ return ''; }
+}
+async function _resolveSlugToUid(slug, dbCtx){
+  if (!slug || !dbCtx || !dbCtx.doc || !dbCtx.getDoc) return null;
+  try {
+    const ref = dbCtx.doc(_fbDb, 'folio_imprint_slugs', slug);
+    const snap = await dbCtx.getDoc(ref);
+    if (!snap.exists()) return null;
+    const data = snap.data() || {};
+    return (typeof data.uid === 'string' && data.uid) ? data.uid : null;
+  } catch (e) {
+    console.warn('[imprint] slug lookup failed for', slug, e);
+    return null;
+  }
+}
 
 function renderEmpty(msg){
   const grid=document.getElementById('imprintGrid');
@@ -856,14 +880,23 @@ window._copySeriesLink = async function(btn, seriesName) {
 };
 
 async function boot(){
-  const uid=getUidParam();
+  let uid=getUidParam();
+  const slug=getSlugParam();
   const status=document.getElementById('imprintStatus');
-  if(!uid){
+  // Slug takes precedence — the wildcard-subdomain middleware
+  // rewrites <slug>.onfolio.press → this page with ?slug=<slug>, so
+  // whenever slug is present we resolve it first and treat the
+  // resolved uid as authoritative. If slug is present but doesn't
+  // resolve, we short-circuit to the "unclaimed subdomain" empty
+  // state below rather than falling back to ?uid= (that would be a
+  // confusing bait-and-switch).
+  const usingSlug = !!slug && !uid;
+  console.log('[imprint] boot params:', { uid: uid || null, slug: slug || null, usingSlug });
+  if(!uid && !slug){
     document.getElementById('imprintAuthorName').textContent='No author specified';
     if(status)status.textContent='Missing ?uid= in the URL. Click an author name on the Shelf to open their Imprint.';
     return;
   }
-  console.log('[imprint] loading folios for uid:',uid);
   if(status)status.textContent='Loading…';
   try{
     const appMod=await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
@@ -877,6 +910,26 @@ async function boot(){
     const firebaseConfig={apiKey:"AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",authDomain:"auth.jacobsiler.com",projectId:"miscellaneous-117e9",storageBucket:"miscellaneous-117e9.firebasestorage.app",messagingSenderId:"514858431339",appId:"1:514858431339:web:8b3acbe89966b45fe3922e"};
     const app=initializeApp(firebaseConfig);
     _fbDb=getFirestore(app);
+    // Resolve slug → uid via public-readable folio_imprint_slugs. If
+    // the slug isn't claimed, show a purposeful "this subdomain is
+    // available" screen instead of "no author specified" — the URL
+    // shape ALREADY told the visitor an author lives here, so the
+    // empty state should acknowledge that.
+    if (usingSlug) {
+      const resolved = await _resolveSlugToUid(slug, { doc, getDoc });
+      if (!resolved) {
+        document.getElementById('imprintAuthorName').textContent = slug;
+        if (status) status.innerHTML =
+          '<div style="text-align:center;padding:24px 16px;color:var(--muted)">' +
+          '<div style="font-size:15px;margin-bottom:8px"><strong>' + slug + '.onfolio.press</strong> isn\'t claimed yet.</div>' +
+          '<div style="font-size:13px">Are you the author looking for this name? <a href="/press/" style="color:var(--accent-ui)">Start a Folio Press subscription</a> and claim it in the Customize Imprint modal.</div>' +
+          '</div>';
+        return;
+      }
+      uid = resolved;
+      console.log('[imprint] slug', slug, '→ uid', uid);
+    }
+    console.log('[imprint] loading folios for uid:', uid);
     // Silent auth restore — shared Firebase project with /app.html
     // means signed-in state carries over automatically. On the imprint
     // page, ownership matters when window._myUid === URL ?uid= — that's
