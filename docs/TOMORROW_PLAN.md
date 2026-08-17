@@ -167,6 +167,49 @@ and we've regressed.
 
 ---
 
+## STAGE 3.7 — Perpetual (lifetime) tier — DESIGN LOGGED (2026-08-11)
+
+Log-the-intent pass only; no build yet. See `docs/PERPETUAL_TIER_PLAN.md`
+for the full spec covering pricing modelling (~36× monthly Imprint as
+the anchor), the hard exclusion of consumables (boosts, any per-use
+allowance), one-time-value bonuses (Perpetual chip, credits, feedback
+channel), admin comp workflow, existing-comp auto-upgrade rule
+(Founding Contributors yes, later comps get a discount email), and
+grandfathering rules for future price changes.
+
+**Blocked by:** need real subscription-lifetime data (6+ months of
+paid subs) before pricing math can be validated.
+
+**Do not start build until:** Stages 3.5 (Author Profile) and 3.6
+(BISAC — shipped) are both done, and there's ~6 months of subscription
+data to anchor the price.
+
+## STAGE 3.8 — Trademark defence — LOGGED (2026-08-11)
+
+Log-the-intent pass; three defensive actions captured in
+`docs/TRADEMARK_DEFENCE.md`.
+
+Existing Play Store app "Folio: Ebook & Comic Reader"
+(`com.mathcrave.folio`, 100+ installs, consumer reader — different
+market) is low-risk but a formal filing on our side closes a real gap.
+
+**Three actions, sequenced:**
+
+1. File trademark in **Ireland** (IPOI, class 42 SaaS + class 41
+   publication services, ~€200). Solo DIY through the online portal.
+2. File in **UK** (UKIPO, same classes, ~£200) once IE lands.
+3. File in **EU** (EUIPO, ~€900) — worth hiring a trademark attorney
+   for this one.
+4. Confirm `onfolio.press` WHOIS registrant is a real legal entity
+   (consider setting up an Irish Ltd company at revenue milestone).
+5. When mobile app ships, use **"Folio Publishing"** or **"Folio
+   Press"** or **"Folio for Authors"** as the Play/App Store title;
+   web brand stays "Folio" (Amazon → Kindle Direct Publishing pattern).
+
+**Do this before mobile launch, not before web launch.**
+
+---
+
 ## STAGE 4 — Mailing list send (60 min)
 
 Content is in `docs/EMAIL_FOLIO_LAUNCH.md`. Read it end-to-end, tweak for anything that feels not-quite-you.
