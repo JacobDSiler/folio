@@ -436,6 +436,54 @@ service cloud.firestore {
       allow write: if isUser(uid) || isAdmin();
     }
 
+    // ── Custom subdomain slugs (Imprint tier) ───────────────────────
+    // Reverse index for the wildcard-subdomain feature. Doc id IS the
+    // slug (thomas.onfolio.press → doc id 'thomas'). Payload:
+    //   { uid: <ownerUid>, createdAt: <ms> }
+    // The Cloudflare Pages middleware (functions/_middleware.js)
+    // rewrites <slug>.onfolio.press → /imprint/?slug=<slug>, and the
+    // imprint page reads THIS collection to resolve slug → uid.
+    //
+    // READ  : public. The imprint page and the edge middleware both
+    //         need to look up slugs anonymously — the whole point of
+    //         a custom subdomain is that a signed-out visitor can
+    //         type it into the address bar and land on the author's
+    //         imprint page. Doc contains only uid + createdAt (no
+    //         secrets).
+    //
+    // WRITE : only the claimant, and only when they're stamping the
+    //         doc with their OWN uid. Combined with `create: doc
+    //         must not already exist for someone else`, this gives
+    //         first-come-first-served uniqueness at the rules layer.
+    //         Client uses a runTransaction so it can atomically
+    //         delete the caller's OLD slug doc and write the new one
+    //         (see _saveImprintSlug in app.html).
+    //
+    // Admins can override to reclaim squatted / impersonating slugs
+    // per the shelf-moderation contract.
+    match /folio_imprint_slugs/{slug} {
+      allow read: if true;
+
+      // Create: must be signed in, stamping your own uid, and the
+      // slug doc must not already exist (Firestore enforces this
+      // when `resource == null` is implicit in a create-only branch).
+      allow create: if isUser(request.resource.data.uid)
+                    && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
+                    && request.resource.data.uid is string
+                    && request.resource.data.createdAt is number;
+
+      // Update: owner can refresh createdAt (rare — mostly a re-claim
+      // after a delete-then-recreate flow). Cannot re-assign a slug
+      // to a different uid — the payload's uid must match the
+      // existing doc's uid, blocking silent takeover.
+      allow update: if (isUser(resource.data.uid)
+                        && request.resource.data.uid == resource.data.uid)
+                    || isAdmin();
+
+      // Delete: owner can release their own slug; admins can reclaim.
+      allow delete: if isUser(resource.data.uid) || isAdmin();
+    }
+
     // Lulu print-on-demand job records. Doc id is "<uid>_<jobId>" and
     // the payload carries `uid`. create checks the incoming payload;
     // read / update / delete check the EXISTING doc (no payload on a

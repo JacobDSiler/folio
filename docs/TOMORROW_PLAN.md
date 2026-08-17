@@ -182,9 +182,9 @@ cohort at 36× and gather structured feedback via a 5-question form
 (see spec doc). Iterate before opening to general audience. Skips the
 "wait 6 months for aggregate data" gate.
 
-**Pricing (locked 2026-08-11):** Imprint $12/month × 36 = **$432
-Perpetual launch price** (with $360 as a potential launch-window
-discount if early-cohort feedback signals resistance).
+**Pricing (locked 2026-08-11):** Imprint $12/month, Perpetual
+launches at **$449** (charm-priced from the $432 baseline; ~37 months
+of Imprint). Launch-window discount option: **$369**.
 
 **Do not start build until:** Stage 3.5 (Author Profile) is done.
 
