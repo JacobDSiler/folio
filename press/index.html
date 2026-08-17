@@ -177,13 +177,13 @@ a:hover{text-decoration:underline}
     <div class="press-tier-name">Imprint</div>
     <div class="press-tier-tagline">For authors running it as an operation. Marketing tools, real budget savings, room to scale.</div>
     <div class="press-tier-price">
-      <span class="amount" data-monthly="12" data-yearly="10" data-perpetual="499">$12</span>
+      <span class="amount" data-monthly="12" data-yearly="10" data-perpetual="449">$12</span>
       <span class="period" data-monthly="/ month" data-yearly="/ month, billed yearly" data-perpetual="one-time">/ month</span>
     </div>
     <div class="press-tier-yearly"
          data-yearly="Billed <strong>$120</strong> yearly (2 months free)"
          data-monthly="Or $120/year — save 2 months"
-         data-perpetual="One-time payment of <strong>$499</strong> — own Imprint tier forever, no recurring charge">Or $120/year — save 2 months</div>
+         data-perpetual="One-time payment of <strong>$449</strong> — own Imprint tier forever, no recurring charge">Or $120/year — save 2 months</div>
     <ul class="press-tier-features">
       <li>Everything in Indie</li>
       <li><strong>Marketing analytics</strong> — top countries, top referrers, campaign attribution</li>
@@ -281,7 +281,7 @@ a:hover{text-decoration:underline}
     // without a partial recurring flow accidentally billing them
     // monthly. Full self-serve perpetual checkout is a follow-up.
     if (_billing === 'perpetual') {
-      const priceMap = { indie: 199, imprint: 499 };
+      const priceMap = { indie: 199, imprint: 449 };
       const amount = priceMap[tier] || '';
       const subject = encodeURIComponent('Perpetual ' + tier[0].toUpperCase() + tier.slice(1) + ' — Folio Press');
       const body = encodeURIComponent(
