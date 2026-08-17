@@ -170,19 +170,23 @@ and we've regressed.
 ## STAGE 3.7 — Perpetual (lifetime) tier — DESIGN LOGGED (2026-08-11)
 
 Log-the-intent pass only; no build yet. See `docs/PERPETUAL_TIER_PLAN.md`
-for the full spec covering pricing modelling (~36× monthly Imprint as
-the anchor), the hard exclusion of consumables (boosts, any per-use
-allowance), one-time-value bonuses (Perpetual chip, credits, feedback
-channel), admin comp workflow, existing-comp auto-upgrade rule
-(Founding Contributors yes, later comps get a discount email), and
-grandfathering rules for future price changes.
+for the full spec covering pricing (36× monthly Imprint locked as the
+anchor, 2026-08-11), the hard exclusion of consumables (boosts, any
+per-use allowance), one-time-value bonuses (Perpetual chip, credits,
+feedback channel), admin comp workflow, existing-comp auto-upgrade
+rule (Founding Contributors yes, later comps get a discount email),
+and grandfathering rules for future price changes.
 
-**Blocked by:** need real subscription-lifetime data (6+ months of
-paid subs) before pricing math can be validated.
+**Validation path (updated 2026-08-11):** launch to a small early
+cohort at 36× and gather structured feedback via a 5-question form
+(see spec doc). Iterate before opening to general audience. Skips the
+"wait 6 months for aggregate data" gate.
 
-**Do not start build until:** Stages 3.5 (Author Profile) and 3.6
-(BISAC — shipped) are both done, and there's ~6 months of subscription
-data to anchor the price.
+**Pricing (locked 2026-08-11):** Imprint $12/month × 36 = **$432
+Perpetual launch price** (with $360 as a potential launch-window
+discount if early-cohort feedback signals resistance).
+
+**Do not start build until:** Stage 3.5 (Author Profile) is done.
 
 ## STAGE 3.8 — Trademark defence — LOGGED (2026-08-11)
 
