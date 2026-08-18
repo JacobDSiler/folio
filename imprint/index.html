@@ -294,16 +294,34 @@ function getUidParam(){
   try { return (new URLSearchParams(window.location.search).get('uid')||'').trim(); }
   catch(e){ return ''; }
 }
-// Custom-subdomain path: the Cloudflare Pages middleware
-// (functions/_middleware.js) rewrites <slug>.onfolio.press → the
-// imprint page with ?slug=<slug>. We resolve the slug to a uid via
-// folio_imprint_slugs/{slug} which is public-readable specifically
-// so this anonymous lookup works. Returns the uid string on success,
-// null when the slug doesn't exist (caller falls through to the
-// "no author specified" empty state).
+// Custom-subdomain path: extract the slug from location.hostname
+// when the user visits <slug>.onfolio.press directly. Reads the
+// hostname FIRST because the Cloudflare Worker proxies the imprint
+// HTML for subdomain requests but leaves the client's URL bar
+// unchanged — so `location.search` is empty and only `location.hostname`
+// carries the slug signal.
+//
+// Fall back to `?slug=` for the legacy setup (e.g., someone hits
+// onfolio.press/imprint/?slug=jacob directly from a link).
+//
+// Reserved / bad-shape subdomains return empty — that lets `www` and
+// `api` etc. still render as apex behavior when someone accidentally
+// lands on them. Slug validation mirrors app.html's _IMPRINT_SLUG_RE.
 function getSlugParam(){
-  try { return (new URLSearchParams(window.location.search).get('slug')||'').trim(); }
-  catch(e){ return ''; }
+  try {
+    const host = String(window.location.hostname || '').toLowerCase();
+    const apex = 'onfolio.press';
+    const suffix = '.' + apex;
+    if (host.endsWith(suffix) && host !== apex && host !== ('www' + suffix)) {
+      const sub = host.slice(0, -suffix.length);
+      // Same shape check as app.html's slug picker + the Worker's
+      // reserved list. Multi-level subdomains are rejected (no dot).
+      if (!sub.includes('.') && /^[a-z0-9](?:[a-z0-9-]{1,28}[a-z0-9])?$/.test(sub)) {
+        return sub;
+      }
+    }
+    return (new URLSearchParams(window.location.search).get('slug')||'').trim();
+  } catch(e){ return ''; }
 }
 async function _resolveSlugToUid(slug, dbCtx){
   if (!slug || !dbCtx || !dbCtx.doc || !dbCtx.getDoc) return null;
