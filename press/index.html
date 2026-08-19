@@ -128,6 +128,20 @@ a:hover{text-decoration:underline}
   <button id="billPerpetual" onclick="setBilling('perpetual')" title="One-time payment, own it forever">Perpetual <span class="press-savings-chip">one-time</span></button>
 </div>
 
+<!-- Global protection banner — applies to every tier, free included.
+     Indie authors care deeply about their work not becoming training
+     data, and Folio's protection is comprehensive enough to lead
+     with. Sits between the billing toggle and the tier cards so it
+     reads as "here's what you get for free before we even talk about
+     paid features." Added 2026-08-11 (Jacob's ask). -->
+<div class="press-ai-shield" style="max-width:820px;margin:14px auto 22px;padding:12px 16px;background:rgba(6,95,70,0.06);border:.5px solid rgba(6,95,70,0.30);border-radius:10px;display:flex;align-items:flex-start;gap:12px;font-size:13px;line-height:1.55;color:var(--text,#1a1611)">
+  <span style="font-size:22px;line-height:1;flex-shrink:0" aria-hidden="true">🛡</span>
+  <div style="flex:1;min-width:0">
+    <strong style="color:var(--accent-ui,#065f46)">Your work is not AI training data.</strong>
+    Folio blocks GPTBot, ClaudeBot, Google-Extended, CCBot, PerplexityBot, Bytespider and every other major AI training crawler — at the crawler level (robots.txt), the HTTP header level (X-Robots-Tag: noai), and the Cloudflare edge (AI Bot Blocking + AI Labyrinth). Every tier, every folio. <span style="color:var(--muted,#5a5347)">Search engines like Google still index your public pages so readers can find you — only training crawlers are shut out.</span>
+  </div>
+</div>
+
 <div class="press-tiers">
 
   <div class="press-tier">
@@ -188,10 +202,22 @@ a:hover{text-decoration:underline}
       <li>Everything in Indie</li>
       <li><strong>Marketing analytics</strong> — top countries, top referrers, campaign attribution</li>
       <li><strong><a href="/press/photos/" style="color:inherit;text-decoration:underline dotted">Downloadable social product photos</a></strong> — Instagram, Twitter, Pinterest ready</li>
-      <li><strong>50% off Featured Boosts</strong></li>
-      <li>Custom subdomain <span style="color:var(--hint);font-size:12px">(coming soon)</span></li>
-      <li>Early access to new features</li>
+      <li><strong>1 free 24h Featured Boost every month</strong> — auto-credited, use it or bank it</li>
+      <li><strong>50% off additional Featured Boosts</strong></li>
+      <li><strong>Custom subdomain</strong> — <span style="font-family:ui-monospace,Menlo,monospace">yourname.onfolio.press</span> as your imprint's short link</li>
+      <li><strong>Priority moderator queue</strong> — shelf submissions reviewed first</li>
+      <li><strong>First access to new features</strong> — beta invites before public rollout</li>
     </ul>
+    <!-- Perpetual-only bonuses. Only surfaces when data-perpetual view
+         is active (the billing toggle at the top swaps display).
+         Hidden in monthly + yearly views since these are lifetime-only
+         perks for the one-time-payment buyers. -->
+    <div class="press-perpetual-extras" data-perpetual-visible="1" style="display:none;margin:0 0 14px;padding:10px 12px;background:rgba(201,140,42,0.08);border:.5px solid rgba(201,140,42,0.35);border-radius:8px;font-size:12px;line-height:1.55;color:var(--text)">
+      <strong style="display:block;font-size:11.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--accent);margin-bottom:4px">Perpetual buyers also get</strong>
+      🏛 <strong>Founding Perpetual forum</strong> access — private channel where you shape the Folio roadmap directly.<br>
+      ✨ <strong>Name on the /press/ supporters wall</strong> (opt-out available).<br>
+      🎁 <strong>Locked-in tier for life</strong> — every future Imprint feature, forever, no recurring bill.
+    </div>
     <button class="press-tier-cta secondary" onclick="subscribe('imprint')">Start Imprint →</button>
   </div>
 
@@ -267,6 +293,13 @@ a:hover{text-decoration:underline}
     document.querySelectorAll('.press-tier-yearly').forEach(function(el){
       const val = el.getAttribute('data-' + period);
       if (val) el.innerHTML = val;
+    });
+    // Perpetual-only extras block — visible only in perpetual mode.
+    // The block sells lifetime buyers on the extras (Founding forum,
+    // supporters wall, tier-for-life) without cluttering the
+    // monthly/yearly views where these don't apply.
+    document.querySelectorAll('[data-perpetual-visible]').forEach(function(el){
+      el.style.display = (period === 'perpetual') ? 'block' : 'none';
     });
   }
 
