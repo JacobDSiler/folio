@@ -83,6 +83,12 @@
   <title>Folio — Beautiful Book Formatter</title>
   <meta name="description"
     content="Folio is a free book-formatting and reader tool. Write, format, and publish beautiful books from your browser.">
+  <!-- AI-training crawler denial. Belt+braces alongside robots.txt
+       and the _headers X-Robots-Tag rules — see docs/BOT_BLOCKING.md.
+       "noai" / "noimageai" are the community-standard tokens for
+       "don't use this page as training data." Some crawlers respect
+       the meta tag even when they ignore other signals. -->
+  <meta name="robots" content="noai, noimageai">
   <!-- PWA / offline. Registered further down (see the sw.js
        registration block). The manifest + theme-color + Apple meta
        tags let Chrome / Edge / Safari install Folio as a real app
@@ -6952,6 +6958,47 @@
               <input type="file" id="msInput" accept=".docx,.txt,.md,.rtf,.doc" multiple style="display:none"
                 onchange="handleFileImport(this)">
               <div class="file-chips" id="importedChips"></div>
+
+              <!-- ═══ SMART SCAN — camera + photo/PDF entry point ═══
+                   Author's phone camera or file picker → Smart Scan
+                   pipeline that turns pictures / PDFs into chapter
+                   text, cover metadata, illustrations, character
+                   suggestions. Phase 1 does on-device OCR (Tesseract.js,
+                   free unlimited). Phases 2+ layer AI on top per
+                   docs/SMART_SCAN_PLAN.md.
+
+                   The 📷 button only appears on mobile UAs where
+                   `capture=environment` actually opens the back
+                   camera — on desktop the same input opens a file
+                   picker, which is redundant with the 📎 button
+                   right beside it. Feature-detect at runtime rather
+                   than hard-coding a UA sniff so Chrome-on-tablet /
+                   iPad-in-desktop-mode do the right thing.
+
+                   Both inputs feed into _smartScanReceiveFiles which
+                   opens the task picker modal. Added 2026-08-11. -->
+              <div id="smartScanRow" style="display:flex;gap:6px;margin-top:10px;padding-top:10px;border-top:.5px dashed var(--border-mid)">
+                <button type="button" id="smartScanCameraBtn"
+                  onclick="document.getElementById('smartScanCameraInput').click()"
+                  title="Take a photo of a page, cover, or illustration"
+                  style="flex:1;display:none;padding:8px 10px;font-size:12px;font-weight:500;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;display:none">
+                  📷 Take photo
+                </button>
+                <button type="button" id="smartScanAttachBtn"
+                  onclick="document.getElementById('smartScanAttachInput').click()"
+                  title="Attach photos or a PDF from your device"
+                  style="flex:1;padding:8px 10px;font-size:12px;font-weight:500;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit">
+                  📎 Attach photos / PDF
+                </button>
+              </div>
+              <div style="font-size:10.5px;color:var(--hint);margin-top:4px;line-height:1.5">
+                <strong>Smart Scan (beta):</strong> photos of pages become chapter text (OCR, on-device — nothing leaves your browser). PDFs split into chapters. Covers → suggested metadata (paid tiers).
+              </div>
+              <input type="file" id="smartScanCameraInput" accept="image/*" capture="environment"
+                style="display:none" onchange="_smartScanReceiveFiles(this,'camera')">
+              <input type="file" id="smartScanAttachInput" accept="image/*,application/pdf" multiple
+                style="display:none" onchange="_smartScanReceiveFiles(this,'attach')">
+              <div class="file-chips" id="smartScanChips" style="margin-top:6px"></div>
 
               <div style="display:flex;justify-content:space-between;align-items:center;margin:14px 0 6px">
                 <label style="font-size:11.5px;font-weight:500;color:var(--text);margin:0">Chapter detection</label>
@@ -24137,6 +24184,133 @@
         });
       }
       return out;
+    };
+
+    // ═══ Smart Scan — camera + photo/PDF entry point (Phase 1) ═══
+    // See docs/SMART_SCAN_PLAN.md for the full architecture. This
+    // scaffold ships the UI + camera-detection + file-receive so
+    // authors can attach files today. The actual processing pipelines
+    // (Tesseract.js OCR, PDF split, LLM tagging) land per the plan
+    // doc's rollout phases.
+
+    // Camera detection — only show the "📷 Take photo" button when
+    // there's a real chance it does something useful. On desktop the
+    // input+capture combo just opens a file picker (same as Attach),
+    // so hide the button to avoid redundancy. Feature-detect via the
+    // MediaDevices API + pointer type; UA sniff would break iPad-in-
+    // desktop-mode and Chrome on hybrids.
+    (function _smartScanDetectCamera(){
+      try {
+        const hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+        const isCoarse = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+        // Coarse pointer + media capability → real touch device with a
+        // camera. Show the button. On a desktop with a webcam (media
+        // capability but fine pointer), the button hides — Attach
+        // already covers that case + is less confusing.
+        if (hasMedia && isCoarse) {
+          const btn = document.getElementById('smartScanCameraBtn');
+          if (btn) btn.style.display = ''; // flex from the parent gap
+        }
+      } catch (_) {}
+    })();
+
+    // File receive — called by both camera + attach inputs. Renders
+    // chips for each file, then opens the task-picker modal. In v1
+    // (scaffold shipping now) the modal is a placeholder that lists
+    // available operations but doesn't yet execute them; wiring in
+    // the OCR + PDF-split + LLM lanes is scoped to the follow-on
+    // phases per docs/SMART_SCAN_PLAN.md.
+    window._smartScanReceiveFiles = function _smartScanReceiveFiles(input, source) {
+      const files = input && input.files ? Array.from(input.files) : [];
+      if (!files.length) return;
+      const chips = document.getElementById('smartScanChips');
+      if (chips) {
+        chips.innerHTML = files.map(function(f){
+          const kb = (f.size / 1024).toFixed(1);
+          const kind = (f.type || '').startsWith('image/') ? '🖼' :
+                       f.type === 'application/pdf' ? '📄' : '📎';
+          return '<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 8px;font-size:11px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:11px;margin-right:4px">' +
+                 kind + ' ' + _smartScanEsc(f.name) + ' <span style="opacity:.55">' + kb + ' KB</span></span>';
+        }).join('');
+      }
+      // Stash on window so the task-picker modal can grab them without
+      // re-plumbing the input references.
+      window._smartScanPendingFiles = files;
+      window._smartScanPendingSource = source; // 'camera' | 'attach'
+      _smartScanOpenTaskPicker();
+      // Reset the input so re-selecting the same file re-fires onchange
+      try { input.value = ''; } catch (_) {}
+    };
+
+    function _smartScanEsc(s){
+      return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    // Task picker — scaffold modal. Currently shows a friendly "coming
+    // soon, but here's what we'll offer" list so the UX feels intentional
+    // rather than half-built. Each option is disabled + carries an
+    // upgrade / roadmap hint. When Phase 1 (on-device OCR) lands, the
+    // top few options become clickable.
+    function _smartScanOpenTaskPicker() {
+      let modal = document.getElementById('smartScanModal');
+      if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'smartScanModal';
+        modal.style.cssText = 'display:flex;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:1200;padding:20px;align-items:center;justify-content:center';
+        modal.addEventListener('click', function(ev){
+          if (ev.target === modal) _smartScanClose();
+        });
+        document.body.appendChild(modal);
+      } else {
+        modal.style.display = 'flex';
+      }
+      const files = window._smartScanPendingFiles || [];
+      const hasPdf   = files.some(function(f){ return f.type === 'application/pdf'; });
+      const hasImage = files.some(function(f){ return (f.type||'').startsWith('image/'); });
+      const count = files.length;
+      modal.innerHTML =
+        '<div style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:12px;max-width:480px;width:100%;padding:22px 24px;color:var(--text);font-family:inherit">' +
+          '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin:0 0 6px">' +
+            '<div style="font-size:16px;font-weight:600">🔍 Smart Scan</div>' +
+            '<button type="button" onclick="_smartScanClose()" ' +
+              'style="background:none;border:none;color:var(--hint);font-size:20px;cursor:pointer;line-height:1;padding:2px 6px">×</button>' +
+          '</div>' +
+          '<p style="font-size:12px;color:var(--muted);margin:0 0 14px;line-height:1.5">' +
+            count + ' file' + (count === 1 ? '' : 's') + ' attached. What should Folio do with ' + (count === 1 ? 'it' : 'them') + '?' +
+          '</p>' +
+          '<div style="display:flex;flex-direction:column;gap:6px">' +
+            (hasImage ? _smartScanOption('📖', 'OCR to new chapter',      'On-device — free, unlimited. Photo of a page becomes chapter text.', true) : '') +
+            (hasImage ? _smartScanOption('📎', 'OCR + append to current chapter', 'Same OCR, but adds to the chapter you\'re currently editing.', true) : '') +
+            (hasPdf   ? _smartScanOption('📚', 'Split PDF into chapters', 'Detects chapter breaks, extracts text (OCR if needed) per page.', true) : '') +
+            (hasImage ? _smartScanOption('🖼', 'Use as cover',            'Set as the folio cover image.', true) : '') +
+            (hasImage ? _smartScanOption('🎨', 'Use as illustration',     'Insert into the current chapter as an inline illustration.', true) : '') +
+            (hasImage ? _smartScanOption('✨', 'Suggest metadata from cover', 'Uses your allowance (or your own API key). Paid tiers get more.', true) : '') +
+          '</div>' +
+          '<div style="margin-top:16px;padding:10px 12px;background:var(--bg);border:.5px dashed var(--border-mid);border-radius:7px;font-size:11px;color:var(--muted);line-height:1.5">' +
+            '<strong style="color:var(--text)">Smart Scan is in beta.</strong> The buttons above are the roadmap — on-device OCR ships first (free, unlimited), then AI-assisted options via <a href="/press/" style="color:var(--accent-ui)">Folio Press</a> or your own API key. Full plan: <em>docs/SMART_SCAN_PLAN.md</em>.' +
+          '</div>' +
+          '<div style="display:flex;justify-content:flex-end;margin-top:14px">' +
+            '<button type="button" onclick="_smartScanClose()" ' +
+              'style="padding:7px 14px;background:none;border:.5px solid var(--border-mid);border-radius:6px;color:var(--muted);cursor:pointer;font-size:12px;font-family:inherit">Close</button>' +
+          '</div>' +
+        '</div>';
+    }
+
+    function _smartScanOption(icon, label, desc, disabled) {
+      const dim = disabled ? 'opacity:.55;cursor:not-allowed' : 'cursor:pointer';
+      return '<button type="button" ' + (disabled ? 'disabled ' : '') +
+        'style="text-align:left;padding:10px 12px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:7px;color:var(--text);' + dim + ';font-family:inherit;display:flex;align-items:flex-start;gap:10px">' +
+        '<span style="font-size:18px;line-height:1">' + icon + '</span>' +
+        '<span style="flex:1;min-width:0">' +
+          '<span style="display:block;font-size:13px;font-weight:500;color:var(--text)">' + label + (disabled ? ' <span style="font-size:10px;color:var(--hint);font-weight:400">(soon)</span>' : '') + '</span>' +
+          '<span style="display:block;font-size:11px;color:var(--muted);margin-top:2px;line-height:1.4">' + desc + '</span>' +
+        '</span>' +
+      '</button>';
+    }
+
+    window._smartScanClose = function _smartScanClose() {
+      const m = document.getElementById('smartScanModal');
+      if (m) m.style.display = 'none';
     };
 
     // "See this Folio on the shelf" — opens /shelf?folio=<id> in a new
