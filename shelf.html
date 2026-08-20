@@ -25,6 +25,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Folio">
 <link rel="apple-touch-icon" href="/icon.svg">
+<script src="/lib/promos.js" defer></script>
 <script>
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
@@ -282,6 +283,10 @@ a:hover{text-decoration:underline}
     </div>
   </div>
 </header>
+<!-- Promo banner slot — populated by /lib/promos.js when there's an
+     active or teasing seasonal promo. Silent no-op the rest of the
+     time. Added 2026-08-11 alongside the /admin/promos/ manager. -->
+<div id="promoBannerSlot" style="display:none;padding:0 12px"></div>
 <div class="shelf-controls">
   <input class="shelf-search" id="shelfSearch" type="search" placeholder="Search by title or author…" oninput="renderShelf()">
   <select class="shelf-select" id="shelfPrice" onchange="renderShelf()">
@@ -1565,6 +1570,19 @@ async function boot(){
     console.log('[shelf] initializing Firebase app…');
     const app=initializeApp(firebaseConfig);
     _fbDb=getFirestore(app);
+    // Expose db + Firestore helpers to /lib/promos.js so the
+    // promo banner mount can hit folio_promos without re-importing
+    // Firebase. Bannering happens once auth resolves.
+    try {
+      window._promoDb = _fbDb;
+      window._promoFb = { collection, getDocs, doc, query, where, limit };
+      if (window.FolioPromos && typeof window.FolioPromos.mountBanner === 'function') {
+        window.FolioPromos.mountBanner({
+          slot: document.getElementById('promoBannerSlot'),
+          tier: 'both',
+        });
+      }
+    } catch (_) {}
     // Auth — silent restore only. Same Firebase project as /app.html,
     // so if the user is signed in there they auto-sign-in here too
     // (Firebase persists auth state in IndexedDB per-project).
