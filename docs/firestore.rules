@@ -399,6 +399,28 @@ service cloud.firestore {
       allow delete: if isUser(resource.data.uid) || isAdmin();
     }
 
+    // ── Promos / seasonal discount codes ───────────────────────────
+    // Managed via /admin/promos/. See docs/DISCOUNT_SCHEDULE.md for the
+    // marketing calendar this feeds. Doc id is the promo CODE itself
+    // (uppercased) so lookup by code is a single get() — no query.
+    //
+    // Payload:
+    //   { code, label, pct, tiers[], billingModes[],
+    //     validFrom, validTo, teaserFrom, teaserCopy, activeCopy,
+    //     createdAt, createdBy }
+    //
+    // READ  : public. Every visitor to /press/, /shelf/, /app.html
+    //         needs to see whether a promo is active or pre-teasing
+    //         so the banner + auto-fill code work. Doc content is
+    //         non-sensitive (public marketing copy + a code the
+    //         author enters at checkout anyway).
+    //
+    // WRITE : admin only. Managed via the admin UI.
+    match /folio_promos/{code} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
     // Admin + moderator role assignments — used by isAdmin() and
     // isModerator() functions above. Managed via /admin/admins/.
     //   Read:  public — needed so client-side code can check role state

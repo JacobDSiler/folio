@@ -107,6 +107,51 @@ a:hover{text-decoration:underline}
   </div>
 </header>
 
+<!-- Promo banner slot — populated by /lib/promos.js when a seasonal
+     promo is active or teasing. Silent no-op otherwise. Managed via
+     /admin/promos/. See docs/DISCOUNT_SCHEDULE.md. -->
+<div id="promoBannerSlot" style="display:none;padding:0 12px"></div>
+<script src="/lib/promos.js" defer></script>
+<script type="module">
+  // Standalone Firestore init just to feed the promo banner. /press/
+  // doesn't otherwise need Firestore, so this is a one-purpose boot
+  // — kept tiny + late-loaded (defer) so it doesn't delay first paint.
+  try {
+    const appMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+    const fsMod  = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+    const app = appMod.initializeApp({
+      apiKey: "AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0",
+      authDomain: "auth.jacobsiler.com",
+      projectId: "miscellaneous-117e9",
+      storageBucket: "miscellaneous-117e9.firebasestorage.app",
+      messagingSenderId: "514858431339",
+      appId: "1:514858431339:web:8b3acbe89966b45fe3922e",
+    }, 'press');
+    const db = fsMod.getFirestore(app);
+    window._promoDb = db;
+    window._promoFb = {
+      collection: fsMod.collection,
+      getDocs: fsMod.getDocs,
+      doc: fsMod.doc,
+      getDoc: fsMod.getDoc,
+    };
+    // Wait a tick for /lib/promos.js to finish loading (defer) then mount.
+    const mount = () => {
+      if (window.FolioPromos) {
+        window.FolioPromos.mountBanner({
+          slot: document.getElementById('promoBannerSlot'),
+          tier: 'both',
+        });
+      } else {
+        setTimeout(mount, 120);
+      }
+    };
+    mount();
+  } catch (e) {
+    console.warn('[press] promo banner boot failed:', e && e.message);
+  }
+</script>
+
 <section class="press-hero">
   <h1>Tools for authors who want <span class="press-hero-accent">to be read</span></h1>
   <p>Folio Press is optional. Free Folio always includes writing, publishing, and 0% commission on tips.</p>
