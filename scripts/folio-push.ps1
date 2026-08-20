@@ -30,7 +30,12 @@
     ASCII-only on purpose so PowerShell 5.1 does not choke on encoding.
 #>
 
-$HOLD_OPEN = $true
+# Auto-run mode: set by FolioWatch (scripts/folio-watch.ps1) via the
+# FOLIO_WATCH_AUTO env var. Skips both interactive prompts:
+#   - the "Press Enter to close" hold at the end (would hang the watcher)
+#   - the "Commit and push? (y/N)" confirmation (auto-yes)
+$script:AutoRun = ($env:FOLIO_WATCH_AUTO -eq '1')
+$HOLD_OPEN = -not $script:AutoRun
 $script:exitCode = 0
 
 function Stop-Here([int]$code = 0) {

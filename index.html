@@ -3,34 +3,6 @@
 <html lang="en"><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<!-- PWA / offline. Registered here so first-visit users installing
-     Folio to their home screen from the welcome page get the SW
-     immediately. See sw.js for caching strategy. Added 2026-08-11. -->
-<link rel="manifest" href="/manifest.json">
-<meta name="theme-color" content="#c9a86c">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Folio">
-<link rel="apple-touch-icon" href="/icon.svg">
-<script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function () {
-      setTimeout(function () {
-        navigator.serviceWorker.register('/sw.js').then(function (reg) {
-          if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
-          reg.addEventListener('updatefound', function () {
-            const sw = reg.installing;
-            if (!sw) return;
-            sw.addEventListener('statechange', function () {
-              if (sw.state === 'installed' && navigator.serviceWorker.controller) {
-                sw.postMessage({ type: 'SKIP_WAITING' });
-              }
-            });
-          });
-        }).catch(function (err) { console.warn('[sw] registration failed:', err); });
-      }, 800);
-    });
-  }
-</script>
 
 <script>
   // ── First-visit + deep-link router ──────────────────────────────────────
@@ -307,24 +279,6 @@ main,header,footer,section{position:relative;z-index:1}
 }
 .hero-note .dot{width:6px;height:6px;border-radius:50%;background:#3aa776;box-shadow:0 0 0 4px rgba(58,167,118,.18);animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
-/* Live counts strip beneath the hero note. Numbers hydrate from the
-   same Firestore query the shelf uses (published+listOnShelf). Kept
-   understated on purpose — a small ambient signal that the platform
-   is real, not a boastful hero banner. */
-.hero-stats{
-  margin-top:22px;display:flex;flex-wrap:wrap;gap:26px;
-  padding-top:20px;border-top:.5px solid var(--border-mid,rgba(0,0,0,0.14));
-}
-.hero-stats .stat{display:flex;flex-direction:column;gap:2px}
-.hero-stats .stat-n{
-  font-family:var(--serif,'Playfair Display',Georgia,serif);
-  font-size:26px;font-weight:600;color:var(--accent,#c98c2a);
-  line-height:1;
-}
-.hero-stats .stat-lbl{
-  font-family:var(--ui);font-size:11.5px;color:var(--muted,#5a5347);
-  letter-spacing:.04em;text-transform:uppercase;
-}
 
 /* Demo stage — the animated "typing → galley → book" */
 .demo{
@@ -842,25 +796,6 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
       <span class="dot"></span>
       No signup wall. Your book autosaves the moment you start typing.
     </div>
-    <!-- Live counts strip. Populated by the existing testimonialsBoot
-         script at the bottom of the page — the same script that reads
-         Firestore for approved reviews now ALSO reads published-folio
-         counts + author counts and injects them here. Hidden until the
-         numbers arrive so we never show "0 folios" during loading. -->
-    <div id="liveStats" class="hero-stats" style="display:none">
-      <div class="stat">
-        <span class="stat-n" id="statFolios">—</span>
-        <span class="stat-lbl">folios on the Shelf</span>
-      </div>
-      <div class="stat">
-        <span class="stat-n" id="statAuthors">—</span>
-        <span class="stat-lbl">authors publishing</span>
-      </div>
-      <div class="stat">
-        <span class="stat-n" id="statReviews">—</span>
-        <span class="stat-lbl">reader reviews</span>
-      </div>
-    </div>
   </div>
 
   <!-- Animated demo — typing → galley → book -->
@@ -1125,34 +1060,14 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   </div>
 </section>
 
-<!-- ═══════════════════════════════════════ AI-SCRAPING PROTECTION ══ -->
-<!-- Every tier, every folio, always: your work is not AI training
-     data. Sits above pricing because it's a values statement, not
-     a feature bullet. Indie authors care about this deeply and it
-     works as a top-of-funnel trust signal (Jacob 2026-08-11). -->
-<section class="sec" id="ai-shield" style="padding-top:0;padding-bottom:32px">
-  <div style="max-width:820px;margin:0 auto;padding:22px 26px;background:linear-gradient(180deg,rgba(6,95,70,0.06) 0%,rgba(6,95,70,0.03) 100%);border:.5px solid rgba(6,95,70,0.28);border-radius:14px;display:flex;align-items:flex-start;gap:16px;font-family:var(--ui,-apple-system,'Segoe UI',system-ui,sans-serif)">
-    <span style="font-size:32px;line-height:1;flex-shrink:0" aria-hidden="true">🛡</span>
-    <div style="flex:1;min-width:0">
-      <div style="font-family:var(--serif,'Playfair Display',Georgia,serif);font-size:20px;font-weight:600;color:var(--ink,#1a1611);margin:0 0 6px;line-height:1.25">Your writing is not AI training data.</div>
-      <p style="font-size:13.5px;line-height:1.6;color:var(--ink,#1a1611);margin:0 0 8px">
-        Folio blocks the major AI training crawlers — <strong>GPTBot, ClaudeBot, Google-Extended, Applebot-Extended, CCBot, PerplexityBot, Bytespider, Meta-ExternalAgent</strong> and 20+ others — at four layers: robots.txt, HTTP headers (<code style="font-size:12px;background:rgba(0,0,0,0.06);padding:1px 5px;border-radius:3px">X-Robots-Tag: noai</code>), page-level meta tags, and Cloudflare's edge (AI Bot Blocking + AI Labyrinth).
-      </p>
-      <p style="font-size:12px;line-height:1.55;color:var(--muted,#5a5347);margin:0">
-        Search engines like Google and Bing still index your public pages so readers can find you — only training crawlers are shut out. Every tier, every folio. Free authors get the same protection as Perpetual buyers.
-      </p>
-    </div>
-  </div>
-</section>
-
 <!-- ═══════════════════════════════════════════════════════════ PRICING ══ -->
 <section class="sec" id="pricing" style="padding-top:0">
   <div class="sec-head">
     <div>
       <span class="sec-tag">Pricing</span>
-      <h2>Free forever. Even if you sell a million copies.</h2>
+      <h2>Writing is free. We only ask when you start selling.</h2>
     </div>
-    <p class="lede">Folio takes <strong>0%</strong> of what your readers pay you. Not per word, not per book, not per sale — ever. Paid tiers unlock author-facing tools (analytics, custom imprint, product photos, custom subdomain, priority moderation). Every cent of your revenue stays yours whether you're on Free forever or a paying subscriber.</p>
+    <p class="lede">Folio never charges per word, per book, or per reader. Use it forever for free. When you decide to monetize, we share — fairly — only on revenue you'd otherwise have to chase yourself.</p>
   </div>
 
   <div class="tiers">
@@ -1278,7 +1193,6 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
     <div class="foot-col">
       <h5>Resources</h5>
       <ul>
-        <li><a href="/help/">Help + FAQ</a></li>
         <li><a href="serials-guide.html">Serials guide</a></li>
         <li><a href="api-keys-guide.html">Audiobook API keys</a></li>
         <li><a href="#compare-sec">Comparison</a></li>
@@ -1778,59 +1692,6 @@ paintViral();
       let app;
       try { app = initializeApp(cfg); } catch (_) { app = initializeApp(cfg, 'testimonials'); }
       const db = getFirestore(app);
-
-      // Live-count strip — folios on the Shelf + unique authors + reviews.
-      // Runs in parallel with the reviews fetch so it doesn't slow down
-      // the testimonials render. Failures are silent (the strip stays
-      // hidden); we never want stat-loading to be a blocker for the
-      // rest of the welcome page.
-      (async function _hydrateStats(){
-        try {
-          const folioQ = query(
-            collection(db, 'folio_projects'),
-            where('release.listOnShelf', '==', true),
-            where('release.published', '==', true),
-            limit(500)
-          );
-          const folioSnap = await getDocs(folioQ);
-          let folioCount = 0;
-          const uidSet = new Set();
-          folioSnap.forEach(function(d){
-            const data = d.data() || {};
-            if (data.release && data.release.shelfPendingModeration === true) return;
-            folioCount++;
-            if (data.uid) uidSet.add(String(data.uid));
-          });
-          // Both flags required by the Firestore rule for anonymous
-          // reads — every returned doc must PROVABLY satisfy the rule
-          // based on the query constraints, and the rule wants both
-          // approvedForDisplay AND allowMarketing to be true. This also
-          // happens to match "reviews visible on the welcome page,"
-          // which is the number readers would expect to see.
-          const reviewsCountQ = query(
-            collection(db, 'reviews'),
-            where('approvedForDisplay', '==', true),
-            where('allowMarketing', '==', true),
-            limit(500)
-          );
-          const reviewsCountSnap = await getDocs(reviewsCountQ);
-          const _foliosEl = document.getElementById('statFolios');
-          const _authorsEl = document.getElementById('statAuthors');
-          const _reviewsEl = document.getElementById('statReviews');
-          const _wrap = document.getElementById('liveStats');
-          if (_foliosEl) _foliosEl.textContent = String(folioCount);
-          if (_authorsEl) _authorsEl.textContent = String(uidSet.size);
-          if (_reviewsEl) _reviewsEl.textContent = String(reviewsCountSnap.size);
-          // Only reveal the strip if there's SOMETHING to show — no point
-          // announcing three zeros to the first visitor.
-          if (_wrap && (folioCount > 0 || uidSet.size > 0 || reviewsCountSnap.size > 0)) {
-            _wrap.style.display = 'flex';
-          }
-        } catch (e) {
-          console.warn('[welcome] live stats hydration failed:', e && e.message);
-        }
-      })();
-
       const q = query(
         collection(db, 'reviews'),
         where('approvedForDisplay', '==', true),
