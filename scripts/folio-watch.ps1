@@ -183,30 +183,73 @@ $script:State = Load-State
 # Tray icon (system-drawn - no external asset needed)
 # =====================================================================
 
-# Build a small colored square icon in-memory. Windows scales this
-# to whatever the tray needs. Simpler than shipping an .ico file.
-function New-ColorIcon {
-    param([byte]$R, [byte]$G, [byte]$B)
-    $bmp = New-Object System.Drawing.Bitmap 16, 16
+# Draw a 32x32 colored circle with a black "F" (for Folio) in the
+# center. Bigger canvas + explicit HICON tracking = reliable render
+# on high-DPI displays.
+#
+# CRITICAL: keep the Bitmap alive for the life of the icon. PowerShell
+# GC can otherwise collect the Bitmap between creation and first
+# render, leaving Windows with a null pixel source (the blank tray
+# icon Jacob saw). We stash both objects in script scope so nothing
+# gets collected until we explicitly dispose on exit.
+$script:_iconArtifacts = @{}
+
+function New-FolioIcon {
+    param(
+        [string]$Key,     # 'idle' / 'debounce' / etc. - key into artifacts cache
+        [byte]$R, [byte]$G, [byte]$B
+    )
+    $bmp = New-Object System.Drawing.Bitmap 32, 32
     $g   = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.SmoothingMode = 'AntiAlias'
+    $g.SmoothingMode      = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.InterpolationMode  = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.TextRenderingHint  = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+
+    # Colored fill + darker rim for definition on light + dark taskbars.
     $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, $R, $G, $B))
-    $g.FillEllipse($brush, 1, 1, 14, 14)
-    $pen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(180, 0, 0, 0)), 1
-    $g.DrawEllipse($pen, 1, 1, 14, 14)
+    $g.FillEllipse($brush, 2, 2, 28, 28)
+    $pen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(200, 20, 20, 20)), 2
+    $g.DrawEllipse($pen, 2, 2, 28, 28)
+
+    # "F" glyph in the center - Folio brand cue that survives at 16x16.
+    $font       = New-Object System.Drawing.Font 'Arial', 16, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
+    $textBrush  = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, 20, 20, 20))
+    $fmt        = New-Object System.Drawing.StringFormat
+    $fmt.Alignment     = [System.Drawing.StringAlignment]::Center
+    $fmt.LineAlignment = [System.Drawing.StringAlignment]::Center
+    $g.DrawString('F', $font, $textBrush, (New-Object System.Drawing.RectangleF 0, 2, 32, 32), $fmt)
+
     $g.Dispose()
     $brush.Dispose()
     $pen.Dispose()
+    $textBrush.Dispose()
+    $font.Dispose()
+
     $hIcon = $bmp.GetHicon()
-    $icon = [System.Drawing.Icon]::FromHandle($hIcon)
+    $icon  = [System.Drawing.Icon]::FromHandle($hIcon)
+
+    # Persist so nothing gets collected + we can free the HICON on quit.
+    $script:_iconArtifacts[$Key] = @{ bitmap = $bmp; icon = $icon; hIcon = $hIcon }
     return $icon
 }
 
-$IconIdle      = New-ColorIcon  50 180  80    # green
-$IconDebounce  = New-ColorIcon 220 180  40    # yellow
-$IconDeploying = New-ColorIcon  60 130 220    # blue
-$IconError     = New-ColorIcon 200  60  60    # red
-$IconPaused    = New-ColorIcon 140 140 140    # gray
+# Build one icon per state. Any that fail to render fall back to a
+# system icon so the tray is never blank.
+try {
+    $IconIdle      = New-FolioIcon 'idle'       50 180  80    # green
+    $IconDebounce  = New-FolioIcon 'debounce'  220 180  40    # yellow
+    $IconDeploying = New-FolioIcon 'deploying'  60 130 220    # blue
+    $IconError     = New-FolioIcon 'error'     200  60  60    # red
+    $IconPaused    = New-FolioIcon 'paused'    140 140 140    # gray
+} catch {
+    # Custom icons blew up - fall back to guaranteed-visible system icons.
+    Write-WatchLog "Custom icons failed ($_); falling back to SystemIcons" 'WARN'
+    $IconIdle      = [System.Drawing.SystemIcons]::Information
+    $IconDebounce  = [System.Drawing.SystemIcons]::Warning
+    $IconDeploying = [System.Drawing.SystemIcons]::Asterisk
+    $IconError     = [System.Drawing.SystemIcons]::Error
+    $IconPaused    = [System.Drawing.SystemIcons]::Shield
+}
 
 $Tray = New-Object System.Windows.Forms.NotifyIcon
 $Tray.Icon = $IconIdle
@@ -511,5 +554,18 @@ try {
 } finally {
     try { $Tray.Visible = $false; $Tray.Dispose() } catch { }
     try { $script:Watcher.Dispose() } catch { }
+    # Free unmanaged HICON handles + Bitmaps we allocated for the
+    # colored state icons. Without this each icon leaks a handle.
+    try {
+        foreach ($kv in $script:_iconArtifacts.GetEnumerator()) {
+            try { $kv.Value.icon.Dispose() } catch { }
+            try { $kv.Value.bitmap.Dispose() } catch { }
+            try { [WinAPI.User32]::DestroyIcon($kv.Value.hIcon) | Out-Null } catch { }
+        }
+    } catch { }
+    # Release the singleton mutex so the NEXT FolioWatch launch is
+    # allowed to acquire it and run.
+    try { $script:SingletonMutex.ReleaseMutex() } catch { }
+    try { $script:SingletonMutex.Dispose() } catch { }
     Write-WatchLog "FolioWatch exiting"
 }
