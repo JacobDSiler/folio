@@ -270,6 +270,29 @@ a:hover{text-decoration:underline}
 
 <div id="pressStatus"></div>
 
+<!-- Promo code redemption (Phase 2A). Author types a code, we hit
+     folio_promos/{CODE}, verify it's in-window + matches the tier
+     they're about to buy, and show the adjusted price. On subscribe(),
+     the code + verified pct get passed to the paywall Worker (which
+     re-validates server-side before creating the PayPal plan).
+     Hidden until the user clicks "Have a promo code?" — keeps the
+     default view uncluttered. Added 2026-08-11. -->
+<div style="max-width:520px;margin:20px auto 0;text-align:center">
+  <button id="promoCodeToggle" class="ghost" onclick="_togglePromoInput()"
+    style="background:none;border:.5px dashed var(--border-mid);color:var(--muted);padding:6px 14px;border-radius:20px;font-size:11.5px;cursor:pointer;font-family:inherit">
+    Have a promo code?
+  </button>
+  <div id="promoCodeBox" style="display:none;margin-top:10px;padding:12px 14px;background:var(--surface);border:.5px solid var(--border-mid);border-radius:9px">
+    <div style="display:flex;gap:6px">
+      <input type="text" id="promoCodeInput" placeholder="Enter code (e.g. NANO2026)" maxlength="24"
+        oninput="this.value=this.value.toUpperCase()"
+        style="flex:1;font-size:13px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);outline:none;font-family:ui-monospace,Menlo,monospace;text-transform:uppercase">
+      <button class="ghost" onclick="_applyPromoCode()">Apply</button>
+    </div>
+    <div id="promoCodeStatus" style="margin-top:6px;font-size:11.5px;min-height:14px;color:var(--hint);line-height:1.5"></div>
+  </div>
+</div>
+
 <section class="press-faq">
   <h2>Common questions</h2>
 
@@ -379,10 +402,15 @@ a:hover{text-decoration:underline}
     // create a subscription tied to whichever PayPal account signs in.
     // Later we'll pass Firebase uid so subscription attaches to Folio account.
     try {
+      // Include the applied promo code (if any) so the paywall Worker
+      // can re-verify it server-side (client-side pct is display-only —
+      // the Worker MUST reject invalid/expired codes to prevent price
+      // tampering).
+      const promoCode = (window._appliedPromo && window._appliedPromo.code) || null;
       const r = await fetch(PAYWALL_WORKER_URL + '/press-subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tier: tier, period: _billing }),
+        body: JSON.stringify({ tier: tier, period: _billing, promoCode: promoCode }),
       });
       const data = await r.json().catch(function(){ return {}; });
       if (!r.ok || !data.approvalUrl) {
@@ -398,6 +426,105 @@ a:hover{text-decoration:underline}
       status.className = 'err';
     }
   }
+
+  // ── Promo code UI (Phase 2A) ────────────────────────────────────
+  // Verifies via FolioPromos.verifyCode() against the current tier +
+  // billing mode. On success: strikes through original price, shows
+  // discounted, sets window._appliedPromo so subscribe() can pass
+  // the code to the Worker for server-side re-verification.
+  //
+  // NOTE: display-only adjustment is not authoritative — the paywall
+  // Worker validates the code again + calculates the real price.
+  // Client-side is UX only; don't rely on it for billing correctness.
+  window._togglePromoInput = function () {
+    const box = document.getElementById('promoCodeBox');
+    const btn = document.getElementById('promoCodeToggle');
+    const open = box.style.display !== 'none';
+    box.style.display = open ? 'none' : 'block';
+    btn.textContent = open ? 'Have a promo code?' : 'Hide promo code';
+    if (!open) setTimeout(() => document.getElementById('promoCodeInput').focus(), 60);
+  };
+  window._applyPromoCode = async function () {
+    const code = (document.getElementById('promoCodeInput').value || '').trim().toUpperCase();
+    const status = document.getElementById('promoCodeStatus');
+    if (!code) {
+      status.textContent = 'Type a code first.';
+      status.style.color = 'var(--hint)';
+      return;
+    }
+    if (!window.FolioPromos) {
+      status.textContent = 'Promo verification unavailable — reload the page.';
+      status.style.color = 'var(--danger)';
+      return;
+    }
+    status.textContent = 'Checking…';
+    status.style.color = 'var(--hint)';
+    const result = await window.FolioPromos.verifyCode(code, { billing: _billing });
+    if (result.ok) {
+      const p = result.promo;
+      window._appliedPromo = p;
+      status.innerHTML = '✓ <strong style="color:var(--accent-ui)">' + esc(p.label || p.code) + '</strong> applied — ' + p.pct + '% off on ' + (p.tiers || []).join(' + ') + ' (' + (p.billingModes || []).join(' + ') + '). Prices below reflect the discount.';
+      status.style.color = 'var(--text)';
+      _redrawPricesWithPromo(p);
+    } else {
+      window._appliedPromo = null;
+      _redrawPricesWithPromo(null);
+      const reasons = {
+        unknown:          'That code doesn\'t exist.',
+        expired:          'That code has expired.',
+        'not-yet':        'That code isn\'t active yet.',
+        'tier-mismatch':  'That code doesn\'t apply to this tier.',
+        'billing-mismatch': 'That code doesn\'t apply to this billing mode. Try switching monthly ↔ yearly.',
+        'not-loaded':     'Promo system not loaded — reload the page.',
+        error:            'Something went wrong. Try again in a moment.',
+      };
+      status.textContent = '✗ ' + (reasons[result.reason] || 'Code not applicable.');
+      status.style.color = 'var(--danger)';
+    }
+  };
+  // Redraw the tier price displays with a strikethrough + discounted
+  // price. Runs on apply and on billing-toggle change (see below).
+  function _redrawPricesWithPromo(promo) {
+    document.querySelectorAll('.press-tier').forEach(function (card) {
+      const amtEl = card.querySelector('.press-tier-price .amount');
+      if (!amtEl) return;
+      const raw = amtEl.getAttribute('data-' + _billing);
+      const num = parseFloat(raw);
+      // Reset any prior strikethrough / discount pill
+      const prev = card.querySelector('.press-promo-discounted');
+      if (prev) prev.remove();
+      amtEl.style.textDecoration = '';
+      amtEl.style.opacity = '';
+      if (!promo || !num || _billing === 'perpetual') return;
+      // Tier / billing gate — only affect cards the promo actually
+      // applies to. Card name is in .press-tier-name; lowercase match.
+      const nameEl = card.querySelector('.press-tier-name');
+      const tierName = nameEl ? nameEl.textContent.trim().toLowerCase() : '';
+      if (!promo.tiers.includes(tierName)) return;
+      if (!promo.billingModes.includes(_billing)) return;
+      const discounted = Math.round(num * (100 - promo.pct)) / 100;
+      amtEl.style.textDecoration = 'line-through';
+      amtEl.style.opacity = '0.55';
+      const chip = document.createElement('span');
+      chip.className = 'press-promo-discounted';
+      chip.style.cssText = 'display:inline-block;margin-left:8px;color:var(--accent-ui);font-weight:700';
+      chip.textContent = '$' + (discounted % 1 === 0 ? discounted.toFixed(0) : discounted.toFixed(2));
+      amtEl.parentNode.insertBefore(chip, amtEl.nextSibling);
+    });
+  }
+  // Small html-escape for status messages (labels are admin-written)
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+  // Re-apply discount display when the billing toggle flips (monthly ↔
+  // yearly ↔ perpetual). Wraps the original setBilling — original ran
+  // first, we run after so the fresh amounts are already in the DOM.
+  const _origSetBilling = window.setBilling || setBilling;
+  window.setBilling = function (period) {
+    _origSetBilling(period);
+    _redrawPricesWithPromo(window._appliedPromo || null);
+  };
 </script>
 
 </body>
