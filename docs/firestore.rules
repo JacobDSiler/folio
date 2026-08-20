@@ -444,6 +444,37 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── Admin outbound messages (queued from /admin/users/) ────────
+    // Managed via /admin/users/. Every "Contact" action from the admin
+    // users page writes one doc here per targeted uid. Payload:
+    //   { fromUid, targetUid, subject, body, createdAt, status,
+    //     sentAt?, sentBy?, deliveryChannel?, deliveryDetail? }
+    //
+    // status vocabulary:
+    //   'queued'    - awaiting delivery (admin will process manually
+    //                 OR the folio-email worker's /admin-message-send
+    //                 endpoint will pick it up in a future phase)
+    //   'sent'      - delivered via Resend / SMTP
+    //   'skipped'   - target user has no discoverable contact email
+    //                 (e.g. anonymous auth, no imprint contact URL)
+    //   'error'     - delivery attempt failed
+    //
+    // READ  : admin only. Used by /admin/users/ to show recent
+    //         message history + delivery status for a given user.
+    // WRITE : admin only. Delivery-status updates come from the
+    //         folio-email worker via service account (bypasses rules).
+    match /folio_admin_messages/{messageId} {
+      allow read:  if isAdmin();
+      allow create: if isAdmin()
+                    && request.resource.data.keys().hasAny(['fromUid', 'targetUid', 'subject', 'body'])
+                    && request.resource.data.fromUid == request.auth.uid
+                    && request.resource.data.targetUid is string
+                    && request.resource.data.subject is string
+                    && request.resource.data.body is string
+                    && request.resource.data.body.size() < 5000;
+      allow update, delete: if isAdmin();
+    }
+
     // Admin + moderator role assignments — used by isAdmin() and
     // isModerator() functions above. Managed via /admin/admins/.
     //   Read:  public — needed so client-side code can check role state
