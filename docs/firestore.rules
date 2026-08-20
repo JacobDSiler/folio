@@ -416,9 +416,32 @@ service cloud.firestore {
     //         author enters at checkout anyway).
     //
     // WRITE : admin only. Managed via the admin UI.
+    //   WRITE (updated 2026-08-11): admin OR moderator. Promo
+    //   planning is a collaborative surface — trusted moderators can
+    //   help shape the year's calendar without needing full admin
+    //   powers. isModerator() already includes isAdmin() so this is
+    //   a strict superset of the old rule.
     match /folio_promos/{code} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isModerator();
+    }
+
+    // ── Promo redemption audit log ─────────────────────────────────
+    // Written by the paywall Worker's /press-subscribe endpoint via
+    // service account when a valid promo code is applied to a
+    // subscription. Doc id = PayPal subscription id so writes are
+    // idempotent. Payload includes { promoCode, pct, tier, period,
+    // uid, customId, createdAt, creditStatus } — creditStatus starts
+    // 'pending' and flips to 'credited' when admin processes the
+    // manual refund via /admin/press/.
+    //
+    // READ  : admin only. Used by /admin/press/ to show pending
+    //         redemptions that need refund processing.
+    // WRITE : never from clients. Worker uses service account which
+    //         bypasses these rules.
+    match /folio_promo_redemptions/{subscriptionId} {
+      allow read: if isAdmin();
+      allow write: if false;
     }
 
     // Admin + moderator role assignments — used by isAdmin() and
