@@ -279,6 +279,24 @@ main,header,footer,section{position:relative;z-index:1}
 }
 .hero-note .dot{width:6px;height:6px;border-radius:50%;background:#3aa776;box-shadow:0 0 0 4px rgba(58,167,118,.18);animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+/* Live counts strip beneath the hero note. Numbers hydrate from the
+   same Firestore query the shelf uses (published+listOnShelf). Kept
+   understated on purpose — a small ambient signal that the platform
+   is real, not a boastful hero banner. */
+.hero-stats{
+  margin-top:22px;display:flex;flex-wrap:wrap;gap:26px;
+  padding-top:20px;border-top:.5px solid var(--border-mid,rgba(0,0,0,0.14));
+}
+.hero-stats .stat{display:flex;flex-direction:column;gap:2px}
+.hero-stats .stat-n{
+  font-family:var(--serif,'Playfair Display',Georgia,serif);
+  font-size:26px;font-weight:600;color:var(--accent,#c98c2a);
+  line-height:1;
+}
+.hero-stats .stat-lbl{
+  font-family:var(--ui);font-size:11.5px;color:var(--muted,#5a5347);
+  letter-spacing:.04em;text-transform:uppercase;
+}
 
 /* Demo stage — the animated "typing → galley → book" */
 .demo{
@@ -796,6 +814,25 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
       <span class="dot"></span>
       No signup wall. Your book autosaves the moment you start typing.
     </div>
+    <!-- Live counts strip. Populated by the existing testimonialsBoot
+         script at the bottom of the page — the same script that reads
+         Firestore for approved reviews now ALSO reads published-folio
+         counts + author counts and injects them here. Hidden until the
+         numbers arrive so we never show "0 folios" during loading. -->
+    <div id="liveStats" class="hero-stats" style="display:none">
+      <div class="stat">
+        <span class="stat-n" id="statFolios">—</span>
+        <span class="stat-lbl">folios on the Shelf</span>
+      </div>
+      <div class="stat">
+        <span class="stat-n" id="statAuthors">—</span>
+        <span class="stat-lbl">authors publishing</span>
+      </div>
+      <div class="stat">
+        <span class="stat-n" id="statReviews">—</span>
+        <span class="stat-lbl">reader reviews</span>
+      </div>
+    </div>
   </div>
 
   <!-- Animated demo — typing → galley → book -->
@@ -1193,6 +1230,7 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
     <div class="foot-col">
       <h5>Resources</h5>
       <ul>
+        <li><a href="/help/">Help + FAQ</a></li>
         <li><a href="serials-guide.html">Serials guide</a></li>
         <li><a href="api-keys-guide.html">Audiobook API keys</a></li>
         <li><a href="#compare-sec">Comparison</a></li>
@@ -1692,6 +1730,59 @@ paintViral();
       let app;
       try { app = initializeApp(cfg); } catch (_) { app = initializeApp(cfg, 'testimonials'); }
       const db = getFirestore(app);
+
+      // Live-count strip — folios on the Shelf + unique authors + reviews.
+      // Runs in parallel with the reviews fetch so it doesn't slow down
+      // the testimonials render. Failures are silent (the strip stays
+      // hidden); we never want stat-loading to be a blocker for the
+      // rest of the welcome page.
+      (async function _hydrateStats(){
+        try {
+          const folioQ = query(
+            collection(db, 'folio_projects'),
+            where('release.listOnShelf', '==', true),
+            where('release.published', '==', true),
+            limit(500)
+          );
+          const folioSnap = await getDocs(folioQ);
+          let folioCount = 0;
+          const uidSet = new Set();
+          folioSnap.forEach(function(d){
+            const data = d.data() || {};
+            if (data.release && data.release.shelfPendingModeration === true) return;
+            folioCount++;
+            if (data.uid) uidSet.add(String(data.uid));
+          });
+          // Both flags required by the Firestore rule for anonymous
+          // reads — every returned doc must PROVABLY satisfy the rule
+          // based on the query constraints, and the rule wants both
+          // approvedForDisplay AND allowMarketing to be true. This also
+          // happens to match "reviews visible on the welcome page,"
+          // which is the number readers would expect to see.
+          const reviewsCountQ = query(
+            collection(db, 'reviews'),
+            where('approvedForDisplay', '==', true),
+            where('allowMarketing', '==', true),
+            limit(500)
+          );
+          const reviewsCountSnap = await getDocs(reviewsCountQ);
+          const _foliosEl = document.getElementById('statFolios');
+          const _authorsEl = document.getElementById('statAuthors');
+          const _reviewsEl = document.getElementById('statReviews');
+          const _wrap = document.getElementById('liveStats');
+          if (_foliosEl) _foliosEl.textContent = String(folioCount);
+          if (_authorsEl) _authorsEl.textContent = String(uidSet.size);
+          if (_reviewsEl) _reviewsEl.textContent = String(reviewsCountSnap.size);
+          // Only reveal the strip if there's SOMETHING to show — no point
+          // announcing three zeros to the first visitor.
+          if (_wrap && (folioCount > 0 || uidSet.size > 0 || reviewsCountSnap.size > 0)) {
+            _wrap.style.display = 'flex';
+          }
+        } catch (e) {
+          console.warn('[welcome] live stats hydration failed:', e && e.message);
+        }
+      })();
+
       const q = query(
         collection(db, 'reviews'),
         where('approvedForDisplay', '==', true),
