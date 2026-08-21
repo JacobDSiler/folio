@@ -364,6 +364,14 @@ function Run-Deploy {
         if ($success) {
             $script:State.lastError = $null
             Save-State $script:State
+            # Clear the anomaly marker (if any) so the tray returns to
+            # green cleanly. A successful deploy after an anomaly means
+            # the operator investigated + resolved.
+            $anomalyMarker = Join-Path $StateDir 'anomaly-detected.txt'
+            if (Test-Path $anomalyMarker) {
+                Remove-Item $anomalyMarker -Force -ErrorAction SilentlyContinue
+                Write-WatchLog "Anomaly marker auto-cleared after successful deploy"
+            }
             Write-WatchLog "Deploy succeeded in ${duration}ms (commit $($entry.commit))"
             Set-TrayState 'idle' "last deploy OK ($($entry.commit))"
             Show-Balloon 'FolioWatch - deployed' "Commit $($entry.commit) pushed in ${duration}ms." 'Info'
@@ -371,9 +379,20 @@ function Run-Deploy {
             $tail = ($out -split "`n" | Select-Object -Last 5) -join "`n"
             $script:State.lastError = $tail
             Save-State $script:State
-            Write-WatchLog "Deploy FAILED (exit $LASTEXITCODE). Last output lines:`n$tail" 'ERROR'
-            Set-TrayState 'error' "deploy failed (see log)"
-            Show-Balloon 'FolioWatch - deploy failed' "Right-click the tray icon > Show Log for details." 'Error'
+            # Distinguish "anomaly held back the deploy" (safe outcome -
+            # nothing on disk touched) from "actual deploy failure"
+            # (something's genuinely broken). folio-push.ps1 writes the
+            # marker file when the SAFETY_DELETE_LIMIT guard trips.
+            $anomalyMarker = Join-Path $StateDir 'anomaly-detected.txt'
+            if (Test-Path $anomalyMarker) {
+                Write-WatchLog "Deploy HELD by anomaly guard. Marker: $anomalyMarker" 'WARN'
+                Set-TrayState 'error' "DEPLOY HELD - suspicious diff"
+                Show-Balloon '! FolioWatch held a deploy' "Suspicious diff detected (large deletions). Repo unchanged. Right-click > Show anomaly report for details." 'Warn'
+            } else {
+                Write-WatchLog "Deploy FAILED (exit $LASTEXITCODE). Last output lines:`n$tail" 'ERROR'
+                Set-TrayState 'error' "deploy failed (see log)"
+                Show-Balloon 'FolioWatch - deploy failed' "Right-click the tray icon > Show Log for details." 'Error'
+            }
         }
     } catch {
         Write-WatchLog "Deploy threw an exception: $_" 'ERROR'
@@ -506,6 +525,29 @@ $miState.Add_Click({
         Start-Process notepad.exe -ArgumentList $StateFile
     } else {
         Show-Balloon 'FolioWatch' 'State file not created yet.'
+    }
+})
+
+$miAnomaly = $menu.Items.Add('Show &anomaly report')
+$miAnomaly.Add_Click({
+    $anomalyMarker = Join-Path $StateDir 'anomaly-detected.txt'
+    if (Test-Path $anomalyMarker) {
+        Start-Process notepad.exe -ArgumentList $anomalyMarker
+    } else {
+        Show-Balloon 'FolioWatch' 'No anomaly on record. Last deploy passed the safety guard.'
+    }
+})
+
+$miClearAnomaly = $menu.Items.Add('C&lear anomaly marker (after review)')
+$miClearAnomaly.Add_Click({
+    $anomalyMarker = Join-Path $StateDir 'anomaly-detected.txt'
+    if (Test-Path $anomalyMarker) {
+        Remove-Item $anomalyMarker -Force
+        Write-WatchLog "Anomaly marker cleared via tray menu"
+        Set-TrayState 'idle' 'watching (anomaly cleared)'
+        Show-Balloon 'FolioWatch' 'Anomaly marker cleared. Watching resumed.'
+    } else {
+        Show-Balloon 'FolioWatch' 'No anomaly marker to clear.'
     }
 })
 
