@@ -199,17 +199,25 @@ function New-FolioIcon {
         [string]$Key,     # 'idle' / 'debounce' / etc. - key into artifacts cache
         [byte]$R, [byte]$G, [byte]$B
     )
+    # NOTE: local var deliberately named $gfx (not $g). Earlier version
+    # used $g for the Graphics object, which SHADOWED the $G byte param
+    # (PowerShell variables are case-insensitive), so $G was replaced
+    # with a Graphics object when FromImage() assigned it. That broke
+    # every downstream FromArgb(255, $R, $G, $B) call with the exact
+    # error "Cannot convert System.Drawing.Graphics to Byte" --
+    # which was why the tray always fell back to SystemIcons. Bug
+    # fix 2026-08-21.
     $bmp = New-Object System.Drawing.Bitmap 32, 32
-    $g   = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.SmoothingMode      = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
-    $g.InterpolationMode  = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-    $g.TextRenderingHint  = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
+    $gfx = [System.Drawing.Graphics]::FromImage($bmp)
+    $gfx.SmoothingMode      = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $gfx.InterpolationMode  = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $gfx.TextRenderingHint  = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
 
     # Colored fill + darker rim for definition on light + dark taskbars.
     $brush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(255, $R, $G, $B))
-    $g.FillEllipse($brush, 2, 2, 28, 28)
+    $gfx.FillEllipse($brush, 2, 2, 28, 28)
     $pen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(200, 20, 20, 20)), 2
-    $g.DrawEllipse($pen, 2, 2, 28, 28)
+    $gfx.DrawEllipse($pen, 2, 2, 28, 28)
 
     # "F" glyph in the center - Folio brand cue that survives at 16x16.
     $font       = New-Object System.Drawing.Font 'Arial', 16, ([System.Drawing.FontStyle]::Bold), ([System.Drawing.GraphicsUnit]::Pixel)
@@ -217,9 +225,9 @@ function New-FolioIcon {
     $fmt        = New-Object System.Drawing.StringFormat
     $fmt.Alignment     = [System.Drawing.StringAlignment]::Center
     $fmt.LineAlignment = [System.Drawing.StringAlignment]::Center
-    $g.DrawString('F', $font, $textBrush, (New-Object System.Drawing.RectangleF 0, 2, 32, 32), $fmt)
+    $gfx.DrawString('F', $font, $textBrush, (New-Object System.Drawing.RectangleF 0, 2, 32, 32), $fmt)
 
-    $g.Dispose()
+    $gfx.Dispose()
     $brush.Dispose()
     $pen.Dispose()
     $textBrush.Dispose()
@@ -446,18 +454,34 @@ function New-Watcher {
 
     $action = {
         $path = $Event.SourceEventArgs.FullPath
-        $name = $Event.SourceEventArgs.Name
         $type = $Event.SourceEventArgs.ChangeType
-        # Ignore paths inside .git/, node_modules/, etc.
-        foreach ($ig in $script:IgnoreSubpaths) {
-            if ($path -like "*$ig*") { return }
-        }
-        # Ignore specific filenames (state files, pending commit msg, etc.)
+        # HARDCODED ignore filters. Previous version referenced
+        # $script:IgnoreSubpaths / $script:IgnoreFilenames, but
+        # Register-ObjectEvent action blocks run on a background
+        # runspace where the script scope isn't reliably reachable --
+        # so those variables were $null at event-fire time and NO
+        # filtering happened. Result: git's own writes to .git/index.lock,
+        # .git/HEAD.lock, .git/objects/... etc. triggered fresh
+        # debounces after every deploy, producing a 60-second no-op
+        # loop that burned CPU + network for hours before Jacob
+        # noticed. Fix: inline the patterns so they can't be lost.
+        # (Bug post-mortem 2026-08-21.)
+        if ($path -like '*\.git\*')          { return }
+        if ($path -like '*\node_modules\*')  { return }
+        if ($path -like '*\.wrangler\*')     { return }
+        if ($path -like '*\dist\*')          { return }
+        if ($path -like '*\build\*')         { return }
+        if ($path -like '*\.vscode\*')       { return }
+        if ($path -like '*\.gradle\*')       { return }
         $leaf = [System.IO.Path]::GetFileName($path)
-        if ($script:IgnoreFilenames -contains $leaf) { return }
-        # Ignore .tmp / .swp / editor lock files - usually flurries of
-        # them accompany a normal save, but they self-clean quickly.
-        if ($leaf -match '\.(tmp|swp|swx|swo|~)$' -or $leaf -match '^~') { return }
+        if ($leaf -eq '.folio-pending-commit.txt')  { return }
+        if ($leaf -eq 'firebase-debug.log')          { return }
+        # Editor + git lock file extensions. Added .lock explicitly
+        # so git's index.lock / HEAD.lock / packed-refs.lock never
+        # trigger a deploy cycle even if somehow they escape the
+        # .git\ path filter above.
+        if ($leaf -match '\.(tmp|swp|swx|swo|lock|~)$') { return }
+        if ($leaf -match '^~') { return }
         # Ignore directory-only events (we care about file-level saves).
         if (Test-Path $path -PathType Container) { return }
         Trigger-Debounce "$type $leaf"
