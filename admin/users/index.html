@@ -1,0 +1,599 @@
+<!doctype html>
+<!-- FOLIO ADMIN USERS v2026.08.20.1 -
+     Every registered author, searchable + sortable + contactable.
+     Enumerates via public data: distinct uids from folio_projects
+     (published==true) + folio_imprint_themes for name/tagline/photo.
+     Contact = queued to folio_admin_messages Firestore collection
+     for the email worker to deliver in a future phase; MVP writes
+     the message and admin processes delivery manually. -->
+<html lang="en">
+<head>
+<script>
+  console.log('[admin-users] boot at', new Date().toISOString());
+  window.addEventListener('error', e => console.error('[admin-users] error:', e.message, e.filename, e.lineno));
+  window.addEventListener('unhandledrejection', e => console.error('[admin-users] rejection:', e.reason));
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Folio Admin - Users &amp; communications</title>
+<meta name="robots" content="noindex,nofollow">
+<style>
+:root {
+  --bg:#faf7f1; --surface:#fff; --text:#1a1611; --muted:#5a5347; --hint:#8a8174;
+  --border:rgba(0,0,0,0.10); --border-mid:rgba(0,0,0,0.14);
+  --accent:#c98c2a; --accent-ui:#065f46; --danger:#c04040;
+  --shadow:0 1px 3px rgba(0,0,0,0.06),0 4px 14px rgba(0,0,0,0.04);
+}
+html[data-theme="dark"]{--bg:#14110d;--surface:#1f1a14;--text:#e8dece;--muted:#a89e8b;--hint:#79705f;--border:rgba(232,222,206,0.10);--border-mid:rgba(232,222,206,0.16);--accent:#d4a44f;--accent-ui:#34d399;--danger:#f87171}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
+a{color:var(--accent-ui);text-decoration:none} a:hover{text-decoration:underline}
+
+.admin-hdr{background:var(--surface);border-bottom:.5px solid var(--border);padding:14px 20px;position:sticky;top:0;z-index:10}
+.admin-hdr-row{max-width:1100px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.admin-brand{font-family:'Playfair Display',Georgia,serif;font-size:18px;font-weight:600;margin:0;color:var(--text)}
+.admin-brand .accent{color:var(--accent)}
+.admin-hdr-actions{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted)}
+.admin-hdr-actions a{color:var(--muted)}
+.admin-wrap{max-width:1100px;margin:0 auto;padding:22px 20px 60px}
+.admin-h1{font-family:'Playfair Display',Georgia,serif;font-size:26px;font-weight:600;margin:6px 0 4px}
+.admin-lead{font-size:13px;color:var(--muted);margin:0 0 22px;line-height:1.6}
+
+.hidden{display:none !important}
+
+.card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:16px;box-shadow:var(--shadow)}
+.card h2{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:600;margin:0 0 6px}
+.card .sub{font-size:12px;color:var(--hint);margin:0 0 14px;line-height:1.5}
+
+button.primary{background:var(--accent-ui);color:#fff;border:none;padding:8px 16px;border-radius:7px;font-size:12.5px;font-weight:500;cursor:pointer;font-family:inherit}
+button.primary:hover{filter:brightness(.94)}
+button.primary:disabled{opacity:.5;cursor:not-allowed}
+button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--text);padding:6px 12px;border-radius:6px;font-size:11.5px;cursor:pointer;font-family:inherit}
+button.ghost:hover{border-color:var(--accent)}
+button.danger{background:none;border:.5px solid var(--danger);color:var(--danger);padding:6px 12px;border-radius:6px;font-size:11.5px;cursor:pointer;font-family:inherit}
+button.danger:hover{background:var(--danger);color:#fff}
+
+/* Filters row */
+.filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 14px}
+.filters input[type=search]{flex:1;min-width:200px;font-size:13px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);outline:none;font-family:inherit}
+.filters select{font-size:12.5px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);font-family:inherit}
+.filters .chip-check{display:inline-flex;align-items:center;gap:4px;padding:6px 10px;border:.5px solid var(--border-mid);border-radius:11px;font-size:11.5px;cursor:pointer;user-select:none;background:var(--surface)}
+.filters .chip-check input{margin:0}
+
+/* User rows */
+.user-row{padding:14px 16px;border:.5px solid var(--border-mid);border-radius:9px;background:var(--surface);margin:0 0 10px;display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center}
+.user-row.selected{background:rgba(6,95,70,0.06);border-color:var(--accent-ui)}
+.user-avatar{width:44px;height:44px;border-radius:50%;background:var(--bg);border:.5px solid var(--border-mid);object-fit:cover;font-family:'Playfair Display',Georgia,serif;font-size:20px;font-weight:600;color:var(--muted);display:flex;align-items:center;justify-content:center}
+.user-meta{min-width:0}
+.user-name{font-size:14px;font-weight:600;margin:0 0 3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.user-tagline{font-size:11.5px;color:var(--muted);font-style:italic;margin:0 0 4px;line-height:1.4}
+.user-stats{font-size:11.5px;color:var(--hint);display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.user-stats .stat strong{color:var(--text);font-weight:500}
+.user-actions{display:flex;gap:6px;flex-shrink:0;align-items:center}
+
+/* Chips */
+.tier-chip{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;padding:2px 8px;border-radius:11px}
+.tier-chip[data-t="free"]{background:var(--bg);color:var(--muted);border:.5px solid var(--border-mid)}
+.tier-chip[data-t="indie"]{background:rgba(201,140,42,0.12);color:var(--accent)}
+.tier-chip[data-t="imprint"]{background:rgba(6,95,70,0.12);color:var(--accent-ui)}
+.tier-chip[data-t="anon"]{background:transparent;color:var(--hint);border:.5px dashed var(--border-mid)}
+.founding-chip{font-size:10px;padding:2px 7px;border-radius:11px;background:rgba(201,140,42,0.15);color:var(--accent);border:.5px solid rgba(201,140,42,0.35);font-weight:500}
+
+/* Bulk-select bar */
+.bulk-bar{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(6,95,70,0.08);border:.5px solid rgba(6,95,70,0.3);border-radius:8px;margin:0 0 12px;font-size:12.5px}
+.bulk-bar.hidden{display:none}
+
+/* Compose modal */
+.modal-back{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100;padding:20px;align-items:center;justify-content:center}
+.modal-back.open{display:flex}
+.modal-panel{background:var(--surface);border:.5px solid var(--border);border-radius:12px;max-width:640px;width:100%;padding:22px 24px;box-shadow:0 10px 40px rgba(0,0,0,0.3);max-height:90vh;overflow-y:auto}
+.modal-panel h2{font-family:'Playfair Display',Georgia,serif;font-size:19px;font-weight:600;margin:0 0 4px}
+.modal-panel .subtitle{font-size:12px;color:var(--muted);margin:0 0 14px;line-height:1.5}
+.modal-panel label{display:block;font-size:11.5px;font-weight:500;color:var(--text);margin:12px 0 4px}
+.modal-panel input, .modal-panel textarea{width:100%;font-size:13px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);outline:none;font-family:inherit}
+.modal-panel textarea{resize:vertical;line-height:1.55;min-height:160px}
+.modal-panel .hint{font-size:10.5px;color:var(--hint);margin-top:3px;line-height:1.4}
+.modal-panel .recipients{font-size:12px;color:var(--muted);padding:8px 10px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:6px;max-height:100px;overflow-y:auto;margin:4px 0 8px;line-height:1.5}
+
+@media(max-width:640px){
+  .user-row{grid-template-columns:1fr;text-align:left}
+  .user-actions{justify-content:flex-end}
+}
+
+#authGate{max-width:500px;margin:80px auto;padding:32px 28px;background:var(--surface);border:.5px solid var(--border);border-radius:12px;text-align:center;box-shadow:var(--shadow)}
+#authStatus{font-size:12px;color:var(--danger);margin-top:10px;min-height:16px}
+#authLoading{text-align:center;padding:60px 20px;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+
+<header class="admin-hdr">
+  <div class="admin-hdr-row">
+    <h1 class="admin-brand"><a href="/admin/" style="color:inherit">Folio<span class="accent">.admin</span></a> &middot; Users</h1>
+    <div class="admin-hdr-actions">
+      <span id="signedInAs" style="font-family:ui-monospace,Menlo,monospace"></span>
+      <button id="signOutBtn" class="ghost hidden">Sign out</button>
+      <a href="/admin/">&larr; Dashboard</a>
+    </div>
+  </div>
+</header>
+
+<div id="authLoading">Loading&hellip;</div>
+
+<div id="authGate" class="hidden">
+  <h2 style="font-family:'Playfair Display',Georgia,serif;font-size:20px;margin:0 0 8px">Admin sign-in required</h2>
+  <p style="font-size:13px;color:var(--muted);margin:0 0 16px">
+    /admin/users/ is for platform operators. Sign in with your admin Google account.
+  </p>
+  <button id="signInBtn" class="primary">Sign in with Google</button>
+  <div id="authStatus"></div>
+</div>
+
+<div id="adminBody" class="admin-wrap hidden">
+  <h1 class="admin-h1">Users &amp; communications</h1>
+  <p class="admin-lead">
+    Every author with a published folio on Folio. Enumerated from public data (folio_projects + folio_imprint_themes). Contact messages go to a queue (<code>folio_admin_messages</code>) that the email worker will pick up in a future phase; for now, an admin processes delivery manually.
+  </p>
+
+  <div class="card">
+    <div class="filters">
+      <input type="search" id="qFilter" placeholder="Search by name, tagline, or uid&hellip;" oninput="_render()">
+      <select id="tierFilter" onchange="_render()">
+        <option value="">All tiers</option>
+        <option value="free">Free</option>
+        <option value="indie">Indie</option>
+        <option value="imprint">Imprint</option>
+      </select>
+      <select id="sortBy" onchange="_render()">
+        <option value="name">Sort: name A&rarr;Z</option>
+        <option value="folios">Sort: folios (most)</option>
+        <option value="views">Sort: total views (most)</option>
+        <option value="recent">Sort: most recent activity</option>
+      </select>
+      <label class="chip-check"><input type="checkbox" id="foundingOnly" onchange="_render()"> Founding only</label>
+      <label class="chip-check"><input type="checkbox" id="selectAll" onchange="_toggleSelectAll(this.checked)"> Select all shown</label>
+    </div>
+    <div id="userCount" class="sub" style="margin:0 0 10px">Loading&hellip;</div>
+
+    <div id="bulkBar" class="bulk-bar hidden">
+      <div><span id="bulkCount">0</span> selected</div>
+      <div style="display:flex;gap:8px">
+        <button class="ghost" onclick="_clearSelection()">Clear</button>
+        <button class="primary" onclick="_openCompose('bulk')">&#9993;&#65039; Compose message</button>
+      </div>
+    </div>
+
+    <div id="userList"></div>
+  </div>
+
+  <div class="card">
+    <h2>Recent messages sent</h2>
+    <div class="sub">Queue history from <code>folio_admin_messages</code>. Delivery status flips to <code>sent</code> once the email worker processes each entry.</div>
+    <div id="msgHistory">Loading&hellip;</div>
+  </div>
+</div>
+
+<!-- Compose modal -->
+<div id="composeModal" class="modal-back" onclick="if(event.target===this)_closeCompose()">
+  <div class="modal-panel">
+    <h2 id="composeTitle">Compose message</h2>
+    <p class="subtitle" id="composeSubtitle">This will queue the message to <code>folio_admin_messages</code> for the email worker to deliver.</p>
+
+    <label>Recipients (<span id="composeRcptCount">0</span>)</label>
+    <div class="recipients" id="composeRecipients"></div>
+
+    <label for="composeSubject">Subject</label>
+    <input type="text" id="composeSubject" maxlength="140" placeholder="e.g. New Folio feature: custom subdomains">
+
+    <label for="composeBody">Body</label>
+    <textarea id="composeBody" maxlength="4900" placeholder="Hi {name},&#10;&#10;Plain text or markdown. {name} is auto-substituted per recipient. Keep it short and personal &mdash; you're not sending an update, you're writing to an individual author who's on your platform."></textarea>
+    <div class="hint">4,900 char cap. <code>{name}</code> substitutes the author name per recipient at delivery time.</div>
+
+    <label class="chip-check" style="margin-top:12px;display:inline-flex">
+      <input type="checkbox" id="composeSubstituteName" checked> Personalise with {name}
+    </label>
+
+    <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="ghost" onclick="_closeCompose()">Cancel</button>
+      <button class="primary" id="composeSendBtn" onclick="_queueMessages()">Queue for delivery</button>
+    </div>
+    <div id="composeStatus" style="margin-top:8px;font-size:11.5px;color:var(--hint);min-height:14px;text-align:right"></div>
+  </div>
+</div>
+
+<script type="module">
+  const ADMIN_UIDS = ['x9AgFZ7O8WVz2UVtyO4ggWKNfc73', 'Y1bO4mc8aAclkbRNIYXyez8i7Rj2'];
+  const FIREBASE_CONFIG = {
+    apiKey: 'AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0',
+    authDomain: 'auth.jacobsiler.com',
+    projectId: 'miscellaneous-117e9',
+    storageBucket: 'miscellaneous-117e9.firebasestorage.app',
+    messagingSenderId: '514858431339',
+    appId: '1:514858431339:web:8b3acbe89966b45fe3922e'
+  };
+  const PAYWALL_WORKER_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
+
+  const _fb = {};
+  let _users = [];            // enumerated + enriched author objects
+  let _selected = new Set();  // uids checked for bulk contact
+  let _composeMode = 'single'; // 'single' | 'bulk'
+  let _composeTargets = [];    // uids to send to
+
+  (async function boot() {
+    try {
+      const appMod  = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const authMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+      const fsMod   = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      const app = appMod.initializeApp(FIREBASE_CONFIG);
+      _fb.auth = authMod.getAuth(app);
+      _fb.db   = fsMod.getFirestore(app);
+      _fb.doc = fsMod.doc; _fb.getDoc = fsMod.getDoc; _fb.setDoc = fsMod.setDoc; _fb.addDoc = fsMod.addDoc;
+      _fb.collection = fsMod.collection; _fb.getDocs = fsMod.getDocs;
+      _fb.query = fsMod.query; _fb.where = fsMod.where; _fb.limit = fsMod.limit; _fb.orderBy = fsMod.orderBy;
+      _fb.signInWithPopup = authMod.signInWithPopup;
+      _fb.GoogleAuthProvider = authMod.GoogleAuthProvider;
+      _fb.signOut = authMod.signOut;
+      _fb.onAuthStateChanged = authMod.onAuthStateChanged;
+
+      document.getElementById('signInBtn').onclick = signIn;
+      document.getElementById('signOutBtn').onclick = signOut;
+      _fb.onAuthStateChanged(_fb.auth, onAuthChange);
+    } catch (e) {
+      console.error('[admin-users] boot fail:', e);
+      document.getElementById('authLoading').innerHTML = 'Boot failed: ' + (e.message || 'unknown') + '. Reload to try again.';
+    }
+  })();
+
+  async function signIn() {
+    const status = document.getElementById('authStatus');
+    status.textContent = 'Signing in...';
+    try {
+      const provider = new _fb.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      await _fb.signInWithPopup(_fb.auth, provider);
+    } catch (e) { status.textContent = 'Sign-in failed: ' + (e.message || 'unknown'); }
+  }
+  async function signOut() { try { await _fb.signOut(_fb.auth); } catch (_) {} }
+
+  async function onAuthChange(user) {
+    const loading = document.getElementById('authLoading');
+    const gate = document.getElementById('authGate');
+    const body = document.getElementById('adminBody');
+    const signedInAs = document.getElementById('signedInAs');
+    const signOutBtn = document.getElementById('signOutBtn');
+    loading.classList.add('hidden');
+    if (!user) {
+      gate.classList.remove('hidden'); body.classList.add('hidden');
+      signOutBtn.classList.add('hidden'); signedInAs.textContent = '';
+      return;
+    }
+    const isAdmin = await checkAdmin(user.uid);
+    if (!isAdmin) {
+      gate.classList.remove('hidden'); body.classList.add('hidden');
+      document.getElementById('authStatus').textContent = 'Signed in as ' + user.email + ' - not on admin allowlist.';
+      signOutBtn.classList.remove('hidden'); signedInAs.textContent = user.email;
+      return;
+    }
+    gate.classList.add('hidden'); body.classList.remove('hidden');
+    signOutBtn.classList.remove('hidden'); signedInAs.textContent = user.email;
+    window._adminUser = user;
+    await Promise.all([loadUsers(), loadMessageHistory()]);
+  }
+
+  async function checkAdmin(uid) {
+    if (!uid) return false;
+    if (ADMIN_UIDS.includes(uid)) return true;
+    try {
+      const snap = await _fb.getDoc(_fb.doc(_fb.db, 'folio_roles', uid));
+      if (!snap.exists()) return false;
+      const roles = (snap.data() || {}).roles || [];
+      return Array.isArray(roles) && roles.includes('admin');
+    } catch (_) { return false; }
+  }
+
+  // Enumerate all distinct authors + enrich per-uid stats.
+  async function loadUsers() {
+    const countEl = document.getElementById('userCount');
+    const listEl  = document.getElementById('userList');
+    listEl.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:12.5px">Loading users...</div>';
+    countEl.textContent = 'Loading...';
+    try {
+      // Enumerate via published folios - the LIST rule allows this
+      // (release.published==true is a whitelisted query filter).
+      // For a fuller picture we'd also want anonymous / draft-only
+      // users, but those require an admin-only enumeration path
+      // (folio_projects LIST for admins) which the rules already
+      // permit; we hit it below in a second query.
+      const publishedQ = _fb.query(
+        _fb.collection(_fb.db, 'folio_projects'),
+        _fb.where('release.published', '==', true),
+        _fb.limit(500)
+      );
+      const snap = await _fb.getDocs(publishedQ);
+
+      // Aggregate per uid.
+      const byUid = new Map();
+      snap.forEach(function (d) {
+        const data = d.data() || {};
+        const uid  = String(data.uid || '');
+        if (!uid) return;
+        if (!byUid.has(uid)) {
+          byUid.set(uid, {
+            uid,
+            authorName: '', tagline: '', bioSnippet: '', photoUrl: '',
+            folios: [], totalViews: 0, mostRecentActivity: 0,
+            foundingContributor: false,
+            tier: 'free',
+            tierActive: false,
+          });
+        }
+        const u = byUid.get(uid);
+        const rel = data.release || {};
+        u.folios.push({
+          id: d.id,
+          title: String(rel.title || data.name || 'Untitled'),
+          published: !!rel.published,
+          listOnShelf: !!rel.listOnShelf,
+          viewCount: Number(data.viewCount || rel.viewCount || 0),
+          publishedAt: Number(rel.publishedAt || 0),
+        });
+        u.totalViews += Number(data.viewCount || rel.viewCount || 0);
+        u.mostRecentActivity = Math.max(u.mostRecentActivity, Number(rel.publishedAt || 0));
+        // Prefer the release.author over first-name inference.
+        if (!u.authorName && rel.author) u.authorName = String(rel.author);
+      });
+
+      // Enrich each uid with their imprint theme + Press tier.
+      // Parallelise to keep total wait low; each is 1-2 Firestore reads.
+      const uids = Array.from(byUid.keys());
+      countEl.textContent = 'Loaded ' + uids.length + ' authors. Enriching profiles...';
+      await Promise.all(uids.map(async function (uid) {
+        const u = byUid.get(uid);
+        // Imprint theme (name / tagline / bio / photo / founding)
+        try {
+          const themeSnap = await _fb.getDoc(_fb.doc(_fb.db, 'folio_imprint_themes', uid));
+          if (themeSnap.exists()) {
+            const t = themeSnap.data() || {};
+            if (t.tagline)   u.tagline = String(t.tagline);
+            if (t.bio)       u.bioSnippet = String(t.bio).slice(0, 160);
+            if (t.photoUrl)  u.photoUrl = String(t.photoUrl);
+            if (t.foundingContributor) u.foundingContributor = true;
+          }
+        } catch (_) {}
+        // Press tier (folio_user_settings mirror or worker fetch).
+        // Cheap path: the user_settings doc if readable by admin.
+        try {
+          const usSnap = await _fb.getDoc(_fb.doc(_fb.db, 'folio_user_settings', uid));
+          if (usSnap.exists()) {
+            const us = usSnap.data() || {};
+            const sub = us.pressSubscription || {};
+            if (sub.active) {
+              u.tier = String(sub.tier || 'indie').toLowerCase();
+              u.tierActive = true;
+            }
+            if (us.foundingContributor) u.foundingContributor = true;
+          }
+        } catch (_) {}
+      }));
+
+      _users = Array.from(byUid.values());
+      _render();
+    } catch (e) {
+      console.error('[admin-users] loadUsers fail:', e);
+      listEl.innerHTML = '<div style="padding:24px;text-align:center;color:var(--danger);font-size:12.5px">Load failed: ' + esc(e.message || 'unknown') + '</div>';
+      countEl.textContent = 'Failed to load.';
+    }
+  }
+
+  window._render = function () {
+    const q      = (document.getElementById('qFilter').value || '').trim().toLowerCase();
+    const tierF  = document.getElementById('tierFilter').value;
+    const sortBy = document.getElementById('sortBy').value;
+    const foundOnly = document.getElementById('foundingOnly').checked;
+
+    let list = _users.slice();
+    if (q) {
+      list = list.filter(u =>
+        (u.authorName || '').toLowerCase().includes(q) ||
+        (u.tagline || '').toLowerCase().includes(q) ||
+        u.uid.toLowerCase().includes(q)
+      );
+    }
+    if (tierF) list = list.filter(u => u.tier === tierF);
+    if (foundOnly) list = list.filter(u => u.foundingContributor);
+
+    switch (sortBy) {
+      case 'folios': list.sort((a,b) => b.folios.length - a.folios.length); break;
+      case 'views':  list.sort((a,b) => b.totalViews - a.totalViews); break;
+      case 'recent': list.sort((a,b) => b.mostRecentActivity - a.mostRecentActivity); break;
+      default:       list.sort((a,b) => (a.authorName||'zzz').localeCompare(b.authorName||'zzz'));
+    }
+
+    document.getElementById('userCount').textContent =
+      list.length + ' of ' + _users.length + ' shown';
+
+    const listEl = document.getElementById('userList');
+    if (!list.length) {
+      listEl.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:12.5px;background:var(--bg);border-radius:8px">No users match those filters.</div>';
+      _syncBulkBar();
+      return;
+    }
+    listEl.innerHTML = list.map(userRow).join('');
+    _syncBulkBar();
+  };
+
+  function userRow(u) {
+    const isSel = _selected.has(u.uid);
+    const initials = (u.authorName || u.uid || '?').slice(0, 1).toUpperCase();
+    const avatar = u.photoUrl
+      ? '<img class="user-avatar" src="' + esc(u.photoUrl) + '" alt="" onerror="this.outerHTML=&quot;<div class=\\&quot;user-avatar\\&quot;>' + esc(initials) + '</div>&quot;">'
+      : '<div class="user-avatar">' + esc(initials) + '</div>';
+    const displayName = u.authorName || '(anonymous)';
+    const tierLabel = u.tierActive ? u.tier : 'free';
+    const foundingChip = u.foundingContributor
+      ? '<span class="founding-chip" title="Founding Contributor">&#10022; Founding</span>' : '';
+    const lastActivity = u.mostRecentActivity
+      ? new Date(u.mostRecentActivity).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+      : '&mdash;';
+    return '<div class="user-row' + (isSel ? ' selected' : '') + '" data-uid="' + esc(u.uid) + '">' +
+        avatar +
+        '<div class="user-meta">' +
+          '<div class="user-name">' +
+            '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">' +
+              '<input type="checkbox"' + (isSel ? ' checked' : '') +
+                ' onchange="_toggleSelect(\'' + esc(u.uid) + '\', this.checked)"> ' +
+              esc(displayName) +
+            '</label>' +
+            '<span class="tier-chip" data-t="' + esc(tierLabel) + '">' + esc(tierLabel) + '</span>' +
+            foundingChip +
+          '</div>' +
+          (u.tagline ? '<div class="user-tagline">' + esc(u.tagline) + '</div>' : '') +
+          '<div class="user-stats">' +
+            '<span class="stat"><strong>' + u.folios.length + '</strong> folios</span>' +
+            '<span class="stat"><strong>' + u.totalViews.toLocaleString() + '</strong> views</span>' +
+            '<span class="stat">Last: ' + lastActivity + '</span>' +
+            '<span class="stat" style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px">uid ' + esc(u.uid.slice(0, 8)) + '&hellip;</span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="user-actions">' +
+          '<a class="ghost" href="/imprint/?uid=' + encodeURIComponent(u.uid) + '" target="_blank" title="Open their imprint page">Imprint</a>' +
+          '<button class="primary" onclick="_openCompose(\'single\', \'' + esc(u.uid) + '\')">Contact</button>' +
+        '</div>' +
+      '</div>';
+  }
+
+  window._toggleSelect = function (uid, checked) {
+    if (checked) _selected.add(uid); else _selected.delete(uid);
+    _render();
+  };
+  window._toggleSelectAll = function (checked) {
+    const visibleRows = document.querySelectorAll('.user-row');
+    visibleRows.forEach(r => {
+      const uid = r.getAttribute('data-uid');
+      if (checked) _selected.add(uid); else _selected.delete(uid);
+    });
+    _render();
+  };
+  window._clearSelection = function () {
+    _selected.clear();
+    document.getElementById('selectAll').checked = false;
+    _render();
+  };
+
+  function _syncBulkBar() {
+    const bar = document.getElementById('bulkBar');
+    const n = _selected.size;
+    if (n > 0) {
+      bar.classList.remove('hidden');
+      document.getElementById('bulkCount').textContent = n;
+    } else {
+      bar.classList.add('hidden');
+    }
+  }
+
+  // ═══ Compose modal ═══════════════════════════════════════════════
+  window._openCompose = function (mode, singleUid) {
+    _composeMode = mode || 'single';
+    _composeTargets = (mode === 'bulk') ? Array.from(_selected) : [singleUid];
+    if (!_composeTargets.length) return;
+    const title = _composeMode === 'bulk'
+      ? 'Compose message to ' + _composeTargets.length + ' authors'
+      : 'Compose message to author';
+    document.getElementById('composeTitle').textContent = title;
+    document.getElementById('composeRcptCount').textContent = _composeTargets.length;
+    // List recipients by name so admin double-checks who's on the list.
+    const nameMap = new Map(_users.map(u => [u.uid, u.authorName || '(anonymous)']));
+    document.getElementById('composeRecipients').innerHTML =
+      _composeTargets.map(uid => esc(nameMap.get(uid) || uid.slice(0,10) + '...')).join(' &middot; ');
+    document.getElementById('composeSubject').value = '';
+    document.getElementById('composeBody').value = '';
+    document.getElementById('composeStatus').textContent = '';
+    document.getElementById('composeModal').classList.add('open');
+    setTimeout(() => document.getElementById('composeSubject').focus(), 60);
+  };
+  window._closeCompose = function () {
+    document.getElementById('composeModal').classList.remove('open');
+  };
+
+  window._queueMessages = async function () {
+    const subject = document.getElementById('composeSubject').value.trim();
+    const body    = document.getElementById('composeBody').value.trim();
+    const status  = document.getElementById('composeStatus');
+    const btn     = document.getElementById('composeSendBtn');
+    if (!subject) { status.textContent = 'Subject required.'; status.style.color = 'var(--danger)'; return; }
+    if (body.length < 10) { status.textContent = 'Body must be at least 10 characters.'; status.style.color = 'var(--danger)'; return; }
+    if (!_composeTargets.length) { status.textContent = 'No recipients selected.'; status.style.color = 'var(--danger)'; return; }
+    btn.disabled = true;
+    status.textContent = 'Queueing ' + _composeTargets.length + ' message(s)...';
+    status.style.color = 'var(--hint)';
+    const user = window._adminUser || _fb.auth.currentUser;
+    const now = Date.now();
+    let ok = 0, failed = 0;
+    for (const targetUid of _composeTargets) {
+      try {
+        await _fb.addDoc(_fb.collection(_fb.db, 'folio_admin_messages'), {
+          fromUid:    user.uid,
+          targetUid:  targetUid,
+          subject:    subject,
+          body:       body,
+          createdAt:  now,
+          status:     'queued',
+        });
+        ok++;
+      } catch (e) {
+        failed++;
+        console.warn('[admin-users] queue failed for', targetUid, e);
+      }
+    }
+    status.style.color = failed ? 'var(--danger)' : 'var(--accent-ui)';
+    status.innerHTML = '&#10003; Queued <strong>' + ok + '</strong> message(s)' +
+      (failed ? ' &mdash; <span style="color:var(--danger)">' + failed + ' failed (see console)</span>' : '') + '.';
+    btn.disabled = false;
+    setTimeout(function () {
+      _closeCompose();
+      _selected.clear();
+      _render();
+      loadMessageHistory();
+    }, 1500);
+  };
+
+  // Recent message history for accountability
+  async function loadMessageHistory() {
+    const el = document.getElementById('msgHistory');
+    try {
+      const q = _fb.query(
+        _fb.collection(_fb.db, 'folio_admin_messages'),
+        _fb.orderBy('createdAt', 'desc'),
+        _fb.limit(15)
+      );
+      const snap = await _fb.getDocs(q);
+      if (snap.empty) {
+        el.innerHTML = '<div style="padding:16px;text-align:center;color:var(--muted);font-size:12px">No messages queued yet.</div>';
+        return;
+      }
+      const rows = [];
+      snap.forEach(d => rows.push({ id: d.id, ...d.data() }));
+      el.innerHTML = rows.map(r => {
+        const when = r.createdAt ? new Date(r.createdAt).toLocaleString(undefined, { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' }) : '—';
+        const statusColor = r.status === 'sent' ? 'var(--accent-ui)' : r.status === 'error' ? 'var(--danger)' : 'var(--accent)';
+        return '<div style="padding:10px 12px;border:.5px solid var(--border-mid);border-radius:7px;margin:0 0 6px;font-size:12px;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center">' +
+          '<div style="font-size:10.5px;color:var(--hint);white-space:nowrap">' + esc(when) + '</div>' +
+          '<div style="min-width:0">' +
+            '<div style="font-weight:500">' + esc(r.subject || '(no subject)') + '</div>' +
+            '<div style="font-size:10.5px;color:var(--muted);font-family:ui-monospace,Menlo,monospace">to uid ' + esc((r.targetUid || '').slice(0, 8)) + '&hellip;</div>' +
+          '</div>' +
+          '<div style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:' + statusColor + '">' + esc(r.status || 'queued') + '</div>' +
+        '</div>';
+      }).join('');
+    } catch (e) {
+      el.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--danger)">Load failed: ' + esc(e.message || 'unknown') + '</div>';
+    }
+  }
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+</script>
+</body>
+</html>

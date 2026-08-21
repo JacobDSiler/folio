@@ -1,0 +1,822 @@
+<!doctype html>
+<!-- FOLIO ADMIN PROMOS v2026.08.11.1 —
+     Manage seasonal discount promos with pre-warning teasers.
+     Backed by Firestore folio_promos collection. See:
+       - docs/DISCOUNT_SCHEDULE.md  (year-round calendar + copy templates)
+       - lib/promos.js              (shared banner rendering + verifyCode)
+       - firestore.rules            (public read, admin write) -->
+<html lang="en">
+<head>
+<script>
+  console.log('[admin-promos] boot at', new Date().toISOString());
+  window.addEventListener('error', e => console.error('[admin-promos] error:', e.message, e.filename, e.lineno));
+  window.addEventListener('unhandledrejection', e => console.error('[admin-promos] rejection:', e.reason));
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Folio Admin — Promos &amp; discounts</title>
+<meta name="robots" content="noindex,nofollow">
+<style>
+:root {
+  --bg:#faf7f1; --surface:#fff; --text:#1a1611; --muted:#5a5347; --hint:#8a8174;
+  --border:rgba(0,0,0,0.10); --border-mid:rgba(0,0,0,0.14);
+  --accent:#c98c2a; --accent-ui:#065f46; --danger:#c04040;
+  --shadow:0 1px 3px rgba(0,0,0,0.06),0 4px 14px rgba(0,0,0,0.04);
+}
+html[data-theme="dark"]{--bg:#14110d;--surface:#1f1a14;--text:#e8dece;--muted:#a89e8b;--hint:#79705f;--border:rgba(232,222,206,0.10);--border-mid:rgba(232,222,206,0.16);--accent:#d4a44f;--accent-ui:#34d399;--danger:#f87171}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5;min-height:100vh}
+a{color:var(--accent-ui);text-decoration:none} a:hover{text-decoration:underline}
+
+.admin-hdr{background:var(--surface);border-bottom:.5px solid var(--border);padding:14px 20px;position:sticky;top:0;z-index:10}
+.admin-hdr-row{max-width:1000px;margin:0 auto;display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.admin-brand{font-family:'Playfair Display',Georgia,serif;font-size:18px;font-weight:600;margin:0;color:var(--text)}
+.admin-brand .accent{color:var(--accent)}
+.admin-hdr-actions{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted)}
+.admin-hdr-actions a{color:var(--muted)}
+.admin-wrap{max-width:1000px;margin:0 auto;padding:22px 20px 60px}
+.admin-h1{font-family:'Playfair Display',Georgia,serif;font-size:26px;font-weight:600;margin:6px 0 4px}
+.admin-lead{font-size:13px;color:var(--muted);margin:0 0 22px;line-height:1.6}
+
+.hidden{display:none !important}
+
+.card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:16px;box-shadow:var(--shadow)}
+.card h2{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:600;margin:0 0 6px}
+.card .sub{font-size:12px;color:var(--hint);margin:0 0 14px;line-height:1.5}
+
+button.primary{background:var(--accent-ui);color:#fff;border:none;padding:8px 16px;border-radius:7px;font-size:12.5px;font-weight:500;cursor:pointer;font-family:inherit}
+button.primary:hover{filter:brightness(.94)}
+button.primary:disabled{opacity:.5;cursor:not-allowed}
+button.ghost{background:none;border:.5px solid var(--border-mid);color:var(--text);padding:6px 12px;border-radius:6px;font-size:11.5px;cursor:pointer;font-family:inherit}
+button.ghost:hover{border-color:var(--accent)}
+button.danger{background:none;border:.5px solid var(--danger);color:var(--danger);padding:6px 12px;border-radius:6px;font-size:11.5px;cursor:pointer;font-family:inherit}
+button.danger:hover{background:var(--danger);color:#fff}
+
+/* Promo table */
+.promo-row{padding:14px 16px;border:.5px solid var(--border-mid);border-radius:9px;background:var(--surface);margin:0 0 10px;display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center}
+.promo-row[data-state="active"]{border-color:var(--accent-ui);background:rgba(6,95,70,0.04)}
+.promo-row[data-state="teasing"]{border-color:var(--accent);background:rgba(201,140,42,0.04)}
+.promo-row[data-state="expired"]{opacity:.6}
+.promo-state{font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:11px;text-align:center;min-width:70px;font-family:inherit}
+.promo-state[data-s="active"]{background:var(--accent-ui);color:#fff}
+.promo-state[data-s="teasing"]{background:var(--accent);color:#fff}
+.promo-state[data-s="upcoming"]{background:var(--border-mid);color:var(--text)}
+.promo-state[data-s="expired"]{background:transparent;border:.5px dashed var(--border-mid);color:var(--hint)}
+.promo-meta{min-width:0}
+.promo-title{font-size:14px;font-weight:600;margin:0 0 4px}
+.promo-code{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;background:var(--bg);border:.5px solid var(--border-mid);padding:1px 8px;border-radius:11px;color:var(--accent-ui);margin-right:6px}
+.promo-sub{font-size:11.5px;color:var(--muted);line-height:1.5}
+.promo-actions{display:flex;gap:6px;flex-shrink:0}
+
+/* Form */
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+.form-full{grid-column:1 / -1}
+.form-grid label{display:block;font-size:11.5px;font-weight:500;color:var(--text);margin:0 0 4px}
+.form-grid .hint{font-size:10.5px;color:var(--hint);margin-top:3px;line-height:1.4}
+.form-grid input, .form-grid select, .form-grid textarea{width:100%;font-size:13px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--surface);color:var(--text);outline:none;font-family:inherit}
+.form-grid textarea{resize:vertical;font-family:inherit;line-height:1.5}
+.checkbox-row{display:flex;flex-wrap:wrap;gap:10px 16px;margin-top:2px}
+.checkbox-row label{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:400;color:var(--text);margin:0;cursor:pointer}
+.checkbox-row input{width:auto;margin:0}
+
+@media(max-width:640px){
+  .form-grid{grid-template-columns:1fr}
+  .promo-row{grid-template-columns:1fr;text-align:left}
+  .promo-actions{justify-content:flex-end}
+}
+
+#authGate{max-width:500px;margin:80px auto;padding:32px 28px;background:var(--surface);border:.5px solid var(--border);border-radius:12px;text-align:center;box-shadow:var(--shadow)}
+#authStatus{font-size:12px;color:var(--danger);margin-top:10px;min-height:16px}
+#authLoading{text-align:center;padding:60px 20px;color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+
+<header class="admin-hdr">
+  <div class="admin-hdr-row">
+    <h1 class="admin-brand"><a href="/admin/" style="color:inherit">Folio<span class="accent">.admin</span></a> · Promos</h1>
+    <div class="admin-hdr-actions">
+      <span id="signedInAs" style="font-family:ui-monospace,Menlo,monospace"></span>
+      <button id="signOutBtn" class="ghost hidden">Sign out</button>
+      <a href="/admin/">← Dashboard</a>
+    </div>
+  </div>
+</header>
+
+<div id="authLoading">Loading…</div>
+
+<div id="authGate" class="hidden">
+  <h2 style="font-family:'Playfair Display',Georgia,serif;font-size:20px;margin:0 0 8px">Admin sign-in required</h2>
+  <p style="font-size:13px;color:var(--muted);margin:0 0 16px">
+    /admin/promos/ is for platform operators. Sign in with your admin Google account.
+  </p>
+  <button id="signInBtn" class="primary">Sign in with Google</button>
+  <div id="authStatus"></div>
+</div>
+
+<div id="adminBody" class="admin-wrap hidden">
+  <h1 class="admin-h1">Promos &amp; discounts</h1>
+  <p class="admin-lead">
+    Schedule seasonal discount codes and pre-warning teasers. Active promos appear as banners on /press/ and /shelf/. Teasing promos show "starts in N days" so browsers know a sale is coming. See <a href="/docs/DISCOUNT_SCHEDULE.md" target="_blank" style="color:var(--accent-ui)">docs/DISCOUNT_SCHEDULE.md</a> for the year-round calendar + copy templates.
+  </p>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap">
+      <div>
+        <h2>All promos</h2>
+        <div class="sub" id="promoCount">Loading…</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="ghost" onclick="_openCsvImport()">📥 Bulk import (CSV)</button>
+        <button class="primary" onclick="_openPromoForm()">+ New promo</button>
+      </div>
+    </div>
+    <div id="promoList" style="margin-top:14px"></div>
+  </div>
+
+  <!-- CSV import card — plan the whole year in one paste. Format is
+       documented + downloadable template. Preview parses everything,
+       validates each row, then commits in a batch. -->
+  <div id="csvImportCard" class="card hidden">
+    <h2>📥 Bulk import — CSV</h2>
+    <p class="sub">
+      Plan the whole year at once. Paste a CSV or upload a file. Rows validate row-by-row; the preview lets you fix errors before anything commits. Existing codes are OVERWRITTEN (upsert), so you can re-import a file to update. Perpetual is never included regardless of what the CSV says.
+    </p>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px">
+      <button class="ghost" onclick="_downloadCsvTemplate()">⬇ Download template</button>
+      <button class="ghost" onclick="_pasteExample()">✨ Load year-round example (from DISCOUNT_SCHEDULE.md)</button>
+      <label class="ghost" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:.5px solid var(--border-mid);border-radius:6px;font-size:11.5px">
+        📁 Upload .csv
+        <input type="file" accept=".csv,text/csv" style="display:none" onchange="_readCsvFile(this)">
+      </label>
+    </div>
+
+    <label for="csvInput" style="display:block;font-size:11.5px;font-weight:500;color:var(--text);margin:0 0 4px">CSV content</label>
+    <textarea id="csvInput" rows="10" spellcheck="false"
+      placeholder="code,label,pct,tiers,billingModes,validFrom,validTo,teaserFrom,teaserCopy,activeCopy&#10;NANO2026,NaNoWriMo 2026,30,indie|imprint,yearly,2026-11-01T00:00,2026-12-05T23:59,2026-10-24T00:00,,&#10;BLACKFRIDAY26,Black Friday 2026,30,indie|imprint,monthly|yearly,2026-11-27T00:00,2026-12-02T23:59,2026-11-20T00:00,,"
+      style="width:100%;font-size:12px;padding:10px 12px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:ui-monospace,Menlo,monospace;line-height:1.55"></textarea>
+    <div style="font-size:10.5px;color:var(--hint);margin-top:4px;line-height:1.5">
+      Header row is required. Datetimes in <code>YYYY-MM-DDTHH:MM</code> format (local time). Arrays use <code>|</code> as separator (e.g. <code>indie|imprint</code>). Empty <code>teaserFrom</code> = no pre-warning. Empty <code>teaserCopy</code> / <code>activeCopy</code> = auto-generated banner text.
+    </div>
+
+    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+      <button class="ghost" onclick="_closeCsvImport()">Cancel</button>
+      <button class="ghost" onclick="_previewCsv()">Preview →</button>
+      <button class="primary" id="csvCommitBtn" onclick="_commitCsv()" disabled>Commit valid rows</button>
+    </div>
+    <div id="csvStatus" style="margin-top:10px;font-size:11.5px;color:var(--hint);min-height:14px"></div>
+    <div id="csvPreview" style="margin-top:14px"></div>
+  </div>
+
+  <!-- Promo form (create / edit). Hidden until +New or Edit clicked. -->
+  <div id="promoFormCard" class="card hidden">
+    <h2 id="promoFormTitle">New promo</h2>
+    <p class="sub">Discounts apply to monthly + yearly subscriptions only. Perpetual is never discounted (see PERPETUAL_TIER_PLAN.md). Codes are always uppercased on save.</p>
+
+    <div class="form-grid">
+      <div>
+        <label for="fCode">Code *</label>
+        <input type="text" id="fCode" maxlength="24" placeholder="e.g. NANO2026" style="text-transform:uppercase;font-family:ui-monospace,Menlo,monospace">
+        <div class="hint">Uppercased. What buyers type at checkout. Also the Firestore doc id.</div>
+      </div>
+      <div>
+        <label for="fLabel">Label *</label>
+        <input type="text" id="fLabel" maxlength="60" placeholder="e.g. NaNoWriMo 2026">
+        <div class="hint">Human-readable name shown in banner headers.</div>
+      </div>
+
+      <div>
+        <label for="fPct">Discount % *</label>
+        <input type="number" id="fPct" min="5" max="50" step="5" value="20">
+        <div class="hint">5–50. Above 50 requires a code change (guard against typos).</div>
+      </div>
+      <div>
+        <label>Applies to tiers *</label>
+        <div class="checkbox-row" id="fTiers">
+          <label><input type="checkbox" value="indie" checked> Indie</label>
+          <label><input type="checkbox" value="imprint" checked> Imprint</label>
+        </div>
+      </div>
+
+      <div class="form-full">
+        <label>Billing modes *</label>
+        <div class="checkbox-row" id="fBilling">
+          <label><input type="checkbox" value="monthly" checked> Monthly</label>
+          <label><input type="checkbox" value="yearly" checked> Yearly</label>
+          <label style="color:var(--hint);cursor:not-allowed"><input type="checkbox" disabled> Perpetual <em>(never discounted seasonally)</em></label>
+        </div>
+      </div>
+
+      <div>
+        <label for="fTeaserFrom">Teaser starts</label>
+        <input type="datetime-local" id="fTeaserFrom">
+        <div class="hint">When the "starts in N days" banner appears. Optional — leave blank for no pre-warning.</div>
+      </div>
+      <div>
+        <label for="fValidFrom">Discount opens *</label>
+        <input type="datetime-local" id="fValidFrom">
+        <div class="hint">When the code becomes redeemable.</div>
+      </div>
+
+      <div>
+        <label for="fValidTo">Discount closes *</label>
+        <input type="datetime-local" id="fValidTo">
+        <div class="hint">Last moment the code works. Banner disappears immediately.</div>
+      </div>
+      <div><!-- spacer for grid balance --></div>
+
+      <div class="form-full">
+        <label for="fTeaserCopy">Teaser banner copy (optional)</label>
+        <textarea id="fTeaserCopy" rows="2" maxlength="220" placeholder="e.g. NaNoWriMo 2026 discount opens Nov 1. Save 30% on yearly Indie + Imprint. Bank the code."></textarea>
+        <div class="hint">Auto-generated if blank. Character limit 220. Plain text.</div>
+      </div>
+
+      <div class="form-full">
+        <label for="fActiveCopy">Active banner copy (optional)</label>
+        <textarea id="fActiveCopy" rows="2" maxlength="220" placeholder="e.g. 30% off yearly Indie + Imprint through Dec 5. Use code NANO2026 at checkout."></textarea>
+        <div class="hint">Auto-generated if blank. Character limit 220. Plain text.</div>
+      </div>
+    </div>
+
+    <div style="margin-top:16px;display:flex;gap:8px;justify-content:flex-end">
+      <button class="ghost" onclick="_closePromoForm()">Cancel</button>
+      <button class="primary" id="promoSaveBtn" onclick="_savePromo()">Save promo</button>
+    </div>
+    <div id="promoSaveStatus" style="margin-top:8px;font-size:11.5px;color:var(--hint);min-height:14px;text-align:right"></div>
+  </div>
+</div>
+
+<script type="module">
+  const ADMIN_UIDS = ['x9AgFZ7O8WVz2UVtyO4ggWKNfc73', 'Y1bO4mc8aAclkbRNIYXyez8i7Rj2']; // must match firestore.rules
+  const FIREBASE_CONFIG = {
+    apiKey: 'AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0',
+    authDomain: 'auth.jacobsiler.com',
+    projectId: 'miscellaneous-117e9',
+    storageBucket: 'miscellaneous-117e9.firebasestorage.app',
+    messagingSenderId: '514858431339',
+    appId: '1:514858431339:web:8b3acbe89966b45fe3922e'
+  };
+
+  const _fb = {};
+  let _editingCode = null; // null = new promo; string = editing existing
+
+  (async function boot() {
+    try {
+      const appMod  = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const authMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+      const fsMod   = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      const app = appMod.initializeApp(FIREBASE_CONFIG);
+      _fb.auth = authMod.getAuth(app);
+      _fb.db   = fsMod.getFirestore(app);
+      _fb.doc = fsMod.doc; _fb.getDoc = fsMod.getDoc; _fb.setDoc = fsMod.setDoc; _fb.deleteDoc = fsMod.deleteDoc;
+      _fb.collection = fsMod.collection; _fb.getDocs = fsMod.getDocs;
+      _fb.signInWithPopup = authMod.signInWithPopup;
+      _fb.GoogleAuthProvider = authMod.GoogleAuthProvider;
+      _fb.signOut = authMod.signOut;
+      _fb.onAuthStateChanged = authMod.onAuthStateChanged;
+
+      document.getElementById('signInBtn').onclick = signIn;
+      document.getElementById('signOutBtn').onclick = signOut;
+
+      _fb.onAuthStateChanged(_fb.auth, onAuthChange);
+    } catch (e) {
+      console.error('[admin-promos] boot fail:', e);
+      document.getElementById('authLoading').innerHTML =
+        'Boot failed: ' + (e.message || 'unknown') + '. Reload to try again.';
+    }
+  })();
+
+  async function signIn() {
+    const status = document.getElementById('authStatus');
+    status.textContent = 'Signing in…';
+    try {
+      const provider = new _fb.GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      await _fb.signInWithPopup(_fb.auth, provider);
+    } catch (e) {
+      status.textContent = 'Sign-in failed: ' + (e.message || 'unknown');
+    }
+  }
+
+  async function signOut() { try { await _fb.signOut(_fb.auth); } catch (_) {} }
+
+  async function onAuthChange(user) {
+    const loading = document.getElementById('authLoading');
+    const gate = document.getElementById('authGate');
+    const body = document.getElementById('adminBody');
+    const signedInAs = document.getElementById('signedInAs');
+    const signOutBtn = document.getElementById('signOutBtn');
+    loading.classList.add('hidden');
+    if (!user) {
+      gate.classList.remove('hidden'); body.classList.add('hidden');
+      signOutBtn.classList.add('hidden'); signedInAs.textContent = '';
+      return;
+    }
+    const isAdmin = await checkAdmin(user.uid);
+    if (!isAdmin) {
+      gate.classList.remove('hidden'); body.classList.add('hidden');
+      document.getElementById('authStatus').textContent =
+        'Signed in as ' + user.email + ' — not on admin allowlist.';
+      signOutBtn.classList.remove('hidden');
+      signedInAs.textContent = user.email;
+      return;
+    }
+    gate.classList.add('hidden'); body.classList.remove('hidden');
+    signOutBtn.classList.remove('hidden');
+    signedInAs.textContent = user.email;
+    window._adminUser = user;
+    await loadPromos();
+  }
+
+  async function checkAdmin(uid) {
+    if (!uid) return false;
+    if (ADMIN_UIDS.includes(uid)) return true;
+    try {
+      const snap = await _fb.getDoc(_fb.doc(_fb.db, 'folio_roles', uid));
+      if (!snap.exists()) return false;
+      const data = snap.data() || {};
+      const roles = Array.isArray(data.roles) ? data.roles : [];
+      return roles.includes('admin');
+    } catch (_) { return false; }
+  }
+
+  async function loadPromos() {
+    const listEl = document.getElementById('promoList');
+    const countEl = document.getElementById('promoCount');
+    listEl.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:12.5px">Loading…</div>';
+    try {
+      const snap = await _fb.getDocs(_fb.collection(_fb.db, 'folio_promos'));
+      const promos = [];
+      snap.forEach(d => promos.push({ id: d.id, ...d.data() }));
+      promos.sort((a, b) => (b.validFrom || 0) - (a.validFrom || 0));
+      renderPromoList(promos);
+      countEl.textContent = promos.length + ' promo' + (promos.length === 1 ? '' : 's') +
+        ' total. ' + promos.filter(p => stateOf(p) === 'active').length + ' active, ' +
+        promos.filter(p => stateOf(p) === 'teasing').length + ' teasing, ' +
+        promos.filter(p => stateOf(p) === 'upcoming').length + ' upcoming, ' +
+        promos.filter(p => stateOf(p) === 'expired').length + ' expired.';
+    } catch (e) {
+      console.error('[admin-promos] loadPromos fail:', e);
+      listEl.innerHTML = '<div style="padding:24px;text-align:center;color:var(--danger);font-size:12.5px">Load failed: ' + esc(e.message || 'unknown') + '</div>';
+    }
+  }
+
+  function stateOf(p) {
+    const now = Date.now();
+    const from = Number(p.validFrom || 0);
+    const to   = Number(p.validTo || 0);
+    const teaser = Number(p.teaserFrom || 0);
+    if (from <= now && to >= now) return 'active';
+    if (teaser > 0 && teaser <= now && from > now) return 'teasing';
+    if (from > now) return 'upcoming';
+    return 'expired';
+  }
+
+  function renderPromoList(promos) {
+    const listEl = document.getElementById('promoList');
+    if (!promos.length) {
+      listEl.innerHTML = '<div style="padding:28px;text-align:center;color:var(--muted);font-size:12.5px;background:var(--bg);border-radius:8px">No promos yet. Click "+ New promo" to create one.</div>';
+      return;
+    }
+    const stateLabel = { active: 'Active', teasing: 'Teasing', upcoming: 'Upcoming', expired: 'Expired' };
+    listEl.innerHTML = promos.map(p => {
+      const s = stateOf(p);
+      const from = p.validFrom ? new Date(p.validFrom).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+      const to   = p.validTo   ? new Date(p.validTo).toLocaleDateString(undefined,   { month: 'short', day: 'numeric', year: 'numeric' }) : '—';
+      const tiers = (p.tiers || []).map(t => t[0].toUpperCase() + t.slice(1)).join(' + ') || '—';
+      const modes = (p.billingModes || []).join(' + ') || '—';
+      // Last-editor breadcrumb — accountability for a collaborative
+      // surface. Falls back to createdBy when the doc has never been
+      // edited since creation. Truncates the uid so the pill stays
+      // compact. Hover shows the full uid.
+      const editorUid = String(p.updatedBy || p.createdBy || '');
+      const editorTag = editorUid
+        ? '<span title="uid ' + esc(editorUid) + '" style="font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:var(--hint)"> · edit: ' + esc(editorUid.slice(0, 6)) + '…</span>'
+        : '';
+      return '<div class="promo-row" data-state="' + esc(s) + '">' +
+        '<div class="promo-state" data-s="' + esc(s) + '">' + stateLabel[s] + '</div>' +
+        '<div class="promo-meta">' +
+          '<div class="promo-title">' + esc(p.label || p.id) + '</div>' +
+          '<div class="promo-sub">' +
+            '<span class="promo-code">' + esc(p.id) + '</span>' +
+            (p.pct || 0) + '% off · ' + esc(tiers) + ' · ' + esc(modes) + ' · ' + esc(from) + ' → ' + esc(to) +
+            editorTag +
+          '</div>' +
+        '</div>' +
+        '<div class="promo-actions">' +
+          '<button class="ghost" onclick="_editPromo(\'' + esc(p.id) + '\')">Edit</button>' +
+          '<button class="danger" onclick="_deletePromo(\'' + esc(p.id) + '\',\'' + esc(p.label || p.id) + '\')">Delete</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  window._openPromoForm = function () {
+    _editingCode = null;
+    document.getElementById('promoFormTitle').textContent = 'New promo';
+    document.getElementById('promoFormCard').classList.remove('hidden');
+    // Reset form
+    document.getElementById('fCode').value = '';
+    document.getElementById('fCode').readOnly = false;
+    document.getElementById('fLabel').value = '';
+    document.getElementById('fPct').value = '20';
+    document.querySelectorAll('#fTiers input').forEach(c => c.checked = true);
+    document.querySelectorAll('#fBilling input:not(:disabled)').forEach(c => c.checked = true);
+    document.getElementById('fTeaserFrom').value = '';
+    document.getElementById('fValidFrom').value = '';
+    document.getElementById('fValidTo').value = '';
+    document.getElementById('fTeaserCopy').value = '';
+    document.getElementById('fActiveCopy').value = '';
+    document.getElementById('promoSaveStatus').textContent = '';
+    document.getElementById('promoFormCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  window._closePromoForm = function () {
+    document.getElementById('promoFormCard').classList.add('hidden');
+    _editingCode = null;
+  };
+
+  window._editPromo = async function (code) {
+    try {
+      const snap = await _fb.getDoc(_fb.doc(_fb.db, 'folio_promos', code));
+      if (!snap.exists()) { alert('Promo not found (was it deleted?)'); return; }
+      const p = snap.data() || {};
+      _editingCode = code;
+      document.getElementById('promoFormTitle').textContent = 'Edit "' + (p.label || code) + '"';
+      document.getElementById('promoFormCard').classList.remove('hidden');
+      document.getElementById('fCode').value = code;
+      document.getElementById('fCode').readOnly = true; // code is doc id, don't rename
+      document.getElementById('fLabel').value = p.label || '';
+      document.getElementById('fPct').value = String(p.pct || 20);
+      document.querySelectorAll('#fTiers input').forEach(c => c.checked = (p.tiers || []).includes(c.value));
+      document.querySelectorAll('#fBilling input:not(:disabled)').forEach(c => c.checked = (p.billingModes || []).includes(c.value));
+      document.getElementById('fTeaserFrom').value = p.teaserFrom ? _toLocal(p.teaserFrom) : '';
+      document.getElementById('fValidFrom').value  = p.validFrom  ? _toLocal(p.validFrom)  : '';
+      document.getElementById('fValidTo').value    = p.validTo    ? _toLocal(p.validTo)    : '';
+      document.getElementById('fTeaserCopy').value = p.teaserCopy || '';
+      document.getElementById('fActiveCopy').value = p.activeCopy || '';
+      document.getElementById('promoSaveStatus').textContent = '';
+      document.getElementById('promoFormCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (e) {
+      alert('Load failed: ' + (e.message || 'unknown'));
+    }
+  };
+
+  window._deletePromo = async function (code, label) {
+    if (!confirm('Delete "' + label + '" (' + code + ')? This immediately removes any active or teasing banner. Can\'t be undone.')) return;
+    try {
+      await _fb.deleteDoc(_fb.doc(_fb.db, 'folio_promos', code));
+      await loadPromos();
+    } catch (e) {
+      alert('Delete failed: ' + (e.message || 'unknown'));
+    }
+  };
+
+  window._savePromo = async function () {
+    const status = document.getElementById('promoSaveStatus');
+    const btn    = document.getElementById('promoSaveBtn');
+    const code   = document.getElementById('fCode').value.trim().toUpperCase();
+    const label  = document.getElementById('fLabel').value.trim();
+    const pct    = parseInt(document.getElementById('fPct').value, 10);
+    const tiers  = Array.from(document.querySelectorAll('#fTiers input:checked')).map(c => c.value);
+    const modes  = Array.from(document.querySelectorAll('#fBilling input:checked:not(:disabled)')).map(c => c.value);
+    const teaserFromLocal = document.getElementById('fTeaserFrom').value;
+    const validFromLocal  = document.getElementById('fValidFrom').value;
+    const validToLocal    = document.getElementById('fValidTo').value;
+    const teaserCopy = document.getElementById('fTeaserCopy').value.trim().slice(0, 220);
+    const activeCopy = document.getElementById('fActiveCopy').value.trim().slice(0, 220);
+
+    // Validate
+    if (!/^[A-Z0-9-]{3,24}$/.test(code)) { fail('Code must be 3–24 uppercase letters, digits, or hyphens.'); return; }
+    if (!label)                          { fail('Label is required.'); return; }
+    if (isNaN(pct) || pct < 5 || pct > 50) { fail('Discount must be 5–50%.'); return; }
+    if (!tiers.length)                   { fail('At least one tier must be selected.'); return; }
+    if (!modes.length)                   { fail('At least one billing mode must be selected.'); return; }
+    if (!validFromLocal || !validToLocal){ fail('Discount open + close datetimes are required.'); return; }
+
+    const teaserFrom = teaserFromLocal ? _fromLocal(teaserFromLocal) : 0;
+    const validFrom  = _fromLocal(validFromLocal);
+    const validTo    = _fromLocal(validToLocal);
+
+    if (validTo <= validFrom) { fail('Discount close must be AFTER discount open.'); return; }
+    if (teaserFrom && teaserFrom >= validFrom) { fail('Teaser start must be BEFORE discount opens.'); return; }
+
+    btn.disabled = true;
+    status.textContent = 'Saving…';
+    status.style.color = 'var(--hint)';
+
+    try {
+      const user = window._adminUser || _fb.auth.currentUser;
+      const payload = {
+        code, label,
+        pct: pct,
+        tiers, billingModes: modes,
+        validFrom, validTo,
+        teaserFrom: teaserFrom || 0,
+        teaserCopy: teaserCopy || null,
+        activeCopy: activeCopy || null,
+        updatedAt: Date.now(),
+        updatedBy: (user && user.uid) || null,
+      };
+      // Preserve createdAt/createdBy on edits
+      if (!_editingCode) {
+        payload.createdAt = Date.now();
+        payload.createdBy = (user && user.uid) || null;
+      }
+      await _fb.setDoc(_fb.doc(_fb.db, 'folio_promos', code), payload, { merge: true });
+      status.style.color = 'var(--accent-ui)';
+      status.textContent = '✓ Saved. Banners refresh within 5 min or on next page load.';
+      _closePromoForm();
+      await loadPromos();
+    } catch (e) {
+      fail('Save failed: ' + (e.message || 'unknown'));
+    } finally {
+      btn.disabled = false;
+    }
+
+    function fail(msg) { status.textContent = msg; status.style.color = 'var(--danger)'; btn.disabled = false; }
+  };
+
+  // ═══ CSV bulk import ═══════════════════════════════════════════
+  // Header row + N data rows. Overwrites existing codes (upsert) so
+  // the same file can re-import to update. Preview validates every
+  // row and shows a green/yellow/red table before commit.
+
+  const CSV_HEADERS = ['code','label','pct','tiers','billingModes','validFrom','validTo','teaserFrom','teaserCopy','activeCopy'];
+  let _csvParsedRows = []; // [{ row, data, ok, reason }]
+
+  window._openCsvImport = function () {
+    document.getElementById('csvImportCard').classList.remove('hidden');
+    document.getElementById('csvImportCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  window._closeCsvImport = function () {
+    document.getElementById('csvImportCard').classList.add('hidden');
+    document.getElementById('csvInput').value = '';
+    document.getElementById('csvPreview').innerHTML = '';
+    document.getElementById('csvStatus').textContent = '';
+    document.getElementById('csvCommitBtn').disabled = true;
+    _csvParsedRows = [];
+  };
+
+  window._downloadCsvTemplate = function () {
+    const csv = CSV_HEADERS.join(',') + '\n' +
+      'NEWBOOK25,New Year New Book,25,indie|imprint,monthly|yearly,2027-01-01T00:00,2027-01-15T23:59,2026-12-27T00:00,,\n' +
+      'WBD2027,World Book Day,20,indie|imprint,monthly|yearly,2027-04-20T00:00,2027-04-27T23:59,2027-04-13T00:00,,\n' +
+      'NANO2027,NaNoWriMo 2027,30,indie|imprint,yearly,2027-11-01T00:00,2027-12-05T23:59,2027-10-24T00:00,,\n';
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'folio-promos-template.csv';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  window._readCsvFile = function (input) {
+    const f = input && input.files && input.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = function (e) {
+      document.getElementById('csvInput').value = e.target.result || '';
+      _previewCsv();
+    };
+    reader.readAsText(f);
+    try { input.value = ''; } catch (_) {}
+  };
+
+  window._pasteExample = function () {
+    // Same calendar as docs/DISCOUNT_SCHEDULE.md. Datetimes use the
+    // CURRENT year+1 so pasting always creates upcoming rows.
+    const y = new Date().getFullYear() + 1;
+    const rows = [
+      ['NEWBOOK'+y,'New Year New Book',25,'indie|imprint','monthly|yearly',`${y}-01-01T00:00`,`${y}-01-15T23:59`,`${y-1}-12-27T00:00`,'',''],
+      ['HEARTS'+y,'Valentine — for the romance shelf',15,'indie|imprint','monthly|yearly',`${y}-02-10T00:00`,`${y}-02-16T23:59`,`${y}-02-05T00:00`,'',''],
+      ['WBD'+y,'World Book Day',20,'indie|imprint','monthly|yearly',`${y}-04-20T00:00`,`${y}-04-27T23:59`,`${y}-04-13T00:00`,'',''],
+      ['AUTHORMAY'+y,'Author Day / Spring Push',15,'indie|imprint','monthly|yearly',`${y}-05-01T00:00`,`${y}-05-08T23:59`,`${y}-04-24T00:00`,'',''],
+      ['HALFTIME'+y,'Mid-Year Draft Push',15,'indie|imprint','monthly|yearly',`${y}-07-01T00:00`,`${y}-07-15T23:59`,`${y}-06-24T00:00`,'',''],
+      ['READMORE'+y,'Read a Book Day + Back to School',20,'indie|imprint','monthly|yearly',`${y}-09-01T00:00`,`${y}-09-12T23:59`,`${y}-08-25T00:00`,'',''],
+      ['NANO'+y,'NaNoWriMo '+y,30,'indie|imprint','yearly',`${y}-11-01T00:00`,`${y}-12-05T23:59`,`${y}-10-24T00:00`,'',''],
+      ['BLACKFRIDAY'+y,'Black Friday '+y,30,'indie|imprint','monthly|yearly',`${y}-11-27T00:00`,`${y}-12-02T23:59`,`${y}-11-20T00:00`,'',''],
+      ['WINTERCAMP'+y,'Winter Draft Camp',20,'indie|imprint','yearly',`${y}-12-15T00:00`,`${y+1}-01-05T23:59`,`${y}-12-08T00:00`,'',''],
+    ];
+    const csv = CSV_HEADERS.join(',') + '\n' +
+      rows.map(r => r.map(_csvEsc).join(',')).join('\n');
+    document.getElementById('csvInput').value = csv;
+    _previewCsv();
+  };
+
+  // Minimal CSV escape — wraps in quotes when needed, doubles quotes
+  // inside the value. Sufficient for our fields (short single-line).
+  function _csvEsc(v) {
+    const s = String(v == null ? '' : v);
+    if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+
+  // Row parser — handles quoted values w/ embedded commas + doubled
+  // quotes. Not RFC 4180 fully but close enough for our fields.
+  function _parseCsvLine(line) {
+    const out = [];
+    let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (inQ) {
+        if (c === '"' && line[i+1] === '"') { cur += '"'; i++; }
+        else if (c === '"') { inQ = false; }
+        else { cur += c; }
+      } else {
+        if (c === ',') { out.push(cur); cur = ''; }
+        else if (c === '"') { inQ = true; }
+        else { cur += c; }
+      }
+    }
+    out.push(cur);
+    return out.map(s => s.trim());
+  }
+
+  window._previewCsv = function () {
+    const raw = document.getElementById('csvInput').value.trim();
+    const status = document.getElementById('csvStatus');
+    const preview = document.getElementById('csvPreview');
+    const btn = document.getElementById('csvCommitBtn');
+    _csvParsedRows = [];
+
+    if (!raw) {
+      status.textContent = 'Paste or upload a CSV first.';
+      status.style.color = 'var(--hint)';
+      preview.innerHTML = ''; btn.disabled = true;
+      return;
+    }
+    const lines = raw.split(/\r?\n/).filter(l => l.trim().length > 0);
+    if (lines.length < 2) {
+      status.textContent = 'CSV needs a header row + at least one data row.';
+      status.style.color = 'var(--danger)';
+      preview.innerHTML = ''; btn.disabled = true;
+      return;
+    }
+    const header = _parseCsvLine(lines[0]).map(h => h.trim());
+    const missing = CSV_HEADERS.filter(h => !header.includes(h));
+    if (missing.length) {
+      status.textContent = 'Header row is missing: ' + missing.join(', ');
+      status.style.color = 'var(--danger)';
+      preview.innerHTML = ''; btn.disabled = true;
+      return;
+    }
+    const idx = {};
+    CSV_HEADERS.forEach(h => { idx[h] = header.indexOf(h); });
+
+    for (let i = 1; i < lines.length; i++) {
+      const cells = _parseCsvLine(lines[i]);
+      const raw = {};
+      CSV_HEADERS.forEach(h => { raw[h] = cells[idx[h]] || ''; });
+      const parsed = _validateCsvRow(raw, i + 1); // 1-indexed for humans
+      _csvParsedRows.push(parsed);
+    }
+    _renderCsvPreview();
+    const okCount = _csvParsedRows.filter(r => r.ok).length;
+    const badCount = _csvParsedRows.length - okCount;
+    status.innerHTML = '✓ Parsed <strong>' + _csvParsedRows.length + '</strong> rows — ' +
+      '<span style="color:var(--accent-ui)">' + okCount + ' valid</span>' +
+      (badCount ? ', <span style="color:var(--danger)">' + badCount + ' with errors (skipped on commit)</span>' : '') + '.';
+    status.style.color = 'var(--text)';
+    btn.disabled = (okCount === 0);
+  };
+
+  function _validateCsvRow(raw, rowNum) {
+    const errors = [];
+    const code = String(raw.code || '').trim().toUpperCase();
+    const label = String(raw.label || '').trim();
+    const pct = parseInt(raw.pct, 10);
+    const tiers = String(raw.tiers || '').split('|').map(s => s.trim().toLowerCase()).filter(Boolean);
+    const modes = String(raw.billingModes || '').split('|').map(s => s.trim().toLowerCase()).filter(Boolean);
+    const validFrom  = raw.validFrom  ? new Date(raw.validFrom).getTime()  : 0;
+    const validTo    = raw.validTo    ? new Date(raw.validTo).getTime()    : 0;
+    const teaserFrom = raw.teaserFrom ? new Date(raw.teaserFrom).getTime() : 0;
+    const teaserCopy = String(raw.teaserCopy || '').slice(0, 220);
+    const activeCopy = String(raw.activeCopy || '').slice(0, 220);
+
+    if (!/^[A-Z0-9-]{3,24}$/.test(code)) errors.push('bad code');
+    if (!label) errors.push('missing label');
+    if (isNaN(pct) || pct < 5 || pct > 50) errors.push('pct 5–50');
+    if (!tiers.length || tiers.some(t => t !== 'indie' && t !== 'imprint'))
+      errors.push('tiers must be indie|imprint');
+    // Strip 'perpetual' if someone tried to sneak it in.
+    const cleanModes = modes.filter(m => m === 'monthly' || m === 'yearly');
+    if (!cleanModes.length) errors.push('billingModes must be monthly|yearly');
+    if (!validFrom || isNaN(validFrom)) errors.push('bad validFrom');
+    if (!validTo   || isNaN(validTo))   errors.push('bad validTo');
+    if (validFrom && validTo && validTo <= validFrom) errors.push('validTo before validFrom');
+    if (teaserFrom && validFrom && teaserFrom >= validFrom) errors.push('teaserFrom must be BEFORE validFrom');
+
+    return {
+      row: rowNum,
+      ok: errors.length === 0,
+      reason: errors.join(', '),
+      data: {
+        code, label, pct: pct,
+        tiers, billingModes: cleanModes,
+        validFrom, validTo, teaserFrom,
+        teaserCopy: teaserCopy || null,
+        activeCopy: activeCopy || null,
+      },
+    };
+  }
+
+  function _renderCsvPreview() {
+    const preview = document.getElementById('csvPreview');
+    preview.innerHTML =
+      '<div style="max-height:260px;overflow-y:auto;border:.5px solid var(--border-mid);border-radius:7px">' +
+      '<table style="width:100%;font-size:11.5px;border-collapse:collapse">' +
+      '<thead style="background:var(--bg);position:sticky;top:0"><tr>' +
+      '<th style="padding:6px 8px;text-align:left">#</th>' +
+      '<th style="padding:6px 8px;text-align:left">Code</th>' +
+      '<th style="padding:6px 8px;text-align:left">Label</th>' +
+      '<th style="padding:6px 8px;text-align:left">%</th>' +
+      '<th style="padding:6px 8px;text-align:left">Window</th>' +
+      '<th style="padding:6px 8px;text-align:left">Status</th>' +
+      '</tr></thead><tbody>' +
+      _csvParsedRows.map(r => {
+        const bg = r.ok ? 'transparent' : 'rgba(192,64,64,0.06)';
+        const d = r.data;
+        const win = (d.validFrom ? new Date(d.validFrom).toLocaleDateString(undefined,{month:'short',day:'numeric'}) : '?') +
+                    ' → ' +
+                    (d.validTo   ? new Date(d.validTo).toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'}) : '?');
+        return '<tr style="background:' + bg + ';border-top:.5px solid var(--border-mid)">' +
+          '<td style="padding:6px 8px;color:var(--hint);font-family:ui-monospace,Menlo,monospace">' + r.row + '</td>' +
+          '<td style="padding:6px 8px;font-family:ui-monospace,Menlo,monospace">' + esc(d.code || '—') + '</td>' +
+          '<td style="padding:6px 8px">' + esc(d.label || '—') + '</td>' +
+          '<td style="padding:6px 8px">' + (d.pct || '—') + '%</td>' +
+          '<td style="padding:6px 8px;color:var(--muted)">' + esc(win) + '</td>' +
+          '<td style="padding:6px 8px">' + (r.ok
+            ? '<span style="color:var(--accent-ui);font-weight:500">✓ valid</span>'
+            : '<span style="color:var(--danger)">✗ ' + esc(r.reason) + '</span>') + '</td>' +
+        '</tr>';
+      }).join('') +
+      '</tbody></table></div>';
+  }
+
+  window._commitCsv = async function () {
+    const status = document.getElementById('csvStatus');
+    const btn    = document.getElementById('csvCommitBtn');
+    const ok = _csvParsedRows.filter(r => r.ok);
+    if (!ok.length) { return; }
+    if (!confirm('Import ' + ok.length + ' promos? Existing codes will be OVERWRITTEN.')) return;
+    btn.disabled = true;
+    status.textContent = 'Committing ' + ok.length + ' rows…';
+    status.style.color = 'var(--hint)';
+    const user = window._adminUser || _fb.auth.currentUser;
+    let done = 0, failed = 0;
+    for (const r of ok) {
+      const d = r.data;
+      try {
+        // Preserve createdAt/createdBy when overwriting — read first.
+        let created = null, createdBy = null;
+        try {
+          const snap = await _fb.getDoc(_fb.doc(_fb.db, 'folio_promos', d.code));
+          if (snap.exists()) {
+            const p = snap.data() || {};
+            created = p.createdAt || null;
+            createdBy = p.createdBy || null;
+          }
+        } catch (_) {}
+        await _fb.setDoc(_fb.doc(_fb.db, 'folio_promos', d.code), {
+          ...d,
+          createdAt: created || Date.now(),
+          createdBy: createdBy || (user && user.uid) || null,
+          updatedAt: Date.now(),
+          updatedBy: (user && user.uid) || null,
+        }, { merge: true });
+        done++;
+      } catch (e) {
+        console.warn('[admin-promos] CSV row failed:', d.code, e);
+        failed++;
+      }
+      status.textContent = 'Committing… ' + done + ' / ' + ok.length + (failed ? ' (' + failed + ' failed)' : '');
+    }
+    status.innerHTML = '✓ Imported <strong>' + done + '</strong> promos' +
+      (failed ? ' — <span style="color:var(--danger)">' + failed + ' failed (see console)</span>' : '') + '.';
+    status.style.color = 'var(--accent-ui)';
+    await loadPromos();
+    setTimeout(_closeCsvImport, 1500);
+  };
+
+  // datetime-local <input> value ↔ ms since epoch
+  function _fromLocal(v) {
+    if (!v) return 0;
+    return new Date(v).getTime();
+  }
+  function _toLocal(ms) {
+    if (!ms) return '';
+    const d = new Date(ms);
+    const pad = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+           'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+  }
+</script>
+</body>
+</html>
