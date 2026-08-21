@@ -1,0 +1,10 @@
+code,label,pct,tiers,billingModes,validFrom,validTo,teaserFrom,teaserCopy,activeCopy
+NEWBOOK2027,New Year New Book,25,indie|imprint,monthly|yearly,2027-01-01T00:00,2027-01-15T23:59,2026-12-27T00:00,,
+HEARTS2027,Valentine - for the romance shelf,15,indie|imprint,monthly|yearly,2027-02-10T00:00,2027-02-16T23:59,2027-02-05T00:00,,
+WBD2027,World Book Day,20,indie|imprint,monthly|yearly,2027-04-20T00:00,2027-04-27T23:59,2027-04-13T00:00,,
+AUTHORMAY2027,Author Day / Spring Push,15,indie|imprint,monthly|yearly,2027-05-01T00:00,2027-05-08T23:59,2027-04-24T00:00,,
+HALFTIME2027,Mid-Year Draft Push,15,indie|imprint,monthly|yearly,2027-07-01T00:00,2027-07-15T23:59,2027-06-24T00:00,,
+READMORE2027,Read a Book Day + Back to School,20,indie|imprint,monthly|yearly,2027-09-01T00:00,2027-09-12T23:59,2027-08-25T00:00,,
+NANO2027,NaNoWriMo 2027,30,indie|imprint,yearly,2027-11-01T00:00,2027-12-05T23:59,2027-10-24T00:00,,
+BLACKFRIDAY2027,Black Friday 2027,30,indie|imprint,monthly|yearly,2027-11-27T00:00,2027-12-02T23:59,2027-11-20T00:00,,
+WINTERCAMP2027,Winter Draft Camp,20,indie|imprint,yearly,2027-12-15T00:00,2028-01-05T23:59,2027-12-08T00:00,,

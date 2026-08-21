@@ -30,6 +30,15 @@
     ASCII-only on purpose so PowerShell 5.1 does not choke on encoding.
 #>
 
+param(
+    # Skip the anomaly-detection guard (see the "SUSPICIOUS DEPLOY"
+    # block below). Use ONLY when a large deletion is intentional -
+    # e.g. removing a deprecated feature, or cleaning up outputs
+    # after a big refactor. Set FOLIO_PUSH_FORCE=1 as an env var to
+    # get the same effect from FolioWatch context.
+    [switch]$Force
+)
+
 # Auto-run mode: set by FolioWatch (scripts/folio-watch.ps1) via the
 # FOLIO_WATCH_AUTO env var. Skips both interactive prompts:
 #   - the "Press Enter to close" hold at the end (would hang the watcher)
@@ -392,6 +401,98 @@ try {
         }
         Remove-Item $tmpCommitFile -ErrorAction SilentlyContinue
         Stop-Here 0
+    }
+
+    # ── Safety belt: anomaly detection ─────────────────────────────
+    # After the "silent revert" incident of 2026-08-20 (folio-push
+    # copied stale outputs over newer repo files 12+ times over 3
+    # weeks, silently destroying work), we now inspect the STAGED diff
+    # before committing. Any single file that removes more than
+    # SAFETY_DELETE_LIMIT lines aborts the push and writes a marker
+    # file the watcher checks so its tray icon can go red.
+    #
+    # Legitimate deletions still work - just pass -Force (or set
+    # FOLIO_PUSH_FORCE=1) to override the guard.
+    $SAFETY_DELETE_LIMIT = 800    # per-file threshold
+    $SAFETY_TOTAL_LIMIT  = 3000   # total across all files
+    $forceOverride = $Force -or ($env:FOLIO_PUSH_FORCE -eq '1')
+    if (-not $forceOverride) {
+        $numstat = git diff --cached --numstat 2>&1
+        $anomalies = @()
+        $totalDel = 0
+        $totalIns = 0
+        foreach ($line in ($numstat -split "`n")) {
+            if ($line -match '^\s*(\d+|-)\s+(\d+|-)\s+(.+)$') {
+                # Binary files show '-' for insertions/deletions - skip.
+                if ($Matches[1] -eq '-' -or $Matches[2] -eq '-') { continue }
+                $ins  = [int]$Matches[1]
+                $del  = [int]$Matches[2]
+                $file = $Matches[3].Trim()
+                $totalIns += $ins
+                $totalDel += $del
+                # Per-file: flag if this file removes more than the limit
+                # AND insertions are less than 25% of deletions (heuristic
+                # for "mostly removal, not a rewrite"). A clean refactor
+                # that adds 900 lines and removes 900 doesn't trigger.
+                if ($del -gt $SAFETY_DELETE_LIMIT -and $ins -lt ($del / 4)) {
+                    $anomalies += "  {0}  -{1} +{2}" -f $file, $del, $ins
+                }
+            }
+        }
+        if ($anomalies.Count -gt 0 -or $totalDel -gt $SAFETY_TOTAL_LIMIT) {
+            Write-Host ""
+            Write-Host "=== SUSPICIOUS DEPLOY DETECTED ===" -ForegroundColor Red
+            Write-Host ""
+            if ($anomalies.Count -gt 0) {
+                Write-Host "Files removing more than $SAFETY_DELETE_LIMIT lines (mostly deletion):" -ForegroundColor Yellow
+                $anomalies | ForEach-Object { Write-Host $_ -ForegroundColor Yellow }
+                Write-Host ""
+            }
+            if ($totalDel -gt $SAFETY_TOTAL_LIMIT) {
+                Write-Host "Total deletions across all files: $totalDel (limit: $SAFETY_TOTAL_LIMIT)" -ForegroundColor Yellow
+                Write-Host ""
+            }
+            Write-Host "This matches the 'silent revert' pattern that destroyed 3 weeks of work" -ForegroundColor Red
+            Write-Host "on 2026-08-20. Push is HELD. Nothing on disk is touched." -ForegroundColor Red
+            Write-Host ""
+            Write-Host "To investigate:" -ForegroundColor DarkGray
+            Write-Host "  git diff --cached --stat        # see per-file summary" -ForegroundColor DarkGray
+            Write-Host "  git diff --cached <file>        # see the actual removals" -ForegroundColor DarkGray
+            Write-Host ""
+            Write-Host "If the deletions ARE intentional (real refactor, feature removal):" -ForegroundColor DarkGray
+            Write-Host "  git reset HEAD                  # unstage everything" -ForegroundColor DarkGray
+            Write-Host "  # re-run this script with -Force:" -ForegroundColor DarkGray
+            Write-Host "  scripts\folio-push.ps1 -Force   # or set FOLIO_PUSH_FORCE=1" -ForegroundColor DarkGray
+            Write-Host ""
+            # Write a marker file the watcher can detect - lets the tray
+            # go red + fire a distinctive balloon instead of just the
+            # generic "deploy failed" one.
+            try {
+                $markerDir = Join-Path $env:LOCALAPPDATA 'FolioWatch'
+                if (-not (Test-Path $markerDir)) { New-Item -ItemType Directory -Path $markerDir -Force | Out-Null }
+                $markerFile = Join-Path $markerDir 'anomaly-detected.txt'
+                $marker = @(
+                    "Detected at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+                    ""
+                    "Suspicious file-level anomalies:"
+                ) + $anomalies + @(
+                    ""
+                    "Total insertions: $totalIns"
+                    "Total deletions:  $totalDel"
+                    ""
+                    "Push held. Repo state on disk preserved. Investigate + either"
+                    "'git reset HEAD' to unstage, or push manually with -Force if"
+                    "the deletions are intentional."
+                )
+                $marker | Set-Content -Path $markerFile -Encoding UTF8
+            } catch { }
+            # Unstage everything so the operator can inspect + fix.
+            git reset HEAD 2>&1 | Out-Null
+            Remove-Item $tmpCommitFile -ErrorAction SilentlyContinue
+            Stop-Here 2
+        }
+    } else {
+        Write-Host "-Force / FOLIO_PUSH_FORCE=1 set - skipping anomaly guard." -ForegroundColor DarkYellow
     }
 
     git commit -F $tmpCommitFile
