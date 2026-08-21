@@ -166,34 +166,53 @@ try {
         Stop-Here 1
     }
 
-    # -- Copy files into repo ----------------------------------------
+    # -- Copy files into repo (mtime-guarded) ------------------------
+    # SAFETY GUARD added 2026-08-20 after the "silent revert" incident:
+    # The previous version blindly overwrote repo files with whatever
+    # was in the Cowork outputs folder. If the outputs held STALE
+    # versions (older than the direct-in-repo edits made by Claude via
+    # the Edit tool), those newer edits got clobbered and the push
+    # committed the reverted state. Multiple hours of work went into
+    # git history as "tutorial infrastructure" commits that were
+    # actually silent regressions of Aug 2026 work.
+    #
+    # New behaviour: for each source file in the Cowork outputs
+    # folder, only copy if the SOURCE is STRICTLY NEWER than the
+    # REPO version. If the repo file is missing, the outputs version
+    # copies in (first-time landing). If the repo file is newer than
+    # outputs (i.e. it was edited directly), we SKIP the copy and log
+    # a clear warning so the operator knows the outputs staging is
+    # stale.
+    #
+    # This makes the direct-in-repo workflow safe alongside the older
+    # "edit in Cowork, copy to repo" workflow.
+    function Copy-IfNewer {
+        param($SrcPath, $DestPath, $Label)
+        if (-not (Test-Path $SrcPath)) { return }
+        $skip = $false
+        if (Test-Path $DestPath) {
+            $srcMt  = (Get-Item $SrcPath).LastWriteTime
+            $destMt = (Get-Item $DestPath).LastWriteTime
+            if ($destMt -ge $srcMt) {
+                Write-Host ("  {0,-30} SKIP (repo newer: {1:yyyy-MM-dd HH:mm} >= outputs {2:yyyy-MM-dd HH:mm})" -f $Label, $destMt, $srcMt) -ForegroundColor Yellow
+                $skip = $true
+            }
+        }
+        if (-not $skip) {
+            Copy-Item -Force $SrcPath $DestPath
+            Write-Host ("  {0,-30} -> repo root" -f $Label) -ForegroundColor DarkGray
+        }
+    }
+
     Write-Host ""
-    Write-Host "Copying files into repo..." -ForegroundColor Cyan
-    if (Test-Path $srcIndex) {
-        Copy-Item -Force $srcIndex (Join-Path $repoRoot 'index.html')
-        Write-Host "  index.html               -> repo root" -ForegroundColor DarkGray
-    }
-    if (Test-Path $srcApp) {
-        Copy-Item -Force $srcApp (Join-Path $repoRoot 'app.html')
-        Write-Host "  app.html                 -> repo root" -ForegroundColor DarkGray
-    }
-    if (Test-Path $srcWorker) {
-        Copy-Item -Force $srcWorker (Join-Path $repoRoot 'folio-tts-worker.js')
-        Write-Host "  folio-tts-worker.js      -> repo root" -ForegroundColor DarkGray
-    }
-    if (Test-Path $srcPaywall) {
-        Copy-Item -Force $srcPaywall (Join-Path $repoRoot 'folio-paywall-worker.js')
-        Write-Host "  folio-paywall-worker.js  -> repo root" -ForegroundColor DarkGray
-    }
-    if (Test-Path $srcPrivacy) {
-        Copy-Item -Force $srcPrivacy (Join-Path $repoRoot 'privacy.html')
-        Write-Host "  privacy.html             -> repo root" -ForegroundColor DarkGray
-    }
-    if (Test-Path $srcTerms) {
-        Copy-Item -Force $srcTerms (Join-Path $repoRoot 'terms.html')
-        Write-Host "  terms.html               -> repo root" -ForegroundColor DarkGray
-    }
-    # Optional outputs: copied if present, but tracked in repo regardless
+    Write-Host "Copying files into repo (skipping any where repo is newer)..." -ForegroundColor Cyan
+    Copy-IfNewer $srcIndex   (Join-Path $repoRoot 'index.html')                'index.html'
+    Copy-IfNewer $srcApp     (Join-Path $repoRoot 'app.html')                  'app.html'
+    Copy-IfNewer $srcWorker  (Join-Path $repoRoot 'folio-tts-worker.js')       'folio-tts-worker.js'
+    Copy-IfNewer $srcPaywall (Join-Path $repoRoot 'folio-paywall-worker.js')   'folio-paywall-worker.js'
+    Copy-IfNewer $srcPrivacy (Join-Path $repoRoot 'privacy.html')              'privacy.html'
+    Copy-IfNewer $srcTerms   (Join-Path $repoRoot 'terms.html')                'terms.html'
+    # Optional outputs: same mtime guard.
     $srcGuide       = Join-Path $srcRoot 'serials-guide.html'
     $srcKeysGuide   = Join-Path $srcRoot 'api-keys-guide.html'
     $srcEmailWorker = Join-Path $srcRoot 'folio-email-worker.js'
@@ -201,34 +220,13 @@ try {
     $srcShareWorker = Join-Path $srcRoot 'folio-share-worker.js'
     $srcShelf       = Join-Path $srcRoot 'shelf.html'
     $srcOgImage     = Join-Path $srcRoot 'og-default.png'
-    if (Test-Path $srcGuide) {
-        Copy-Item -Force $srcGuide (Join-Path $repoRoot 'serials-guide.html')
-        Write-Host "  serials-guide.html       -> repo root" -ForegroundColor DarkGray
-    }
-    if (Test-Path $srcKeysGuide) {
-        Copy-Item -Force $srcKeysGuide (Join-Path $repoRoot 'api-keys-guide.html')
-        Write-Host "  api-keys-guide.html      -> repo root" -ForegroundColor DarkGray
-    }
-    if (Test-Path $srcEmailWorker) {
-        Copy-Item -Force $srcEmailWorker (Join-Path $repoRoot 'folio-email-worker.js')
-        Write-Host "  folio-email-worker.js    -> repo root" -ForegroundColor DarkGray
-    }
-    if (Test-Path $srcLuluWorker) {
-        Copy-Item -Force $srcLuluWorker (Join-Path $repoRoot 'folio-publish-lulu-worker.js')
-        Write-Host "  folio-publish-lulu-worker.js -> repo root" -ForegroundColor DarkGray
-    }
-    if (Test-Path $srcShareWorker) {
-        Copy-Item -Force $srcShareWorker (Join-Path $repoRoot 'folio-share-worker.js')
-        Write-Host "  folio-share-worker.js    -> repo root" -ForegroundColor DarkGray
-    }
-    if (Test-Path $srcShelf) {
-        Copy-Item -Force $srcShelf (Join-Path $repoRoot 'shelf.html')
-        Write-Host "  shelf.html               -> repo root" -ForegroundColor DarkGray
-    }
-    if (Test-Path $srcOgImage) {
-        Copy-Item -Force $srcOgImage (Join-Path $repoRoot 'og-default.png')
-        Write-Host "  og-default.png           -> repo root" -ForegroundColor DarkGray
-    }
+    Copy-IfNewer $srcGuide       (Join-Path $repoRoot 'serials-guide.html')            'serials-guide.html'
+    Copy-IfNewer $srcKeysGuide   (Join-Path $repoRoot 'api-keys-guide.html')           'api-keys-guide.html'
+    Copy-IfNewer $srcEmailWorker (Join-Path $repoRoot 'folio-email-worker.js')         'folio-email-worker.js'
+    Copy-IfNewer $srcLuluWorker  (Join-Path $repoRoot 'folio-publish-lulu-worker.js')  'folio-publish-lulu-worker.js'
+    Copy-IfNewer $srcShareWorker (Join-Path $repoRoot 'folio-share-worker.js')         'folio-share-worker.js'
+    Copy-IfNewer $srcShelf       (Join-Path $repoRoot 'shelf.html')                    'shelf.html'
+    Copy-IfNewer $srcOgImage     (Join-Path $repoRoot 'og-default.png')                'og-default.png'
 
     # Pull commit message into TEMP (not into the repo)
     $tmpCommitFile = Join-Path $env:TEMP 'folio-pending-commit.txt'
@@ -334,12 +332,18 @@ try {
     if (Test-Path (Join-Path $repoRoot 'folio-email-worker.js'))    { $toAdd += 'folio-email-worker.js' }
     if (Test-Path (Join-Path $repoRoot 'folio-publish-lulu-worker.js')) { $toAdd += 'folio-publish-lulu-worker.js' }
     if (Test-Path (Join-Path $repoRoot 'folio-share-worker.js'))        { $toAdd += 'folio-share-worker.js' }
+    if (Test-Path (Join-Path $repoRoot 'folio-subdomain-worker.js'))    { $toAdd += 'folio-subdomain-worker.js' }
     if (Test-Path (Join-Path $repoRoot 'og-default.png'))               { $toAdd += 'og-default.png' }
     if (Test-Path (Join-Path $repoRoot 'privacy.html'))             { $toAdd += 'privacy.html' }
     if (Test-Path (Join-Path $repoRoot 'terms.html'))               { $toAdd += 'terms.html' }
     if (Test-Path (Join-Path $repoRoot 'serials-guide.html'))       { $toAdd += 'serials-guide.html' }
     if (Test-Path (Join-Path $repoRoot 'api-keys-guide.html'))      { $toAdd += 'api-keys-guide.html' }
     if (Test-Path (Join-Path $repoRoot 'shelf.html'))               { $toAdd += 'shelf.html' }
+    if (Test-Path (Join-Path $repoRoot 'robots.txt'))               { $toAdd += 'robots.txt' }
+    if (Test-Path (Join-Path $repoRoot '_headers'))                 { $toAdd += '_headers' }
+    if (Test-Path (Join-Path $repoRoot 'sw.js'))                    { $toAdd += 'sw.js' }
+    if (Test-Path (Join-Path $repoRoot 'manifest.json'))            { $toAdd += 'manifest.json' }
+    if (Test-Path (Join-Path $repoRoot 'wrangler-subdomain.toml'))  { $toAdd += 'wrangler-subdomain.toml' }
     # Stage the docs/ folder when present (markdown reference docs)
     if (Test-Path (Join-Path $repoRoot 'docs')) { $toAdd += 'docs' }
     # Stage the scripts/ folder so iterations to this push script itself
@@ -348,6 +352,20 @@ try {
     # Stage the src/ folder so the modularization phases (constants /
     # preview-utils / characters / etc.) get committed alongside app.html.
     if (Test-Path (Join-Path $repoRoot 'src')) { $toAdd += 'src' }
+    # Stage new subdirectories added 2026-08 - the /admin/ tree gains
+    # new operator pages (promos, users) that were previously never
+    # committed because they weren't in this whitelist. lib/ holds
+    # shared front-end helpers (FolioPromos). functions/ holds the
+    # Cloudflare Pages middleware. See the "silent revert" incident
+    # note in the Copy-IfNewer block above.
+    if (Test-Path (Join-Path $repoRoot 'admin'))     { $toAdd += 'admin' }
+    if (Test-Path (Join-Path $repoRoot 'lib'))       { $toAdd += 'lib' }
+    if (Test-Path (Join-Path $repoRoot 'functions')) { $toAdd += 'functions' }
+    if (Test-Path (Join-Path $repoRoot 'help'))      { $toAdd += 'help' }
+    if (Test-Path (Join-Path $repoRoot 'imprint'))   { $toAdd += 'imprint' }
+    if (Test-Path (Join-Path $repoRoot 'press'))     { $toAdd += 'press' }
+    if (Test-Path (Join-Path $repoRoot 'policy'))    { $toAdd += 'policy' }
+    if (Test-Path (Join-Path $repoRoot 'icon.svg'))  { $toAdd += 'icon.svg' }
     # Stage .gitignore so changes to the ignore list ship too.
     if (Test-Path (Join-Path $repoRoot '.gitignore')) { $toAdd += '.gitignore' }
     if ($toAdd.Count -eq 0) {

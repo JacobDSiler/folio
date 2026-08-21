@@ -757,8 +757,13 @@
     #presetEscapeHatch {
       display: none;
       position: fixed;
-      bottom: 18px;
-      right: 18px;
+      /* Sits ABOVE the horizontal ↑↓ scroll-button row (both at
+         bottom:18, right:24 and right:70). ⚙ is centered over that
+         pair: pair spans right:24 through right:108, midpoint at
+         right:66; ⚙ is 40 wide so its right = 66-20 = 46.
+         Vertical: arrows top edge is 18+38 = 56, plus 10 gap = 66. */
+      bottom: 66px;
+      right: 46px;
       z-index: 200;
       width: 40px;
       height: 40px;
@@ -780,6 +785,11 @@
     body[data-preset="focus"] #presetEscapeHatch {
       display: flex;
     }
+    /* Focus preset hides the ↑↓ scroll buttons entirely (see
+       body[data-preset="focus"] #scrollTopBtn/BottomBtn rule further
+       up). With arrows gone, drop ⚙ back to the natural corner
+       instead of floating awkwardly high with nothing beneath it. */
+    body[data-preset="focus"] #presetEscapeHatch { bottom: 18px; right: 18px; }
     #presetEscapeHatch:hover {
       transform: scale(1.08);
       color: var(--accent-ui, #065f46);
@@ -791,7 +801,11 @@
     #presetEscapeMenu {
       display: none;
       position: fixed;
-      bottom: 68px;
+      /* Anchored above the (relocated) ⚙: hatch at bottom:66 + 40 +
+         10 gap = 116. right:18 keeps the menu tucked into the corner
+         rather than centered — the menu is wider than the ⚙ button so
+         corner-alignment reads more naturally than center-alignment. */
+      bottom: 116px;
       right: 18px;
       z-index: 201;
       background: var(--surface);
@@ -2049,12 +2063,19 @@
       display: flex
     }
 
+    /* Horizontal row of scroll buttons — ↑ sits to the LEFT of ↓, both
+       at the same bottom coordinate. Original vertical stack conflicted
+       with the preset-escape ⚙ and made the corner feel cluttered.
+       Now: two arrows side-by-side, ⚙ centered above them (see
+       #presetEscapeHatch positioning further up). Jacob 2026-08-20. */
     #scrollTopBtn {
-      bottom: 70px
+      right: 70px;  /* base right:24 + 38 button width + 8 gap = 70 */
+      bottom: 18px
     }
 
     #scrollBottomBtn {
-      bottom: 24px
+      right: 24px;
+      bottom: 18px
     }
 
     .preview-editable {
@@ -2667,10 +2688,13 @@
         -webkit-overflow-scrolling: touch;
       }
 
-      #scrollTopBtn,
-      #scrollBottomBtn {
-        right: 8px
-      }
+      /* Mobile: keep the horizontal ↑↓ layout but tighter to the edge.
+         ↓ at right:8, ↑ to its left at right:54 (8 + 38 button + 8 gap).
+         Preset-escape ⚙ centered over the pair at right:30. */
+      #scrollBottomBtn { right: 8px; }
+      #scrollTopBtn    { right: 54px; }
+      #presetEscapeHatch { right: 30px; }
+      #presetEscapeMenu  { right: 8px; }
 
       .export-section {
         padding: 6px 10px

@@ -1,0 +1,32 @@
+name = "folio-subdomain"
+main = "folio-subdomain-worker.js"
+compatibility_date = "2025-01-01"
+
+# Route matcher — every request to any subdomain of onfolio.press hits
+# this Worker before anything else. The wildcard is what unlocks the
+# feature; Cloudflare Pages custom domains reject wildcards below
+# Enterprise tier, but Worker routes do NOT — free plan works fine.
+#
+# Prerequisites:
+#   1. A wildcard DNS record for `*.onfolio.press` must exist in the
+#      onfolio.press zone. Standard pattern: AAAA record pointing to
+#      `100::` (special "black hole" address) with proxied ON. The
+#      Worker returns its own response — the DNS target is never hit.
+#   2. Universal SSL must be active (default on all Cloudflare-hosted
+#      zones). Covers `*.onfolio.press` one-deep automatically for
+#      proxied wildcard records.
+#
+# See docs/SUBDOMAIN_SETUP.md for the full deploy steps.
+[[routes]]
+pattern = "*.onfolio.press/*"
+zone_name = "onfolio.press"
+
+# Public env vars (none currently — everything is compile-time
+# constants in the worker source).
+# [vars]
+# EXAMPLE_PUBLIC_VAR = "value"
+
+# Secrets — none needed. This Worker is pure request routing; no
+# credentials, no third-party APIs, no Firestore access. The slug →
+# uid resolution happens client-side on the imprint page against
+# the public-readable folio_imprint_slugs collection.

@@ -1,0 +1,210 @@
+# ═══════════════════════════════════════════════════════════════════
+# Folio — robots.txt
+# ═══════════════════════════════════════════════════════════════════
+# Two-layer policy:
+#
+#   (1) Search engines (Google, Bing, DuckDuckGo, etc.) are ALLOWED
+#       to crawl the public discovery surface — the welcome page,
+#       the Shelf, imprint pages, and marketing pages. Blocked from
+#       /admin/, /s/ (signed teaser links, ephemeral), and per-folio
+#       reader URLs (author intent: your work isn't a search result
+#       preview, it's meant to be read on Folio).
+#
+#   (2) AI TRAINING BOTS are DENIED across the entire site. Authors'
+#       creative work should not become training corpus for models
+#       they didn't consent to. This is the primary defence — well-
+#       behaved bots respect these directives. Bad actors ignore them,
+#       so we also layer:
+#
+#         - _headers file → X-Robots-Tag: noai, noimageai on
+#           reader + imprint paths (secondary signal for crawlers
+#           that check headers instead of robots.txt)
+#         - Cloudflare dashboard → Bot Fight Mode + AI Bot Blocking
+#           (paid enforcement for the disrespectful subset)
+#
+# Keep synced with docs/BOT_BLOCKING.md when adding a new bot.
+# Added 2026-08-11 (Jacob's request).
+# ═══════════════════════════════════════════════════════════════════
+
+# ── AI training / LLM crawlers — full deny ─────────────────────────
+# When adding new ones, prefer the User-agent string the bot self-
+# identifies with (case-insensitive substring match per RFC). Order
+# doesn't matter; each block is evaluated independently.
+
+# OpenAI
+User-agent: GPTBot
+Disallow: /
+
+User-agent: ChatGPT-User
+Disallow: /
+
+User-agent: OAI-SearchBot
+Disallow: /
+
+# Anthropic
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: Claude-Web
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+# Google's AI training pipeline (SEPARATE from Googlebot search —
+# blocking Google-Extended does NOT affect Google Search rankings).
+User-agent: Google-Extended
+Disallow: /
+
+# Apple's AI training pipeline (same pattern — Applebot is search,
+# Applebot-Extended is AI training).
+User-agent: Applebot-Extended
+Disallow: /
+
+# Common Crawl — feeds many downstream LLMs.
+User-agent: CCBot
+Disallow: /
+
+# Perplexity
+User-agent: PerplexityBot
+Disallow: /
+
+User-agent: Perplexity-User
+Disallow: /
+
+# ByteDance (TikTok's crawler, also used for their AI models)
+User-agent: Bytespider
+Disallow: /
+
+# Meta AI (Llama training)
+User-agent: Meta-ExternalAgent
+Disallow: /
+
+User-agent: FacebookBot
+Disallow: /
+
+# Amazon
+User-agent: Amazonbot
+Disallow: /
+
+# Cohere
+User-agent: cohere-ai
+Disallow: /
+
+User-agent: cohere-training-data-crawler
+Disallow: /
+
+# Diffbot
+User-agent: Diffbot
+Disallow: /
+
+# You.com
+User-agent: YouBot
+Disallow: /
+
+# AI2 (Allen Institute)
+User-agent: AI2Bot
+Disallow: /
+
+User-agent: AI2Bot-Dolma
+Disallow: /
+
+# DuckDuckGo's AI assistant crawler (separate from DuckDuckBot search)
+User-agent: DuckAssistBot
+Disallow: /
+
+# ImageSift (image-scraping for training)
+User-agent: ImagesiftBot
+Disallow: /
+
+# Omgili / Webz.io news+forum crawler (feeds AI datasets)
+User-agent: omgili
+Disallow: /
+
+User-agent: omgilibot
+Disallow: /
+
+# Mistral
+User-agent: MistralAI-User
+Disallow: /
+
+# Timpi (search index sold to AI companies)
+User-agent: Timpibot
+Disallow: /
+
+# Semrush's AI crawler
+User-agent: SemrushBot-OCOB
+Disallow: /
+
+# Kangaroo (Adept AI)
+User-agent: Kangaroo Bot
+Disallow: /
+
+# Scrapy default agent (often used for scraping, ambiguous but block)
+User-agent: Scrapy
+Disallow: /
+
+# ── Search engines — explicit ALLOW with narrow deny list ─────────
+# The public discovery surface stays searchable. Only admin +
+# ephemeral signed links + per-folio reader URLs are hidden — the
+# Shelf card links naturally into readers, so search engines still
+# get authors to readers via the Shelf.
+
+User-agent: Googlebot
+Allow: /
+Disallow: /admin/
+Disallow: /s/
+Disallow: /app.html
+Disallow: /*?read=
+
+User-agent: Bingbot
+Allow: /
+Disallow: /admin/
+Disallow: /s/
+Disallow: /app.html
+Disallow: /*?read=
+
+User-agent: DuckDuckBot
+Allow: /
+Disallow: /admin/
+Disallow: /s/
+Disallow: /app.html
+Disallow: /*?read=
+
+User-agent: Slurp
+Allow: /
+Disallow: /admin/
+Disallow: /s/
+Disallow: /app.html
+Disallow: /*?read=
+
+User-agent: Baiduspider
+Allow: /
+Disallow: /admin/
+Disallow: /s/
+Disallow: /app.html
+Disallow: /*?read=
+
+# Applebot (search — SEPARATE from Applebot-Extended above)
+User-agent: Applebot
+Allow: /
+Disallow: /admin/
+Disallow: /s/
+Disallow: /app.html
+Disallow: /*?read=
+
+# ── Catch-all for anything not explicitly named above ─────────────
+# Default deny on admin + signed links, permissive elsewhere. This
+# keeps well-behaved unnamed crawlers respectful of privacy without
+# hiding the marketing pages from a new search engine that hasn't
+# been listed yet.
+
+User-agent: *
+Disallow: /admin/
+Disallow: /s/
+
+# ── Sitemap ────────────────────────────────────────────────────────
+# Points search engines at the discoverable content. Generated by
+# the shelf worker or a scheduled job; if the file is missing, this
+# hint is a no-op (crawlers just don't get the fast-path).
+Sitemap: https://onfolio.press/sitemap.xml

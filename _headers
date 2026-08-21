@@ -1,0 +1,74 @@
+# ═══════════════════════════════════════════════════════════════════
+# Folio — Cloudflare Pages _headers
+# ═══════════════════════════════════════════════════════════════════
+# Response headers keyed by URL pattern. Applied by Cloudflare Pages
+# at the edge on every request that resolves to a static asset. See
+# https://developers.cloudflare.com/pages/configuration/headers/
+#
+# This file's primary job right now: layer the X-Robots-Tag "noai"
+# and "noimageai" signals on top of robots.txt for AI training
+# crawlers that check headers rather than the robots file. Belt +
+# braces. Some AI companies (particularly Perplexity, various startups)
+# have honored the meta/header signal even when they ignore robots.txt
+# for the same paths.
+#
+# Non-standard-but-widely-observed tokens used:
+#   noai         — do not use as AI training data
+#   noimageai    — do not use images for AI training
+#   noindex      — search engines don't index this URL (standard)
+#   nofollow     — search engines don't follow links from this URL
+#
+# Keep in sync with robots.txt allow/deny decisions.
+# Added 2026-08-11 (Jacob).
+# ═══════════════════════════════════════════════════════════════════
+
+# ── Reader URLs (individual folios) — protect the author's work ──
+# `app.html` in reader mode (via ?read=<id>) is the actual manuscript
+# view. Highest priority for AI-training denial. Search-indexing is
+# also off here since robots.txt already routes readers to the
+# reader URL through the Shelf card, not through search results.
+/app.html
+  X-Robots-Tag: noai, noimageai, noindex, nofollow
+
+# ── Imprint pages — author's public bio + folio list ─────────────
+# Author's personal presence. AI-training denied; search indexing
+# allowed so readers can find authors by name.
+/imprint/*
+  X-Robots-Tag: noai, noimageai
+
+# Custom subdomain imprint pages (thomas.onfolio.press etc.) — same
+# policy as /imprint/ since they render the same content. The
+# subdomain Worker (folio-subdomain-worker.js) doesn't touch response
+# headers; this Pages _headers block applies when the Worker proxies
+# through to /imprint/index.html at the Pages origin.
+/imprint/index.html
+  X-Robots-Tag: noai, noimageai
+
+# ── Admin surfaces — full blackout ────────────────────────────────
+/admin/*
+  X-Robots-Tag: noindex, nofollow, noai, noimageai
+  Cache-Control: no-store
+
+# ── Signed teaser links + shortlinks — ephemeral, don't cache ────
+/s/*
+  X-Robots-Tag: noindex, nofollow, noai, noimageai
+
+# ── Discovery surface (welcome, shelf, press, help) — indexable ──
+# Explicit "all" tags to override any default X-Robots-Tag policy
+# Cloudflare may apply on unlabeled paths. Signals: search-index-me,
+# no-AI-training. This is the balance: findable to humans + search
+# engines, unusable to AI training pipelines.
+/
+  X-Robots-Tag: index, follow, noai, noimageai
+
+/shelf
+  X-Robots-Tag: index, follow, noai, noimageai
+
+/shelf.html
+  X-Robots-Tag: index, follow, noai, noimageai
+
+/press/*
+  X-Robots-Tag: index, follow, noai, noimageai
+
+/help/*
+  X-Robots-Tag: index, follow, noai, noimageai
