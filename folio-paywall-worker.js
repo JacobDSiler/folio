@@ -1574,6 +1574,7 @@ async function handleVendorWebhook(request, env, folioId) {
                       '&pwToken=' + encodeURIComponent(token);
 
     // Fire-and-forget: record the sale for the owner's metrics.
+    // `env` passed so affiliate attribution + ledger bump can run.
     _writeSaleRecord(pid, auth.token, folioId, {
       vendor,
       orderId:    extracted.orderId,
@@ -1581,7 +1582,7 @@ async function handleVendorWebhook(request, env, folioId) {
       amount:     extracted.amount,
       currency:   extracted.currency,
       ts:         new Date().toISOString(),
-    }).catch(function(){});
+    }, env).catch(function(){});
 
     // Dispatch unlock email via email worker. Prefers the Cloudflare
     // Service Binding (env.EMAIL_WORKER) — routes directly worker-to-
@@ -1748,9 +1749,24 @@ function _vendorExtract(vendor, payload) {
 }
 
 /* Record the sale for the owner's metrics + audit. Written under
-   folio_projects/{folioId}/paid_sales/{ts_uuid}. */
-async function _writeSaleRecord(projectId, token, folioId, sale) {
+   folio_projects/{folioId}/paid_sales/{ts_uuid}.
+
+   Since AFFILIATE_PROGRAM (Aug 2026): also looks up any active
+   affiliate attribution for the buyer + folio and stamps
+   affiliationId + affiliateRate + affiliateCommission onto the sale
+   record, then bumps the affiliation's ledger totals. Lookup + bump
+   are best-effort — a failure there NEVER blocks the sale write.
+   `env` is optional to preserve compatibility with any legacy caller
+   that doesn't pass it (attribution is skipped without env). */
+async function _writeSaleRecord(projectId, token, folioId, sale, env) {
   const docId = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
+  // Attribution lookup (safe — returns null on any failure).
+  let attribution = null;
+  if (env) {
+    attribution = await _lookupSaleAttribution(
+      projectId, token, folioId, sale.buyerEmail, Number(sale.amount) || 0, env
+    );
+  }
   const url = 'https://firestore.googleapis.com/v1/projects/' + projectId +
               '/databases/(default)/documents/folio_projects/' +
               encodeURIComponent(folioId) + '/paid_sales?documentId=' + encodeURIComponent(docId);
@@ -1761,6 +1777,10 @@ async function _writeSaleRecord(projectId, token, folioId, sale) {
     amount:     sale.amount != null ? { doubleValue: Number(sale.amount) } : { nullValue: null },
     currency:   sale.currency ? { stringValue: String(sale.currency) } : { nullValue: null },
     ts:         { timestampValue: sale.ts || new Date().toISOString() },
+    affiliationId:      attribution ? { stringValue: attribution.affiliationId }        : { nullValue: null },
+    affiliateRate:      attribution ? { doubleValue: attribution.rate }                 : { nullValue: null },
+    affiliateCommission:attribution ? { doubleValue: attribution.commission }           : { nullValue: null },
+    affiliateSettlementId:                                                                { nullValue: null },
   };
   const r = await fetch(url, {
     method: 'POST',
@@ -1770,6 +1790,31 @@ async function _writeSaleRecord(projectId, token, folioId, sale) {
   if (!r.ok) {
     const err = await r.json().catch(() => ({}));
     throw new Error('sale write ' + r.status + ': ' + JSON.stringify(err));
+  }
+  // Ledger bump — after sale write so we know the sale is durable.
+  if (attribution) {
+    await _bumpAffiliationLedger(
+      projectId, token, attribution.affiliationId,
+      Number(sale.amount) || 0, attribution.commission
+    );
+    // Fire-and-forget: notify affiliate on their first-ever sale for
+    // this affiliation. Email worker dedupes.
+    try {
+      if (env && env.EMAIL_WORKER_URL && env.EMAIL_WORKER_SECRET) {
+        await fetch(env.EMAIL_WORKER_URL + '/send-affiliate-first-sale', {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + env.EMAIL_WORKER_SECRET,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            affiliationId: attribution.affiliationId,
+            gross: Number(sale.amount) || 0,
+            commission: attribution.commission,
+          }),
+        });
+      }
+    } catch (e) { console.warn('[aff-firstsale] email failed:', e && e.message); }
   }
 }
 
@@ -1863,6 +1908,546 @@ async function _firebaseUserEmail(uid, env) {
     console.warn('[firebaseUserEmail] threw:', e && e.message);
     return null;
   }
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   AFFILIATE PROGRAM (Phase 1)
+   ────────────────────────────────────────────────────────────────────
+   Owner invites affiliates per folio + sets a commission rate.
+   Affiliates get a short link (?a=CODE) that sets a 30-day HttpOnly
+   cookie in the share worker. Paywall worker (this file) is the
+   authority for:
+     - minting invites + codes,
+     - materialising cookies → attribution docs at sign-in time,
+     - looking up attribution at sale time + snapshotting rate,
+     - computing commission,
+     - bumping ledger totals,
+     - recording settlements when the owner marks a payout sent.
+
+   Payout mechanics are DELIBERATELY out of scope — Folio never holds
+   the affiliate's money. Owner pays affiliate direct via Ko-fi /
+   PayPal; this worker only tracks the ledger. See docs/AFFILIATES_SPEC.md.
+   ══════════════════════════════════════════════════════════════════ */
+
+/* 8-char base62 code — ~218 trillion possibilities, cheap collision
+   check on write. Uses crypto.getRandomValues for real entropy. */
+function _genAffiliateCode() {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  let s = '';
+  for (let i = 0; i < 8; i++) s += alphabet[bytes[i] % 62];
+  return s;
+}
+
+/* Parse the folio_aff_<folioId> cookie set by folio-share-worker.js. */
+function _readAffilCookie(request, folioId) {
+  const raw = request.headers.get('Cookie') || '';
+  if (!raw || !folioId) return null;
+  const safeKey = 'folio_aff_' + folioId.replace(/[^A-Za-z0-9_-]/g, '_');
+  const parts = raw.split(/;\s*/);
+  for (let i = 0; i < parts.length; i++) {
+    const eq = parts[i].indexOf('=');
+    if (eq <= 0) continue;
+    if (parts[i].substring(0, eq) === safeKey) {
+      const v = parts[i].substring(eq + 1).trim();
+      return /^[A-Za-z0-9]{4,16}$/.test(v) ? v : null;
+    }
+  }
+  return null;
+}
+
+function _normalizeEmail(email) {
+  return (email || '').toString().trim().toLowerCase();
+}
+
+/* Verifies Bearer id-token, returns uid + email or throws a Response.
+   Consolidates the 401 boilerplate every affiliate endpoint needs. */
+async function _requireAffilAuth(request, env) {
+  const hdr = request.headers.get('Authorization') || '';
+  const idToken = hdr.replace(/^Bearer\s+/i, '').trim();
+  if (!idToken) throw errorJson('Missing auth', 401, request, env);
+  const uid = await _verifyFirebaseIdToken(idToken, env);
+  if (!uid) throw errorJson('Invalid auth', 401, request, env);
+  const email = await _firebaseUserEmail(uid, env);
+  return { uid, email: _normalizeEmail(email) };
+}
+
+/* Resolve folio → ownerUid. Uses fsGet + the folio_projects doc. */
+async function _resolveFolioOwner(projectId, token, folioId) {
+  const folio = await fsGet(projectId, token, 'folio_projects/' + encodeURIComponent(folioId));
+  if (!folio) return null;
+  return folio.uid || folio.ownerId || null;
+}
+
+/* Firestore field encoding — mirrors _writeSaleRecord's inline shape. */
+function _fsField(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === 'string')  return { stringValue: v };
+  if (typeof v === 'boolean') return { booleanValue: v };
+  if (typeof v === 'number')  return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (v instanceof Date)      return { timestampValue: v.toISOString() };
+  if (Array.isArray(v))       return { arrayValue: { values: v.map(_fsField) } };
+  if (typeof v === 'object')  {
+    const fields = {};
+    for (const k in v) fields[k] = _fsField(v[k]);
+    return { mapValue: { fields } };
+  }
+  return { stringValue: String(v) };
+}
+function _fsFields(obj) {
+  const out = {};
+  for (const k in obj) out[k] = _fsField(obj[k]);
+  return out;
+}
+
+async function _fsCreate(projectId, token, collection, docId, obj) {
+  const url = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+    '/databases/(default)/documents/' + collection +
+    '?documentId=' + encodeURIComponent(docId);
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: _fsFields(obj) }),
+  });
+  if (!r.ok) {
+    const err = await r.text().catch(() => '');
+    throw new Error('fsCreate ' + collection + '/' + docId + ' → ' + r.status + ' ' + err.slice(0, 300));
+  }
+  return await r.json();
+}
+
+/* PATCH with updateMask so we don't clobber untouched fields. */
+async function _fsPatch(projectId, token, collection, docId, obj) {
+  const keys = Object.keys(obj);
+  if (!keys.length) return;
+  const qs = keys.map(k => 'updateMask.fieldPaths=' + encodeURIComponent(k)).join('&');
+  const url = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+    '/databases/(default)/documents/' + collection + '/' + encodeURIComponent(docId) +
+    '?' + qs;
+  const r = await fetch(url, {
+    method: 'PATCH',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields: _fsFields(obj) }),
+  });
+  if (!r.ok) {
+    const err = await r.text().catch(() => '');
+    throw new Error('fsPatch ' + collection + '/' + docId + ' → ' + r.status + ' ' + err.slice(0, 300));
+  }
+}
+
+/* List documents in a collection matching a single field-equals query.
+   Small helper — full runQuery for compound filters can come later. */
+async function _fsQuery(projectId, token, collection, fieldEq) {
+  const url = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+    '/databases/(default)/documents:runQuery';
+  const filters = [];
+  for (const k in fieldEq) {
+    filters.push({
+      fieldFilter: {
+        field: { fieldPath: k },
+        op: 'EQUAL',
+        value: _fsField(fieldEq[k]),
+      },
+    });
+  }
+  const body = {
+    structuredQuery: {
+      from: [{ collectionId: collection }],
+      where: filters.length === 1 ? filters[0] : {
+        compositeFilter: { op: 'AND', filters },
+      },
+    },
+  };
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const err = await r.text().catch(() => '');
+    throw new Error('fsQuery ' + collection + ' → ' + r.status + ' ' + err.slice(0, 300));
+  }
+  const rows = await r.json();
+  const out = [];
+  for (const row of rows) {
+    if (!row.document) continue;
+    const id = row.document.name.split('/').pop();
+    out.push({ id, data: fsDecodeFields(row.document.fields || {}) });
+  }
+  return out;
+}
+
+/* ── POST /affiliates/invite ──────────────────────────────────────
+   Body: { folioId, email, rate, note? }
+   Owner-only. Creates an 'invited' affiliation, mints a unique code,
+   sends invite email via folio-email worker. */
+async function handleAffiliateInvite(request, env) {
+  let auth;
+  try { auth = await _requireAffilAuth(request, env); } catch (r) { return r; }
+  const body = await request.json().catch(() => ({}));
+  const folioId = String(body.folioId || '').trim();
+  const inviteEmail = _normalizeEmail(body.email);
+  const rate = Number(body.rate);
+  const note = String(body.note || '').slice(0, 300);
+  if (!folioId) return errorJson('Missing folioId', 400, request, env);
+  if (!inviteEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inviteEmail)) {
+    return errorJson('Invalid email', 400, request, env);
+  }
+  if (!(rate > 0 && rate <= 0.75)) {
+    return errorJson('Rate must be > 0 and ≤ 0.75', 400, request, env);
+  }
+  const sa = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+  const ownerId = await _resolveFolioOwner(projectId, sa.token, folioId);
+  if (!ownerId) return errorJson('Folio not found', 404, request, env);
+  if (ownerId !== auth.uid) return errorJson('Not folio owner', 403, request, env);
+  if (inviteEmail === auth.email) {
+    return errorJson('Cannot self-affiliate', 400, request, env);
+  }
+  // Dedupe: an owner shouldn't invite the same email twice for the
+  // same folio. Look for existing (any status except removed).
+  const existing = await _fsQuery(projectId, sa.token, 'folio_affiliations', {
+    folioId, affiliateEmail: inviteEmail,
+  });
+  const live = existing.filter(r => r.data && r.data.status !== 'removed');
+  if (live.length) {
+    return errorJson('Already invited this email', 409, request, env);
+  }
+  // Mint unique code (retry on collision — extremely unlikely).
+  let code = null;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const candidate = _genAffiliateCode();
+    const clash = await _fsQuery(projectId, sa.token, 'folio_affiliations', { code: candidate });
+    if (!clash.length) { code = candidate; break; }
+  }
+  if (!code) return errorJson('Could not mint code', 500, request, env);
+  const now = new Date().toISOString();
+  const affId = 'aff_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  await _fsCreate(projectId, sa.token, 'folio_affiliations', affId, {
+    folioId, ownerId, ownerEmail: auth.email,
+    affiliateUserId: null,
+    affiliateEmail: inviteEmail,
+    affiliateHandle: null,
+    rate, code, status: 'invited',
+    invitedAt: now, acceptedAt: null, pausedAt: null, removedAt: null,
+    note,
+    lifetimeGross: 0, lifetimeCommission: 0,
+    pendingCommission: 0, settledCommission: 0,
+  });
+  // Fire-and-forget email (best-effort — we don't fail the invite if
+  // the email worker is down; owner sees the affiliation immediately).
+  try {
+    if (env.EMAIL_WORKER_URL && env.EMAIL_WORKER_SECRET) {
+      await fetch(env.EMAIL_WORKER_URL + '/send-affiliate-invite', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + env.EMAIL_WORKER_SECRET,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          affiliationId: affId, folioId, ownerEmail: auth.email,
+          affiliateEmail: inviteEmail, rate, code,
+        }),
+      });
+    }
+  } catch (e) { console.warn('[aff-invite] email failed:', e && e.message); }
+  return json({ ok: true, affiliationId: affId, code }, 200, request, env);
+}
+
+/* ── GET /affiliates/list?folio=<folioId> ─────────────────────────
+   Owner-only. Lists every affiliation for a folio + ledger totals. */
+async function handleAffiliateList(request, env) {
+  let auth;
+  try { auth = await _requireAffilAuth(request, env); } catch (r) { return r; }
+  const url = new URL(request.url);
+  const folioId = (url.searchParams.get('folio') || '').trim();
+  if (!folioId) return errorJson('Missing folio', 400, request, env);
+  const sa = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+  const ownerId = await _resolveFolioOwner(projectId, sa.token, folioId);
+  if (!ownerId) return errorJson('Folio not found', 404, request, env);
+  if (ownerId !== auth.uid) return errorJson('Not folio owner', 403, request, env);
+  const rows = await _fsQuery(projectId, sa.token, 'folio_affiliations', { folioId });
+  const affiliates = rows
+    .filter(r => r.data && r.data.status !== 'removed')
+    .map(r => ({ id: r.id, ...r.data }));
+  return json({ ok: true, affiliates }, 200, request, env);
+}
+
+/* ── GET /affiliates/mine ─────────────────────────────────────────
+   Signed-in-user view: every affiliation they hold (accepted or
+   invited). Backs the /affiliate dashboard. */
+async function handleAffiliateMine(request, env) {
+  let auth;
+  try { auth = await _requireAffilAuth(request, env); } catch (r) { return r; }
+  const sa = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+  // Accepted (linked to uid) — the common case.
+  const active = await _fsQuery(projectId, sa.token, 'folio_affiliations', {
+    affiliateUserId: auth.uid,
+  });
+  // Invited-but-not-yet-accepted (linked to email only).
+  const invited = auth.email
+    ? await _fsQuery(projectId, sa.token, 'folio_affiliations', {
+        affiliateEmail: auth.email, status: 'invited',
+      })
+    : [];
+  const seen = new Set();
+  const affiliations = [];
+  for (const r of [...active, ...invited]) {
+    if (seen.has(r.id)) continue;
+    seen.add(r.id);
+    if (r.data && r.data.status !== 'removed') {
+      affiliations.push({ id: r.id, ...r.data });
+    }
+  }
+  return json({ ok: true, affiliations }, 200, request, env);
+}
+
+/* ── POST /affiliates/accept ──────────────────────────────────────
+   Body: { affiliationId }
+   Signed-in affiliate whose email matches the invite flips the
+   affiliation from 'invited' to 'active' and stamps their userId +
+   a default handle (email prefix). Server-mediated so we control
+   the fields being set and the invite email match. */
+async function handleAffiliateAccept(request, env) {
+  let auth;
+  try { auth = await _requireAffilAuth(request, env); } catch (r) { return r; }
+  const body = await request.json().catch(() => ({}));
+  const affiliationId = String(body.affiliationId || '').trim();
+  if (!affiliationId) return errorJson('Missing affiliationId', 400, request, env);
+  if (!auth.email)    return errorJson('Account missing email', 400, request, env);
+  const sa = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+  const aff = await fsGet(projectId, sa.token, 'folio_affiliations/' + encodeURIComponent(affiliationId));
+  if (!aff) return errorJson('Not found', 404, request, env);
+  if (aff.status !== 'invited') {
+    return errorJson('Already ' + aff.status, 409, request, env);
+  }
+  if (_normalizeEmail(aff.affiliateEmail) !== auth.email) {
+    return errorJson('This invite was sent to a different email', 403, request, env);
+  }
+  const handle = auth.email.split('@')[0] || 'affiliate';
+  await _fsPatch(projectId, sa.token, 'folio_affiliations', affiliationId, {
+    status: 'active',
+    affiliateUserId: auth.uid,
+    affiliateHandle: handle,
+    acceptedAt: new Date().toISOString(),
+  });
+  return json({ ok: true, affiliationId, status: 'active' }, 200, request, env);
+}
+
+/* ── POST /affiliates/edit-rate ───────────────────────────────────
+   Body: { affiliationId, rate }
+   Owner-only. Rate changes apply to FUTURE sales only — existing
+   purchase records keep their snapshotted rate. */
+async function handleAffiliateEditRate(request, env) {
+  let auth;
+  try { auth = await _requireAffilAuth(request, env); } catch (r) { return r; }
+  const body = await request.json().catch(() => ({}));
+  const affiliationId = String(body.affiliationId || '').trim();
+  const rate = Number(body.rate);
+  if (!affiliationId) return errorJson('Missing affiliationId', 400, request, env);
+  if (!(rate > 0 && rate <= 0.75)) return errorJson('Rate must be > 0 and ≤ 0.75', 400, request, env);
+  const sa = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+  const aff = await fsGet(projectId, sa.token, 'folio_affiliations/' + encodeURIComponent(affiliationId));
+  if (!aff) return errorJson('Not found', 404, request, env);
+  if (aff.ownerId !== auth.uid) return errorJson('Not owner', 403, request, env);
+  await _fsPatch(projectId, sa.token, 'folio_affiliations', affiliationId, { rate });
+  return json({ ok: true }, 200, request, env);
+}
+
+/* ── POST /affiliates/pause  &  /affiliates/remove ────────────────
+   Body: { affiliationId }
+   Owner-only. Pause blocks new attribution but preserves ledger.
+   Remove is a soft-delete (status = 'removed') — history stays. */
+async function _setAffiliationStatus(request, env, newStatus) {
+  let auth;
+  try { auth = await _requireAffilAuth(request, env); } catch (r) { return r; }
+  const body = await request.json().catch(() => ({}));
+  const affiliationId = String(body.affiliationId || '').trim();
+  if (!affiliationId) return errorJson('Missing affiliationId', 400, request, env);
+  const sa = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+  const aff = await fsGet(projectId, sa.token, 'folio_affiliations/' + encodeURIComponent(affiliationId));
+  if (!aff) return errorJson('Not found', 404, request, env);
+  if (aff.ownerId !== auth.uid) return errorJson('Not owner', 403, request, env);
+  const patch = { status: newStatus };
+  const now = new Date().toISOString();
+  if (newStatus === 'paused')  patch.pausedAt  = now;
+  if (newStatus === 'removed') patch.removedAt = now;
+  if (newStatus === 'active')  patch.pausedAt  = null;  // resume
+  await _fsPatch(projectId, sa.token, 'folio_affiliations', affiliationId, patch);
+  return json({ ok: true, status: newStatus }, 200, request, env);
+}
+
+/* ── POST /affiliates/materialize?folio=<folioId> ─────────────────
+   Called by app.html once the user signs in on a reader page. Reads
+   the folio_aff_<folioId> cookie set by the share worker and writes a
+   persistent attribution doc keyed by (userId, folioId) so the sale
+   can be attributed even if the buyer clears cookies or purchases
+   from another device. First-touch: if an attribution already exists
+   for this user+folio we DO NOT overwrite it. */
+async function handleAffiliateMaterialize(request, env) {
+  let auth;
+  try { auth = await _requireAffilAuth(request, env); } catch (r) { return r; }
+  const url = new URL(request.url);
+  const folioId = (url.searchParams.get('folio') || '').trim();
+  if (!folioId) return errorJson('Missing folio', 400, request, env);
+  // Cookie path (same-origin caller — share worker at onfolio.press).
+  // Body-code path (proxy caller passed the cookie value in the body so
+  // the cookie itself doesn't have to cross origins). Cookie wins when
+  // both are present because it's less tamperable.
+  let code = _readAffilCookie(request, folioId);
+  if (!code) {
+    try {
+      const body = await request.json().catch(() => ({}));
+      const bodyCode = String(body.code || '').trim();
+      if (/^[A-Za-z0-9]{4,16}$/.test(bodyCode)) code = bodyCode;
+    } catch (_) {}
+  }
+  if (!code) return json({ ok: true, attributed: false, reason: 'no-cookie' }, 200, request, env);
+  const sa = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+  const matches = await _fsQuery(projectId, sa.token, 'folio_affiliations', {
+    code, folioId, status: 'active',
+  });
+  if (!matches.length) {
+    return json({ ok: true, attributed: false, reason: 'code-not-active' }, 200, request, env);
+  }
+  const aff = matches[0];
+  // Self-purchase can't earn commission.
+  if (aff.data.ownerId === auth.uid || aff.data.affiliateUserId === auth.uid) {
+    return json({ ok: true, attributed: false, reason: 'self' }, 200, request, env);
+  }
+  const attributionId = auth.uid + '_' + folioId.replace(/[^A-Za-z0-9_-]/g, '_');
+  const existing = await fsGet(projectId, sa.token,
+    'folio_affiliate_attributions/' + encodeURIComponent(attributionId));
+  const nowIso = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString();
+  if (existing && existing.affiliationId) {
+    // First-touch wins — just refresh lastTouchAt.
+    await _fsPatch(projectId, sa.token, 'folio_affiliate_attributions', attributionId, {
+      lastTouchAt: nowIso,
+    });
+    return json({ ok: true, attributed: true, firstTouch: false }, 200, request, env);
+  }
+  await _fsCreate(projectId, sa.token, 'folio_affiliate_attributions', attributionId, {
+    affiliationId: aff.id, folioId,
+    userId: auth.uid, userEmail: auth.email,
+    firstTouchAt: nowIso, lastTouchAt: nowIso, expiresAt,
+  });
+  return json({ ok: true, attributed: true, firstTouch: true }, 200, request, env);
+}
+
+/* ── POST /affiliates/settle ──────────────────────────────────────
+   Body: { affiliationId, amount, method, externalTxnRef?, note? }
+   Owner-only. Records that the owner paid the affiliate `amount`,
+   moves that amount from pendingCommission to settledCommission,
+   and tags the covered purchase docs. Best-effort tagging — if the
+   owner has paid slightly more or less than pending, we settle the
+   requested amount and let the ledger show the diff. */
+async function handleAffiliateSettle(request, env) {
+  let auth;
+  try { auth = await _requireAffilAuth(request, env); } catch (r) { return r; }
+  const body = await request.json().catch(() => ({}));
+  const affiliationId = String(body.affiliationId || '').trim();
+  const amount = Number(body.amount);
+  const method = String(body.method || 'other');
+  const externalTxnRef = String(body.externalTxnRef || '').slice(0, 200);
+  const note = String(body.note || '').slice(0, 300);
+  if (!affiliationId) return errorJson('Missing affiliationId', 400, request, env);
+  if (!(amount > 0)) return errorJson('Amount must be > 0', 400, request, env);
+  const sa = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+  const aff = await fsGet(projectId, sa.token, 'folio_affiliations/' + encodeURIComponent(affiliationId));
+  if (!aff) return errorJson('Not found', 404, request, env);
+  if (aff.ownerId !== auth.uid) return errorJson('Not owner', 403, request, env);
+  const now = new Date().toISOString();
+  const settlementId = 'set_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  await _fsCreate(projectId, sa.token, 'folio_affiliate_settlements', settlementId, {
+    affiliationId, folioId: aff.folioId,
+    ownerId: aff.ownerId, affiliateUserId: aff.affiliateUserId,
+    amount, method, externalTxnRef, note,
+    settledAt: now,
+    purchaseIds: [],  // Phase-2: enumerate covered purchases
+  });
+  const newPending  = Math.max(0, (aff.pendingCommission  || 0) - amount);
+  const newSettled  =            (aff.settledCommission  || 0) + amount;
+  await _fsPatch(projectId, sa.token, 'folio_affiliations', affiliationId, {
+    pendingCommission: newPending,
+    settledCommission: newSettled,
+  });
+  // Fire-and-forget notify affiliate.
+  try {
+    if (env.EMAIL_WORKER_URL && env.EMAIL_WORKER_SECRET && aff.affiliateEmail) {
+      await fetch(env.EMAIL_WORKER_URL + '/send-affiliate-payment-received', {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + env.EMAIL_WORKER_SECRET,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          affiliateEmail: aff.affiliateEmail, amount, method,
+          folioId: aff.folioId, note,
+        }),
+      });
+    }
+  } catch (e) { console.warn('[aff-settle] email failed:', e && e.message); }
+  return json({ ok: true, settlementId, pendingCommission: newPending, settledCommission: newSettled }, 200, request, env);
+}
+
+/* Attribution lookup called from _writeSaleRecord. Returns
+   { affiliationId, rate, commission } or null. NEVER throws — a
+   lookup failure must not block the sale from being recorded. */
+async function _lookupSaleAttribution(projectId, token, folioId, buyerEmail, amount, env) {
+  try {
+    if (!folioId || !amount || amount <= 0) return null;
+    // Prefer userId-keyed attribution (survives cookie clear); fall
+    // back to buyer email if the attribution was materialised under a
+    // different signed-in account than the checkout account.
+    let attribution = null;
+    if (buyerEmail) {
+      const attrByEmail = await _fsQuery(projectId, token,
+        'folio_affiliate_attributions', {
+          userEmail: _normalizeEmail(buyerEmail), folioId,
+        });
+      if (attrByEmail.length) attribution = attrByEmail[0].data;
+    }
+    if (!attribution) return null;
+    if (attribution.expiresAt && new Date(attribution.expiresAt).getTime() < Date.now()) {
+      return null;  // expired 30-day window
+    }
+    const aff = await fsGet(projectId, token,
+      'folio_affiliations/' + encodeURIComponent(attribution.affiliationId));
+    if (!aff) return null;
+    if (aff.status !== 'active') return null;
+    const rate = Number(aff.rate) || 0;
+    if (!(rate > 0 && rate <= 0.75)) return null;
+    const commission = Math.round(amount * rate * 100) / 100;
+    return { affiliationId: attribution.affiliationId, rate, commission };
+  } catch (e) {
+    console.warn('[aff-lookup] threw:', e && e.message);
+    return null;
+  }
+}
+
+/* Best-effort ledger bump after a sale is recorded. Non-transactional
+   for MVP — sale doc already carries the attribution so we can
+   reconcile if this fails. */
+async function _bumpAffiliationLedger(projectId, token, affiliationId, gross, commission) {
+  try {
+    const aff = await fsGet(projectId, token,
+      'folio_affiliations/' + encodeURIComponent(affiliationId));
+    if (!aff) return;
+    await _fsPatch(projectId, token, 'folio_affiliations', affiliationId, {
+      lifetimeGross:     (aff.lifetimeGross     || 0) + gross,
+      lifetimeCommission:(aff.lifetimeCommission|| 0) + commission,
+      pendingCommission: (aff.pendingCommission || 0) + commission,
+    });
+  } catch (e) { console.warn('[aff-bump] threw:', e && e.message); }
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -2217,7 +2802,7 @@ async function handlePaypalCaptureOrder(request, env) {
       amount: Number(capturedAmount) || cfg.price,
       currency: capturedCurrency,
       ts: new Date().toISOString(),
-    }).catch(function(){});
+    }, env).catch(function(){});
 
     if (env.EMAIL_WORKER_SECRET) {
       const emailReqBody = JSON.stringify({
@@ -2408,7 +2993,7 @@ async function handleMultiTenantVendorWebhook(request, env, vendor) {
       vendor, orderId: extracted.orderId, buyerEmail: extracted.buyerEmail,
       amount: extracted.amount, currency: extracted.currency,
       ts: new Date().toISOString(),
-    }).catch(function(){});
+    }, env).catch(function(){});
 
     if (env.EMAIL_WORKER_SECRET) {
       const emailReqBody = JSON.stringify({
@@ -4115,6 +4700,17 @@ export default {
     if (path === '/photo-checkout' && request.method === 'POST') return handlePhotoCheckout(request, env);
     if (path === '/photo-return'   && request.method === 'GET')  return handlePhotoReturn(request, env);
     if (path === '/photo-status'   && request.method === 'GET')  return handlePhotoStatus(request, env);
+    // ── Affiliate program (see docs/AFFILIATES_SPEC.md) ─────────────
+    if (path === '/affiliates/invite'      && request.method === 'POST') return handleAffiliateInvite(request, env);
+    if (path === '/affiliates/accept'      && request.method === 'POST') return handleAffiliateAccept(request, env);
+    if (path === '/affiliates/list'        && request.method === 'GET')  return handleAffiliateList(request, env);
+    if (path === '/affiliates/mine'        && request.method === 'GET')  return handleAffiliateMine(request, env);
+    if (path === '/affiliates/edit-rate'   && request.method === 'POST') return handleAffiliateEditRate(request, env);
+    if (path === '/affiliates/pause'       && request.method === 'POST') return _setAffiliationStatus(request, env, 'paused');
+    if (path === '/affiliates/resume'      && request.method === 'POST') return _setAffiliationStatus(request, env, 'active');
+    if (path === '/affiliates/remove'      && request.method === 'POST') return _setAffiliationStatus(request, env, 'removed');
+    if (path === '/affiliates/materialize' && request.method === 'POST') return handleAffiliateMaterialize(request, env);
+    if (path === '/affiliates/settle'      && request.method === 'POST') return handleAffiliateSettle(request, env);
 
     return errorJson('Not found: ' + path, 404, request, env);
   },

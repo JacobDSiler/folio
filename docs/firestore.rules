@@ -635,6 +635,102 @@ service cloud.firestore {
       allow write: if false; // worker-only via service account
     }
 
+    // ───────────────────────────────────────────────────────────────
+    // AFFILIATE PROGRAM (Phase 1)
+    // ───────────────────────────────────────────────────────────────
+    // See docs/AFFILIATES_SPEC.md. Owners invite affiliates per folio
+    // and set a commission rate; affiliates get a short link + QR;
+    // paywall worker attributes purchases and computes commission;
+    // owners settle manually via Ko-fi / PayPal and mark the ledger.
+    //
+    // All ledger writes flow through the paywall worker's
+    // /affiliates/* endpoints via service account (which bypass rules).
+    // Client writes are intentionally minimal: only the affiliate's
+    // status flip from 'invited' → 'active' is allowed browser-side,
+    // and only if the acting user's email matches the invited email.
+    // Everything else is server-mediated so rates, ledgers, and
+    // settlements cannot be tampered with client-side.
+
+    // ── Affiliations (one doc per owner+folio+affiliate triple) ──
+    // Readable by the folio owner AND the affiliate (once accepted).
+    // Client-writable ONLY for the invited affiliate to accept —
+    // limited to flipping status from 'invited' to 'active' and
+    // stamping acceptedAt. All other mutations (rate changes, pause,
+    // remove, ledger updates) go through the paywall worker.
+    match /folio_affiliations/{affiliationId} {
+      allow read: if request.auth != null && (
+        isUser(resource.data.ownerId) ||
+        isUser(resource.data.affiliateUserId) ||
+        // Invited-but-not-accepted: allow the invitee to read their
+        // pending invite by matching email (case-insensitive
+        // compared to token email).
+        (
+          resource.data.status == 'invited' &&
+          request.auth.token.email != null &&
+          resource.data.affiliateEmail == request.auth.token.email.lower()
+        ) ||
+        isAdmin()
+      );
+      // Client accept only: invited → active, stamps acceptedAt +
+      // affiliateUserId + affiliateHandle. Nothing else may change.
+      allow update: if request.auth != null
+        && resource.data.status == 'invited'
+        && request.resource.data.status == 'active'
+        && request.auth.token.email != null
+        && resource.data.affiliateEmail == request.auth.token.email.lower()
+        && request.resource.data.affiliateUserId == request.auth.uid
+        && request.resource.data.ownerId == resource.data.ownerId
+        && request.resource.data.folioId == resource.data.folioId
+        && request.resource.data.rate == resource.data.rate
+        && request.resource.data.code == resource.data.code
+        && request.resource.data.lifetimeGross == resource.data.lifetimeGross
+        && request.resource.data.lifetimeCommission == resource.data.lifetimeCommission
+        && request.resource.data.pendingCommission == resource.data.pendingCommission
+        && request.resource.data.settledCommission == resource.data.settledCommission;
+      // Create / delete / all other updates: worker only.
+      allow create, delete: if false;
+    }
+
+    // ── Attribution cookies materialised server-side ─────────────
+    // Composite key = "{userId}_{folioId}". Written by the paywall
+    // worker when a signed-in reader lands on a folio via an
+    // affiliate link. Never client-readable (would leak which
+    // affiliate a user was attributed to) — only used server-side
+    // at purchase time to look up commission.
+    match /folio_affiliate_attributions/{attributionId} {
+      allow read, write: if false;
+    }
+
+    // ── Click log for affiliate dashboards ───────────────────────
+    // Sampled writes from the reader worker. Readable by the folio
+    // owner + the affiliate whose code was clicked (for their
+    // dashboard stats). Worker-write only.
+    match /folio_affiliate_clicks/{clickId} {
+      allow read: if request.auth != null && (
+        isUser(resource.data.ownerId) ||
+        isUser(resource.data.affiliateUserId) ||
+        isAdmin()
+      );
+      allow write: if false;
+    }
+
+    // ── Settlements (owner payouts to affiliates) ────────────────
+    // One doc per settlement event. Readable by both parties —
+    // affiliate needs to see "Jacob paid me $124 on X date". Written
+    // by the paywall worker when the owner confirms a payout in the
+    // Ship › Affiliates UI. Nothing here is client-mutable — the
+    // owner's action posts to /affiliates/settle which writes the
+    // record via service account (protects against a compromised
+    // owner client fabricating settlement history).
+    match /folio_affiliate_settlements/{settlementId} {
+      allow read: if request.auth != null && (
+        isUser(resource.data.ownerId) ||
+        isUser(resource.data.affiliateUserId) ||
+        isAdmin()
+      );
+      allow write: if false;
+    }
+
     // Anything not matched above is denied by default.
   }
 }

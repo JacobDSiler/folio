@@ -6629,8 +6629,17 @@
             // — the "clicking and dragging just highlights frames" bug
             // Jacob reported 2026-08-04. Pointer capture keeps the events
             // routed to the handle regardless of what's under the cursor.
-            const handle = document.getElementById('sidebarResizeHandle');
-            if (handle) {
+            //
+            // DOM-timing note (2026-08-24): this IIFE runs inline mid-body,
+            // BEFORE the resize-handle element (~1300 lines below the
+            // script tag) has been parsed into the DOM. Direct lookup
+            // returned null, no listeners were attached, and drag stopped
+            // working silently. Wrapped in a "run now or on DOMContentLoaded"
+            // guard so the attachment fires whether the parser has already
+            // reached the handle element or not.
+            const _attachResizeHandle = function() {
+              const handle = document.getElementById('sidebarResizeHandle');
+              if (!handle) return;
               let dragging = false;
               let startX = 0, startW = 0;
               let activePointer = null;
@@ -6687,6 +6696,11 @@
                 document.documentElement.style.setProperty('--sidebar-w', DEFAULT_W + 'px');
                 try { localStorage.removeItem('folio_sidebar_w'); } catch (_) {}
               });
+            };
+            if (document.readyState === 'loading') {
+              document.addEventListener('DOMContentLoaded', _attachResizeHandle);
+            } else {
+              _attachResizeHandle();
             }
 
             // (2) Sidebar scroll position persistence. Rewrote 2026-08-04
@@ -6708,8 +6722,13 @@
             // Fix: suppression flag around programmatic scrollTop sets +
             // several restore attempts spaced across likely render times +
             // save on tab switch + save on beforeunload (as a safety net).
-            const scroller = document.querySelector('.sidebar-scroll');
-            if (scroller) {
+            // Same DOM-timing note as the resize handle above — .sidebar-scroll
+            // sits below this script tag, so a direct lookup at parse time
+            // returns null. Wrapped so it fires post-DOMContentLoaded when
+            // necessary.
+            const _attachScroller = function() {
+              const scroller = document.querySelector('.sidebar-scroll');
+              if (!scroller) return;
               let saveTimer = null;
               let suppressSave = false;
               let restoredOnce = false;
@@ -6784,6 +6803,11 @@
               window.addEventListener('beforeunload', saveNow);
               // pagehide fires more reliably than beforeunload on mobile.
               window.addEventListener('pagehide', saveNow);
+            };
+            if (document.readyState === 'loading') {
+              document.addEventListener('DOMContentLoaded', _attachScroller);
+            } else {
+              _attachScroller();
             }
           })();
         </script>
@@ -6818,6 +6842,8 @@
                 style="font-size:11.5px;padding:4px 10px" data-ship-tab="folio">☁ Folio</button>
         <button class="tab-btn ship-subtab" onclick="switchTab('metrics',this)"
                 style="font-size:11.5px;padding:4px 10px" data-ship-tab="metrics" title="How this folio is performing">📊 Metrics</button>
+        <button class="tab-btn ship-subtab" onclick="switchTab('affiliates',this)"
+                style="font-size:11.5px;padding:4px 10px" data-ship-tab="affiliates" title="Invite affiliates + track commission">🤝 Affiliates</button>
       </div>
       <script>
         /* Pair to the head-block bootRestoreTab — once the buttons exist,
@@ -6831,7 +6857,7 @@
           try {
             var saved = window.__folioBootTab;
             if (!saved) return;
-            var isShipSub = (saved === 'folio' || saved === 'metrics');
+            var isShipSub = (saved === 'folio' || saved === 'metrics' || saved === 'affiliates');
             var btns = document.querySelectorAll('.tab-btn');
             for (var i = 0; i < btns.length; i++) {
               btns[i].classList.remove('active');
@@ -7778,6 +7804,65 @@
             Metrics update as your folio is read + reviewed + shared. Numbers here are the same ones you'd see on <a href="/admin/metrics/" style="color:var(--hint)" id="mxAdminLink">the platform dashboard</a> if you're an admin.
           </div>
         </div>
+
+        <!-- ═══════════════════════════════════════════════════════════════
+             AFFILIATES SUB-TAB — owner-side management
+             (see docs/AFFILIATES_SPEC.md; backend at folio-paywall-worker.js
+             /affiliates/*). Panel is hidden until Ship > Affiliates is
+             clicked; switchTab() calls window._affRefresh() to hydrate.
+             ═══════════════════════════════════════════════════════════════ -->
+        <div id="tab-affiliates" style="display:none">
+          <div class="section">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+              <div style="display:flex;align-items:center;gap:6px">
+                <span style="font-size:16px">🤝</span>
+                <span style="font-size:13px;font-weight:600">Affiliates</span>
+              </div>
+              <button id="affRefreshBtn" class="btn-sm btn-ghost"
+                style="padding:2px 9px;font-size:10.5px" onclick="window._affRefresh && _affRefresh()">↻ Refresh</button>
+            </div>
+            <p class="small-note" id="affStatus"
+              style="margin:0 0 12px;font-size:11px;color:var(--hint);line-height:1.55">
+              Invite people to sell this Folio for you — they earn a percentage of every sale you attribute to their link. Folio takes 0%. You pay them directly via Ko-fi or PayPal.
+            </p>
+          </div>
+
+          <!-- ── Invite form ─────────────────────────────────────── -->
+          <div class="section" id="affInviteSection" style="display:none">
+            <div style="font-size:12px;font-weight:600;margin-bottom:8px">Invite a new affiliate</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <input type="email" id="affInviteEmail" placeholder="Affiliate's email"
+                style="width:100%;padding:7px 10px;font-size:12px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);box-sizing:border-box"/>
+              <div style="display:flex;align-items:center;gap:8px">
+                <label for="affInviteRate" style="font-size:11px;color:var(--muted);flex-shrink:0">Commission</label>
+                <input type="number" id="affInviteRate" min="1" max="75" step="1" value="20"
+                  style="width:70px;padding:6px 8px;font-size:12px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);text-align:right"/>
+                <span style="font-size:11px;color:var(--muted)">%</span>
+                <span id="affInviteRateWarn" style="font-size:10.5px;color:#b45309;display:none">↑ high — sure?</span>
+              </div>
+              <input type="text" id="affInviteNote" placeholder="Private note (optional) — e.g. 'Ken · China contacts'" maxlength="300"
+                style="width:100%;padding:7px 10px;font-size:11px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);box-sizing:border-box"/>
+              <button type="button" id="affInviteBtn" onclick="window._affInvite && _affInvite()"
+                style="align-self:flex-start;padding:7px 14px;font-size:12px;font-weight:500;background:var(--accent-ui);color:#fff;border:0;border-radius:6px;cursor:pointer">Send invite</button>
+              <div id="affInviteMsg" style="font-size:11px;line-height:1.5;color:var(--muted);min-height:16px"></div>
+            </div>
+          </div>
+
+          <!-- ── Ledger table ────────────────────────────────────── -->
+          <div class="section" id="affListSection" style="display:none">
+            <div style="font-size:12px;font-weight:600;margin-bottom:8px">Your affiliates</div>
+            <div id="affListEmpty"
+              style="display:none;padding:16px;text-align:center;font-size:11.5px;color:var(--hint);border:.5px dashed var(--border);border-radius:8px;line-height:1.55">
+              No affiliates yet. Invite your first above — you can set a different rate for each person, and they only see their own numbers.
+            </div>
+            <div id="affListRows" style="display:flex;flex-direction:column;gap:8px"></div>
+          </div>
+
+          <!-- ── Foot note ───────────────────────────────────────── -->
+          <div class="section" style="padding-top:8px;font-size:10.5px;color:var(--hint);line-height:1.55">
+            Folio never handles the payment — you pay affiliates directly. The <strong>Pay</strong> button opens Ko-fi or PayPal with the amount pre-filled; confirm once you've sent it and Folio marks it settled on both sides' ledgers. See <a href="/docs/affiliate-agreement" style="color:var(--hint)">the affiliate agreement</a>.
+          </div>
+        </div><!-- /tab-affiliates -->
 
       </div><!-- /sidebar-scroll -->
 
@@ -12466,9 +12551,11 @@
       audio: ['tab-audio'],
       folio: ['tab-project'],
       metrics: ['tab-metrics'],
+      affiliates: ['tab-affiliates'],
     };
     var _ALL_TAB_DIVS = ['tab-import', 'tab-chapters', 'tab-details', 'tab-design',
-      'tab-type', 'tab-audio', 'tab-images', 'tab-project', 'tab-metrics'];
+      'tab-type', 'tab-audio', 'tab-images', 'tab-project', 'tab-metrics',
+      'tab-affiliates'];
 
     /* Legacy-id shim. Old call sites pass switchTab('chapters', ...),
        switchTab('project', ...), etc. Map each to its new group so
@@ -12487,7 +12574,7 @@
     // currently active. Used to (a) know which sub-tab to open when the
     // user clicks the top-level Ship button and (b) which sub-tab-btn
     // to visually highlight. Persisted in localStorage.
-    var _SHIP_SUBTABS = ['folio', 'metrics'];
+    var _SHIP_SUBTABS = ['folio', 'metrics', 'affiliates'];
     function _shipIsGroupTab(id) { return _SHIP_SUBTABS.indexOf(id) >= 0; }
     function _shipGetLastSub() {
       try {
@@ -12543,6 +12630,7 @@
       } catch (_) {}
       if (id === 'manuscript') { try { renderChapterList(); } catch (e) { } }
       if (id === 'metrics') { try { _mxRefresh(); } catch (e) { console.warn('[metrics] refresh failed:', e); } }
+      if (id === 'affiliates') { try { window._affRefresh && window._affRefresh(); } catch (e) { console.warn('[affiliates] refresh failed:', e); } }
       // Remember the choice so a refresh lands on the same tab.
       try { localStorage.setItem('folio_lastTab', id); } catch (e) { }
     }
@@ -26471,6 +26559,296 @@
 
     const PAYWALL_WORKER_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
 
+    /* ═══════════════════════════════════════════════════════════════════
+       AFFILIATE PROGRAM — owner-side controller
+       ────────────────────────────────────────────────────────────────────
+       Backs the Ship > Affiliates sub-tab. All persistence goes through
+       folio-paywall-worker.js /affiliates/* endpoints; this file only
+       renders + wires. See docs/AFFILIATES_SPEC.md.
+
+       Exposes on window:
+         _affRefresh() — fetches list + renders rows for the current folio
+         _affInvite()  — validates form + POSTs new invite
+         _affPay(id)   — opens the pay-out modal for an affiliation
+         _affEdit(id)  — prompts for new rate + PATCHes
+         _affPause / _affResume / _affRemove(id) — status transitions
+       ═══════════════════════════════════════════════════════════════════ */
+    (function _folioAffiliatesOwner() {
+      const state = { list: [], loading: false };
+
+      async function _authToken() {
+        try {
+          if (!window._auth || !window._auth.currentUser) return null;
+          return await window._auth.currentUser.getIdToken();
+        } catch (_) { return null; }
+      }
+      function _currentFolioId() {
+        // Loaded folio id is stashed on window by loadFolioById; fall back
+        // to reading the ?folio= URL param.
+        try {
+          if (window._loadedFolioId) return window._loadedFolioId;
+          const p = new URLSearchParams(window.location.search);
+          return p.get('folio') || p.get('project') || '';
+        } catch (_) { return ''; }
+      }
+      function _readerBase() {
+        try { return window.location.origin; } catch (_) { return 'https://onfolio.press'; }
+      }
+      function _fmtMoney(n) {
+        const v = Number(n) || 0;
+        return '$' + v.toFixed(2);
+      }
+      function _fmtRate(r) { return Math.round((Number(r) || 0) * 100) + '%'; }
+      function _esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g,
+          c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+      }
+      function _setStatus(msg, isErr) {
+        const el = document.getElementById('affStatus');
+        if (!el) return;
+        el.textContent = msg;
+        el.style.color = isErr ? '#b91c1c' : 'var(--hint)';
+      }
+      function _setInviteMsg(msg, isErr) {
+        const el = document.getElementById('affInviteMsg');
+        if (!el) return;
+        el.textContent = msg || '';
+        el.style.color = isErr ? '#b91c1c' : 'var(--muted)';
+      }
+
+      async function _apiGet(path) {
+        const token = await _authToken();
+        if (!token) throw new Error('Sign in required');
+        const r = await fetch(PAYWALL_WORKER_URL + path, {
+          headers: { 'Authorization': 'Bearer ' + token },
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error((data && data.error) || ('HTTP ' + r.status));
+        return data;
+      }
+      async function _apiPost(path, body) {
+        const token = await _authToken();
+        if (!token) throw new Error('Sign in required');
+        const r = await fetch(PAYWALL_WORKER_URL + path, {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + token,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body || {}),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error((data && data.error) || ('HTTP ' + r.status));
+        return data;
+      }
+
+      function _renderRow(aff) {
+        const isInvited = aff.status === 'invited';
+        const isPaused  = aff.status === 'paused';
+        const readerLink = _readerBase() + '/s/' + encodeURIComponent(aff.folioId)
+          + '?a=' + encodeURIComponent(aff.code || '');
+        const statusBadge = isInvited
+          ? '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#fef3c7;color:#92400e">invited</span>'
+          : isPaused
+            ? '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#e5e7eb;color:#4b5563">paused</span>'
+            : '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:#dcfce7;color:#166534">active</span>';
+        const identity = _esc(aff.affiliateHandle || aff.affiliateEmail || 'affiliate');
+        const note = aff.note
+          ? '<div style="font-size:10.5px;color:var(--hint);margin-top:2px">' + _esc(aff.note) + '</div>'
+          : '';
+        const rateLabel = _fmtRate(aff.rate);
+        const pending = _fmtMoney(aff.pendingCommission);
+        const lifetime = _fmtMoney(aff.lifetimeCommission);
+        const gross = _fmtMoney(aff.lifetimeGross);
+        const actions = isInvited
+          ? '<button class="btn-sm btn-ghost" style="font-size:10.5px;padding:3px 8px" onclick="window._affRemove(\'' + aff.id + '\')">Cancel invite</button>'
+          : ('<button class="btn-sm" style="font-size:10.5px;padding:3px 10px;background:var(--accent-ui);color:#fff;border:0;border-radius:5px;cursor:pointer" '
+              + (aff.pendingCommission > 0 ? '' : 'disabled title="Nothing owed right now" ')
+              + 'onclick="window._affPay(\'' + aff.id + '\')">Pay ' + pending + '</button>'
+              + ' <button class="btn-sm btn-ghost" style="font-size:10.5px;padding:3px 8px" onclick="window._affEdit(\'' + aff.id + '\')">Edit rate</button>'
+              + ' <button class="btn-sm btn-ghost" style="font-size:10.5px;padding:3px 8px" onclick="window._' + (isPaused ? 'affResume' : 'affPause') + '(\'' + aff.id + '\')">' + (isPaused ? 'Resume' : 'Pause') + '</button>'
+              + ' <button class="btn-sm btn-ghost" style="font-size:10.5px;padding:3px 8px;color:#b91c1c" onclick="window._affRemove(\'' + aff.id + '\')">Remove</button>');
+        return ''
+          + '<div style="border:.5px solid var(--border);border-radius:8px;padding:10px 12px;background:var(--surface)">'
+          +   '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">'
+          +     '<div>'
+          +       '<div style="font-size:12px;font-weight:600">' + identity + ' &nbsp;' + statusBadge + '</div>'
+          +       note
+          +     '</div>'
+          +     '<div style="font-size:11px;color:var(--muted)">Rate: <strong>' + rateLabel + '</strong></div>'
+          +   '</div>'
+          +   (isInvited ? '' :
+              '<div style="display:flex;gap:14px;margin:8px 0;font-size:11px;color:var(--muted);flex-wrap:wrap">'
+              + '<span>Sold: <strong style="color:var(--text)">' + gross + '</strong></span>'
+              + '<span>Earned: <strong style="color:var(--text)">' + lifetime + '</strong></span>'
+              + '<span>Pending: <strong style="color:' + (aff.pendingCommission > 0 ? '#065f46' : 'var(--text)') + '">' + pending + '</strong></span>'
+              + '<span>Settled: <strong style="color:var(--text)">' + _fmtMoney(aff.settledCommission) + '</strong></span>'
+              + '</div>'
+              + '<div style="display:flex;align-items:center;gap:6px;margin:6px 0 8px;font-size:11px">'
+              +   '<code style="flex:1;overflow-x:auto;padding:4px 8px;background:var(--bg);border:.5px solid var(--border);border-radius:5px;font-family:var(--mono, monospace);font-size:10.5px;white-space:nowrap">' + _esc(readerLink) + '</code>'
+              +   '<button class="btn-sm btn-ghost" style="font-size:10.5px;padding:3px 8px" onclick="navigator.clipboard.writeText(\'' + readerLink.replace(/'/g,"\\'") + '\').then(()=>this.textContent=\'✓\')">Copy</button>'
+              + '</div>')
+          +   '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' + actions + '</div>'
+          + '</div>';
+      }
+
+      async function refresh() {
+        const folioId = _currentFolioId();
+        const inviteSection = document.getElementById('affInviteSection');
+        const listSection = document.getElementById('affListSection');
+        const rowsEl = document.getElementById('affListRows');
+        const emptyEl = document.getElementById('affListEmpty');
+        if (!folioId) {
+          _setStatus('Save this Folio first — affiliates are per-Folio.', false);
+          if (inviteSection) inviteSection.style.display = 'none';
+          if (listSection) listSection.style.display = 'none';
+          return;
+        }
+        const token = await _authToken();
+        if (!token) {
+          _setStatus('Sign in to manage affiliates.', false);
+          if (inviteSection) inviteSection.style.display = 'none';
+          if (listSection) listSection.style.display = 'none';
+          return;
+        }
+        if (inviteSection) inviteSection.style.display = '';
+        if (listSection) listSection.style.display = '';
+        state.loading = true;
+        try {
+          const data = await _apiGet('/affiliates/list?folio=' + encodeURIComponent(folioId));
+          state.list = Array.isArray(data.affiliates) ? data.affiliates : [];
+          if (!state.list.length) {
+            emptyEl.style.display = '';
+            rowsEl.innerHTML = '';
+          } else {
+            emptyEl.style.display = 'none';
+            rowsEl.innerHTML = state.list.map(_renderRow).join('');
+          }
+          _setStatus('Invite people to sell this Folio for you — Folio takes 0%.', false);
+        } catch (e) {
+          _setStatus('Could not load affiliates: ' + e.message, true);
+        } finally { state.loading = false; }
+      }
+      window._affRefresh = refresh;
+
+      window._affInvite = async function () {
+        const emailEl = document.getElementById('affInviteEmail');
+        const rateEl = document.getElementById('affInviteRate');
+        const noteEl = document.getElementById('affInviteNote');
+        const btn = document.getElementById('affInviteBtn');
+        const email = (emailEl.value || '').trim();
+        const rate = Number(rateEl.value) / 100;
+        const note = (noteEl.value || '').trim();
+        const folioId = _currentFolioId();
+        if (!folioId) return _setInviteMsg('Save the Folio first.', true);
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return _setInviteMsg('Enter a valid email.', true);
+        if (!(rate > 0 && rate <= 0.75)) return _setInviteMsg('Rate must be between 1% and 75%.', true);
+        btn.disabled = true;
+        _setInviteMsg('Sending invite…', false);
+        try {
+          await _apiPost('/affiliates/invite', { folioId, email, rate, note });
+          emailEl.value = ''; noteEl.value = ''; rateEl.value = 20;
+          _setInviteMsg('Invite sent to ' + email + '.', false);
+          await refresh();
+        } catch (e) {
+          _setInviteMsg('Invite failed: ' + e.message, true);
+        } finally { btn.disabled = false; }
+      };
+
+      // Warn when the rate crosses 30% (standard-affiliate territory
+      // is 20-30%; higher is a real deal but worth a second look).
+      document.addEventListener('input', function (e) {
+        if (e.target && e.target.id === 'affInviteRate') {
+          const warn = document.getElementById('affInviteRateWarn');
+          if (warn) warn.style.display = (Number(e.target.value) > 30) ? '' : 'none';
+        }
+      });
+
+      window._affEdit = async function (id) {
+        const aff = state.list.find(a => a.id === id);
+        const current = aff ? Math.round((aff.rate || 0) * 100) : 20;
+        const raw = window.prompt('New commission rate for future sales (1-75). Current: ' + current + '%.', String(current));
+        if (raw == null) return;
+        const rate = Number(raw) / 100;
+        if (!(rate > 0 && rate <= 0.75)) return alert('Rate must be between 1% and 75%.');
+        try { await _apiPost('/affiliates/edit-rate', { affiliationId: id, rate }); await refresh(); }
+        catch (e) { alert('Edit failed: ' + e.message); }
+      };
+      window._affPause  = async function (id) { try { await _apiPost('/affiliates/pause',  { affiliationId: id }); await refresh(); } catch (e) { alert(e.message); } };
+      window._affResume = async function (id) { try { await _apiPost('/affiliates/resume', { affiliationId: id }); await refresh(); } catch (e) { alert(e.message); } };
+      window._affRemove = async function (id) {
+        if (!confirm('Remove this affiliate? Their ledger stays visible but they will stop earning on new sales.')) return;
+        try { await _apiPost('/affiliates/remove', { affiliationId: id }); await refresh(); }
+        catch (e) { alert(e.message); }
+      };
+
+      /* Pay-out modal — minimal inline dialog. Opens the affiliate's
+         Ko-fi / PayPal in a new tab (owner sends the money manually)
+         then records the settlement when they confirm sent. */
+      window._affPay = function (id) {
+        const aff = state.list.find(a => a.id === id);
+        if (!aff) return;
+        const pending = Number(aff.pendingCommission) || 0;
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px';
+        overlay.innerHTML = ''
+          + '<div style="background:var(--surface);border-radius:12px;max-width:440px;width:100%;padding:20px;font-family:var(--sans);color:var(--text);box-shadow:0 20px 60px rgba(0,0,0,.35)">'
+          +   '<div style="font-size:14px;font-weight:600;margin-bottom:4px">Pay ' + _esc(aff.affiliateEmail || 'affiliate') + '</div>'
+          +   '<div style="font-size:11.5px;color:var(--muted);margin-bottom:14px">Folio never touches the money. Send the payment yourself, then mark it settled here so both sides\' ledgers stay in sync.</div>'
+          +   '<label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Amount</label>'
+          +   '<div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">'
+          +     '<span>$</span>'
+          +     '<input id="affPayAmount" type="number" min="0.01" step="0.01" value="' + pending.toFixed(2) + '" style="flex:1;padding:6px 10px;font-size:12px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text)"/>'
+          +   '</div>'
+          +   '<label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Their payout handle (Ko-fi username or PayPal.me URL)</label>'
+          +   '<input id="affPayHandle" type="text" placeholder="e.g. ken-translator  or  paypal.me/kentrans" style="width:100%;padding:6px 10px;font-size:12px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);margin-bottom:10px;box-sizing:border-box"/>'
+          +   '<div style="display:flex;gap:8px;margin-bottom:14px">'
+          +     '<button id="affPayKofi" type="button" style="flex:1;padding:8px;font-size:12px;background:#29abe0;color:#fff;border:0;border-radius:6px;cursor:pointer">Open Ko-fi ↗</button>'
+          +     '<button id="affPayPayPal" type="button" style="flex:1;padding:8px;font-size:12px;background:#003087;color:#fff;border:0;border-radius:6px;cursor:pointer">Open PayPal ↗</button>'
+          +   '</div>'
+          +   '<label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Reference / note (optional)</label>'
+          +   '<input id="affPayNote" type="text" placeholder="e.g. Embers · Aug 2026" maxlength="200" style="width:100%;padding:6px 10px;font-size:11.5px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);margin-bottom:14px;box-sizing:border-box"/>'
+          +   '<div style="display:flex;gap:8px;justify-content:flex-end">'
+          +     '<button id="affPayCancel" type="button" class="btn-sm btn-ghost" style="padding:7px 14px;font-size:12px">Cancel</button>'
+          +     '<button id="affPayConfirm" type="button" style="padding:7px 14px;font-size:12px;background:#166534;color:#fff;border:0;border-radius:6px;cursor:pointer">Mark as sent</button>'
+          +   '</div>'
+          + '</div>';
+        document.body.appendChild(overlay);
+        const close = () => overlay.remove();
+        overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+        overlay.querySelector('#affPayCancel').addEventListener('click', close);
+        overlay.querySelector('#affPayKofi').addEventListener('click', () => {
+          const handle = (overlay.querySelector('#affPayHandle').value || '').trim().replace(/^ko-?fi\.com\//i, '').replace(/^\/+/, '');
+          if (!handle) return alert('Enter their Ko-fi username first.');
+          window.open('https://ko-fi.com/' + encodeURIComponent(handle), '_blank', 'noopener');
+        });
+        overlay.querySelector('#affPayPayPal').addEventListener('click', () => {
+          let handle = (overlay.querySelector('#affPayHandle').value || '').trim();
+          const amount = overlay.querySelector('#affPayAmount').value;
+          if (!handle) return alert('Enter their PayPal.me URL or handle first.');
+          handle = handle.replace(/^https?:\/\//, '').replace(/^paypal\.me\//i, '').replace(/^\/+/, '');
+          window.open('https://paypal.me/' + encodeURIComponent(handle) + '/' + encodeURIComponent(amount), '_blank', 'noopener');
+        });
+        overlay.querySelector('#affPayConfirm').addEventListener('click', async () => {
+          const amount = Number(overlay.querySelector('#affPayAmount').value);
+          const note = (overlay.querySelector('#affPayNote').value || '').trim();
+          const handle = (overlay.querySelector('#affPayHandle').value || '').trim();
+          const method = /paypal/i.test(handle) ? 'paypal' : (handle ? 'kofi' : 'other');
+          if (!(amount > 0)) return alert('Enter a positive amount.');
+          const btn = overlay.querySelector('#affPayConfirm');
+          btn.disabled = true; btn.textContent = 'Saving…';
+          try {
+            await _apiPost('/affiliates/settle', { affiliationId: id, amount, method, externalTxnRef: handle, note });
+            close();
+            await refresh();
+          } catch (e) {
+            alert('Settle failed: ' + e.message);
+            btn.disabled = false; btn.textContent = 'Mark as sent';
+          }
+        });
+      };
+    })();
+
     // ── window._folioTrack — analytics event tracker ─────────────────
     // Fire-and-forget events for the metrics pipeline. Uses
     // navigator.sendBeacon when available (survives page unload) with
@@ -28278,6 +28656,52 @@
       // Always activate reader mode now — staff bypass is handled earlier
       _readerMode = true;
       _readerFolioId = id;
+
+      // Materialize any affiliate attribution cookie into a persistent
+      // Firestore record so this buyer can be attributed even if they
+      // clear cookies or buy on another device. Reads the folio_aff_<X>
+      // cookie set by folio-share-worker.js and posts the code straight
+      // to the paywall worker — direct (no share-worker proxy hop).
+      // The cookie value is just an 8-char public affiliate code; not
+      // a secret, so document.cookie access is fine. Fire-and-forget:
+      // every failure path (no cookie, no active affiliation,
+      // self-purchase) is silently ignored — the endpoint always
+      // returns 200. Waits for a real (non-anonymous) sign-in.
+      (function _rdMaterializeAffiliate() {
+        let fired = false;
+        const fire = async () => {
+          if (fired) return;
+          const u = window._user;
+          if (!u || u.isAnonymous) return;
+          // Look up the affiliate cookie for THIS folio.
+          const safeKey = 'folio_aff_' + id.replace(/[^A-Za-z0-9_-]/g, '_');
+          let code = '';
+          try {
+            for (const part of document.cookie.split(/;\s*/)) {
+              const eq = part.indexOf('=');
+              if (eq > 0 && part.substring(0, eq) === safeKey) {
+                const v = part.substring(eq + 1).trim();
+                if (/^[A-Za-z0-9]{4,16}$/.test(v)) { code = v; break; }
+              }
+            }
+          } catch (_) {}
+          if (!code) return;  // nothing to attribute
+          fired = true;
+          try {
+            const token = await u.getIdToken();
+            await fetch('https://folio-paywall.jacobdsiler.workers.dev/affiliates/materialize?folio=' + encodeURIComponent(id), {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Bearer ' + token,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ code }),
+            });
+          } catch (_) { /* silent */ }
+        };
+        if (window._user && !window._user.isAnonymous) fire();
+        else document.addEventListener('fb-ready', fire, { once: true });
+      })();
 
       const params = new URLSearchParams(window.location.search);
 
