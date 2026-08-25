@@ -801,18 +801,18 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
 <!-- ═══════════════════════════════════════════════════════════ HERO ════ -->
 <section class="hero">
   <div>
-    <span class="eyebrow">Folio · a book studio in your browser</span>
+    <span class="eyebrow">A book studio in your browser</span>
     <h1>
-      <span style="color:var(--accent);font-style:normal">Folio</span> — write, typeset, and release <span class="italic">beautiful books</span> in your browser, for free.
+      Your book, <span class="italic">published</span> — in an afternoon.
     </h1>
-    <p class="lede">Folio is an end-to-end home for authors. Draft a chapter, see it set in print-grade type instantly, narrate it in dozens of voices, and ship it to readers — free or paid. No software. No setup. No royalties to a platform you can't see.</p>
+    <p class="lede"><strong style="color:var(--accent);font-style:normal">Folio</strong> is where you write, typeset, and release a real book — as a free serial, a paid release, or a downloadable PDF / EPUB / DOCX. One link, one afternoon, keep 100% of what you make. No software to install, no learning curve.</p>
     <div class="hero-cta">
       <a class="btn primary big" href="app.html">Start writing — free →</a>
       <a class="btn ghost big" href="#workflow">See how it works</a>
     </div>
     <div class="hero-note">
       <span class="dot"></span>
-      No signup wall. Your book autosaves the moment you start typing.
+      Autosaves the moment you start typing. Sign-in optional.
     </div>
     <!-- Live counts strip. Populated by the existing testimonialsBoot
          script at the bottom of the page — the same script that reads
@@ -909,12 +909,17 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   </div>
 </section>
 
-<!-- ═══════════════════════════════════════════════════════════ STATS ═══ -->
+<!-- ═══════════════════════════════════════════════════════════ STATS ═══
+     Two static promises that will always be true (0% commission, unlimited
+     words), rendered alongside two LIVE numbers from Firestore (folios on
+     the shelf, authors publishing) via the testimonialsBoot script below.
+     Hardcoded traffic counts were removed 2026-08-26 — presenting made-up
+     stats as real on a founder-run platform is a credibility grenade. -->
 <div class="stats" id="statsBand">
   <div class="stats-inner">
-    <div class="stat"><div class="n" data-count="12847">12,847</div><div class="l">Books written in Folio</div></div>
-    <div class="stat"><div class="n" data-count="892">892</div><div class="l">Audiobooks generated this week</div></div>
-    <div class="stat"><div class="n">$0</div><div class="l">Folio royalty on your sales</div></div>
+    <div class="stat"><div class="n" id="statsBandFolios">—</div><div class="l">Folios on the Shelf</div></div>
+    <div class="stat"><div class="n" id="statsBandAuthors">—</div><div class="l">Authors publishing</div></div>
+    <div class="stat"><div class="n">$0</div><div class="l">Folio commission on your sales</div></div>
     <div class="stat"><div class="n">∞</div><div class="l">Words. Free. Forever.</div></div>
   </div>
 </div>
@@ -1794,6 +1799,12 @@ paintViral();
           if (_foliosEl) _foliosEl.textContent = String(folioCount);
           if (_authorsEl) _authorsEl.textContent = String(uidSet.size);
           if (_reviewsEl) _reviewsEl.textContent = String(reviewsCountSnap.size);
+          // Also feed the mid-page stats band (real numbers replaced the
+          // hardcoded book/audio counts on 2026-08-26).
+          const _sbFolios = document.getElementById('statsBandFolios');
+          const _sbAuthors = document.getElementById('statsBandAuthors');
+          if (_sbFolios) _sbFolios.textContent = String(folioCount);
+          if (_sbAuthors) _sbAuthors.textContent = String(uidSet.size);
           // Only reveal the strip if there's SOMETHING to show — no point
           // announcing three zeros to the first visitor.
           if (_wrap && (folioCount > 0 || uidSet.size > 0 || reviewsCountSnap.size > 0)) {
