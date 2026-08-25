@@ -1793,28 +1793,28 @@ async function _writeSaleRecord(projectId, token, folioId, sale, env) {
   }
   // Ledger bump — after sale write so we know the sale is durable.
   if (attribution) {
-    await _bumpAffiliationLedger(
+    const bump = await _bumpAffiliationLedger(
       projectId, token, attribution.affiliationId,
       Number(sale.amount) || 0, attribution.commission
     );
-    // Fire-and-forget: notify affiliate on their first-ever sale for
-    // this affiliation, via service binding. Email worker resolves the
-    // affiliate email + folio title from affiliationId. Phase-2 could
-    // dedupe (right now, EVERY attributed sale fires this — annoying
-    // but harmless while ledger volume is low).
-    try {
-      if (env && env.EMAIL_WORKER && typeof env.EMAIL_WORKER.fetch === 'function') {
-        await env.EMAIL_WORKER.fetch('https://folio-email/send-affiliate-first-sale', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            affiliationId: attribution.affiliationId,
-            gross: Number(sale.amount) || 0,
-            commission: attribution.commission,
-          }),
-        });
-      }
-    } catch (e) { console.warn('[aff-firstsale] email failed:', e && e.message); }
+    // Notify affiliate ONLY on their first-ever attributed sale.
+    // `firstSaleEmailedAt` on the affiliation doc is the dedupe latch,
+    // stamped atomically inside the same patch as the ledger bump.
+    if (bump && bump.firstSale) {
+      try {
+        if (env && env.EMAIL_WORKER && typeof env.EMAIL_WORKER.fetch === 'function') {
+          await env.EMAIL_WORKER.fetch('https://folio-email/send-affiliate-first-sale', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              affiliationId: attribution.affiliationId,
+              gross: Number(sale.amount) || 0,
+              commission: attribution.commission,
+            }),
+          });
+        }
+      } catch (e) { console.warn('[aff-firstsale] email failed:', e && e.message); }
+    }
   }
 }
 
@@ -2134,6 +2134,7 @@ async function handleAffiliateInvite(request, env) {
     note,
     lifetimeGross: 0, lifetimeCommission: 0,
     pendingCommission: 0, settledCommission: 0,
+    firstSaleEmailedAt: null,  // dedupe latch for the first-sale email
   });
   // Fire-and-forget email via service binding (see wrangler.toml —
   // env.EMAIL_WORKER binds directly to folio-email so no external
@@ -2432,18 +2433,30 @@ async function _lookupSaleAttribution(projectId, token, folioId, buyerEmail, amo
 
 /* Best-effort ledger bump after a sale is recorded. Non-transactional
    for MVP — sale doc already carries the attribution so we can
-   reconcile if this fails. */
+   reconcile if this fails. Returns { firstSale, aff } so the caller
+   can decide whether to fire the celebratory first-sale email. */
 async function _bumpAffiliationLedger(projectId, token, affiliationId, gross, commission) {
   try {
     const aff = await fsGet(projectId, token,
       'folio_affiliations/' + encodeURIComponent(affiliationId));
-    if (!aff) return;
-    await _fsPatch(projectId, token, 'folio_affiliations', affiliationId, {
+    if (!aff) return { firstSale: false, aff: null };
+    const firstSale = !aff.firstSaleEmailedAt;
+    const patch = {
       lifetimeGross:     (aff.lifetimeGross     || 0) + gross,
       lifetimeCommission:(aff.lifetimeCommission|| 0) + commission,
       pendingCommission: (aff.pendingCommission || 0) + commission,
-    });
-  } catch (e) { console.warn('[aff-bump] threw:', e && e.message); }
+    };
+    // Stamp the first-sale latch inside the same patch so we never
+    // double-send. If two attributed sales race, one of them will
+    // observe firstSale=true and one won't — worst case a race
+    // sends the email twice, which is harmless.
+    if (firstSale) patch.firstSaleEmailedAt = new Date().toISOString();
+    await _fsPatch(projectId, token, 'folio_affiliations', affiliationId, patch);
+    return { firstSale, aff };
+  } catch (e) {
+    console.warn('[aff-bump] threw:', e && e.message);
+    return { firstSale: false, aff: null };
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -4626,7 +4639,29 @@ export default {
           'GET  /photo-status   ?uid=&folioId=&template=',
           'POST /sign-share     { folioId, role } → { shareUrl }  (owner mints a signed reader link)',
           'POST /kdp-import    { url } → { books: [...] }  (Amazon author/book page metadata scrape)',
+          'GET  /affiliates/ping                        no-auth deploy probe',
+          'POST /affiliates/invite       { folioId, email, rate, note? }  (owner Bearer)',
+          'POST /affiliates/accept       { affiliationId }              (invitee Bearer)',
+          'GET  /affiliates/list?folio=X                                (owner Bearer)',
+          'GET  /affiliates/mine                                        (affiliate Bearer)',
+          'POST /affiliates/edit-rate    { affiliationId, rate }        (owner Bearer)',
+          'POST /affiliates/pause | /resume | /remove { affiliationId } (owner Bearer)',
+          'POST /affiliates/materialize?folio=X   { code? }             (buyer Bearer)',
+          'POST /affiliates/settle       { affiliationId, amount, method, ... }',
         ],
+      }, 200, request, env);
+    }
+
+    // No-auth deploy probe — the definitive "are the affiliate routes
+    // live?" test. Returns 200 with the deployed timestamp if the
+    // routing block is present. Bypasses every auth check on purpose.
+    if (path === '/affiliates/ping' && request.method === 'GET') {
+      return json({
+        ok: true,
+        service: 'folio-paywall',
+        affiliateRoutesDeployed: true,
+        worker: 'folio-paywall',
+        now: new Date().toISOString(),
       }, 200, request, env);
     }
 
