@@ -731,6 +731,23 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ───────────────────────────────────────────────────────────────
+    // SUPPORT TICKETS (Task #27)
+    // ───────────────────────────────────────────────────────────────
+    // /support form posts to the paywall worker's /support-submit,
+    // which writes the ticket via service account. Admin queue at
+    // /admin/support/ reads via /support-list (worker-mediated).
+    // Client rules are minimal — the ticket's reporter uid can read
+    // their own submission (future "my tickets" surface); everything
+    // else is worker-only.
+    match /folio_support_tickets/{ticketId} {
+      allow read: if request.auth != null && (
+        isUser(resource.data.reporterUid) ||
+        isAdmin()
+      );
+      allow write: if false;  // worker-only via service account
+    }
+
     // Anything not matched above is denied by default.
   }
 }
