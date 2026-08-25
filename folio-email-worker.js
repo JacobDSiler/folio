@@ -1222,6 +1222,111 @@ export default {
       }
     }
 
+    // ══ Support tickets — heads-up + reply emails ══════════════════
+    // /support/ form → paywall /support-submit → we send Jacob a
+    // "new ticket" email. Admin reply → paywall /support-reply → we
+    // email the reporter.
+
+    if (request.method === 'POST' && path === '/send-support-ticket-created') {
+      const okRate = await checkRateLimit(request, { cap: 120, bucket: 'sup-new' });
+      if (!okRate) return errorJson('Rate limited', 429, request, env);
+      let payload;
+      try { payload = await request.json(); }
+      catch (e) { return errorJson('Body must be valid JSON', 400, request, env); }
+      const ticketId = String((payload && payload.ticketId) || '').trim();
+      const category = String((payload && payload.category) || 'other').trim();
+      const subject = String((payload && payload.subject) || '(no subject)').trim();
+      const bodyText = String((payload && payload.body) || '').trim();
+      const reporterEmail = String((payload && payload.reporterEmail) || '').trim();
+      const reporterName = String((payload && payload.reporterName) || '').trim();
+      const context = (payload && payload.context) || {};
+      const adminInboxRaw = env.SUPPORT_INBOX || env.FROM_EMAIL || '';
+      const adminInbox = String(adminInboxRaw).trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminInbox)) {
+        return json({ ok: true, sent: false, reason: 'no-admin-inbox' }, 200, request, env);
+      }
+      const base = allowedOrigins(env)[0] || DEFAULT_ORIGIN;
+      const adminUrl = base + '/admin/support/?id=' + encodeURIComponent(ticketId);
+      const catEmoji = category === 'bug' ? '🐛' : category === 'billing' ? '💳'
+                    : category === 'feature' ? '💡' : category === 'affiliate' ? '🤝' : '❓';
+      const emailSubject = catEmoji + ' [' + category + '] ' + subject.slice(0, 100);
+      const contextText =
+        (context.folioId   ? ('Folio: '     + context.folioId   + '\n') : '') +
+        (context.url       ? ('URL: '       + context.url       + '\n') : '') +
+        (context.build     ? ('Build: '     + context.build     + '\n') : '') +
+        (context.userAgent ? ('UA: '        + context.userAgent + '\n') : '');
+      const text =
+        'New support ticket — ' + category + '\n\n' +
+        'From: ' + (reporterName ? (reporterName + ' <' + reporterEmail + '>') : reporterEmail) + '\n' +
+        (contextText ? '\n' + contextText : '') +
+        '\n---\n\n' + bodyText + '\n\n---\n\n' +
+        'Open in admin: ' + adminUrl + '\n';
+      const html =
+        '<!DOCTYPE html><html><body style="font-family:Georgia,serif;max-width:640px;margin:0 auto;padding:28px 22px;color:#222;background:#fafafa">' +
+          '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:6px">' + catEmoji + ' New ticket · ' + esc(category) + '</div>' +
+          '<h1 style="font-size:19px;margin:0 0 4px;font-weight:600">' + esc(subject) + '</h1>' +
+          '<div style="font-size:12.5px;color:#666;margin-bottom:20px">From ' + esc(reporterName ? (reporterName + ' <' + reporterEmail + '>') : reporterEmail) + '</div>' +
+          (contextText
+            ? '<div style="font-size:11.5px;color:#666;background:#fff;border:1px solid #eee;border-radius:8px;padding:10px 14px;margin-bottom:16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap">' + esc(contextText.trim()) + '</div>'
+            : '') +
+          '<div style="background:#fff;border-radius:10px;padding:20px;border:1px solid #eee;font-size:14px;line-height:1.6;white-space:pre-wrap">' + esc(bodyText) + '</div>' +
+          '<div style="margin-top:22px"><a href="' + esc(adminUrl) + '" style="display:inline-block;background:#065f46;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-size:13px;font-weight:500">Open in admin →</a></div>' +
+        '</body></html>';
+      try {
+        const result = await sendRawViaResend(env, {
+          to: adminInbox, subject: emailSubject, html, text,
+          replyTo: reporterEmail,
+        });
+        return json({ ok: true, id: result && result.id }, 200, request, env);
+      } catch (e) {
+        return errorJson('Send failed: ' + (e.message || 'unknown'),
+                         e.status || 502, request, env);
+      }
+    }
+
+    if (request.method === 'POST' && path === '/send-support-reply') {
+      const okRate = await checkRateLimit(request, { cap: 120, bucket: 'sup-reply' });
+      if (!okRate) return errorJson('Rate limited', 429, request, env);
+      let payload;
+      try { payload = await request.json(); }
+      catch (e) { return errorJson('Body must be valid JSON', 400, request, env); }
+      const ticketId = String((payload && payload.ticketId) || '').trim();
+      const reporterEmail = String((payload && payload.reporterEmail) || '').trim();
+      const subject = String((payload && payload.subject) || 'Your Folio support request').trim();
+      const reply = String((payload && payload.reply) || '').trim();
+      const original = String((payload && payload.originalBody) || '').trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reporterEmail)) {
+        return errorJson('Missing reporterEmail', 400, request, env);
+      }
+      const replyToEmail = env.SUPPORT_INBOX || env.FROM_EMAIL || 'folio@jacobsiler.com';
+      const emailSubject = 'Re: ' + subject.slice(0, 100);
+      const text =
+        reply + '\n\n' +
+        '---\n' +
+        'Replying to your Folio support request. Reply to this email to continue the thread.\n' +
+        (original ? '\n> ' + original.replace(/\n/g, '\n> ') + '\n' : '');
+      const html =
+        '<!DOCTYPE html><html><body style="font-family:Georgia,serif;max-width:560px;margin:0 auto;padding:28px 22px;color:#222;background:#fafafa">' +
+          '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:6px">Folio support · reply</div>' +
+          '<h1 style="font-size:18px;margin:0 0 18px;font-weight:600">Re: ' + esc(subject) + '</h1>' +
+          '<div style="background:#fff;border-radius:10px;padding:20px;border:1px solid #eee;font-size:14px;line-height:1.6;white-space:pre-wrap">' + esc(reply) + '</div>' +
+          '<p style="font-size:12px;color:#666;margin-top:20px;line-height:1.6">Reply to this email to continue the conversation.</p>' +
+          (original
+            ? '<div style="font-size:12px;color:#888;border-left:3px solid #ddd;padding:6px 12px;margin-top:20px;white-space:pre-wrap">' + esc(original) + '</div>'
+            : '') +
+        '</body></html>';
+      try {
+        const result = await sendRawViaResend(env, {
+          to: reporterEmail, subject: emailSubject, html, text,
+          replyTo: replyToEmail,
+        });
+        return json({ ok: true, id: result && result.id, ticketId }, 200, request, env);
+      } catch (e) {
+        return errorJson('Send failed: ' + (e.message || 'unknown'),
+                         e.status || 502, request, env);
+      }
+    }
+
     // ── Fallthrough — unknown route ────────────────────────
     return errorJson('Not found: ' + request.method + ' ' + path, 404, request, env);
   },

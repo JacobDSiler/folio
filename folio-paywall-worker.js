@@ -2460,6 +2460,217 @@ async function _bumpAffiliationLedger(projectId, token, affiliationId, gross, co
 }
 
 /* ══════════════════════════════════════════════════════════════════
+   SUPPORT TICKETS (Task #27)
+   ────────────────────────────────────────────────────────────────────
+   /support form → POST /support-submit → writes ticket doc + emails
+   Jacob. /admin/support/ triage page → GET /support-list. Admin
+   replies via POST /support-reply which emails the user. Marks
+   resolved via POST /support-resolve.
+
+   Data model: folio_support_tickets/{id}
+     createdAt, updatedAt, status ('open'|'in-progress'|'resolved'),
+     category, subject, body, reporterUid?, reporterEmail,
+     reporterName?, context {folioId?, url?, userAgent?, build?},
+     messages: [{at, from ('user'|'admin'), body, senderEmail?}],
+     resolvedAt?
+   ══════════════════════════════════════════════════════════════════ */
+
+const _SUPPORT_CATEGORIES = ['bug', 'billing', 'feature', 'affiliate', 'other'];
+
+/* Small helper — resolve a bearer id token if present, else null.
+   Used by /support-submit which allows both signed-in and anonymous
+   posts (email is required either way, so anonymous is fine). */
+async function _maybeAuth(request, env) {
+  const hdr = request.headers.get('Authorization') || '';
+  const tok = hdr.replace(/^Bearer\s+/i, '').trim();
+  if (!tok) return { uid: null, email: null };
+  const uid = await _verifyFirebaseIdToken(tok, env);
+  if (!uid) return { uid: null, email: null };
+  const email = await _firebaseUserEmail(uid, env);
+  return { uid, email: _normalizeEmail(email) };
+}
+
+/* Admin gate — reuses the ADMIN_DEBUG_TOKEN pattern for phase-1
+   simplicity. Long-term this should verify against folio_roles
+   (which the Firestore rules already do), but for MVP the admin
+   panel already runs behind isAdmin() rules and this worker check
+   is a defense-in-depth. */
+async function _requireAdminAuth(request, env) {
+  const key = new URL(request.url).searchParams.get('key') || '';
+  if (env.ADMIN_DEBUG_TOKEN && key === env.ADMIN_DEBUG_TOKEN) return true;
+  // Also accept Bearer + uid check against hardcoded admin uids.
+  const hdr = request.headers.get('Authorization') || '';
+  const tok = hdr.replace(/^Bearer\s+/i, '').trim();
+  if (!tok) return false;
+  const uid = await _verifyFirebaseIdToken(tok, env);
+  const admins = [
+    'x9AgFZ7O8WVz2UVtyO4ggWKNfc73',   // Jacob primary
+    'Y1bO4mc8aAclkbRNIYXyez8i7Rj2',   // Jacob secondary
+  ];
+  return uid && admins.indexOf(uid) >= 0;
+}
+
+/* ── POST /support-submit ─────────────────────────────────────────
+   Body: { category, subject, body, email?, name?, context? }
+   Public — no auth required (support form is available to non-users).
+   Rate-limited by IP (12/hr). Writes the ticket and fires a heads-up
+   email to Jacob so tickets don't sit unnoticed. */
+async function handleSupportSubmit(request, env) {
+  const body = await request.json().catch(() => ({}));
+  const category = String(body.category || 'other').toLowerCase();
+  if (_SUPPORT_CATEGORIES.indexOf(category) < 0) {
+    return errorJson('Unknown category', 400, request, env);
+  }
+  const subject = String(body.subject || '').trim().slice(0, 200);
+  const msg     = String(body.body    || '').trim().slice(0, 8000);
+  if (!subject) return errorJson('Missing subject', 400, request, env);
+  if (msg.length < 5) return errorJson('Message too short', 400, request, env);
+  // Auth is optional — accept a Bearer if present for enrichment.
+  const auth = await _maybeAuth(request, env);
+  const reporterEmail = _normalizeEmail(body.email || auth.email || '');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reporterEmail)) {
+    return errorJson('Valid email required', 400, request, env);
+  }
+  const reporterName = String(body.name || '').trim().slice(0, 100);
+  const context = (body.context && typeof body.context === 'object') ? body.context : {};
+  const sanitizedContext = {
+    folioId:   String(context.folioId   || '').trim().slice(0, 100) || null,
+    url:       String(context.url       || '').trim().slice(0, 500) || null,
+    userAgent: String(context.userAgent || '').trim().slice(0, 300) || null,
+    build:     String(context.build     || '').trim().slice(0, 50)  || null,
+  };
+  const sa = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+  const ticketId = 'tkt_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  const now = new Date().toISOString();
+  await _fsCreate(projectId, sa.token, 'folio_support_tickets', ticketId, {
+    createdAt: now,
+    updatedAt: now,
+    status: 'open',
+    category,
+    subject,
+    body: msg,
+    reporterUid:   auth.uid || null,
+    reporterEmail,
+    reporterName:  reporterName || null,
+    context: sanitizedContext,
+    messages: [
+      { at: now, from: 'user', body: msg, senderEmail: reporterEmail },
+    ],
+    resolvedAt: null,
+    assignedTo: null,
+  });
+  // Fire heads-up email to Jacob via service binding — best-effort.
+  try {
+    if (env.EMAIL_WORKER && typeof env.EMAIL_WORKER.fetch === 'function') {
+      await env.EMAIL_WORKER.fetch('https://folio-email/send-support-ticket-created', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketId, category, subject, body: msg,
+          reporterEmail, reporterName,
+          context: sanitizedContext,
+        }),
+      });
+    }
+  } catch (e) { console.warn('[support-submit] email failed:', e && e.message); }
+  return json({ ok: true, ticketId }, 200, request, env);
+}
+
+/* ── GET /support-list?status=open&category=X ─────────────────────
+   Admin-only. Returns up to 200 tickets, newest first. Simple filter.
+   For a bigger queue we'd add pagination; MVP fits comfortably in RAM. */
+async function handleSupportList(request, env) {
+  if (!(await _requireAdminAuth(request, env))) {
+    return errorJson('Unauthorized', 401, request, env);
+  }
+  const url = new URL(request.url);
+  const status   = (url.searchParams.get('status')   || '').trim().toLowerCase();
+  const category = (url.searchParams.get('category') || '').trim().toLowerCase();
+  const sa = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+  const filter = {};
+  if (status) filter.status = status;
+  if (category && _SUPPORT_CATEGORIES.indexOf(category) >= 0) filter.category = category;
+  const rows = Object.keys(filter).length
+    ? await _fsQuery(projectId, sa.token, 'folio_support_tickets', filter)
+    : await _fsQuery(projectId, sa.token, 'folio_support_tickets', { status: 'open' });
+  // Sort newest first.
+  rows.sort((a, b) => String(b.data.createdAt || '').localeCompare(String(a.data.createdAt || '')));
+  return json({ ok: true, tickets: rows.slice(0, 200).map(r => ({ id: r.id, ...r.data })) }, 200, request, env);
+}
+
+/* ── POST /support-reply ──────────────────────────────────────────
+   Body: { ticketId, body }
+   Admin posts a reply. Appends to messages, bumps status to
+   'in-progress' if it was 'open', updates updatedAt, and emails the
+   reporter with the reply body. */
+async function handleSupportReply(request, env) {
+  if (!(await _requireAdminAuth(request, env))) {
+    return errorJson('Unauthorized', 401, request, env);
+  }
+  const body = await request.json().catch(() => ({}));
+  const ticketId = String(body.ticketId || '').trim();
+  const reply = String(body.body || '').trim().slice(0, 8000);
+  if (!ticketId) return errorJson('Missing ticketId', 400, request, env);
+  if (reply.length < 2) return errorJson('Reply too short', 400, request, env);
+  const sa = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+  const tkt = await fsGet(projectId, sa.token, 'folio_support_tickets/' + encodeURIComponent(ticketId));
+  if (!tkt) return errorJson('Not found', 404, request, env);
+  const now = new Date().toISOString();
+  const messages = Array.isArray(tkt.messages) ? tkt.messages.slice() : [];
+  messages.push({ at: now, from: 'admin', body: reply, senderEmail: 'folio@jacobsiler.com' });
+  const patch = { messages, updatedAt: now };
+  if (tkt.status === 'open') patch.status = 'in-progress';
+  await _fsPatch(projectId, sa.token, 'folio_support_tickets', ticketId, patch);
+  // Email the reporter.
+  try {
+    if (env.EMAIL_WORKER && typeof env.EMAIL_WORKER.fetch === 'function' && tkt.reporterEmail) {
+      await env.EMAIL_WORKER.fetch('https://folio-email/send-support-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ticketId,
+          reporterEmail: tkt.reporterEmail,
+          subject: tkt.subject,
+          reply,
+          originalBody: tkt.body,
+        }),
+      });
+    }
+  } catch (e) { console.warn('[support-reply] email failed:', e && e.message); }
+  return json({ ok: true }, 200, request, env);
+}
+
+/* ── POST /support-resolve ────────────────────────────────────────
+   Body: { ticketId, note? }
+   Admin marks a ticket resolved. Note is an optional final message. */
+async function handleSupportResolve(request, env) {
+  if (!(await _requireAdminAuth(request, env))) {
+    return errorJson('Unauthorized', 401, request, env);
+  }
+  const body = await request.json().catch(() => ({}));
+  const ticketId = String(body.ticketId || '').trim();
+  const note = String(body.note || '').trim().slice(0, 500);
+  if (!ticketId) return errorJson('Missing ticketId', 400, request, env);
+  const sa = await getAccessToken(env);
+  const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+  const tkt = await fsGet(projectId, sa.token, 'folio_support_tickets/' + encodeURIComponent(ticketId));
+  if (!tkt) return errorJson('Not found', 404, request, env);
+  const now = new Date().toISOString();
+  const messages = Array.isArray(tkt.messages) ? tkt.messages.slice() : [];
+  if (note) messages.push({ at: now, from: 'admin', body: note, senderEmail: 'folio@jacobsiler.com' });
+  await _fsPatch(projectId, sa.token, 'folio_support_tickets', ticketId, {
+    status: 'resolved',
+    resolvedAt: now,
+    updatedAt: now,
+    messages,
+  });
+  return json({ ok: true }, 200, request, env);
+}
+
+/* ══════════════════════════════════════════════════════════════════
    MULTI-TENANT VENDOR WEBHOOKS
    ────────────────────────────────────────────────────────────────────
    Ko-fi / Payhip / PayPal each allow only ONE webhook URL per account.
@@ -4742,6 +4953,11 @@ export default {
     if (path === '/affiliates/remove'      && request.method === 'POST') return _setAffiliationStatus(request, env, 'removed');
     if (path === '/affiliates/materialize' && request.method === 'POST') return handleAffiliateMaterialize(request, env);
     if (path === '/affiliates/settle'      && request.method === 'POST') return handleAffiliateSettle(request, env);
+    // ── Support tickets (see docs/AFFILIATES_SPEC.md is the pattern) ─
+    if (path === '/support-submit'   && request.method === 'POST') return handleSupportSubmit(request, env);
+    if (path === '/support-list'     && request.method === 'GET')  return handleSupportList(request, env);
+    if (path === '/support-reply'    && request.method === 'POST') return handleSupportReply(request, env);
+    if (path === '/support-resolve'  && request.method === 'POST') return handleSupportResolve(request, env);
 
     return errorJson('Not found: ' + path, 404, request, env);
   },
