@@ -262,6 +262,60 @@ export default {
     const readerBase = (env.READER_BASE || READER_BASE_DEFAULT).replace(/\/+$/, '');
     const fbAppId    = (env.FB_APP_ID || '').trim();
 
+    // ── Same-origin materialize proxy ─────────────────────────────
+    // The affiliate cookie is set with Domain=.onfolio.press and is
+    // HttpOnly, so it never reaches the paywall worker (different
+    // origin). The reader (app.html) POSTs here after sign-in; we
+    // read the cookie, forward the code to the paywall's
+    // /affiliates/materialize with the same Authorization header the
+    // caller supplied. Fire-and-forget for the caller; failures are
+    // swallowed to avoid disrupting reader mode.
+    if (request.method === 'POST' && url.pathname === '/aff-materialize') {
+      const folio = (url.searchParams.get('folio') || '').trim();
+      const authHdr = request.headers.get('Authorization') || '';
+      const paywallUrl = (env.PAYWALL_WORKER_URL ||
+        'https://folio-paywall.jacobdsiler.workers.dev').replace(/\/+$/, '');
+      if (!folio || !authHdr) {
+        return new Response(JSON.stringify({ ok: false, error: 'bad-request' }),
+          { status: 400, headers: { 'Content-Type': 'application/json' } });
+      }
+      // Extract the cookie value the paywall would otherwise miss.
+      const rawCookie = request.headers.get('Cookie') || '';
+      const safeKey = 'folio_aff_' + folio.replace(/[^A-Za-z0-9_-]/g, '_');
+      let code = '';
+      for (const part of rawCookie.split(/;\s*/)) {
+        const eq = part.indexOf('=');
+        if (eq > 0 && part.substring(0, eq) === safeKey) {
+          const v = part.substring(eq + 1).trim();
+          if (/^[A-Za-z0-9]{4,16}$/.test(v)) { code = v; break; }
+        }
+      }
+      // No cookie → nothing to do; return a truthful no-op so the
+      // caller can distinguish "attribution skipped" from "network fail".
+      if (!code) {
+        return new Response(JSON.stringify({ ok: true, attributed: false, reason: 'no-cookie' }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      try {
+        const r = await fetch(paywallUrl + '/affiliates/materialize?folio=' + encodeURIComponent(folio), {
+          method: 'POST',
+          headers: {
+            'Authorization': authHdr,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ code }),
+        });
+        const text = await r.text();
+        return new Response(text, {
+          status: r.status,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      } catch (e) {
+        return new Response(JSON.stringify({ ok: false, error: String(e && e.message || e) }),
+          { status: 502, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+
     // folioId — from a /s/<id> path, or a ?read= / ?id= / ?folio= query.
     let folioId = '';
     const m = url.pathname.match(/\/s\/([^/?#]+)/);
@@ -283,11 +337,22 @@ export default {
     // signed-teaser feature silently no-op (locked card with banner,
     // no content unlock).
     const tt = (url.searchParams.get('tt') || '').trim();
+    // Affiliate code — 8-char base62 minted per (owner, folio, affiliate)
+    // triple by the paywall worker at invite time. Captured here into a
+    // 30-day HttpOnly cookie so subsequent checkout requests can be
+    // attributed even if the reader browses away and returns via a
+    // non-affiliate link. See docs/AFFILIATES_SPEC.md → Attribution flow.
+    // Strict charset check prevents cookie-stuffing with garbage codes.
+    let affCode = (url.searchParams.get('a') || '').trim();
+    if (affCode && !/^[A-Za-z0-9]{4,16}$/.test(affCode)) affCode = '';
 
     // No id → send everyone to the Folio home page.
     if (!folioId) return Response.redirect(readerBase + '/', 302);
 
     // Canonical reader URL (where humans end up).
+    // We deliberately DO NOT propagate `?a=` — the cookie carries the
+    // attribution from here on. Keeps the URL clean so readers don't
+    // accidentally reshare someone else's affiliate code.
     let readerUrl = readerBase + '/app.html?read=' + encodeURIComponent(folioId);
     if (teaser) readerUrl += '&teaser=' + encodeURIComponent(teaser);
     if (tt)     readerUrl += '&tt='     + encodeURIComponent(tt);
@@ -296,10 +361,41 @@ export default {
     if (teaser) shareUrl += '?teaser=' + encodeURIComponent(teaser);
     if (tt)     shareUrl += (shareUrl.includes('?') ? '&' : '?') + 'tt=' + encodeURIComponent(tt);
 
+    // Build the affiliate Set-Cookie header (if applicable). One cookie
+    // per folioId so attributions for different folios don't clobber
+    // each other — a reader could legitimately be attributed to different
+    // affiliates for different books. Cookie name is sanitised to the
+    // cookie-safe charset; folioIds in prod are `proj_<ts>_<rand>` so
+    // this is a no-op for real IDs but hardens against exotic values.
+    //
+    // NOTE: intentionally NOT HttpOnly. The paywall worker lives on a
+    // different origin (folio-paywall.jacobdsiler.workers.dev) than the
+    // reader (onfolio.press), so an HttpOnly cookie would never reach
+    // it. The reader JS reads the cookie and passes the code in the
+    // materialize POST body. The cookie value is just an 8-char
+    // affiliate code — not a secret; the worst an attacker with XSS
+    // could do is claim someone else's referral on their OWN purchase,
+    // which is exactly what the cookie is *supposed* to do anyway.
+    const affCookieHeader = affCode
+      ? [
+          'folio_aff_' + folioId.replace(/[^A-Za-z0-9_-]/g, '_')
+            + '=' + affCode,
+          'Max-Age=2592000',        // 30 days
+          'Path=/',
+          'Domain=.onfolio.press',  // shared across app + paywall subdomains
+          'SameSite=Lax',
+          'Secure',
+        ].join('; ')
+      : null;
+
     const ua = request.headers.get('User-Agent') || '';
     if (!CRAWLER_RE.test(ua)) {
-      // Real browser → straight to the reader, no interstitial.
-      return Response.redirect(readerUrl, 302);
+      // Real browser → straight to the reader, no interstitial. Attach
+      // the affiliate cookie on the redirect response so the browser
+      // stores it before landing on the reader.
+      const headers = { Location: readerUrl };
+      if (affCookieHeader) headers['Set-Cookie'] = affCookieHeader;
+      return new Response(null, { status: 302, headers });
     }
 
     // ── Crawler: build per-book Open Graph metadata from Firestore ──

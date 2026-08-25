@@ -47,4 +47,4 @@ app-release-signed.apk
 app-release-signed.apk.idsig
 app-release-unsigned-aligned.apk
 app-release-unsigned.apk
-.\tutorial-workshop\
+tutorial-workshop/
