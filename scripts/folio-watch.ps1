@@ -502,6 +502,38 @@ $script:IgnoreFilenames  = $IgnoreFilenames
 $script:Watcher = New-Watcher
 
 # =====================================================================
+# Cross-mount canary poll - FileSystemWatcher misses writes that come
+# in through the WSL mount (Claude edits, remote agents, some IDE
+# save-back paths). Every 15s we check the modification time of a
+# small canary file at the repo root. If it's newer than the last
+# tick we observed, we fire the debounce ourselves. Belt-and-braces
+# alongside the FileSystemWatcher above - no downside if events
+# already fired (debounce collapses duplicate calls).
+# =====================================================================
+$script:CanaryPath      = Join-Path $RepoRoot '.deploy-tick'
+$script:LastCanaryMtime = if (Test-Path $script:CanaryPath) {
+    (Get-Item $script:CanaryPath).LastWriteTimeUtc
+} else {
+    [DateTime]::MinValue
+}
+$script:CanaryTimer = New-Object System.Windows.Forms.Timer
+$script:CanaryTimer.Interval = 15000  # 15 seconds
+$script:CanaryTimer.Add_Tick({
+    try {
+        if (-not (Test-Path $script:CanaryPath)) { return }
+        $mtime = (Get-Item $script:CanaryPath).LastWriteTimeUtc
+        if ($mtime -gt $script:LastCanaryMtime) {
+            $script:LastCanaryMtime = $mtime
+            Write-WatchLog ".deploy-tick changed at $($mtime.ToString('o')) - firing debounce (canary poll)"
+            Trigger-Debounce 'canary tick'
+        }
+    } catch {
+        Write-WatchLog "Canary poll error: $($_.Exception.Message)"
+    }
+})
+$script:CanaryTimer.Start()
+
+# =====================================================================
 # Tray right-click menu
 # =====================================================================
 
