@@ -48,13 +48,19 @@ if [ -f "$WORKER" ]; then
       ;;
   esac
 
-  # Dispatcher must be near the tail
-  if ! tail -c 8000 "$WORKER" | grep -q "export default"; then
+  # Worker must have an `export default { ... }` block somewhere.
+  # (Was tail-scanning the last 8000 bytes to catch truncation, but as
+  # the dispatcher grew, `export default` moved out of that window and
+  # produced false positives — see paywall worker Aug 2026, affiliate
+  # helpers pushed it to byte -14567. The closing-brace check above
+  # already catches mid-dispatcher truncation; this check just confirms
+  # the file HAS an export default at all.)
+  if ! grep -q "^export default" "$WORKER"; then
     echo ""
-    echo "❌ COMMIT BLOCKED — $WORKER is missing 'export default' near the tail."
+    echo "❌ COMMIT BLOCKED — $WORKER has no 'export default {' declaration."
     echo ""
-    echo "   Dispatcher block is likely truncated."
-    echo "   Check the tail with:  tail -30 $WORKER"
+    echo "   File is likely truncated near the top or the dispatcher was renamed."
+    echo "   Check with:  grep -n '^export default' $WORKER"
     echo ""
     exit 1
   fi
