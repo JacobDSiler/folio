@@ -297,6 +297,166 @@ async function sendViaResend(env, payload) {
   return data; // { id: '...' }
 }
 
+/* ── Raw sender for pre-composed emails ──────────────────────────
+   The chapter-release sendViaResend builds the message from a fixed
+   payload shape. For transactional emails with their own copy
+   (affiliate invites, sale notifications, payment confirmations)
+   the caller supplies {to, subject, html, text} already rendered. */
+async function sendRawViaResend(env, { to, subject, html, text, replyTo }) {
+  if (!env.RESEND_API_KEY) throw new Error('RESEND_API_KEY not configured');
+  if (!env.FROM_EMAIL)     throw new Error('FROM_EMAIL not configured');
+  const body = {
+    from: env.FROM_EMAIL,
+    to: [to],
+    subject, html, text,
+    reply_to: replyTo || undefined,
+  };
+  const r = await fetch(RESEND_API, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + env.RESEND_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  let data = null; try { data = await r.json(); } catch (_) {}
+  if (!r.ok) {
+    const msg = (data && (data.message || data.name)) || ('Resend ' + r.status);
+    const err = new Error(msg); err.status = r.status; throw err;
+  }
+  return data;
+}
+
+/* ── Affiliate email templates ────────────────────────────────────
+   Three transactional templates, all consistent look-and-feel with the
+   chapter-release email above (Georgia serif, cream card, warm accent).
+   See docs/AFFILIATES_SPEC.md → Emails. */
+
+function buildAffiliateInviteEmail({ ownerEmail, folioTitle, rate, acceptUrl }) {
+  const rateStr = Math.round(rate * 100) + '%';
+  const bookLabel = folioTitle ? ('"' + folioTitle + '"') : 'their Folio';
+  const subject = ownerEmail
+    ? (ownerEmail + ' invited you to sell ' + bookLabel + ' as an affiliate')
+    : 'You\'ve been invited to sell a Folio as an affiliate';
+  const text =
+    (ownerEmail ? (ownerEmail + ' has invited you') : 'You\'ve been invited') +
+    ' to sell ' + bookLabel + ' as an affiliate on Folio.\n\n' +
+    'Your commission: ' + rateStr + ' of every sale that comes through your unique link.\n\n' +
+    'Accept the invite: ' + acceptUrl + '\n\n' +
+    'Folio takes 0% commission — the author pays you directly via Ko-fi or PayPal. ' +
+    'You get a dashboard with your affiliate link, a QR code for social sharing, ' +
+    'and a running ledger of what you\'ve earned.\n\n' +
+    'If you don\'t recognise this invite, just ignore this email — nothing happens ' +
+    'until you accept.\n';
+  const html =
+    '<!DOCTYPE html><html><body style="font-family:Georgia,serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#222;background:#fafafa">' +
+      '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:6px">Affiliate invite</div>' +
+      '<h1 style="font-size:22px;margin:0 0 4px;font-weight:600">You\'ve been invited to sell ' + esc(bookLabel) + '</h1>' +
+      (ownerEmail
+        ? '<div style="font-size:13px;color:#666;margin-bottom:24px;font-style:italic">from ' + esc(ownerEmail) + '</div>'
+        : '<div style="height:18px"></div>') +
+      '<div style="background:#fff;border-radius:10px;padding:24px;border:1px solid #eee">' +
+        '<div style="font-size:13px;color:#333;margin-bottom:14px;line-height:1.6">Your commission on every sale through your link:</div>' +
+        '<div style="font-size:32px;font-weight:600;color:#c98c2a;margin-bottom:18px">' + esc(rateStr) + '</div>' +
+        '<a href="' + esc(acceptUrl) + '" style="display:inline-block;background:#065f46;color:#fff;text-decoration:none;padding:12px 24px;border-radius:6px;font-size:14px;font-weight:500">Accept invite →</a>' +
+      '</div>' +
+      '<p style="font-size:12px;color:#666;margin-top:24px;line-height:1.65">' +
+        '<strong>How it works.</strong> Folio takes 0% commission — the author pays you direct via Ko-fi or PayPal. You get a dashboard with your affiliate link, a QR code for social sharing, and a running ledger of what you\'ve earned.' +
+      '</p>' +
+      '<p style="font-size:11px;color:#999;margin-top:24px;line-height:1.6">' +
+        'Didn\'t expect this invite? Ignore this email — nothing happens until you accept.' +
+      '</p>' +
+    '</body></html>';
+  return { subject, html, text };
+}
+
+function buildAffiliateFirstSaleEmail({ folioTitle, gross, commission, dashboardUrl }) {
+  const grossStr = '$' + Number(gross || 0).toFixed(2);
+  const commStr  = '$' + Number(commission || 0).toFixed(2);
+  const bookLabel = folioTitle ? ('"' + folioTitle + '"') : 'a Folio you\'re selling';
+  const subject = 'Your first sale — you earned ' + commStr;
+  const text =
+    'Your first affiliate sale just came through.\n\n' +
+    'Book: ' + bookLabel + '\n' +
+    'Sale: ' + grossStr + '\n' +
+    'You earned: ' + commStr + '\n\n' +
+    'See it in your dashboard: ' + dashboardUrl + '\n\n' +
+    'The author owes you this amount and can pay any time via Ko-fi or PayPal. ' +
+    'Keep sharing your link — every sale adds up.\n';
+  const html =
+    '<!DOCTYPE html><html><body style="font-family:Georgia,serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#222;background:#fafafa">' +
+      '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:6px">Your first sale</div>' +
+      '<h1 style="font-size:22px;margin:0 0 4px;font-weight:600">You earned ' + esc(commStr) + '</h1>' +
+      '<div style="font-size:13px;color:#666;margin-bottom:24px">on your first affiliate sale of ' + esc(bookLabel) + '</div>' +
+      '<div style="background:#fff;border-radius:10px;padding:24px;border:1px solid #eee">' +
+        '<div style="display:flex;justify-content:space-between;font-size:13px;color:#666;padding-bottom:8px;border-bottom:1px solid #eee">Sale total<span style="color:#222;font-weight:500">' + esc(grossStr) + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;font-size:15px;padding:12px 0;font-weight:600">Your commission<span style="color:#c98c2a">' + esc(commStr) + '</span></div>' +
+        '<a href="' + esc(dashboardUrl) + '" style="display:inline-block;margin-top:14px;background:#065f46;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-size:13px;font-weight:500">Open your dashboard →</a>' +
+      '</div>' +
+      '<p style="font-size:12px;color:#666;margin-top:24px;line-height:1.65">Keep sharing your link — every sale adds up. The author owes you this amount and can pay any time via Ko-fi or PayPal.</p>' +
+    '</body></html>';
+  return { subject, html, text };
+}
+
+function buildAffiliatePaymentEmail({ amount, method, folioTitle, dashboardUrl, note }) {
+  const amtStr = '$' + Number(amount || 0).toFixed(2);
+  const methodLabel = method === 'kofi' ? 'Ko-fi' : method === 'paypal' ? 'PayPal' : (method || 'direct payment');
+  const bookLabel = folioTitle ? ('"' + folioTitle + '"') : 'your affiliate work';
+  const subject = 'Payment sent: ' + amtStr + ' via ' + methodLabel;
+  const text =
+    'The author just marked ' + amtStr + ' as paid to you via ' + methodLabel + ' for ' + bookLabel + '.\n\n' +
+    (note ? ('Reference: ' + note + '\n\n') : '') +
+    'Check your ' + methodLabel + ' account — the money should already be there.\n\n' +
+    'Your Folio dashboard now shows this as settled: ' + dashboardUrl + '\n';
+  const html =
+    '<!DOCTYPE html><html><body style="font-family:Georgia,serif;max-width:560px;margin:0 auto;padding:32px 24px;color:#222;background:#fafafa">' +
+      '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:6px">Payment received</div>' +
+      '<h1 style="font-size:22px;margin:0 0 4px;font-weight:600">' + esc(amtStr) + ' via ' + esc(methodLabel) + '</h1>' +
+      '<div style="font-size:13px;color:#666;margin-bottom:24px">for ' + esc(bookLabel) + '</div>' +
+      '<div style="background:#fff;border-radius:10px;padding:24px;border:1px solid #eee">' +
+        '<p style="margin:0 0 14px;font-size:14px;line-height:1.6">The author just marked this payment as sent. Check your <strong>' + esc(methodLabel) + '</strong> account — the money should already be there.</p>' +
+        (note ? '<div style="font-size:12px;color:#666;padding:10px 14px;background:#fafafa;border-radius:6px;margin-bottom:14px">Reference: ' + esc(note) + '</div>' : '') +
+        '<a href="' + esc(dashboardUrl) + '" style="display:inline-block;background:#065f46;color:#fff;text-decoration:none;padding:10px 20px;border-radius:6px;font-size:13px;font-weight:500">Open your dashboard →</a>' +
+      '</div>' +
+    '</body></html>';
+  return { subject, html, text };
+}
+
+/* Resolve affiliation → { affiliateEmail, ownerEmail, folioTitle } for
+   templates that need those. Best-effort; returns nulls on any error. */
+async function _affLookup(env, affiliationId) {
+  try {
+    const auth = await getAccessToken(env);
+    const pid = env.FIRESTORE_PROJECT_ID || auth.projectId;
+    const affRes = await fetch(
+      'https://firestore.googleapis.com/v1/projects/' + pid + '/databases/(default)/documents/folio_affiliations/' + encodeURIComponent(affiliationId),
+      { headers: { 'Authorization': 'Bearer ' + auth.token } }
+    );
+    if (!affRes.ok) return { affiliateEmail: null, ownerEmail: null, folioTitle: null };
+    const affRaw = await affRes.json();
+    const aff = fsDecodeFields((affRaw && affRaw.fields) || {});
+    let folioTitle = null;
+    if (aff.folioId) {
+      const folioRes = await fetch(
+        'https://firestore.googleapis.com/v1/projects/' + pid + '/databases/(default)/documents/folio_projects/' + encodeURIComponent(aff.folioId),
+        { headers: { 'Authorization': 'Bearer ' + auth.token } }
+      );
+      if (folioRes.ok) {
+        const folioRaw = await folioRes.json();
+        const folio = fsDecodeFields((folioRaw && folioRaw.fields) || {});
+        folioTitle = (folio.release && folio.release.title) || folio.name || null;
+      }
+    }
+    return {
+      affiliateEmail: aff.affiliateEmail || null,
+      ownerEmail: aff.ownerEmail || null,
+      folioTitle,
+    };
+  } catch (_) {
+    return { affiliateEmail: null, ownerEmail: null, folioTitle: null };
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════════
    SCHEDULED CRON — serial chapter auto-unlock emails
    ───────────────────────────────────────────────────────────────────
@@ -935,6 +1095,130 @@ export default {
       } catch (e) {
         return errorJson('Cron run failed: ' + (e.message || 'unknown'),
                          502, request, env);
+      }
+    }
+
+    // ══ Affiliate program — transactional emails ══════════════════
+    // Called from folio-paywall-worker.js at three moments:
+    //   invite  — owner invited someone new
+    //   first-sale — affiliate earned their first commission
+    //   payment-received — owner marked a payout sent
+    // Rate-limited by IP (60/hr each). See docs/AFFILIATES_SPEC.md.
+
+    if (request.method === 'POST' && path === '/send-affiliate-invite') {
+      const okRate = await checkRateLimit(request, { cap: 60, bucket: 'aff-invite' });
+      if (!okRate) return errorJson('Rate limited', 429, request, env);
+      let payload;
+      try { payload = await request.json(); }
+      catch (e) { return errorJson('Body must be valid JSON', 400, request, env); }
+      const affiliationId = String((payload && payload.affiliationId) || '').trim();
+      const affiliateEmail = String((payload && payload.affiliateEmail) || '').trim();
+      const ownerEmail    = String((payload && payload.ownerEmail) || '').trim();
+      const rate = Number(payload && payload.rate);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(affiliateEmail)) {
+        return errorJson('Missing or invalid affiliateEmail', 400, request, env);
+      }
+      if (!(rate > 0 && rate <= 0.75)) {
+        return errorJson('Rate must be > 0 and ≤ 0.75', 400, request, env);
+      }
+      const base = allowedOrigins(env)[0] || DEFAULT_ORIGIN;
+      const acceptUrl = base + '/affiliate/';
+      let folioTitle = null;
+      if (affiliationId) {
+        const meta = await _affLookup(env, affiliationId);
+        folioTitle = meta.folioTitle;
+      }
+      const { subject, html, text } = buildAffiliateInviteEmail({
+        ownerEmail, folioTitle, rate, acceptUrl,
+      });
+      try {
+        const result = await sendRawViaResend(env, {
+          to: affiliateEmail, subject, html, text,
+          replyTo: ownerEmail || undefined,
+        });
+        return json({ ok: true, id: result && result.id }, 200, request, env);
+      } catch (e) {
+        return errorJson('Send failed: ' + (e.message || 'unknown'),
+                         e.status || 502, request, env);
+      }
+    }
+
+    if (request.method === 'POST' && path === '/send-affiliate-first-sale') {
+      const okRate = await checkRateLimit(request, { cap: 60, bucket: 'aff-sale' });
+      if (!okRate) return errorJson('Rate limited', 429, request, env);
+      let payload;
+      try { payload = await request.json(); }
+      catch (e) { return errorJson('Body must be valid JSON', 400, request, env); }
+      const affiliationId = String((payload && payload.affiliationId) || '').trim();
+      const gross      = Number(payload && payload.gross);
+      const commission = Number(payload && payload.commission);
+      if (!affiliationId) return errorJson('Missing affiliationId', 400, request, env);
+      const meta = await _affLookup(env, affiliationId);
+      if (!meta.affiliateEmail) {
+        return json({ ok: true, sent: false, reason: 'no-email' }, 200, request, env);
+      }
+      const base = allowedOrigins(env)[0] || DEFAULT_ORIGIN;
+      const dashboardUrl = base + '/affiliate/';
+      const { subject, html, text } = buildAffiliateFirstSaleEmail({
+        folioTitle: meta.folioTitle, gross, commission, dashboardUrl,
+      });
+      try {
+        const result = await sendRawViaResend(env, {
+          to: meta.affiliateEmail, subject, html, text,
+        });
+        return json({ ok: true, id: result && result.id }, 200, request, env);
+      } catch (e) {
+        return errorJson('Send failed: ' + (e.message || 'unknown'),
+                         e.status || 502, request, env);
+      }
+    }
+
+    if (request.method === 'POST' && path === '/send-affiliate-payment-received') {
+      const okRate = await checkRateLimit(request, { cap: 60, bucket: 'aff-pay' });
+      if (!okRate) return errorJson('Rate limited', 429, request, env);
+      let payload;
+      try { payload = await request.json(); }
+      catch (e) { return errorJson('Body must be valid JSON', 400, request, env); }
+      const affiliateEmail = String((payload && payload.affiliateEmail) || '').trim();
+      const amount = Number(payload && payload.amount);
+      const method = String((payload && payload.method) || 'other');
+      const folioId = String((payload && payload.folioId) || '').trim();
+      const note = String((payload && payload.note) || '').slice(0, 200);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(affiliateEmail)) {
+        return errorJson('Missing or invalid affiliateEmail', 400, request, env);
+      }
+      if (!(amount > 0)) {
+        return errorJson('Amount must be > 0', 400, request, env);
+      }
+      let folioTitle = null;
+      if (folioId) {
+        try {
+          const auth = await getAccessToken(env);
+          const pid = env.FIRESTORE_PROJECT_ID || auth.projectId;
+          const r = await fetch(
+            'https://firestore.googleapis.com/v1/projects/' + pid + '/databases/(default)/documents/folio_projects/' + encodeURIComponent(folioId),
+            { headers: { 'Authorization': 'Bearer ' + auth.token } }
+          );
+          if (r.ok) {
+            const raw = await r.json();
+            const folio = fsDecodeFields((raw && raw.fields) || {});
+            folioTitle = (folio.release && folio.release.title) || folio.name || null;
+          }
+        } catch (_) {}
+      }
+      const base = allowedOrigins(env)[0] || DEFAULT_ORIGIN;
+      const dashboardUrl = base + '/affiliate/';
+      const { subject, html, text } = buildAffiliatePaymentEmail({
+        amount, method, folioTitle, dashboardUrl, note,
+      });
+      try {
+        const result = await sendRawViaResend(env, {
+          to: affiliateEmail, subject, html, text,
+        });
+        return json({ ok: true, id: result && result.id }, 200, request, env);
+      } catch (e) {
+        return errorJson('Send failed: ' + (e.message || 'unknown'),
+                         e.status || 502, request, env);
       }
     }
 

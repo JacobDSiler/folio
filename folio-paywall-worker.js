@@ -1798,15 +1798,15 @@ async function _writeSaleRecord(projectId, token, folioId, sale, env) {
       Number(sale.amount) || 0, attribution.commission
     );
     // Fire-and-forget: notify affiliate on their first-ever sale for
-    // this affiliation. Email worker dedupes.
+    // this affiliation, via service binding. Email worker resolves the
+    // affiliate email + folio title from affiliationId. Phase-2 could
+    // dedupe (right now, EVERY attributed sale fires this — annoying
+    // but harmless while ledger volume is low).
     try {
-      if (env && env.EMAIL_WORKER_URL && env.EMAIL_WORKER_SECRET) {
-        await fetch(env.EMAIL_WORKER_URL + '/send-affiliate-first-sale', {
+      if (env && env.EMAIL_WORKER && typeof env.EMAIL_WORKER.fetch === 'function') {
+        await env.EMAIL_WORKER.fetch('https://folio-email/send-affiliate-first-sale', {
           method: 'POST',
-          headers: {
-            'Authorization': 'Bearer ' + env.EMAIL_WORKER_SECRET,
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             affiliationId: attribution.affiliationId,
             gross: Number(sale.amount) || 0,
@@ -2135,16 +2135,15 @@ async function handleAffiliateInvite(request, env) {
     lifetimeGross: 0, lifetimeCommission: 0,
     pendingCommission: 0, settledCommission: 0,
   });
-  // Fire-and-forget email (best-effort — we don't fail the invite if
-  // the email worker is down; owner sees the affiliation immediately).
+  // Fire-and-forget email via service binding (see wrangler.toml —
+  // env.EMAIL_WORKER binds directly to folio-email so no external
+  // URL / no cross-worker fetch is needed). Best-effort — we don't
+  // fail the invite if the email send is down.
   try {
-    if (env.EMAIL_WORKER_URL && env.EMAIL_WORKER_SECRET) {
-      await fetch(env.EMAIL_WORKER_URL + '/send-affiliate-invite', {
+    if (env.EMAIL_WORKER && typeof env.EMAIL_WORKER.fetch === 'function') {
+      await env.EMAIL_WORKER.fetch('https://folio-email/send-affiliate-invite', {
         method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + env.EMAIL_WORKER_SECRET,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           affiliationId: affId, folioId, ownerEmail: auth.email,
           affiliateEmail: inviteEmail, rate, code,
@@ -2380,15 +2379,12 @@ async function handleAffiliateSettle(request, env) {
     pendingCommission: newPending,
     settledCommission: newSettled,
   });
-  // Fire-and-forget notify affiliate.
+  // Fire-and-forget notify affiliate via service binding.
   try {
-    if (env.EMAIL_WORKER_URL && env.EMAIL_WORKER_SECRET && aff.affiliateEmail) {
-      await fetch(env.EMAIL_WORKER_URL + '/send-affiliate-payment-received', {
+    if (env.EMAIL_WORKER && typeof env.EMAIL_WORKER.fetch === 'function' && aff.affiliateEmail) {
+      await env.EMAIL_WORKER.fetch('https://folio-email/send-affiliate-payment-received', {
         method: 'POST',
-        headers: {
-          'Authorization': 'Bearer ' + env.EMAIL_WORKER_SECRET,
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           affiliateEmail: aff.affiliateEmail, amount, method,
           folioId: aff.folioId, note,
