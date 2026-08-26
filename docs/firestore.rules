@@ -732,6 +732,20 @@ service cloud.firestore {
     }
 
     // ───────────────────────────────────────────────────────────────
+    // KO-FI TIPS LOG (Task #30 Phase 3a — instrumentation)
+    // ───────────────────────────────────────────────────────────────
+    // Ko-fi webhook receives Donation events with no shop_items; the
+    // legacy paid-sales pipeline drops them because there's no
+    // product to match. We now catch them and log to a per-owner tip
+    // subcollection so authors can see + reconcile + tax-report their
+    // Ko-fi tips even before we wire folio-level attribution
+    // (Phase 3b). Owner-readable, worker-write only.
+    match /folio_users_public/{uid}/tips/{tipId} {
+      allow read: if isUser(uid) || isAdmin();
+      allow write: if false;
+    }
+
+    // ───────────────────────────────────────────────────────────────
     // FOLIO SLUGS (Task #26 — per-folio SEO)
     // ───────────────────────────────────────────────────────────────
     // Reverse-lookup index: /f/<slug> → { folioId, ownerUid, updatedAt }

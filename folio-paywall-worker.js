@@ -1818,6 +1818,44 @@ async function _writeSaleRecord(projectId, token, folioId, sale, env) {
   }
 }
 
+/* Record a Ko-fi tip for the owner's audit + future reconciliation.
+   Written under folio_users_public/{ownerUid}/tips/{ts_uuid}. Tips
+   are per-owner (not per-folio) because Ko-fi Donations don't carry a
+   product/folio identifier — Phase 3b will add folio+affiliate
+   association via a Folio-hosted tip flow. Best-effort. */
+async function _writeTipRecord(projectId, token, ownerUid, tip) {
+  const docId = String(Date.now()) + '_' + Math.random().toString(36).slice(2, 8);
+  const url = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+              '/databases/(default)/documents/folio_users_public/' +
+              encodeURIComponent(ownerUid) + '/tips?documentId=' + encodeURIComponent(docId);
+  const fields = {
+    vendor:    { stringValue: String(tip.vendor || 'kofi') },
+    fromName:  tip.fromName  ? { stringValue: String(tip.fromName) }  : { nullValue: null },
+    fromEmail: tip.fromEmail ? { stringValue: String(tip.fromEmail) } : { nullValue: null },
+    amount:    tip.amount != null ? { doubleValue: Number(tip.amount) } : { nullValue: null },
+    currency:  tip.currency ? { stringValue: String(tip.currency) } : { nullValue: null },
+    message:   tip.message   ? { stringValue: String(tip.message) }   : { nullValue: null },
+    orderId:   tip.orderId   ? { stringValue: String(tip.orderId) }   : { nullValue: null },
+    kofiUrl:   tip.kofiUrl   ? { stringValue: String(tip.kofiUrl) }   : { nullValue: null },
+    isPublic:  { booleanValue: !!tip.isPublic },
+    ts:        { timestampValue: tip.ts || new Date().toISOString() },
+    // Placeholders for Phase 3b — worker will populate these when the
+    // Folio-hosted tip flow lands (folio id + affiliate cookie parsed
+    // from the tip's message field).
+    folioId:       { nullValue: null },
+    affiliationId: { nullValue: null },
+  };
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fields }),
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error('tip write ' + r.status + ': ' + JSON.stringify(err));
+  }
+}
+
 /* HMAC-SHA256 helper — returns lowercase hex. */
 async function _hmacHex(secret, message) {
   const key = await crypto.subtle.importKey(
@@ -3200,6 +3238,36 @@ async function handleMultiTenantVendorWebhook(request, env, vendor) {
     // Extract product identifier + buyer info.
     const extracted = _vendorExtract(vendor, payload);
     if (!extracted.buyerEmail) return errorJson('Vendor payload missing buyer email', 400, request, env);
+
+    // ── Ko-fi Donation (tip) branch (Task #30 Phase 3a) ──────────
+    // Ko-fi sends `type: 'Donation'` for tips (no shop_items). The
+    // legacy paid-sales path can't route these because there's no
+    // product to match against a folio. Log them to a per-owner tips
+    // subcollection so authors can see + reconcile their Ko-fi tips,
+    // and short-circuit before the product lookup.
+    //
+    // Phase 3b (deferred): a Folio-hosted tip button that passes the
+    // folio id + affiliate code through Ko-fi's `message` field so
+    // we can attribute tips to specific folios + affiliates.
+    if (vendor === 'kofi' && String(payload.type || '').toLowerCase() === 'donation') {
+      try {
+        await _writeTipRecord(pid, auth.token, ownerUid, {
+          vendor,
+          fromName:  String(payload.from_name || '').slice(0, 100) || null,
+          fromEmail: extracted.buyerEmail || null,
+          amount:    extracted.amount,
+          currency:  extracted.currency,
+          message:   String(payload.message || '').slice(0, 1000) || null,
+          orderId:   extracted.orderId,
+          kofiUrl:   String(payload.url || '').slice(0, 500) || null,
+          isPublic:  !!payload.is_public,
+          ts:        new Date().toISOString(),
+        });
+      } catch (e) { console.warn('[kofi-tip] write failed:', e && e.message); }
+      // Return 200 so Ko-fi doesn't retry — the tip is recorded on our
+      // side even if the follow-up email isn't wired yet.
+      return json({ ok: true, kind: 'tip' }, 200, request, env);
+    }
 
     // Find the owner's folio whose release.checkoutUrl matches the
     // vendor-specific product identifier.
