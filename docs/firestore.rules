@@ -732,6 +732,25 @@ service cloud.firestore {
     }
 
     // ───────────────────────────────────────────────────────────────
+    // FOLIO SLUGS (Task #26 — per-folio SEO)
+    // ───────────────────────────────────────────────────────────────
+    // Reverse-lookup index: /f/<slug> → { folioId, ownerUid, updatedAt }
+    // Public read (share worker resolves anonymously); writes only
+    // through the app.html release flow, restricted to the owner's uid
+    // and to slugs matching the URL-safe charset. Slug uniqueness is
+    // enforced by the create-only rule: an existing doc can be
+    // deleted/replaced only by its current owner.
+    match /folio_slugs/{slug} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && isUser(request.resource.data.ownerUid)
+        && slug.matches('^[a-z0-9][a-z0-9-]{1,63}$')
+        && request.resource.data.folioId is string;
+      allow update, delete: if request.auth != null
+        && isUser(resource.data.ownerUid);
+    }
+
+    // ───────────────────────────────────────────────────────────────
     // SUPPORT TICKETS (Task #27)
     // ───────────────────────────────────────────────────────────────
     // /support form posts to the paywall worker's /support-submit,
