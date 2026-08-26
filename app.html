@@ -24148,9 +24148,23 @@
       const titleField = document.getElementById('rlTitleField');
       const authorField = document.getElementById('rlAuthorField');
       const descField = document.getElementById('rlDescField');
+      const slugField = document.getElementById('rlSlug');
       const btn = document.getElementById('rlPublishBtn');
       const unpub = document.getElementById('rlUnpublishBtn');
       const urlBox = document.getElementById('rlUrlBox');
+      // Pre-fill the slug from the existing release (if any). Preview
+      // + tier-lock happen right after in the try{} block.
+      if (slugField) slugField.value = (_rlCurrent && _rlCurrent.slug) || '';
+      // Re-run the preview + tier check now that fields are populated.
+      // Also on every title keystroke so the free-tier auto-slug preview
+      // tracks in real time. Bind once — the input is idempotent.
+      if (titleField && !titleField.dataset.slugBound) {
+        titleField.addEventListener('input', function () {
+          if (window._rlUpdateSlugPreview) window._rlUpdateSlugPreview();
+        });
+        titleField.dataset.slugBound = '1';
+      }
+      setTimeout(() => { if (window._rlUpdateSlugPreview) window._rlUpdateSlugPreview(); }, 60);
 
       const bookTitle = (document.getElementById('bookTitle') && document.getElementById('bookTitle').value) || '';
       const bookAuthor = (document.getElementById('bookAuthor') && document.getElementById('bookAuthor').value) || '';
@@ -24632,6 +24646,106 @@
         s.style.color = color || 'var(--hint)';
       }
     }
+
+    /* Live-preview + Press-tier gating for the release form's slug
+       input. Free tier: input disabled, placeholder shows the auto
+       slug so authors can see what their link will be. Paid tier
+       (Indie/Imprint): input enabled + preview reflects typed value.
+       Fires on release-modal open (tied into _rlUpdateSlugPreview
+       from the release open flow) and on every keystroke. */
+    window._rlUpdateSlugPreview = function () {
+      const input = document.getElementById('rlSlug');
+      const preview = document.getElementById('rlSlugPreview');
+      const status = document.getElementById('rlSlugStatus');
+      if (!input || !preview) return;
+      const title = (document.getElementById('rlTitleField') || {}).value || '';
+      const auto = window._slugifyTitle ? window._slugifyTitle(title) : '';
+      const isPaid = !!(window.pressSub && window.pressSub().active);
+      // Lock/unlock based on tier.
+      input.disabled = !isPaid;
+      input.style.opacity = isPaid ? '1' : '0.65';
+      input.style.cursor = isPaid ? 'text' : 'not-allowed';
+      const typed = (input.value || '').trim();
+      // If free tier or field is empty, preview auto slug.
+      const shown = isPaid && typed ? (window._slugifyTitle ? window._slugifyTitle(typed) : typed) : auto;
+      preview.textContent = shown ? ('onfolio.press/f/' + shown) : 'onfolio.press/f/<publish to generate>';
+      if (isPaid && status && status.dataset.baseSet !== '1') {
+        status.innerHTML = 'Custom slug enabled — type any lowercase-letters/numbers/hyphens combo.';
+        status.dataset.baseSet = '1';
+      }
+    };
+
+    /* ── Slug helpers (Task #26 per-folio SEO) ─────────────────────
+       Deterministic slugification + collision-safe reservation of
+       folio_slugs/{slug}. Called from _rlPublish. Rules require
+       ^[a-z0-9][a-z0-9-]{1,63}$ — enforced here so we never even
+       attempt a write that would fail the rule. */
+    function _slugifyTitle(input) {
+      let s = String(input || '').toLowerCase();
+      // Normalize accented characters (café → cafe).
+      try { s = s.normalize('NFKD').replace(/[̀-ͯ]/g, ''); } catch (_) {}
+      s = s.replace(/&/g, ' and ');
+      s = s.replace(/[^a-z0-9]+/g, '-');
+      s = s.replace(/^-+|-+$/g, '');
+      s = s.replace(/-{2,}/g, '-');
+      if (s.length > 60) s = s.slice(0, 60).replace(/-+$/g, '');
+      // Rules require the first char to be alphanumeric — if we started
+      // with junk that got stripped, prefix with 'folio-'.
+      if (!s || !/^[a-z0-9]/.test(s)) s = 'folio-' + (s || Math.random().toString(36).slice(2, 8));
+      // Rules cap at 64 chars.
+      return s.slice(0, 64);
+    }
+
+    async function _reserveFolioSlug(desired, folioId, ownerUid, currentSlug) {
+      if (!desired || !folioId || !ownerUid) return null;
+      // Fast path: if the folio already owns `currentSlug` AND
+      // `desired` matches, nothing to do.
+      if (currentSlug && currentSlug === desired) return desired;
+      const fb = window._fb;
+      const db = window._db;
+      if (!fb || !db) return null;
+      // Try desired, then desired-2, desired-3, up to 20 attempts.
+      for (let i = 0; i < 20; i++) {
+        const candidate = i === 0 ? desired : (desired.slice(0, 60) + '-' + (i + 1));
+        try {
+          const slugRef = fb.doc(db, 'folio_slugs', candidate);
+          const existing = await fb.getDoc(slugRef);
+          if (existing.exists()) {
+            const data = existing.data() || {};
+            // Owned by this same folio? Perfect — reuse it.
+            if (data.folioId === folioId) {
+              // Refresh updatedAt so sitemap knows it's fresh.
+              try { await fb.setDoc(slugRef, {
+                folioId, ownerUid, updatedAt: Date.now(),
+              }, { merge: true }); } catch (_) {}
+              // If we're moving slugs, delete the old one.
+              if (currentSlug && currentSlug !== candidate) {
+                try { await fb.deleteDoc(fb.doc(db, 'folio_slugs', currentSlug)); } catch (_) {}
+              }
+              return candidate;
+            }
+            // Collision with a different folio — try the next suffix.
+            continue;
+          }
+          // Free — reserve.
+          await fb.setDoc(slugRef, {
+            folioId, ownerUid, updatedAt: Date.now(),
+          });
+          // Move: delete previous slug once new one is reserved.
+          if (currentSlug && currentSlug !== candidate) {
+            try { await fb.deleteDoc(fb.doc(db, 'folio_slugs', currentSlug)); } catch (_) {}
+          }
+          return candidate;
+        } catch (e) {
+          console.warn('[slug] attempt failed for', candidate, e && e.message);
+          // Try next suffix rather than giving up on the first error.
+          continue;
+        }
+      }
+      return null;
+    }
+    window._slugifyTitle = _slugifyTitle;
+    window._reserveFolioSlug = _reserveFolioSlug;
 
     async function _rlPublish() {
       if (!_projId) return;
@@ -25129,6 +25243,38 @@
           // audioBundle is off — clear any stale manifest so the reader
           // drawer falls back to the IDB path (or hides entirely).
           release.audioManifest = null;
+        }
+
+        // ── Per-folio SEO slug (Task #26) ─────────────────────────
+        // Reserve a URL-safe slug for /f/<slug> and stamp it onto the
+        // release doc. Auto-generated from the title on every plan;
+        // paid plans can override via the rlSlug input (checked below).
+        // Reservation is a single Firestore write to folio_slugs/{slug};
+        // collisions retry with -2, -3, etc. If reservation fails for
+        // any reason the release still succeeds — slug is best-effort.
+        try {
+          const uid = (window._user && window._user.uid) || window._uid;
+          if (uid) {
+            const desired = String(release.slug || '').trim() ||
+              _slugifyTitle(release.title || title || 'untitled');
+            const slugField = document.getElementById('rlSlug');
+            const wantOverride = slugField && String(slugField.value || '').trim();
+            const finalSlug = await _reserveFolioSlug(
+              wantOverride ? _slugifyTitle(wantOverride) : desired,
+              _projId, uid, release.slug || null
+            );
+            if (finalSlug) {
+              release.slug = finalSlug;
+              const slugStatus = document.getElementById('rlSlugStatus');
+              if (slugStatus) {
+                slugStatus.textContent = 'Public link: onfolio.press/f/' + finalSlug;
+                slugStatus.style.color = 'var(--accent-ui)';
+              }
+            }
+          }
+        } catch (slugErr) {
+          console.warn('[release] slug reservation failed:', slugErr && slugErr.message);
+          // Continue — release doc still writes below.
         }
 
         const ref = window._fb.doc(window._db, 'folio_projects', _projId);
@@ -35794,6 +35940,24 @@
         description <span style="opacity:.6;font-weight:400">(optional)</span></label>
       <textarea id="rlDescField" rows="3" placeholder="A one-paragraph blurb readers see before they open the book."
         style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--bg);color:var(--text);outline:none;font-family:inherit;resize:vertical;min-height:64px"></textarea>
+
+      <!-- Public URL slug (Task #26). Auto-generated from the title
+           on every plan; paid plans can override. Field is enabled if
+           the user has an active Press subscription; free-tier users
+           see the input disabled with a small note pointing at /press/. -->
+      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:12px 0 4px">
+        Public URL slug <span style="opacity:.6;font-weight:400">— <span id="rlSlugPreview">onfolio.press/f/&lt;auto-generated&gt;</span></span>
+      </label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:11.5px;color:var(--hint);white-space:nowrap">onfolio.press/f/</span>
+        <input type="text" id="rlSlug" placeholder="auto-generated from your title"
+          maxlength="60" pattern="[a-z0-9][a-z0-9-]{1,63}"
+          oninput="if(window._rlUpdateSlugPreview) _rlUpdateSlugPreview()"
+          style="flex:1;font-size:12.5px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--bg);color:var(--text);outline:none;font-family:ui-monospace,Menlo,monospace">
+      </div>
+      <div id="rlSlugStatus" style="font-size:10.5px;color:var(--hint);margin-top:4px;line-height:1.5">
+        Free plan uses an auto-generated slug. <a href="/press/" style="color:var(--accent-ui);text-decoration:none;border-bottom:.5px dotted currentColor">Indie or Imprint</a> unlocks a custom slug for shareable, memorable links.
+      </div>
 
       <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:14px 0 6px">Access</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
