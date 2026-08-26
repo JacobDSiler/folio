@@ -268,6 +268,22 @@
           }
         } catch (_) {}
 
+        // Fire-and-forget welcome email on first real sign-in. The
+        // email worker latches on folio_user_settings/{uid}.
+        // welcomeEmailedAt, so subsequent sign-ins no-op silently.
+        // Failure is silent — worst case the user misses the welcome
+        // email, which is fixable by manual re-send.
+        try {
+          if (!user.isAnonymous && user.email) {
+            user.getIdToken().then(function (idToken) {
+              return fetch('https://folio-email.jacobdsiler.workers.dev/send-welcome', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + idToken },
+              });
+            }).catch(function () { /* silent */ });
+          }
+        } catch (_) {}
+
 
         // 🔍 Detect anonymous → Google upgrade.
         //   In-memory case  : we held an anon user, now have a google user

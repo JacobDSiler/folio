@@ -422,6 +422,57 @@ function buildAffiliatePaymentEmail({ amount, method, folioTitle, dashboardUrl, 
   return { subject, html, text };
 }
 
+/* ── Welcome email (fires once on first real Google sign-in) ──── */
+function buildWelcomeEmail({ name, base }) {
+  const first = (String(name || '').split(' ')[0] || '').trim();
+  const greet = first ? ('Hi ' + first) : 'Hi there';
+  const subject = 'Welcome to Folio — a few links to help you land';
+  const editorUrl    = base + '/app.html';
+  const shelfUrl     = base + '/shelf/';
+  const tutorialsUrl = base + '/help/tutorials/';
+  const affiliateUrl = base + '/affiliate/';
+  const supportUrl   = base + '/support/';
+  const text =
+    greet + ',\n\n' +
+    'Thanks for signing in to Folio. I\'m Jacob — I built this so authors could ' +
+    'have a proper studio in the browser without ceding a cut to a platform ' +
+    'they can never see the inside of. A few links to help you find your feet:\n\n' +
+    '• The editor: ' + editorUrl + '\n' +
+    '  Everything about your book lives on one page — Write, Design, Produce, Ship. ' +
+    'Drag in a .docx and Folio picks up chapters automatically.\n\n' +
+    '• Tutorials: ' + tutorialsUrl + '\n' +
+    '  Short walkthroughs of the whole flow. Series 01 gets a first folio ' +
+    'published in about four minutes.\n\n' +
+    '• The Shelf: ' + shelfUrl + '\n' +
+    '  Browse what other Folio authors have published. Yours can appear here ' +
+    'when you tick "List on the Folio Shelf" at release time.\n\n' +
+    '• Affiliate dashboard: ' + affiliateUrl + '\n' +
+    '  If someone invites you to help sell their Folio (or you invite others ' +
+    'to help sell yours), this is where the ledger lives.\n\n' +
+    'If anything trips you up: ' + supportUrl + ' — a real person reads every ticket.\n\n' +
+    '— Jacob\n' +
+    '   folio@jacobsiler.com\n';
+  const html =
+    '<!DOCTYPE html><html><body style="font-family:Georgia,serif;max-width:600px;margin:0 auto;padding:32px 22px;color:#222;background:#fafafa">' +
+      '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:10px">Welcome to Folio</div>' +
+      '<h1 style="font-size:24px;margin:0 0 18px;font-weight:600;font-family:\'Playfair Display\',Georgia,serif">' + esc(greet) + ',</h1>' +
+      '<p style="font-size:14.5px;line-height:1.7;margin:0 0 22px">Thanks for signing in. I\'m Jacob — I built Folio so authors could have a proper studio in the browser without ceding a cut to a platform they can never see the inside of. A few links to help you find your feet:</p>' +
+      '<div style="background:#fff;border-radius:10px;padding:22px;border:1px solid #eee">' +
+        '<p style="margin:0 0 12px;font-size:14px;line-height:1.65"><a href="' + esc(editorUrl) + '" style="color:#c98c2a;font-weight:600;text-decoration:none">→ Open the editor</a><br>' +
+          '<span style="color:#666;font-size:13px">Everything about your book lives on one page — Write, Design, Produce, Ship. Drag in a .docx and Folio picks up chapters automatically.</span></p>' +
+        '<p style="margin:0 0 12px;font-size:14px;line-height:1.65"><a href="' + esc(tutorialsUrl) + '" style="color:#c98c2a;font-weight:600;text-decoration:none">→ Watch the tutorials</a><br>' +
+          '<span style="color:#666;font-size:13px">Short walkthroughs of the whole flow. Series 01 gets a first folio published in about four minutes.</span></p>' +
+        '<p style="margin:0 0 12px;font-size:14px;line-height:1.65"><a href="' + esc(shelfUrl) + '" style="color:#c98c2a;font-weight:600;text-decoration:none">→ Browse the Shelf</a><br>' +
+          '<span style="color:#666;font-size:13px">See what other Folio authors have published. Yours can appear here when you tick "List on the Folio Shelf" at release time.</span></p>' +
+        '<p style="margin:0;font-size:14px;line-height:1.65"><a href="' + esc(affiliateUrl) + '" style="color:#c98c2a;font-weight:600;text-decoration:none">→ Affiliate dashboard</a><br>' +
+          '<span style="color:#666;font-size:13px">If someone invites you to help sell their Folio (or you invite others to help sell yours), this is where the ledger lives.</span></p>' +
+      '</div>' +
+      '<p style="font-size:13px;color:#666;margin-top:22px;line-height:1.65">If anything trips you up, <a href="' + esc(supportUrl) + '" style="color:#065f46">contact support</a> — a real person reads every ticket.</p>' +
+      '<p style="font-size:14px;margin-top:24px;line-height:1.5">— Jacob<br><span style="color:#888;font-size:12px">folio@jacobsiler.com</span></p>' +
+    '</body></html>';
+  return { subject, html, text };
+}
+
 /* Resolve affiliation → { affiliateEmail, ownerEmail, folioTitle } for
    templates that need those. Best-effort; returns nulls on any error. */
 async function _affLookup(env, affiliationId) {
@@ -1096,6 +1147,85 @@ export default {
         return errorJson('Cron run failed: ' + (e.message || 'unknown'),
                          502, request, env);
       }
+    }
+
+    // ── POST /send-welcome ────────────────────────────────────────
+    // Fires on first real (non-anonymous) Google sign-in from
+    // app.html's onAuthStateChanged handler. Bearer id token in
+    // Authorization header identifies the user; we then read
+    // folio_user_settings/{uid}.welcomeEmailedAt and short-circuit
+    // if it's already stamped (fire-and-forget from client, so a
+    // dozen sign-ins on the same day only ever produce one email).
+    // Rate-limited by IP as backup against a bad actor probing uids.
+    if (request.method === 'POST' && path === '/send-welcome') {
+      const okRate = await checkRateLimit(request, { cap: 60, bucket: 'welcome' });
+      if (!okRate) return errorJson('Rate limited', 429, request, env);
+      const hdr = request.headers.get('Authorization') || '';
+      const idToken = hdr.replace(/^Bearer\s+/i, '').trim();
+      if (!idToken) return errorJson('Missing bearer', 401, request, env);
+      // Verify via Identity Toolkit :lookup (validates signature +
+      // expiry on Google's side, no JWKS work needed here).
+      const apiKey = env.FIREBASE_WEB_API_KEY || 'AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0';
+      let lookupData = null;
+      try {
+        const r = await fetch(
+          'https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + encodeURIComponent(apiKey),
+          { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ idToken }) }
+        );
+        if (r.ok) lookupData = await r.json().catch(() => null);
+      } catch (_) {}
+      const user = (lookupData && Array.isArray(lookupData.users) && lookupData.users[0]) || null;
+      if (!user || !user.localId) return errorJson('Invalid bearer', 401, request, env);
+      const uid = user.localId;
+      const email = String(user.email || '').trim();
+      const displayName = String(user.displayName || '').trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return json({ ok: true, sent: false, reason: 'no-email' }, 200, request, env);
+      }
+      // Check + set the latch via service account.
+      let auth;
+      try { auth = await getAccessToken(env); }
+      catch (e) { return errorJson('Server misconfig: ' + (e.message || 'no service account'), 500, request, env); }
+      const projectId = env.FIRESTORE_PROJECT_ID || auth.projectId;
+      const settingsUrl = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+        '/databases/(default)/documents/folio_user_settings/' + encodeURIComponent(uid);
+      let existing = null;
+      try {
+        const r = await fetch(settingsUrl, { headers: { 'Authorization': 'Bearer ' + auth.token } });
+        if (r.ok) {
+          const raw = await r.json().catch(() => ({}));
+          existing = fsDecodeFields((raw && raw.fields) || {});
+        }
+      } catch (_) {}
+      if (existing && existing.welcomeEmailedAt) {
+        return json({ ok: true, sent: false, reason: 'already-sent' }, 200, request, env);
+      }
+      // Send + stamp. If Resend fails we return an error and DON'T
+      // stamp — so a real user won't miss the welcome due to a
+      // transient Resend outage.
+      const base = allowedOrigins(env)[0] || DEFAULT_ORIGIN;
+      const { subject, html, text } = buildWelcomeEmail({ name: displayName, base });
+      try {
+        await sendRawViaResend(env, { to: email, subject, html, text,
+          replyTo: 'folio@jacobsiler.com' });
+      } catch (e) {
+        return errorJson('Send failed: ' + (e.message || 'unknown'),
+                         e.status || 502, request, env);
+      }
+      // Stamp the latch. PATCH with mask so we don't clobber other
+      // fields (signInAt, lastEmail, etc. maintained by app.html).
+      try {
+        const patchUrl = settingsUrl + '?updateMask.fieldPaths=welcomeEmailedAt';
+        await fetch(patchUrl, {
+          method: 'PATCH',
+          headers: { 'Authorization': 'Bearer ' + auth.token, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fields: {
+            welcomeEmailedAt: { timestampValue: new Date().toISOString() },
+          } }),
+        });
+      } catch (e) { console.warn('[welcome] latch stamp failed:', e && e.message); }
+      return json({ ok: true, sent: true }, 200, request, env);
     }
 
     // ══ Affiliate program — transactional emails ══════════════════
