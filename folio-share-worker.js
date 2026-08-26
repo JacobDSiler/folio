@@ -256,6 +256,136 @@ function ogPage(meta) {
   return lines.join('\n');
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+ * Per-folio SEO landing (Task #26)
+ *
+ * /f/<slug> resolves to a full HTML page carrying:
+ *   - Standard <title>, <meta description>, canonical <link>
+ *   - Open Graph + Twitter Card
+ *   - schema.org/Book JSON-LD (Google Books-style rich results)
+ *   - A human-readable landing body (cover, title, author, blurb,
+ *     "Read this folio" CTA linking to /s/<folioId>)
+ *
+ * The URL /f/<slug> is what we submit to sitemap.xml and what
+ * Googlebot indexes. /s/<id> stays reader-focused + robots-blocked.
+ * ═══════════════════════════════════════════════════════════════════ */
+function _renderFolioLanding({ slug, folio, folioId, readerBase, fbAppId }) {
+  const rel     = folio.release || {};
+  const title   = String(rel.title  || folio.name || 'Untitled Folio').trim();
+  const author  = String(rel.author || '').trim();
+  const blurb   = String(rel.description || '').trim();
+  const cover   = (rel.coverUrl && /^https:\/\//i.test(rel.coverUrl)) ? rel.coverUrl : null;
+  const lang    = String(rel.language || rel.lang || folio.primaryLang || 'en').trim();
+  const isPaid  = rel.priceMode === 'paid';
+  const price   = isPaid ? Number(rel.price || 0) : 0;
+  const currency = String(rel.currency || 'USD').trim();
+  const canonical = readerBase + '/f/' + encodeURIComponent(slug);
+  const readerUrl = readerBase + '/s/' + encodeURIComponent(folioId);
+  const displayTitle = clip(title + (author ? (' by ' + author) : ''), 85);
+  const displayDesc = clip(blurb ||
+    (author
+      ? ('A ' + (isPaid ? 'book' : 'book') + ' by ' + author + ', published on Folio.')
+      : 'Read this book on Folio.'), 200);
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Book',
+    'name': title,
+    'author': author ? { '@type': 'Person', 'name': author } : undefined,
+    'description': blurb || displayDesc,
+    'inLanguage': lang,
+    'url': canonical,
+    'image': cover || undefined,
+    'publisher': { '@type': 'Organization', 'name': 'Folio', 'url': readerBase },
+    'offers': isPaid && price > 0
+      ? { '@type': 'Offer', 'price': price, 'priceCurrency': currency,
+          'availability': 'https://schema.org/InStock', 'url': readerUrl }
+      : { '@type': 'Offer', 'price': 0, 'priceCurrency': currency,
+          'availability': 'https://schema.org/InStock', 'url': readerUrl },
+  };
+  const jsonLdStr = JSON.stringify(jsonLd, function (k, v) { return v === undefined ? undefined : v; });
+  const parts = [];
+  parts.push('<!DOCTYPE html>');
+  parts.push('<html lang="' + esc(lang) + '"><head>');
+  parts.push('<meta charset="utf-8">');
+  parts.push('<meta name="viewport" content="width=device-width, initial-scale=1">');
+  parts.push('<title>' + esc(displayTitle) + ' · Folio</title>');
+  parts.push('<meta name="description" content="' + esc(displayDesc) + '">');
+  parts.push('<link rel="canonical" href="' + esc(canonical) + '">');
+  parts.push('<meta name="robots" content="index, follow, max-image-preview:large">');
+  parts.push('<meta property="og:site_name" content="Folio">');
+  parts.push('<meta property="og:type" content="book">');
+  parts.push('<meta property="og:title" content="' + esc(displayTitle) + '">');
+  parts.push('<meta property="og:description" content="' + esc(displayDesc) + '">');
+  parts.push('<meta property="og:url" content="' + esc(canonical) + '">');
+  if (fbAppId) parts.push('<meta property="fb:app_id" content="' + esc(fbAppId) + '">');
+  if (cover) {
+    parts.push('<meta property="og:image" content="' + esc(cover) + '">');
+    parts.push('<meta property="og:image:alt" content="Cover of ' + esc(title) + '">');
+  }
+  parts.push('<meta name="twitter:card" content="' + (cover ? 'summary_large_image' : 'summary') + '">');
+  parts.push('<meta name="twitter:title" content="' + esc(displayTitle) + '">');
+  parts.push('<meta name="twitter:description" content="' + esc(displayDesc) + '">');
+  if (cover) parts.push('<meta name="twitter:image" content="' + esc(cover) + '">');
+  parts.push('<script type="application/ld+json">' + jsonLdStr.replace(/</g, '\\u003c') + '<\/script>');
+  parts.push('<style>');
+  parts.push('body{margin:0;font-family:Georgia,\'Playfair Display\',serif;background:#f6f4ee;color:#1a1611;line-height:1.6}');
+  parts.push('.wrap{max-width:720px;margin:0 auto;padding:48px 24px}');
+  parts.push('.eyebrow{font-family:-apple-system,\'Segoe UI\',sans-serif;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:#8a8378;margin-bottom:10px}');
+  parts.push('.card{background:#fff;border-radius:14px;padding:32px;box-shadow:0 4px 20px rgba(0,0,0,.06);display:flex;gap:28px;flex-wrap:wrap}');
+  parts.push('.cover{flex:0 0 180px;aspect-ratio:2/3;background:#e8e2d4 center/cover;border-radius:8px;box-shadow:0 6px 22px rgba(0,0,0,.15)}');
+  parts.push('.body{flex:1;min-width:260px}');
+  parts.push('h1{font-size:30px;margin:0 0 4px;font-weight:600;line-height:1.15}');
+  parts.push('.author{font-size:15px;color:#5a5347;font-style:italic;margin:0 0 20px}');
+  parts.push('.blurb{font-size:14.5px;line-height:1.7;color:#1a1611;margin:0 0 22px;white-space:pre-wrap}');
+  parts.push('.cta{display:inline-block;background:#065f46;color:#fff;text-decoration:none;padding:12px 22px;border-radius:8px;font-size:14px;font-weight:500;font-family:-apple-system,\'Segoe UI\',sans-serif}');
+  parts.push('.cta:hover{background:#054a37}');
+  parts.push('.pill{display:inline-block;background:#f6f4ee;color:#5a5347;font-family:-apple-system,\'Segoe UI\',sans-serif;font-size:11.5px;padding:3px 9px;border-radius:11px;margin:0 4px 4px 0}');
+  parts.push('footer{margin-top:32px;text-align:center;font-size:12px;color:#8a8378;font-family:-apple-system,\'Segoe UI\',sans-serif}');
+  parts.push('footer a{color:#8a8378;text-decoration:none;border-bottom:.5px dotted currentColor;padding-bottom:1px}');
+  parts.push('@media (prefers-color-scheme:dark){body{background:#141210;color:#f0ece2}.card{background:#1e1b17}.cover{background:#2a251e}.blurb{color:#e5ddce}.author{color:#a89e8d}.pill{background:#2a251e;color:#a89e8d}footer{color:#a89e8d}}');
+  parts.push('</style>');
+  parts.push('</head><body>');
+  parts.push('<div class="wrap">');
+  parts.push('<div class="eyebrow">A book on Folio</div>');
+  parts.push('<article class="card">');
+  parts.push('<div class="cover"' + (cover ? (' style="background-image:url(' + esc(cover) + ')"') : '') + ' aria-hidden="true"></div>');
+  parts.push('<div class="body">');
+  parts.push('<h1>' + esc(title) + '</h1>');
+  if (author) parts.push('<p class="author">by ' + esc(author) + '</p>');
+  if (blurb) parts.push('<p class="blurb">' + esc(blurb) + '</p>');
+  const pills = [];
+  if (isPaid && price > 0) pills.push('<span class="pill">' + esc(currency) + ' ' + price.toFixed(2) + '</span>');
+  else pills.push('<span class="pill">Free to read</span>');
+  if (rel.serial) pills.push('<span class="pill">Serial release</span>');
+  if (lang && lang !== 'en') pills.push('<span class="pill">Language: ' + esc(lang) + '</span>');
+  parts.push('<div>' + pills.join(' ') + '</div>');
+  parts.push('<p style="margin-top:24px"><a class="cta" href="' + esc(readerUrl) + '">Read this folio &rarr;</a></p>');
+  parts.push('</div>');
+  parts.push('</article>');
+  parts.push('<footer>');
+  parts.push('Published on <a href="' + esc(readerBase) + '/">Folio</a> · ');
+  parts.push('<a href="' + esc(readerBase) + '/shelf/">Browse the Shelf</a> · ');
+  parts.push('<a href="' + esc(readerBase) + '/app.html">Write your own folio</a>');
+  parts.push('</footer>');
+  parts.push('</div>');
+  parts.push('</body></html>');
+  return parts.join('\n');
+}
+
+function _renderFolioNotFound(slug, readerBase) {
+  return '<!DOCTYPE html><html lang="en"><head>' +
+    '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<title>Folio not found · Folio</title>' +
+    '<meta name="robots" content="noindex, follow">' +
+    '<link rel="canonical" href="' + esc(readerBase) + '/shelf/">' +
+    '<style>body{margin:0;font-family:Georgia,serif;background:#f6f4ee;color:#1a1611;padding:60px 24px;text-align:center}h1{font-size:26px;margin:0 0 12px}p{color:#5a5347;margin:0 0 22px}a{display:inline-block;background:#065f46;color:#fff;text-decoration:none;padding:11px 20px;border-radius:8px;font-size:14px;font-family:-apple-system,sans-serif;font-weight:500}</style>' +
+    '</head><body>' +
+    '<h1>That folio isn\'t here.</h1>' +
+    '<p>The slug <code>' + esc(slug) + '</code> doesn\'t match any published folio right now.</p>' +
+    '<p><a href="' + esc(readerBase) + '/shelf/">Browse the Folio Shelf &rarr;</a></p>' +
+    '</body></html>';
+}
+
 export default {
   async fetch(request, env) {
     const url        = new URL(request.url);
@@ -313,6 +443,105 @@ export default {
       } catch (e) {
         return new Response(JSON.stringify({ ok: false, error: String(e && e.message || e) }),
           { status: 502, headers: { 'Content-Type': 'application/json' } });
+      }
+    }
+
+    // ── Sitemap for search engines ────────────────────────────────
+    // Enumerates every published + shelf-listed folio as /f/<slug>
+    // URLs. Cached at the edge for 1 hour so Googlebot doesn't hammer
+    // Firestore. See docs/AFFILIATES_SPEC.md's per-folio SEO section
+    // (Task #26).
+    if (request.method === 'GET' && url.pathname === '/sitemap.xml') {
+      try {
+        const sa = await getAccessToken(env);
+        const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+        // Query folio_slugs — small, indexed, no need to scan projects.
+        const listUrl = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+          '/databases/(default)/documents/folio_slugs?pageSize=500';
+        const listRes = await fetch(listUrl, { headers: { 'Authorization': 'Bearer ' + sa.token } });
+        const listData = await listRes.json().catch(() => ({}));
+        const docs = (listData && listData.documents) || [];
+        const urls = [];
+        for (const d of docs) {
+          const slug = String(d.name || '').split('/').pop();
+          if (!slug) continue;
+          const updatedAt = d.updateTime || new Date().toISOString();
+          urls.push(
+            '  <url>\n' +
+            '    <loc>' + readerBase + '/f/' + slug + '</loc>\n' +
+            '    <lastmod>' + updatedAt.substring(0, 10) + '</lastmod>\n' +
+            '    <changefreq>weekly</changefreq>\n' +
+            '  </url>'
+          );
+        }
+        // Always include the top-level surfaces so the shelf itself is
+        // discoverable even before anyone claims a slug.
+        const top = [
+          '  <url><loc>' + readerBase + '/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>',
+          '  <url><loc>' + readerBase + '/shelf/</loc><changefreq>daily</changefreq><priority>0.9</priority></url>',
+          '  <url><loc>' + readerBase + '/press/</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>',
+        ];
+        const xml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+          '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+          top.concat(urls).join('\n') + '\n' +
+          '</urlset>\n';
+        return new Response(xml, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/xml; charset=utf-8',
+            'Cache-Control': 'public, max-age=3600',
+          },
+        });
+      } catch (e) {
+        return new Response('<!-- sitemap generation failed: ' + String(e.message || 'unknown').replace(/[<>&]/g,'') + ' -->',
+          { status: 500, headers: { 'Content-Type': 'application/xml; charset=utf-8' } });
+      }
+    }
+
+    // ── /f/<slug> — per-folio SEO landing (Task #26) ───────────────
+    // Google-indexable, canonical URL per folio. Server-rendered HTML
+    // with OG + Twitter + schema.org/Book JSON-LD and a human-readable
+    // body (cover, title, author, description, tags, "Read this folio"
+    // CTA). Works for both crawlers and humans — humans get a nicely
+    // styled landing; crawlers get the same page with all the meta.
+    const fMatch = url.pathname.match(/^\/f\/([a-z0-9][a-z0-9-]{1,63})\/?$/);
+    if (request.method === 'GET' && fMatch) {
+      const slug = fMatch[1];
+      try {
+        const sa = await getAccessToken(env);
+        const projectId = env.FIRESTORE_PROJECT_ID || sa.projectId;
+        // Slug → folioId lookup (cheap, single doc read).
+        const slugDoc = await fsGet(projectId, sa.token,
+          'folio_slugs/' + encodeURIComponent(slug));
+        if (!slugDoc || !slugDoc.folioId) {
+          return new Response(_renderFolioNotFound(slug, readerBase), {
+            status: 404,
+            headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
+          });
+        }
+        const folio = await fsGet(projectId, sa.token,
+          'folio_projects/' + encodeURIComponent(slugDoc.folioId));
+        if (!folio || !folio.release || !folio.release.published) {
+          return new Response(_renderFolioNotFound(slug, readerBase), {
+            status: 404,
+            headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=60' },
+          });
+        }
+        const html = _renderFolioLanding({
+          slug, folio, folioId: slugDoc.folioId, readerBase, fbAppId,
+        });
+        return new Response(html, {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            // Cache 5 min at the edge — folios change infrequently but
+            // authors expect fresh data when they update their release.
+            'Cache-Control': 'public, max-age=300',
+          },
+        });
+      } catch (e) {
+        return new Response('<!-- render failed: ' + String(e.message || 'unknown').replace(/[<>&]/g,'') + ' -->',
+          { status: 500, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
       }
     }
 

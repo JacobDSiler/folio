@@ -2156,7 +2156,13 @@ async function handleAffiliateInvite(request, env) {
 }
 
 /* ── GET /affiliates/list?folio=<folioId> ─────────────────────────
-   Owner-only. Lists every affiliation for a folio + ledger totals. */
+   Owner-only. Lists every affiliation for a folio + ledger totals.
+   Since Phase 2: also enriches each accepted affiliation with the
+   affiliate's payout handles (kofi, paypal) so the owner's Pay
+   modal can pre-fill instead of asking every time. Handles come
+   from folio_users_public/{uid}.affiliate_payout_handles — the
+   affiliate sets them in the /affiliate/ dashboard. Enrichment is
+   best-effort; a lookup failure just leaves handles null. */
 async function handleAffiliateList(request, env) {
   let auth;
   try { auth = await _requireAffilAuth(request, env); } catch (r) { return r; }
@@ -2169,9 +2175,30 @@ async function handleAffiliateList(request, env) {
   if (!ownerId) return errorJson('Folio not found', 404, request, env);
   if (ownerId !== auth.uid) return errorJson('Not folio owner', 403, request, env);
   const rows = await _fsQuery(projectId, sa.token, 'folio_affiliations', { folioId });
-  const affiliates = rows
-    .filter(r => r.data && r.data.status !== 'removed')
-    .map(r => ({ id: r.id, ...r.data }));
+  const active = rows.filter(r => r.data && r.data.status !== 'removed');
+  // Batch-look-up payout handles per unique accepted affiliate uid.
+  const uidsNeedingHandles = Array.from(new Set(
+    active.map(r => r.data.affiliateUserId).filter(Boolean)
+  ));
+  const handlesByUid = {};
+  await Promise.all(uidsNeedingHandles.map(async (uid) => {
+    try {
+      const pub = await fsGet(projectId, sa.token,
+        'folio_users_public/' + encodeURIComponent(uid));
+      const h = (pub && pub.affiliate_payout_handles) || {};
+      handlesByUid[uid] = {
+        kofi:   String(h.kofi   || '').trim() || null,
+        paypal: String(h.paypal || '').trim() || null,
+      };
+    } catch (_) { handlesByUid[uid] = { kofi: null, paypal: null }; }
+  }));
+  const affiliates = active.map(r => ({
+    id: r.id,
+    ...r.data,
+    payoutHandles: r.data.affiliateUserId
+      ? (handlesByUid[r.data.affiliateUserId] || { kofi: null, paypal: null })
+      : { kofi: null, paypal: null },
+  }));
   return json({ ok: true, affiliates }, 200, request, env);
 }
 

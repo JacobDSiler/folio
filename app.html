@@ -7818,6 +7818,9 @@
                 <span style="font-size:16px">🤝</span>
                 <span style="font-size:13px;font-weight:600">Affiliates</span>
               </div>
+              <button id="affExportBtn" class="btn-sm btn-ghost"
+                style="padding:2px 9px;font-size:10.5px" onclick="window._affExportCsv && _affExportCsv()"
+                title="Download a CSV of the affiliate ledger — good for tax season">↓ CSV</button>
               <button id="affRefreshBtn" class="btn-sm btn-ghost"
                 style="padding:2px 9px;font-size:10.5px" onclick="window._affRefresh && _affRefresh()">↻ Refresh</button>
             </div>
@@ -26734,6 +26737,43 @@
       }
       window._affRefresh = refresh;
 
+      window._affExportCsv = function () {
+        if (!state.list.length) {
+          alert('No affiliates to export yet.');
+          return;
+        }
+        const folioId = _currentFolioId() || 'folio';
+        const rows = [[
+          'Affiliate email','Rate','Status','Code','Sold gross','Commission earned',
+          'Pending','Settled','Invited at','Accepted at','Note',
+        ]];
+        for (const a of state.list) {
+          rows.push([
+            a.affiliateEmail || '',
+            Math.round((a.rate || 0) * 100) + '%',
+            a.status || '',
+            a.code || '',
+            (Number(a.lifetimeGross)      || 0).toFixed(2),
+            (Number(a.lifetimeCommission) || 0).toFixed(2),
+            (Number(a.pendingCommission)  || 0).toFixed(2),
+            (Number(a.settledCommission)  || 0).toFixed(2),
+            a.invitedAt || '',
+            a.acceptedAt || '',
+            (a.note || '').replace(/"/g, '""'),
+          ]);
+        }
+        // RFC 4180 CSV — quote every field, escape internal quotes.
+        const csv = rows.map(r => r.map(c => '"' + String(c == null ? '' : c).replace(/"/g,'""') + '"').join(',')).join('\r\n');
+        const stamp = new Date().toISOString().slice(0, 10);
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'folio-affiliates-' + folioId + '-' + stamp + '.csv';
+        document.body.appendChild(a); a.click();
+        setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+      };
+
       window._affInvite = async function () {
         const emailEl = document.getElementById('affInviteEmail');
         const rateEl = document.getElementById('affInviteRate');
@@ -26792,6 +26832,22 @@
         const aff = state.list.find(a => a.id === id);
         if (!aff) return;
         const pending = Number(aff.pendingCommission) || 0;
+        // Handles are enriched server-side by /affiliates/list (Phase 2).
+        // Prefer Ko-fi over PayPal only because Ko-fi feels lighter for a
+        // book-project tip; owner can flip to PayPal in one click.
+        const handles = aff.payoutHandles || {};
+        const preferredMethod = handles.kofi ? 'kofi' : (handles.paypal ? 'paypal' : null);
+        const preferredHandle = preferredMethod === 'kofi'
+          ? handles.kofi
+          : (preferredMethod === 'paypal' ? handles.paypal : '');
+        const handleHint = (!handles.kofi && !handles.paypal)
+          ? '<div style="font-size:11px;color:var(--hint);margin-bottom:8px;padding:6px 10px;background:rgba(201,140,42,0.08);border-radius:5px">' +
+              _esc(aff.affiliateEmail || 'The affiliate') + ' hasn\'t added payout handles yet. Ask them to save one at ' +
+              '<a href="/affiliate/" target="_blank" style="color:var(--accent)">onfolio.press/affiliate</a>, or paste their handle manually below.' +
+            '</div>'
+          : ('<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Prefilled from their dashboard' +
+              (handles.kofi && handles.paypal ? ' — click a payment button to switch method.' : '.') +
+              '</div>');
         const overlay = document.createElement('div');
         overlay.style.cssText = 'position:fixed;inset:0;z-index:9500;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px';
         overlay.innerHTML = ''
@@ -26804,7 +26860,8 @@
           +     '<input id="affPayAmount" type="number" min="0.01" step="0.01" value="' + pending.toFixed(2) + '" style="flex:1;padding:6px 10px;font-size:12px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text)"/>'
           +   '</div>'
           +   '<label style="display:block;font-size:11px;color:var(--muted);margin-bottom:4px">Their payout handle (Ko-fi username or PayPal.me URL)</label>'
-          +   '<input id="affPayHandle" type="text" placeholder="e.g. ken-translator  or  paypal.me/kentrans" style="width:100%;padding:6px 10px;font-size:12px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);margin-bottom:10px;box-sizing:border-box"/>'
+          +   '<input id="affPayHandle" type="text" value="' + _esc(preferredHandle || '') + '" placeholder="e.g. ken-translator  or  paypal.me/kentrans" style="width:100%;padding:6px 10px;font-size:12px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);margin-bottom:6px;box-sizing:border-box"/>'
+          +   handleHint
           +   '<div style="display:flex;gap:8px;margin-bottom:14px">'
           +     '<button id="affPayKofi" type="button" style="flex:1;padding:8px;font-size:12px;background:#29abe0;color:#fff;border:0;border-radius:6px;cursor:pointer">Open Ko-fi ↗</button>'
           +     '<button id="affPayPayPal" type="button" style="flex:1;padding:8px;font-size:12px;background:#003087;color:#fff;border:0;border-radius:6px;cursor:pointer">Open PayPal ↗</button>'
@@ -26821,13 +26878,23 @@
         overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
         overlay.querySelector('#affPayCancel').addEventListener('click', close);
         overlay.querySelector('#affPayKofi').addEventListener('click', () => {
-          const handle = (overlay.querySelector('#affPayHandle').value || '').trim().replace(/^ko-?fi\.com\//i, '').replace(/^\/+/, '');
+          const field = overlay.querySelector('#affPayHandle');
+          // If field is empty OR still shows the PayPal handle, swap to
+          // the saved Ko-fi handle before opening.
+          if (handles.kofi && (!field.value.trim() || field.value.trim() === handles.paypal)) {
+            field.value = handles.kofi;
+          }
+          const handle = (field.value || '').trim().replace(/^ko-?fi\.com\//i, '').replace(/^\/+/, '');
           if (!handle) return alert('Enter their Ko-fi username first.');
           window.open('https://ko-fi.com/' + encodeURIComponent(handle), '_blank', 'noopener');
         });
         overlay.querySelector('#affPayPayPal').addEventListener('click', () => {
-          let handle = (overlay.querySelector('#affPayHandle').value || '').trim();
+          const field = overlay.querySelector('#affPayHandle');
+          if (handles.paypal && (!field.value.trim() || field.value.trim() === handles.kofi)) {
+            field.value = handles.paypal;
+          }
           const amount = overlay.querySelector('#affPayAmount').value;
+          let handle = (field.value || '').trim();
           if (!handle) return alert('Enter their PayPal.me URL or handle first.');
           handle = handle.replace(/^https?:\/\//, '').replace(/^paypal\.me\//i, '').replace(/^\/+/, '');
           window.open('https://paypal.me/' + encodeURIComponent(handle) + '/' + encodeURIComponent(amount), '_blank', 'noopener');
