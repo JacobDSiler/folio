@@ -44,14 +44,35 @@
  *     attackers.
  */
 
-const DEFAULT_ORIGIN   = 'https://www.onfolio.press';
+// Both apex and www — Cloudflare Pages serves both; the browser can
+// land on either depending on the link source. Without both in the
+// allowlist, apex-origin fetches to this worker fail CORS preflight
+// with "'www.onfolio.press' is not equal to the supplied origin"
+// (Aug 2026: broke the admin support panel on apex).
+const DEFAULT_ORIGIN   = 'https://www.onfolio.press,https://onfolio.press';
 const JWT_DEFAULT_DAYS = 30;
 const GUMROAD_VERIFY   = 'https://api.gumroad.com/v2/licenses/verify';
 
 /* ── CORS + response helpers ──────────────────────────────────── */
 function allowedOrigins(env) {
   const raw = (env && env.ALLOWED_ORIGIN) || DEFAULT_ORIGIN;
-  return raw.split(',').map(s => s.trim()).filter(Boolean);
+  const base = raw.split(',').map(s => s.trim()).filter(Boolean);
+  // Auto-add the www/apex sibling for any onfolio.press variant in
+  // the list. Cloudflare Pages serves both origins; whichever the
+  // browser is on has to be in the CORS allowlist or preflight fails.
+  const set = new Set(base);
+  for (const o of base) {
+    const m = o.match(/^https?:\/\/(www\.)?(onfolio\.press)(:\d+)?$/i);
+    if (m) {
+      const proto = o.split('://')[0];
+      const port = m[3] || '';
+      const apex = proto + '://' + m[2] + port;
+      const www  = proto + '://www.' + m[2] + port;
+      set.add(apex);
+      set.add(www);
+    }
+  }
+  return Array.from(set);
 }
 function pickOrigin(request, env) {
   const list = allowedOrigins(env);
