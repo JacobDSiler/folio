@@ -106,13 +106,30 @@
  *     up. The SA just needs the "Cloud Datastore User" role.
  */
 
-const DEFAULT_ORIGIN = 'https://www.onfolio.press';
+// Both apex and www — Cloudflare Pages serves both; the browser can
+// land on either. Without both in the fallback, apex-origin fetches
+// hit CORS preflight failures. Aug 2026 fix.
+const DEFAULT_ORIGIN = 'https://www.onfolio.press,https://onfolio.press';
 const RESEND_API     = 'https://api.resend.com/emails';
 
 /* ── CORS + response helpers ──────────────────────────────────── */
 function allowedOrigins(env) {
   const raw = (env && env.ALLOWED_ORIGIN) || DEFAULT_ORIGIN;
-  return raw.split(',').map(s => s.trim()).filter(Boolean);
+  const base = raw.split(',').map(s => s.trim()).filter(Boolean);
+  // Auto-add www/apex sibling for any onfolio.press variant. Prevents
+  // apex-origin CORS-preflight failures when the env only lists www
+  // (or vice versa). Aug 2026 fix.
+  const set = new Set(base);
+  for (const o of base) {
+    const m = o.match(/^https?:\/\/(www\.)?(onfolio\.press)(:\d+)?$/i);
+    if (m) {
+      const proto = o.split('://')[0];
+      const port = m[3] || '';
+      set.add(proto + '://' + m[2] + port);
+      set.add(proto + '://www.' + m[2] + port);
+    }
+  }
+  return Array.from(set);
 }
 function pickOrigin(request, env) {
   const list = allowedOrigins(env);
