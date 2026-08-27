@@ -60,6 +60,19 @@ service firebase.storage {
       allow write: if false;  // console/gsutil only
     }
 
+    // Digital bonuses (Phase 0) — extras readers unlock alongside
+    //   folio_bonuses/<folioId>/<bonusId>/<fileName>
+    // Owner uploads/deletes; anyone can read once the folio is
+    // published (paywall lives at the reader-render layer — the URL is
+    // gated by unlock state, and once the URL is known it's public,
+    // same trust model as inline images + audio). For truly sensitive
+    // bonuses (early drafts, private art), owners should use the
+    // external-link kind pointing at a signed-URL host they control.
+    match /folio_bonuses/{folioId}/{bonusId}/{fileName} {
+      allow read: if isPublished(folioId) || isOwner(folioId);
+      allow write, delete: if isOwner(folioId);
+    }
+
     // Lulu print-job PDFs — written at
     //   folio-lulu/<stamp>-interior.pdf  and  ...-cover.pdf
     // These are transient uploads with a flat, non-prefixed name, so

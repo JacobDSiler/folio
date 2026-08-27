@@ -516,22 +516,56 @@ $script:LastCanaryMtime = if (Test-Path $script:CanaryPath) {
 } else {
     [DateTime]::MinValue
 }
+# Startup catch-up: if the canary state file records an OLDER known
+# mtime than what's on disk right now, a tick fired while the watcher
+# was down. Fire once on start so we don't miss it. State file is at
+# $StateDir\canary-mtime.txt.
+$script:CanaryStateFile = Join-Path $StateDir 'canary-mtime.txt'
+try {
+    if (Test-Path $script:CanaryStateFile) {
+        $priorMtimeStr = Get-Content $script:CanaryStateFile -Raw -ErrorAction SilentlyContinue
+        if ($priorMtimeStr) {
+            $priorMtime = [DateTime]::Parse($priorMtimeStr.Trim(), [System.Globalization.CultureInfo]::InvariantCulture)
+            if ($script:LastCanaryMtime -gt $priorMtime) {
+                Write-WatchLog "Startup catch-up: canary is $($script:LastCanaryMtime.ToString('o')) but last-seen was $($priorMtime.ToString('o')) - firing"
+                # Deferred to the message loop so tray icon is up first.
+                Start-Sleep -Milliseconds 400
+                Trigger-Debounce 'startup catch-up'
+            }
+        }
+    }
+} catch { Write-WatchLog "Canary state read error: $($_.Exception.Message)" 'WARN' }
+
+# Throttled heartbeat log so Jacob can see the watcher is alive even
+# when nothing is changing. Emits one line per minute regardless.
+$script:LastCanaryHeartbeatLog = [DateTime]::MinValue
+
 $script:CanaryTimer = New-Object System.Windows.Forms.Timer
 $script:CanaryTimer.Interval = 15000  # 15 seconds
 $script:CanaryTimer.Add_Tick({
     try {
-        if (-not (Test-Path $script:CanaryPath)) { return }
+        if (-not (Test-Path $script:CanaryPath)) {
+            Write-WatchLog "Canary file missing at $script:CanaryPath" 'WARN'
+            return
+        }
         $mtime = (Get-Item $script:CanaryPath).LastWriteTimeUtc
+        # Heartbeat every 60s so the log shows the watcher is polling.
+        if (([DateTime]::UtcNow - $script:LastCanaryHeartbeatLog).TotalSeconds -ge 60) {
+            Write-WatchLog "Canary poll alive - file mtime $($mtime.ToString('o')) - last-seen $($script:LastCanaryMtime.ToString('o'))"
+            $script:LastCanaryHeartbeatLog = [DateTime]::UtcNow
+        }
         if ($mtime -gt $script:LastCanaryMtime) {
+            Write-WatchLog "CANARY CHANGED: $($script:LastCanaryMtime.ToString('o')) -> $($mtime.ToString('o')) - firing debounce"
             $script:LastCanaryMtime = $mtime
-            Write-WatchLog ".deploy-tick changed at $($mtime.ToString('o')) - firing debounce (canary poll)"
+            try { Set-Content -Path $script:CanaryStateFile -Value $mtime.ToString('o') -ErrorAction SilentlyContinue } catch {}
             Trigger-Debounce 'canary tick'
         }
     } catch {
-        Write-WatchLog "Canary poll error: $($_.Exception.Message)"
+        Write-WatchLog "Canary poll error: $($_.Exception.Message)" 'WARN'
     }
 })
 $script:CanaryTimer.Start()
+Write-WatchLog "Canary poll started - path: $script:CanaryPath - initial mtime: $($script:LastCanaryMtime.ToString('o'))"
 
 # =====================================================================
 # Tray right-click menu
@@ -573,6 +607,57 @@ $miLog.Add_Click({
     } else {
         Show-Balloon 'FolioWatch' 'Log file not created yet.'
     }
+})
+
+# Test canary from PowerShell side. If this deploys but Claude/WSL
+# bumps don't, the mount is the problem. If this DOESN'T deploy, the
+# pipeline itself is broken and we know exactly where to look.
+$miTestCanary = $menu.Items.Add('&Test canary (bump .deploy-tick)')
+$miTestCanary.Add_Click({
+    try {
+        $now = Get-Date
+        $ts = $now.ToUniversalTime().ToString('o')
+        $content = "# Watcher test bump`nlast_tick: $ts`nlast_batch: manual tray-menu test"
+        Set-Content -Path $script:CanaryPath -Value $content -ErrorAction Stop
+        Write-WatchLog "Manual canary bump from tray - mtime now $ts"
+        Show-Balloon 'FolioWatch' "Canary bumped at $($now.ToString('HH:mm:ss')). Watch for a deploy within 15 seconds."
+    } catch {
+        Show-Balloon 'FolioWatch' "Canary bump failed: $($_.Exception.Message)"
+        Write-WatchLog "Manual canary bump failed: $($_.Exception.Message)" 'WARN'
+    }
+})
+
+# Snapshot of internal state so Jacob can tell at a glance if the
+# watcher is alive + what it's waiting on. No log-grep required.
+$miDiag = $menu.Items.Add('Show &diagnostics')
+$miDiag.Add_Click({
+    $canaryExists = Test-Path $script:CanaryPath
+    $currentMtime = if ($canaryExists) { (Get-Item $script:CanaryPath).LastWriteTimeUtc.ToString('o') } else { 'MISSING' }
+    $lastSeen = $script:LastCanaryMtime.ToString('o')
+    $paused = if ($script:State.paused) { 'YES' } else { 'no' }
+    $lastDeploy = if ($script:State.lastDeployAt) { $script:State.lastDeployAt } else { '(none this session)' }
+    $lines = @(
+        "FolioWatch diagnostics",
+        "",
+        "Repo:              $RepoRoot",
+        "Canary path:       $script:CanaryPath",
+        "Canary on disk:    $currentMtime",
+        "Watcher last-seen: $lastSeen",
+        "Match:             $(if ($canaryExists -and $currentMtime -eq $lastSeen) { 'YES - watcher is current' } else { 'NO - poll should fire within 15s' })",
+        "",
+        "Paused:            $paused",
+        "Last deploy:       $lastDeploy",
+        "",
+        "Log file:          $LogFile",
+        "State file:        $StateFile",
+        "PID:               $PID"
+    )
+    [System.Windows.Forms.MessageBox]::Show(
+        ($lines -join "`r`n"),
+        'FolioWatch diagnostics',
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    ) | Out-Null
 })
 
 $miState = $menu.Items.Add('Show &state.json')

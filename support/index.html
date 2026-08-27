@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Contact Folio support</title>
+<meta name="description" content="Get in touch with Folio support — bug reports, billing questions, feature requests, or anything else."/>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin/>
+<link rel="icon" href="/favicon.ico"/>
+<style>
+  :root{
+    --bg:#f6f4ee;--surface:#fff;--text:#1a1611;--muted:#5a5347;--hint:#8a8378;
+    --border:rgba(0,0,0,0.10);--border-mid:rgba(0,0,0,0.14);
+    --accent:#c98c2a;--accent-ui:#065f46;--danger:#b91c1c;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    --serif:'Playfair Display',Georgia,serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#141210;--surface:#1e1b17;--text:#f0ece2;--muted:#a89e8d;--hint:#8a8378;
+      --border:rgba(255,255,255,0.10);--border-mid:rgba(255,255,255,0.14);}
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.55}
+  a{color:var(--accent-ui);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{background:var(--surface);border-bottom:.5px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:20}
+  header h1{font-family:var(--serif);font-size:20px;font-weight:600;margin:0}
+  header .brand-mark{width:26px;height:26px;border-radius:6px;background:var(--accent);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:600;font-family:var(--serif)}
+  header .breadcrumb{font-size:12px;color:var(--muted);margin-left:auto}
+  main{max-width:640px;margin:0 auto;padding:28px 24px 60px}
+  h2{font-family:var(--serif);font-size:22px;font-weight:600;margin:0 0 6px}
+  .lead{color:var(--muted);margin:0 0 24px}
+  form{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:22px}
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:5px;font-weight:500}
+  input[type=text],input[type=email],textarea,select{
+    width:100%;padding:9px 12px;font-size:13.5px;border:.5px solid var(--border);border-radius:6px;
+    background:var(--bg);color:var(--text);font-family:inherit;
+  }
+  textarea{min-height:140px;line-height:1.55;resize:vertical}
+  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent-ui)}
+  .row{margin-bottom:14px}
+  .row-grid{display:grid;grid-template-columns:180px 1fr;gap:12px}
+  @media (max-width:520px){.row-grid{grid-template-columns:1fr}}
+  .hint{font-size:11.5px;color:var(--hint);margin-top:4px}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;font-size:13.5px;border-radius:6px;border:0;background:var(--accent-ui);color:#fff;cursor:pointer;font-family:inherit;font-weight:500;transition:background .15s}
+  .btn:hover{background:#054a37}
+  .btn:disabled{opacity:.55;cursor:not-allowed}
+  .msg{font-size:12.5px;margin-top:12px;line-height:1.55;min-height:18px}
+  .msg.err{color:var(--danger)}
+  .msg.ok{color:var(--accent-ui)}
+  .context-strip{margin-top:16px;padding:10px 14px;background:var(--bg);border-radius:6px;font-size:11px;color:var(--hint);line-height:1.65}
+  .context-strip strong{color:var(--muted)}
+  .success{background:var(--surface);border:1px solid var(--accent-ui);border-radius:12px;padding:26px;text-align:center}
+  .success h3{font-family:var(--serif);font-size:20px;margin:0 0 8px;color:var(--accent-ui)}
+  .success p{color:var(--muted);margin:0 0 18px}
+  .success code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;background:var(--bg);padding:3px 8px;border-radius:4px}
+  .footer-links{margin-top:24px;font-size:12px;color:var(--hint);text-align:center}
+  .footer-links a{color:var(--hint);border-bottom:.5px dotted currentColor;padding-bottom:1px}
+</style>
+</head>
+<body>
+
+<header>
+  <span class="brand-mark">F</span>
+  <h1>Folio support</h1>
+  <span class="breadcrumb"><a href="/">← Home</a></span>
+</header>
+
+<main>
+  <div id="formWrap">
+    <h2>How can we help?</h2>
+    <p class="lead">
+      A real person reads every message. We aim to reply within 1–2 business days. If something's blocking you right now, mark the category as <strong>bug</strong> and we'll bump it up.
+    </p>
+
+    <form id="supportForm" novalidate>
+      <div class="row row-grid">
+        <div>
+          <label for="fCategory">Category</label>
+          <select id="fCategory" required>
+            <option value="bug">🐛 Bug or something broken</option>
+            <option value="billing">💳 Billing or subscription</option>
+            <option value="feature">💡 Feature request</option>
+            <option value="affiliate">🤝 Affiliate question</option>
+            <option value="other" selected>❓ Something else</option>
+          </select>
+        </div>
+        <div>
+          <label for="fSubject">Subject</label>
+          <input type="text" id="fSubject" required maxlength="200" placeholder="One line — what's this about?"/>
+        </div>
+      </div>
+
+      <div class="row" id="rowIdentity" style="display:none">
+        <div class="row-grid">
+          <div>
+            <label for="fName">Your name (optional)</label>
+            <input type="text" id="fName" maxlength="100" placeholder="What should we call you?"/>
+          </div>
+          <div>
+            <label for="fEmail">Your email <span style="color:var(--danger)">*</span></label>
+            <input type="email" id="fEmail" required placeholder="you@example.com"/>
+            <div class="hint">Where we'll reply. We won't add you to any list.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <label for="fBody">What's happening?</label>
+        <textarea id="fBody" required minlength="5" maxlength="8000" placeholder="Describe the issue, question, or idea. If it's a bug, tell us what you did, what you expected, and what actually happened."></textarea>
+        <div class="hint"><span id="charCount">0</span>/8000 characters</div>
+      </div>
+
+      <div class="context-strip" id="contextStrip" style="display:none">
+        <strong>We'll auto-attach:</strong>
+        <div id="contextLines" style="margin-top:4px"></div>
+      </div>
+
+      <div style="margin-top:18px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button type="submit" class="btn" id="submitBtn">Send message</button>
+        <span id="msg" class="msg"></span>
+      </div>
+    </form>
+
+    <div class="footer-links">
+      Prefer email? <a href="mailto:folio@jacobsiler.com">folio@jacobsiler.com</a> works too.
+    </div>
+  </div>
+
+  <div id="successWrap" class="success" style="display:none">
+    <h3>Thanks — message received.</h3>
+    <p>We'll reply to <strong id="successEmail">your email</strong> within 1–2 business days. Ticket reference:</p>
+    <p><code id="successTicket">—</code></p>
+    <p style="margin-top:24px"><a href="/" class="btn" style="text-decoration:none">Back to Folio →</a></p>
+  </div>
+</main>
+
+<script>
+  const PAYWALL_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
+  const BUILD_TAG = 'support/2026-08-25';
+  let _user = null;
+
+  // Auto-context — captures folio + page + browser so support has
+  // what they need to reproduce. Nothing sensitive, all client-visible.
+  function collectContext() {
+    let folioId = '';
+    try {
+      const p = new URLSearchParams(window.location.search);
+      folioId = p.get('folio') || p.get('read') || p.get('project') || '';
+    } catch (_) {}
+    return {
+      folioId: folioId || null,
+      url: (document.referrer || window.location.href).slice(0, 500),
+      userAgent: (navigator.userAgent || '').slice(0, 300),
+      build: BUILD_TAG,
+    };
+  }
+  function renderContextStrip() {
+    const ctx = collectContext();
+    const parts = [];
+    if (ctx.folioId) parts.push('Folio: <code>' + ctx.folioId + '</code>');
+    if (ctx.url)     parts.push('Page you came from');
+    parts.push('Browser info');
+    document.getElementById('contextLines').innerHTML = parts.join(' · ');
+    document.getElementById('contextStrip').style.display = '';
+  }
+
+  // Character counter for the body textarea.
+  document.getElementById('fBody').addEventListener('input', function () {
+    document.getElementById('charCount').textContent = this.value.length;
+  });
+
+  // Firebase auth — silent restore. If the user has an active session
+  // from /app.html or /shelf/, we auto-fill email + name and hide the
+  // identity row so the form is one field shorter.
+  (async function boot() {
+    try {
+      const appMod  = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const authMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+      const app = appMod.initializeApp({
+        apiKey: 'AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0',
+        authDomain: 'auth.jacobsiler.com',
+        projectId: 'miscellaneous-117e9',
+        storageBucket: 'miscellaneous-117e9.firebasestorage.app',
+        messagingSenderId: '514858431339',
+        appId: '1:514858431339:web:8b3acbe89966b45fe3922e',
+      }, 'support');
+      const auth = authMod.getAuth(app);
+      authMod.onAuthStateChanged(auth, function (u) {
+        _user = u || null;
+        const rowIdentity = document.getElementById('rowIdentity');
+        if (u && u.email && !u.isAnonymous) {
+          rowIdentity.style.display = 'none';
+        } else {
+          rowIdentity.style.display = '';
+        }
+      });
+      // Guard: if auth doesn't settle within 2s, show the identity row
+      // so the form is always usable.
+      setTimeout(function () {
+        if (!_user) document.getElementById('rowIdentity').style.display = '';
+      }, 2000);
+    } catch (e) {
+      console.warn('[support] auth boot failed:', e && e.message);
+      document.getElementById('rowIdentity').style.display = '';
+    }
+    renderContextStrip();
+    // Pre-select category from ?cat= query if present (link surfaces
+    // can steer people to the right bucket).
+    try {
+      const p = new URLSearchParams(window.location.search);
+      const cat = (p.get('cat') || '').toLowerCase();
+      if (cat && ['bug','billing','feature','affiliate','other'].indexOf(cat) >= 0) {
+        document.getElementById('fCategory').value = cat;
+      }
+    } catch (_) {}
+  })();
+
+  // Submit — POST to the paywall worker with an optional Bearer token
+  // (auto-attached if signed in) so the server can enrich the ticket
+  // with the user's uid.
+  document.getElementById('supportForm').addEventListener('submit', async function (ev) {
+    ev.preventDefault();
+    const btn = document.getElementById('submitBtn');
+    const msg = document.getElementById('msg');
+    const category = document.getElementById('fCategory').value;
+    const subject  = document.getElementById('fSubject').value.trim();
+    const body     = document.getElementById('fBody').value.trim();
+    const name     = (document.getElementById('fName') || {}).value || '';
+    const email    = (document.getElementById('fEmail') || {}).value ||
+                     (_user && _user.email) || '';
+    msg.className = 'msg';
+    if (!subject) { msg.className = 'msg err'; msg.textContent = 'Give it a subject line.'; return; }
+    if (body.length < 5) { msg.className = 'msg err'; msg.textContent = 'Tell us a bit more.'; return; }
+    if (!_user && !email) { msg.className = 'msg err'; msg.textContent = 'We need an email to reply.'; return; }
+    btn.disabled = true; msg.textContent = 'Sending…';
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (_user && !_user.isAnonymous) {
+        try { headers['Authorization'] = 'Bearer ' + (await _user.getIdToken()); } catch (_) {}
+      }
+      const r = await fetch(PAYWALL_URL + '/support-submit', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          category, subject, body, name, email,
+          context: collectContext(),
+        }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+      // Swap to success state.
+      document.getElementById('successEmail').textContent = email || (_user && _user.email) || 'your email';
+      document.getElementById('successTicket').textContent = data.ticketId || '—';
+      document.getElementById('formWrap').style.display = 'none';
+      document.getElementById('successWrap').style.display = '';
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (e) {
+      msg.className = 'msg err'; msg.textContent = 'Send failed: ' + e.message + ' — please try again or email folio@jacobsiler.com.';
+      btn.disabled = false;
+    }
+  });
+</script>
+</body>
+</html>
