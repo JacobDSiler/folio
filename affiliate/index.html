@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Your affiliate dashboard · Folio</title>
+<meta name="robots" content="noindex"/>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin/>
+<link rel="icon" href="/favicon.ico"/>
+<style>
+  :root{
+    --bg:#f6f4ee;--surface:#fff;--text:#1a1611;--muted:#5a5347;--hint:#8a8378;
+    --border:rgba(0,0,0,0.10);--border-mid:rgba(0,0,0,0.14);
+    --accent:#c98c2a;--accent-ui:#065f46;--danger:#b91c1c;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    --serif:'Playfair Display',Georgia,serif;
+    --mono:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#141210;--surface:#1e1b17;--text:#f0ece2;--muted:#a89e8d;--hint:#8a8378;
+      --border:rgba(255,255,255,0.10);--border-mid:rgba(255,255,255,0.14);}
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5}
+  a{color:var(--accent-ui);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{background:var(--surface);border-bottom:.5px solid var(--border);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:20}
+  header h1{font-family:var(--serif);font-size:20px;font-weight:600;margin:0}
+  header .brand{display:flex;align-items:center;gap:10px}
+  header .brand-mark{width:26px;height:26px;border-radius:6px;background:var(--accent);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:600;font-family:var(--serif)}
+  #authArea{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--muted)}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;font-size:12px;border-radius:6px;border:.5px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;transition:background .15s,border-color .15s}
+  .btn:hover{border-color:var(--accent)}
+  .btn-primary{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
+  .btn-primary:hover{background:#054a37;border-color:#054a37}
+  .btn-ghost{background:transparent;border-color:transparent;color:var(--muted)}
+  .btn-ghost:hover{color:var(--text);background:var(--bg)}
+  main{max-width:900px;margin:0 auto;padding:28px 24px 60px}
+  .lead{font-size:15px;color:var(--muted);margin:0 0 24px;max-width:640px}
+  section{margin-bottom:32px}
+  h2{font-size:15px;font-weight:600;margin:0 0 12px;letter-spacing:0}
+  h2 .count{font-size:12px;color:var(--hint);font-weight:400;margin-left:6px}
+  .card{background:var(--surface);border:.5px solid var(--border);border-radius:12px;padding:18px 20px;margin-bottom:12px}
+  .empty{padding:20px 24px;text-align:center;border:.5px dashed var(--border);border-radius:12px;color:var(--hint);font-size:13px;line-height:1.6}
+  .invite-card{border-color:var(--accent);background:linear-gradient(180deg,rgba(201,140,42,0.06),transparent)}
+  .invite-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+  .invite-title{font-size:14px;font-weight:600}
+  .invite-meta{font-size:11.5px;color:var(--muted)}
+  .invite-note{font-size:12px;color:var(--muted);margin:6px 0 12px;padding:8px 12px;background:var(--bg);border-radius:6px;line-height:1.5}
+  .aff-card{}
+  .aff-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+  .aff-title{font-size:14px;font-weight:600}
+  .aff-author{font-size:12px;color:var(--muted);font-weight:400;margin-left:4px}
+  .aff-rate{font-size:12px;color:var(--muted)}
+  .aff-rate strong{color:var(--text);font-size:14px}
+  .stats{display:flex;gap:20px;flex-wrap:wrap;margin:12px 0 14px}
+  .stat{}
+  .stat-lbl{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--hint);margin-bottom:2px}
+  .stat-val{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums}
+  .stat-val.money{color:var(--accent-ui)}
+  .link-row{display:flex;align-items:center;gap:6px;margin:12px 0 6px}
+  .link-row code{flex:1;padding:8px 12px;background:var(--bg);border:.5px solid var(--border);border-radius:6px;font-family:var(--mono);font-size:11.5px;white-space:nowrap;overflow-x:auto;color:var(--text)}
+  .aff-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .badge{display:inline-block;font-size:10px;padding:2px 8px;border-radius:10px;font-weight:500;text-transform:uppercase;letter-spacing:.05em;margin-left:8px;vertical-align:middle}
+  .badge-active{background:#dcfce7;color:#166534}
+  .badge-paused{background:#e5e7eb;color:#4b5563}
+  .badge-invited{background:#fef3c7;color:#92400e}
+  input[type=text],input[type=email]{width:100%;padding:8px 12px;font-size:13px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit}
+  input:focus{outline:none;border-color:var(--accent-ui)}
+  label{display:block;font-size:11px;color:var(--muted);margin-bottom:4px;font-weight:500}
+  .handles-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media (max-width:560px){.handles-grid{grid-template-columns:1fr}}
+  #signInPrompt{text-align:center;padding:60px 24px}
+  #signInPrompt h2{font-size:22px;font-family:var(--serif);margin:0 0 8px;font-weight:500}
+  #signInPrompt p{color:var(--muted);margin:0 0 20px;max-width:420px;margin-left:auto;margin-right:auto}
+  .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
+  .modal{background:var(--surface);border-radius:12px;max-width:440px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.35);text-align:center}
+  .modal h3{margin:0 0 6px;font-size:16px}
+  .modal p{margin:0 0 14px;font-size:13px;color:var(--muted)}
+  .modal img{max-width:100%;height:auto;border-radius:8px;background:#fff;padding:10px;margin-bottom:14px}
+  .footer-note{margin-top:40px;padding:20px;background:var(--surface);border-radius:12px;border:.5px solid var(--border);font-size:12px;color:var(--muted);line-height:1.6}
+  .footer-note strong{color:var(--text)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="brand-mark">F</span>
+    <h1>Affiliate dashboard</h1>
+  </div>
+  <div id="authArea">
+    <span id="authLabel">Loading…</span>
+    <button id="signOutBtn" class="btn btn-ghost" style="display:none">Sign out</button>
+  </div>
+</header>
+
+<main>
+  <div id="signInPrompt" style="display:none">
+    <h2>Sign in to see your affiliations</h2>
+    <p>If you were invited to sell someone's Folio, sign in with the same email address the invite was sent to.</p>
+    <button id="signInBtn" class="btn btn-primary">Sign in with Google</button>
+  </div>
+
+  <div id="dashboard" style="display:none">
+    <p class="lead" id="lead">
+      Every Folio you're helping sell has a unique link and its own commission rate. Share your link — the more people who read and buy through it, the more you earn.
+    </p>
+
+    <section id="invitesSection" style="display:none">
+      <h2>New invites <span class="count" id="invitesCount"></span></h2>
+      <div id="invitesList"></div>
+    </section>
+
+    <section id="activeSection">
+      <h2>
+        Your affiliate folios <span class="count" id="activeCount"></span>
+        <button id="affExportBtn" class="btn btn-ghost" style="float:right;padding:4px 10px;font-size:11px;margin-top:-2px" onclick="_affExportMine()"
+          title="Download your ledger as CSV — good for tax season">↓ CSV</button>
+      </h2>
+      <div id="activeList"></div>
+      <div id="activeEmpty" class="empty" style="display:none">
+        No active affiliations yet. When someone invites you above, accept it and your affiliate links will appear here.
+      </div>
+    </section>
+
+    <section id="handlesSection">
+      <h2>Payout handles</h2>
+      <div class="card">
+        <p style="margin:0 0 14px;font-size:12.5px;color:var(--muted);line-height:1.55">
+          Folio doesn't process your affiliate payments — the author sends the money to you directly via Ko-fi or PayPal. Adding your handles here lets them pay you with one click.
+        </p>
+        <div class="handles-grid">
+          <div>
+            <label for="kofiInput">Ko-fi username</label>
+            <input type="text" id="kofiInput" placeholder="e.g. kentranslator"/>
+          </div>
+          <div>
+            <label for="paypalInput">PayPal.me handle</label>
+            <input type="text" id="paypalInput" placeholder="e.g. kentrans"/>
+          </div>
+        </div>
+        <div style="margin-top:12px;display:flex;align-items:center;gap:12px">
+          <button id="handlesSaveBtn" class="btn btn-primary">Save handles</button>
+          <span id="handlesMsg" style="font-size:11.5px;color:var(--muted)"></span>
+        </div>
+      </div>
+    </section>
+
+    <div class="footer-note">
+      <strong>How this works.</strong>
+      When you share your affiliate link, a 30-day cookie tags anyone who clicks it. If they buy the Folio in that window, you earn your commission. Folio tracks the ledger — the author pays you directly via Ko-fi or PayPal (the handles above). Your dashboard shows what's been earned, what's pending, and what's been settled.
+      <div style="margin-top:12px;padding-top:12px;border-top:.5px solid var(--border);font-size:11.5px">
+        Something not adding up, or a question we haven't answered? <a href="/support/?cat=affiliate">Contact support →</a>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  // ══════════════════════════════════════════════════════════════════
+  // Affiliate dashboard — standalone page. Talks to the paywall worker
+  // via /affiliates/* endpoints. Firebase Auth signs the user in so we
+  // can attach a Bearer id token to every backend call. See
+  // docs/AFFILIATES_SPEC.md.
+  // ══════════════════════════════════════════════════════════════════
+  const PAYWALL_URL = 'https://folio-paywall.jacobdsiler.workers.dev';
+  const READER_BASE = window.location.origin;
+  let _auth = null, _user = null, _fbFirestore = null, _fbDoc = null, _fbGetDoc = null, _fbSetDoc = null;
+  const state = { affiliations: [] };
+
+  function _esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g,
+      c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+  }
+  function _fmtMoney(n) { return '$' + (Number(n) || 0).toFixed(2); }
+  function _fmtRate(r)  { return Math.round((Number(r) || 0) * 100) + '%'; }
+  function _fmtDate(iso) {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    } catch (_) { return ''; }
+  }
+
+  async function _apiGet(path) {
+    if (!_user) throw new Error('Sign in required');
+    const token = await _user.getIdToken();
+    const r = await fetch(PAYWALL_URL + path, { headers: { 'Authorization': 'Bearer ' + token } });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    return data;
+  }
+  async function _apiPost(path, body) {
+    if (!_user) throw new Error('Sign in required');
+    const token = await _user.getIdToken();
+    const r = await fetch(PAYWALL_URL + path, {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {}),
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+    return data;
+  }
+
+  function _readerLink(aff) {
+    return READER_BASE + '/s/' + encodeURIComponent(aff.folioId)
+         + '?a=' + encodeURIComponent(aff.code || '');
+  }
+
+  function _renderInvite(aff) {
+    const link = _readerLink(aff);
+    return ''
+      + '<div class="card invite-card" data-aff-id="' + _esc(aff.id) + '">'
+      +   '<div class="invite-head">'
+      +     '<div>'
+      +       '<div class="invite-title">You\'ve been invited to sell a Folio '
+      +         '<span class="badge badge-invited">Invited</span></div>'
+      +       '<div class="invite-meta">Rate: <strong>' + _fmtRate(aff.rate) + '</strong> · from ' + _esc(aff.ownerEmail || 'the owner') + ' · ' + _fmtDate(aff.invitedAt) + '</div>'
+      +     '</div>'
+      +     '<button class="btn btn-primary" onclick="_acceptInvite(\'' + _esc(aff.id) + '\', this)">Accept invite</button>'
+      +   '</div>'
+      +   (aff.note ? '<div class="invite-note">Note from author: ' + _esc(aff.note) + '</div>' : '')
+      + '</div>';
+  }
+
+  function _renderActive(aff) {
+    const link = _readerLink(aff);
+    const status = aff.status;
+    const badge = status === 'paused'
+      ? '<span class="badge badge-paused">Paused</span>'
+      : '<span class="badge badge-active">Active</span>';
+    const pending = _fmtMoney(aff.pendingCommission);
+    const lifetime = _fmtMoney(aff.lifetimeCommission);
+    const settled = _fmtMoney(aff.settledCommission);
+    return ''
+      + '<div class="card aff-card" data-aff-id="' + _esc(aff.id) + '">'
+      +   '<div class="aff-head">'
+      +     '<div class="aff-title">Folio ' + _esc((aff.folioId || '').slice(0, 40)) + ' ' + badge + '</div>'
+      +     '<div class="aff-rate">Your rate: <strong>' + _fmtRate(aff.rate) + '</strong></div>'
+      +   '</div>'
+      +   '<div class="stats">'
+      +     '<div class="stat"><div class="stat-lbl">Earned</div><div class="stat-val money">' + lifetime + '</div></div>'
+      +     '<div class="stat"><div class="stat-lbl">Pending</div><div class="stat-val">' + pending + '</div></div>'
+      +     '<div class="stat"><div class="stat-lbl">Settled</div><div class="stat-val">' + settled + '</div></div>'
+      +   '</div>'
+      +   '<label>Your affiliate link</label>'
+      +   '<div class="link-row">'
+      +     '<code>' + _esc(link) + '</code>'
+      +     '<button class="btn btn-ghost" onclick="_copyLink(\'' + link.replace(/\\/g, '\\\\').replace(/\'/g, "\\'") + '\', this)">Copy</button>'
+      +     '<button class="btn btn-ghost" onclick="_showQr(\'' + link.replace(/\\/g, '\\\\').replace(/\'/g, "\\'") + '\')">QR</button>'
+      +   '</div>'
+      + '</div>';
+  }
+
+  function render() {
+    const invited = state.affiliations.filter(a => a.status === 'invited');
+    const active = state.affiliations.filter(a => a.status === 'active' || a.status === 'paused');
+    const invitesSection = document.getElementById('invitesSection');
+    const invitesList = document.getElementById('invitesList');
+    const invitesCount = document.getElementById('invitesCount');
+    invitesCount.textContent = invited.length ? '(' + invited.length + ')' : '';
+    if (invited.length) {
+      invitesSection.style.display = '';
+      invitesList.innerHTML = invited.map(_renderInvite).join('');
+    } else {
+      invitesSection.style.display = 'none';
+      invitesList.innerHTML = '';
+    }
+    const activeList = document.getElementById('activeList');
+    const activeCount = document.getElementById('activeCount');
+    const activeEmpty = document.getElementById('activeEmpty');
+    activeCount.textContent = active.length ? '(' + active.length + ')' : '';
+    if (active.length) {
+      activeEmpty.style.display = 'none';
+      activeList.innerHTML = active.map(_renderActive).join('');
+    } else {
+      activeEmpty.style.display = '';
+      activeList.innerHTML = '';
+    }
+  }
+
+  async function refresh() {
+    try {
+      const data = await _apiGet('/affiliates/mine');
+      state.affiliations = Array.isArray(data.affiliations) ? data.affiliations : [];
+      render();
+    } catch (e) {
+      console.warn('[affiliate-dash] refresh failed:', e);
+      const lead = document.getElementById('lead');
+      if (lead) { lead.textContent = 'Could not load your affiliations: ' + e.message; lead.style.color = 'var(--danger)'; }
+    }
+  }
+
+  window._copyLink = function (url, btn) {
+    navigator.clipboard.writeText(url).then(() => {
+      const old = btn.textContent; btn.textContent = '✓ Copied';
+      setTimeout(() => { btn.textContent = old; }, 1500);
+    }).catch(() => alert('Copy failed — select the URL manually.'));
+  };
+
+  window._showQr = function (url) {
+    // Free QR generator — no dependency, cached by CDN. If you want to
+    // print it big for a poster, right-click the image and Save As.
+    const src = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data='
+              + encodeURIComponent(url);
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-backdrop';
+    overlay.innerHTML = ''
+      + '<div class="modal">'
+      +   '<h3>QR code for your link</h3>'
+      +   '<p>Scan or share — great for WeChat, Instagram Stories, printed cards.</p>'
+      +   '<img src="' + src + '" alt="QR code" width="400" height="400"/>'
+      +   '<div><button class="btn btn-primary" onclick="this.closest(\'.modal-backdrop\').remove()">Close</button></div>'
+      + '</div>';
+    overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+    document.body.appendChild(overlay);
+  };
+
+  window._affExportMine = function () {
+    const active = state.affiliations.filter(a => a.status === 'active' || a.status === 'paused');
+    if (!active.length) { alert('No active affiliations to export yet.'); return; }
+    const rows = [['Folio ID','Rate','Status','Code','Earned','Pending','Settled','Accepted at','Affiliate link']];
+    for (const a of active) {
+      rows.push([
+        a.folioId || '',
+        Math.round((a.rate || 0) * 100) + '%',
+        a.status || '',
+        a.code || '',
+        (Number(a.lifetimeCommission) || 0).toFixed(2),
+        (Number(a.pendingCommission)  || 0).toFixed(2),
+        (Number(a.settledCommission)  || 0).toFixed(2),
+        a.acceptedAt || '',
+        _readerLink(a),
+      ]);
+    }
+    const csv = rows.map(r => r.map(c => '"' + String(c == null ? '' : c).replace(/"/g,'""') + '"').join(',')).join('\r\n');
+    const stamp = new Date().toISOString().slice(0, 10);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = 'my-folio-affiliations-' + stamp + '.csv';
+    document.body.appendChild(link); link.click();
+    setTimeout(() => { URL.revokeObjectURL(url); link.remove(); }, 100);
+  };
+
+  window._acceptInvite = async function (affId, btn) {
+    btn.disabled = true; btn.textContent = 'Accepting…';
+    try {
+      await _apiPost('/affiliates/accept', { affiliationId: affId });
+      await refresh();
+    } catch (e) {
+      alert('Accept failed: ' + e.message);
+      btn.disabled = false; btn.textContent = 'Accept invite';
+    }
+  };
+
+  // ── Payout handles ─────────────────────────────────────────────
+  // Stored under folio_users_public/{uid}.affiliate_payout_handles
+  // as { kofi, paypal }. Readable by paywall worker at pay-modal
+  // fetch time (Phase 2 enrichment). For MVP, owners type these
+  // manually in the pay modal — but we still let affiliates save
+  // them here so Phase 2 lookup works when it lands.
+  async function _loadHandles() {
+    if (!_user || !_fbFirestore) return;
+    try {
+      const ref = _fbDoc(_fbFirestore, 'folio_users_public', _user.uid);
+      const snap = await _fbGetDoc(ref);
+      if (snap && snap.exists()) {
+        const data = snap.data() || {};
+        const h = data.affiliate_payout_handles || {};
+        document.getElementById('kofiInput').value = h.kofi || '';
+        document.getElementById('paypalInput').value = h.paypal || '';
+      }
+    } catch (e) { console.warn('[affiliate-dash] load handles failed:', e); }
+  }
+  async function _saveHandles() {
+    if (!_user || !_fbFirestore) return;
+    const kofi   = (document.getElementById('kofiInput').value || '').trim();
+    const paypal = (document.getElementById('paypalInput').value || '').trim();
+    const msg = document.getElementById('handlesMsg');
+    const btn = document.getElementById('handlesSaveBtn');
+    btn.disabled = true; msg.textContent = 'Saving…'; msg.style.color = 'var(--muted)';
+    try {
+      const ref = _fbDoc(_fbFirestore, 'folio_users_public', _user.uid);
+      await _fbSetDoc(ref, { affiliate_payout_handles: { kofi, paypal } }, { merge: true });
+      msg.textContent = 'Saved.'; msg.style.color = 'var(--accent-ui)';
+    } catch (e) {
+      msg.textContent = 'Save failed: ' + e.message; msg.style.color = 'var(--danger)';
+    } finally { btn.disabled = false; }
+  }
+
+  // ── Boot ────────────────────────────────────────────────────────
+  (async function boot() {
+    try {
+      const appMod  = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
+      const authMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js');
+      const fsMod   = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      const { initializeApp } = appMod;
+      const { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } = authMod;
+      const { getFirestore, doc, getDoc, setDoc } = fsMod;
+      _fbDoc = doc; _fbGetDoc = getDoc; _fbSetDoc = setDoc;
+      const firebaseConfig = {
+        apiKey: 'AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0',
+        authDomain: 'auth.jacobsiler.com',
+        projectId: 'miscellaneous-117e9',
+        storageBucket: 'miscellaneous-117e9.firebasestorage.app',
+        messagingSenderId: '514858431339',
+        appId: '1:514858431339:web:8b3acbe89966b45fe3922e',
+      };
+      const app = initializeApp(firebaseConfig);
+      _auth = getAuth(app);
+      _fbFirestore = getFirestore(app);
+      const provider = new GoogleAuthProvider();
+      onAuthStateChanged(_auth, async (u) => {
+        _user = u || null;
+        const label = document.getElementById('authLabel');
+        const signOutBtn = document.getElementById('signOutBtn');
+        const prompt = document.getElementById('signInPrompt');
+        const dash = document.getElementById('dashboard');
+        if (u) {
+          label.textContent = u.email || 'Signed in';
+          signOutBtn.style.display = '';
+          prompt.style.display = 'none';
+          dash.style.display = '';
+          await refresh();
+          await _loadHandles();
+        } else {
+          label.textContent = 'Not signed in';
+          signOutBtn.style.display = 'none';
+          prompt.style.display = '';
+          dash.style.display = 'none';
+        }
+      });
+      document.getElementById('signInBtn').addEventListener('click', () => {
+        signInWithPopup(_auth, provider).catch(e => alert('Sign-in failed: ' + e.message));
+      });
+      document.getElementById('signOutBtn').addEventListener('click', () => {
+        signOut(_auth).catch(() => {});
+      });
+      document.getElementById('handlesSaveBtn').addEventListener('click', _saveHandles);
+    } catch (e) {
+      console.error('[affiliate-dash] boot failed:', e);
+      document.getElementById('authLabel').textContent = 'Failed to load — check console.';
+    }
+  })();
+</script>
+</body>
+</html>

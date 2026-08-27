@@ -24181,6 +24181,8 @@
         titleField.dataset.slugBound = '1';
       }
       setTimeout(() => { if (window._rlUpdateSlugPreview) window._rlUpdateSlugPreview(); }, 60);
+      // Render current bonuses (if any) into the list.
+      if (window._rlRenderBonuses) window._rlRenderBonuses();
 
       const bookTitle = (document.getElementById('bookTitle') && document.getElementById('bookTitle').value) || '';
       const bookAuthor = (document.getElementById('bookAuthor') && document.getElementById('bookAuthor').value) || '';
@@ -24691,6 +24693,171 @@
       }
     };
 
+    /* ── Digital bonuses (Phase 0) ────────────────────────────────
+       Bonuses live as an array on release.bonuses. Owner adds/removes
+       via the modal; reader sees the list below the last chapter
+       (Chunk 2 wires the reader render). File uploads land in
+       Firebase Storage at folio_bonuses/{folioId}/{bonusId}/{safe};
+       external URLs are stored as-is. Serial-friendly: adding a new
+       bonus is a live edit — no full re-release needed. Existing
+       buyers automatically see the new bonus on next reader load. */
+    (function _folioBonusesModule() {
+      const MAX_FILE_BYTES = 50 * 1024 * 1024;  // 50 MB
+      let _formKind = 'file';
+
+      function _bonusList() {
+        return (_rlCurrent && Array.isArray(_rlCurrent.bonuses)) ? _rlCurrent.bonuses : [];
+      }
+      function _fmtBytes(n) {
+        if (!n) return '';
+        if (n < 1024) return n + ' B';
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+        return (n / (1024 * 1024)).toFixed(1) + ' MB';
+      }
+      function _esc(s) {
+        return String(s == null ? '' : s).replace(/[&<>"']/g,
+          c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+      }
+      function _renderList() {
+        const el = document.getElementById('rlBonusesList');
+        if (!el) return;
+        const list = _bonusList();
+        if (!list.length) {
+          el.innerHTML = '<div style="font-size:11px;color:var(--hint);font-style:italic;padding:6px 0">No bonuses yet.</div>';
+          return;
+        }
+        el.innerHTML = list.map((b, i) => {
+          const kindLabel = b.kind === 'link' ? '🔗 link' : '📎 ' + (_fmtBytes(b.fileSize) || 'file');
+          return '<div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--surface);border:.5px solid var(--border-mid);border-radius:6px">' +
+            '<div style="flex:1;min-width:0">' +
+              '<div style="font-size:12.5px;font-weight:500">' + _esc(b.title || 'Untitled bonus') + '</div>' +
+              (b.description ? '<div style="font-size:10.5px;color:var(--hint);margin-top:2px">' + _esc(b.description) + '</div>' : '') +
+              '<div style="font-size:10px;color:var(--muted);margin-top:3px">' + kindLabel + '</div>' +
+            '</div>' +
+            '<button type="button" onclick="window._rlRemoveBonus && _rlRemoveBonus(' + i + ')" title="Remove bonus" ' +
+              'style="padding:4px 9px;font-size:11px;background:none;color:#b91c1c;border:.5px solid rgba(185,28,28,0.35);border-radius:5px;cursor:pointer;flex-shrink:0">Remove</button>' +
+          '</div>';
+        }).join('');
+      }
+
+      window._rlRenderBonuses = _renderList;
+      window._rlOpenBonusForm = function () {
+        document.getElementById('rlBonusForm').style.display = 'block';
+        document.getElementById('rlBonusTitle').value = '';
+        document.getElementById('rlBonusDesc').value = '';
+        document.getElementById('rlBonusFile').value = '';
+        document.getElementById('rlBonusUrl').value = '';
+        document.getElementById('rlBonusStatus').textContent = '';
+        window._rlSetBonusKind('file');
+      };
+      window._rlCancelBonusForm = function () {
+        document.getElementById('rlBonusForm').style.display = 'none';
+      };
+      window._rlSetBonusKind = function (kind) {
+        _formKind = kind;
+        const fileBtn = document.getElementById('rlBonusKindFile');
+        const linkBtn = document.getElementById('rlBonusKindLink');
+        const fileRow = document.getElementById('rlBonusFileRow');
+        const linkRow = document.getElementById('rlBonusLinkRow');
+        if (kind === 'link') {
+          fileBtn.style.background = 'var(--bg)'; fileBtn.style.color = 'var(--text)'; fileBtn.style.borderColor = 'var(--border-mid)';
+          linkBtn.style.background = 'var(--accent-ui)'; linkBtn.style.color = '#fff'; linkBtn.style.borderColor = 'var(--accent-ui)';
+          fileRow.style.display = 'none'; linkRow.style.display = 'block';
+        } else {
+          fileBtn.style.background = 'var(--accent-ui)'; fileBtn.style.color = '#fff'; fileBtn.style.borderColor = 'var(--accent-ui)';
+          linkBtn.style.background = 'var(--bg)'; linkBtn.style.color = 'var(--text)'; linkBtn.style.borderColor = 'var(--border-mid)';
+          fileRow.style.display = 'block'; linkRow.style.display = 'none';
+        }
+      };
+
+      window._rlSaveBonus = async function () {
+        const status = document.getElementById('rlBonusStatus');
+        const saveBtn = document.getElementById('rlBonusSaveBtn');
+        const title = (document.getElementById('rlBonusTitle').value || '').trim();
+        const desc  = (document.getElementById('rlBonusDesc').value || '').trim();
+        if (!title) { status.textContent = 'Give it a title.'; status.style.color = '#b91c1c'; return; }
+        if (!_projId) { status.textContent = 'Save the folio first.'; status.style.color = '#b91c1c'; return; }
+        const bonusId = 'bon_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+        let entry = { id: bonusId, title, description: desc, addedAt: Date.now() };
+        if (_formKind === 'link') {
+          const url = (document.getElementById('rlBonusUrl').value || '').trim();
+          if (!/^https?:\/\//i.test(url)) {
+            status.textContent = 'URL must start with http(s)://'; status.style.color = '#b91c1c'; return;
+          }
+          entry.kind = 'link';
+          entry.externalUrl = url;
+        } else {
+          const file = document.getElementById('rlBonusFile').files[0];
+          if (!file) { status.textContent = 'Pick a file to upload.'; status.style.color = '#b91c1c'; return; }
+          if (file.size > MAX_FILE_BYTES) {
+            status.textContent = 'File is over 50 MB — try an external link instead (GitHub Pages, Google Drive, etc).';
+            status.style.color = '#b91c1c'; return;
+          }
+          saveBtn.disabled = true;
+          status.style.color = 'var(--muted)';
+          status.textContent = 'Uploading ' + _fmtBytes(file.size) + '…';
+          try {
+            const storage = window._storage;
+            const { ref: sRef, uploadBytes: sUpload, getDownloadURL: sUrl } = window._storageLib;
+            const safeName = (file.name || 'bonus').replace(/[^a-z0-9._-]/gi, '_').slice(0, 80);
+            const path = 'folio_bonuses/' + encodeURIComponent(_projId) + '/' + bonusId + '/' + safeName;
+            const r = sRef(storage, path);
+            await sUpload(r, file, { contentType: file.type || 'application/octet-stream' });
+            const downloadUrl = await sUrl(r);
+            entry.kind = 'file';
+            entry.fileUrl = downloadUrl;
+            entry.fileName = file.name;
+            entry.fileSize = file.size;
+            entry.mimeType = file.type || null;
+            entry.storagePath = path;
+          } catch (e) {
+            status.textContent = 'Upload failed: ' + (e && e.message || 'unknown');
+            status.style.color = '#b91c1c';
+            saveBtn.disabled = false;
+            return;
+          }
+        }
+        // Append to _rlCurrent.bonuses in memory + persist to Firestore
+        // as a live edit (no need to re-run the whole _rlPublish flow).
+        if (!_rlCurrent) _rlCurrent = {};
+        if (!Array.isArray(_rlCurrent.bonuses)) _rlCurrent.bonuses = [];
+        _rlCurrent.bonuses.push(entry);
+        try {
+          const ref = window._fb.doc(window._db, 'folio_projects', _projId);
+          await window._fb.setDoc(ref, { release: { bonuses: _rlCurrent.bonuses } }, { merge: true });
+          status.textContent = 'Bonus added — buyers will see it next reader load.';
+          status.style.color = 'var(--accent-ui)';
+          _renderList();
+          setTimeout(() => { window._rlCancelBonusForm(); }, 900);
+        } catch (e) {
+          status.textContent = 'Save failed: ' + (e && e.message || 'unknown');
+          status.style.color = '#b91c1c';
+          // Roll back the in-memory add.
+          _rlCurrent.bonuses.pop();
+        } finally { saveBtn.disabled = false; }
+      };
+
+      window._rlRemoveBonus = async function (idx) {
+        if (!_rlCurrent || !Array.isArray(_rlCurrent.bonuses) || !_rlCurrent.bonuses[idx]) return;
+        const b = _rlCurrent.bonuses[idx];
+        if (!confirm('Remove "' + (b.title || 'this bonus') + '"? Buyers will lose access to it.')) return;
+        // Try to delete the file from storage (best-effort).
+        if (b.kind === 'file' && b.storagePath) {
+          try {
+            const storage = window._storage;
+            const { ref: sRef, deleteObject: sDel } = window._storageLib;
+            await sDel(sRef(storage, b.storagePath));
+          } catch (e) { console.warn('[bonus] storage delete failed:', e && e.message); }
+        }
+        _rlCurrent.bonuses.splice(idx, 1);
+        try {
+          const ref = window._fb.doc(window._db, 'folio_projects', _projId);
+          await window._fb.setDoc(ref, { release: { bonuses: _rlCurrent.bonuses } }, { merge: true });
+          _renderList();
+        } catch (e) { alert('Save failed: ' + e.message); }
+      };
+    })();
+
     /* ── Slug helpers (Task #26 per-folio SEO) ─────────────────────
        Deterministic slugification + collision-safe reservation of
        folio_slugs/{slug}. Called from _rlPublish. Rules require
@@ -24911,6 +25078,11 @@
         // releases only). Default false = hybrid C: readers export what's
         // visible (free preview + teasers).
         disableUnpurchasedExport: !!(document.getElementById('rlDisableUnpurchasedExport') && document.getElementById('rlDisableUnpurchasedExport').checked),
+        // Digital bonuses (Phase 0) — carried through so a full publish
+        // doesn't clobber bonuses added via the live-edit save path.
+        // Firestore's merge:true deep-merges maps, so omitting this
+        // would still preserve them, but explicit is safer.
+        bonuses: (_rlCurrent && Array.isArray(_rlCurrent.bonuses)) ? _rlCurrent.bonuses : [],
         // Author signup notification. Opt-in (default off). Email is on
         // the public release doc — the modal warns about that. Worker
         // re-validates the opt-in server-side so a bad client can't email
@@ -36764,6 +36936,57 @@
         immediately; paid releases require the Gumroad license; serial releases unlock chapter-by-chapter alongside the
         text.
       </p>
+
+      <!-- ── Digital bonuses (Phase 0) ────────────────────────────
+           Optional extras readers unlock alongside the book: a PDF
+           translation, an HTML5 game, a bonus chapter, art assets,
+           whatever. File uploads land in Firebase Storage under
+           folio_bonuses/{folioId}/; external URLs are just links.
+           Serial-friendly — adding a new bonus later is a single
+           click and existing buyers see it in their reader.
+           See Phase 0 spec + Chunk 2 for reader-side rendering. -->
+      <div style="margin:14px 0 12px;padding-top:12px;border-top:.5px dashed var(--border-mid)">
+        <label style="display:block;font-size:12px;font-weight:500;color:var(--text);margin:0 0 4px">
+          🎁 Digital bonuses <span style="opacity:.6;font-weight:400">(optional — buyers unlock these with the book)</span>
+        </label>
+        <p style="font-size:10.5px;color:var(--hint);line-height:1.55;margin:0 0 10px">
+          Attach a PDF, HTML5 game bundle, art pack, bonus chapter, or paste a link to anywhere you host content. Great for serial extras — add a new one whenever, and everyone who's bought the folio sees it appear.
+        </p>
+        <div id="rlBonusesList" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px"></div>
+        <button type="button" id="rlAddBonusBtn" onclick="window._rlOpenBonusForm && _rlOpenBonusForm()"
+          style="padding:6px 12px;font-size:11.5px;background:var(--bg);color:var(--text);border:.5px solid var(--border-mid);border-radius:6px;cursor:pointer;font-family:inherit">
+          + Add a bonus
+        </button>
+        <div id="rlBonusForm" style="display:none;margin-top:10px;padding:12px;background:var(--surface);border:.5px solid var(--border-mid);border-radius:8px">
+          <div style="display:flex;gap:6px;margin-bottom:8px">
+            <button type="button" id="rlBonusKindFile" onclick="_rlSetBonusKind('file')"
+              style="flex:1;padding:6px;font-size:11.5px;border-radius:6px;border:1px solid var(--accent-ui);background:var(--accent-ui);color:#fff;cursor:pointer;font-family:inherit">📎 Upload a file</button>
+            <button type="button" id="rlBonusKindLink" onclick="_rlSetBonusKind('link')"
+              style="flex:1;padding:6px;font-size:11.5px;border-radius:6px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);cursor:pointer;font-family:inherit">🔗 External link</button>
+          </div>
+          <input type="text" id="rlBonusTitle" placeholder="Title (e.g. Chinese translation PDF)" maxlength="120"
+            style="width:100%;padding:6px 10px;font-size:12px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--bg);color:var(--text);margin-bottom:6px;box-sizing:border-box">
+          <input type="text" id="rlBonusDesc" placeholder="Short description (optional)" maxlength="240"
+            style="width:100%;padding:6px 10px;font-size:11.5px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--bg);color:var(--text);margin-bottom:6px;box-sizing:border-box">
+          <div id="rlBonusFileRow" style="display:block">
+            <input type="file" id="rlBonusFile"
+              style="width:100%;font-size:11.5px;color:var(--text);margin-bottom:4px">
+            <div style="font-size:10.5px;color:var(--hint);line-height:1.5">Max 50 MB. PDF, HTML/ZIP, MP3, PNG, and most common formats.</div>
+          </div>
+          <div id="rlBonusLinkRow" style="display:none">
+            <input type="url" id="rlBonusUrl" placeholder="https://your-host.com/game/index.html"
+              style="width:100%;padding:6px 10px;font-size:12px;border:.5px solid var(--border-mid);border-radius:6px;background:var(--bg);color:var(--text);margin-bottom:4px;box-sizing:border-box;font-family:ui-monospace,Menlo,monospace">
+            <div style="font-size:10.5px;color:var(--hint);line-height:1.5">Host it anywhere — GitHub Pages, Cloudflare Pages, Google Drive, Bunny.net. Folio just gates access to the link.</div>
+          </div>
+          <div style="display:flex;gap:6px;justify-content:flex-end;margin-top:10px">
+            <button type="button" onclick="window._rlCancelBonusForm && _rlCancelBonusForm()"
+              style="padding:6px 12px;font-size:11.5px;background:none;color:var(--muted);border:.5px solid transparent;border-radius:6px;cursor:pointer">Cancel</button>
+            <button type="button" id="rlBonusSaveBtn" onclick="window._rlSaveBonus && _rlSaveBonus()"
+              style="padding:6px 14px;font-size:11.5px;background:var(--accent-ui);color:#fff;border:0;border-radius:6px;cursor:pointer;font-weight:500">Save bonus</button>
+          </div>
+          <div id="rlBonusStatus" style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.5"></div>
+        </div>
+      </div>
 
       <!-- Email me when someone new subscribes. Author types a notification
            email in (or leaves blank to disable). Stored on release.notifyEmail —
