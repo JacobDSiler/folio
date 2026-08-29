@@ -25284,7 +25284,7 @@
         // Nulled when empty so the shelf renderer can pick the first
         // folio in the series that DOES have one populated. Author
         // only needs to fill this on ONE folio per series.
-        seriesBlurb: ((document.getElementById('rlSeriesBlurb') && document.getElementById('rlSeriesBlurb').value) || '').trim().slice(0, 800) || null,
+        seriesBlurb: ((document.getElementById('rlSeriesBlurb') && document.getElementById('rlSeriesBlurb').value) || '').trim().slice(0, 2000) || null,
         seriesOrder: (function(){
           const raw = (document.getElementById('rlSeriesOrder') && document.getElementById('rlSeriesOrder').value) || '';
           const n = parseInt(raw, 10);
@@ -36873,7 +36873,7 @@
         <label for="rlSeriesBlurb" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:14px 0 4px 24px">
           Series blurb <span style="opacity:.6;font-weight:400">(shows on the shelf's series card — write once for the whole series)</span>
         </label>
-        <textarea id="rlSeriesBlurb" rows="4" maxlength="800"
+        <textarea id="rlSeriesBlurb" rows="6" maxlength="2000"
           placeholder="What's the whole series about? The arc that spans the books, the world they share, the promise to the reader. Only needs to live on one folio in the series — the shelf picks the earliest-order book that has one filled in."
           style="width:calc(100% - 24px);margin-left:24px;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;resize:vertical;font-family:inherit;line-height:1.5"></textarea>
         <!-- Saga blurb — same "write once" contract as the series blurb,
@@ -36883,7 +36883,7 @@
         <label for="rlSagaBlurb" style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:14px 0 4px 24px">
           Universe blurb <span style="opacity:.6;font-weight:400">(the whole universe — write once, on any folio in it)</span>
         </label>
-        <textarea id="rlSagaBlurb" rows="3" maxlength="800"
+        <textarea id="rlSagaBlurb" rows="5" maxlength="2000"
           placeholder="What ties every series in this universe together? The world, the era, the shared history. Readers see this on the saga card before they pick which series to start with."
           style="width:calc(100% - 24px);margin-left:24px;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;resize:vertical;font-family:inherit;line-height:1.5"></textarea>
 

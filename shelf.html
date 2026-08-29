@@ -1378,11 +1378,11 @@ window._openSeriesEditor = function _openSeriesEditor(seriesKey) {
       'Fields left blank are unset on every book (choose consciously — a blank universe clears it everywhere).' +
     '</p>' +
     '<label style="' + _row + '">Series blurb <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— shown on the shelf series card + info modal</span></label>' +
-    '<textarea id="_seEditSeriesBlurb" rows="3" maxlength="800" style="' + _textarea + '">' + esc(curSeriesBlurb) + '</textarea>' +
+    '<textarea id="_seEditSeriesBlurb" rows="6" maxlength="2000" style="' + _textarea + '">' + esc(curSeriesBlurb) + '</textarea>' +
     '<label style="' + _row + '">Universe <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— the shared universe this series belongs to. Optional.</span></label>' +
     '<input type="text" id="_seEditSaga" maxlength="80" value="' + esc(curSaga) + '" style="' + _input + '" placeholder="e.g., The Wayfarer Chronicles">' +
     '<label style="' + _row + '">Universe blurb <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— the whole-universe pitch. Write once per universe.</span></label>' +
-    '<textarea id="_seEditSagaBlurb" rows="4" maxlength="800" style="' + _textarea + '">' + esc(curSagaBlurb) + '</textarea>' +
+    '<textarea id="_seEditSagaBlurb" rows="6" maxlength="2000" style="' + _textarea + '">' + esc(curSagaBlurb) + '</textarea>' +
     '<label style="' + _row + '">When in the universe <span style="opacity:.7;text-transform:none;font-weight:400;letter-spacing:0">— an in-world era placing this series on a timeline</span></label>' +
     '<input type="text" id="_seEditSagaAnchor" maxlength="80" value="' + esc(curSagaAnchor) + '" style="' + _input + '" placeholder="e.g., Year 412 of the Sky Age">' +
     '<p style="' + _hint + '">Free text on purpose — sorts naturally, survives prequels. Never rendered as "Series II".</p>' +
@@ -1448,9 +1448,9 @@ window._saveSeriesEditor = async function _saveSeriesEditor(seriesKey) {
     return s || null;
   };
   const sharedPatch = {
-    'release.seriesBlurb': _v('_seEditSeriesBlurb', 800),
+    'release.seriesBlurb': _v('_seEditSeriesBlurb', 2000),
     'release.saga':        _v('_seEditSaga', 80),
-    'release.sagaBlurb':   _v('_seEditSagaBlurb', 800),
+    'release.sagaBlurb':   _v('_seEditSagaBlurb', 2000),
     'release.sagaAnchor':  _v('_seEditSagaAnchor', 80),
   };
   const entryBookSel = document.getElementById('_seEditEntryBook');
