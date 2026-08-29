@@ -23937,6 +23937,13 @@
       const fields = document.getElementById('rlShelfFields');
       if (!toggle || !fields) return;
       fields.style.display = toggle.checked ? '' : 'none';
+      // Content rating is a shelf-visibility concern (the tier gates
+      // discoverability, moderator queue, signed-out preview hiding).
+      // If the folio isn't listed publicly, the tier is irrelevant
+      // clutter — hide the whole section. Sync-only, not enforcement:
+      // the release-object build still reads whatever the radios say.
+      const contentRating = document.getElementById('rlContentRatingSection');
+      if (contentRating) contentRating.style.display = toggle.checked ? '' : 'none';
       // Sign-in gate: anonymous users can't list on the Shelf. Swap the
       // sub-fields for a sign-in prompt while the checkbox is ticked
       // AND the user is still anonymous. Uncheck the box so a save
@@ -23946,6 +23953,7 @@
       if (toggle.checked && isAnon) {
         if (banner) banner.style.display = '';
         if (fields) fields.style.display = 'none';
+        if (contentRating) contentRating.style.display = 'none';
       } else if (banner) {
         banner.style.display = 'none';
       }
@@ -24197,6 +24205,18 @@
       setTimeout(() => { if (window._rlUpdateSlugPreview) window._rlUpdateSlugPreview(); }, 60);
       // Render current bonuses (if any) into the list.
       if (window._rlRenderBonuses) window._rlRenderBonuses();
+      // Rights & Originality checkbox hydration — set from stored
+      // attestation snapshot, block Publish if not affirmed or if the
+      // material has changed since. Fires again on any title/author/
+      // description edit so the block re-arms if content diverges.
+      setTimeout(() => { if (window._rlSyncAttestation) window._rlSyncAttestation(); }, 80);
+      ['rlTitleField', 'rlAuthorField', 'rlDescField'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && !el.dataset.attestBound) {
+          el.addEventListener('input', () => { if (window._rlSyncAttestation) window._rlSyncAttestation(); });
+          el.dataset.attestBound = '1';
+        }
+      });
 
       const bookTitle = (document.getElementById('bookTitle') && document.getElementById('bookTitle').value) || '';
       const bookAuthor = (document.getElementById('bookAuthor') && document.getElementById('bookAuthor').value) || '';
@@ -24964,10 +24984,91 @@
     window._slugifyTitle = _slugifyTitle;
     window._reserveFolioSlug = _reserveFolioSlug;
 
+    /* Rights & Originality attestation (fan-fic block, task Aug 2026).
+       A one-line hash of the fields a moderator/rights-holder would
+       care about. If ANY of these change after the author attests,
+       the attestation must be re-affirmed before Publish will unlock
+       again — the point is the audit trail can never be used to
+       cover content that was swapped in AFTER the certification. */
+    function _rlAttestationSnapshot() {
+      const t = (document.getElementById('rlTitleField')  || {}).value || '';
+      const a = (document.getElementById('rlAuthorField') || {}).value || '';
+      const d = (document.getElementById('rlDescField')   || {}).value || '';
+      // Chapter count is a cheap proxy for "was the manuscript
+      // materially reshuffled after attestation". Cheap because we
+      // have it in memory already via S.chapters when the modal opens.
+      let chCount = 0;
+      try {
+        if (typeof S !== 'undefined' && S && Array.isArray(S.chapters)) chCount = S.chapters.length;
+      } catch (_) {}
+      return {
+        title: String(t).trim(),
+        author: String(a).trim(),
+        description: String(d).trim(),
+        chapters: chCount,
+      };
+    }
+    function _rlAttestationMatches(stored, current) {
+      if (!stored || !current) return false;
+      return stored.title === current.title
+          && stored.author === current.author
+          && stored.description === current.description
+          && stored.chapters === current.chapters;
+    }
+    /* Hydrate the attestation checkbox from _rlCurrent + wire the
+       Publish button enable/disable. Called from the release-modal
+       hydration path AND from any oninput change on title/author/desc
+       so a mid-modal edit re-arms the block. */
+    window._rlSyncAttestation = function () {
+      const cb   = document.getElementById('rlRightsAttest');
+      const pub  = document.getElementById('rlPublishBtn');
+      const stat = document.getElementById('rlAttestStatus');
+      if (!cb || !pub) return;
+      const stored = _rlCurrent && _rlCurrent.rightsAttestation;
+      const current = _rlAttestationSnapshot();
+      const matched = stored && stored.snapshot && _rlAttestationMatches(stored.snapshot, current);
+      cb.checked = !!matched;
+      const enable = cb.checked;
+      pub.disabled = !enable;
+      pub.style.opacity = enable ? '1' : '0.55';
+      pub.style.cursor  = enable ? 'pointer' : 'not-allowed';
+      if (stat) {
+        if (stored && stored.snapshot && !matched) {
+          stat.textContent = 'Content changed since your last certification — re-tick to re-affirm before publishing.';
+          stat.style.color = '#b45309';
+        } else if (matched) {
+          const at = stored.at ? new Date(stored.at).toLocaleString() : '';
+          stat.textContent = 'Certified' + (at ? (' on ' + at) : '') + '. Re-affirm needed if you materially edit the work.';
+          stat.style.color = 'var(--accent-ui)';
+        } else {
+          stat.textContent = 'Required to publish. Your certification is logged with your account ID and a timestamp.';
+          stat.style.color = 'var(--hint)';
+        }
+      }
+    };
+    // Live-toggle on the checkbox itself so the button flips instantly.
+    document.addEventListener('change', function (e) {
+      if (e.target && e.target.id === 'rlRightsAttest') {
+        const pub = document.getElementById('rlPublishBtn');
+        if (pub) {
+          pub.disabled = !e.target.checked;
+          pub.style.opacity = e.target.checked ? '1' : '0.55';
+          pub.style.cursor  = e.target.checked ? 'pointer' : 'not-allowed';
+        }
+      }
+    });
+
     async function _rlPublish() {
       if (!_projId) return;
       if (!_fbReady) {
         _rlSetStatus('Waiting for cloud connection…', 'var(--hint)');
+        return;
+      }
+      // Hard-block: attestation must be affirmed at publish time.
+      const attestCb = document.getElementById('rlRightsAttest');
+      if (!attestCb || !attestCb.checked) {
+        _rlSetStatus('Please affirm the Rights & Originality certification above before publishing.', '#c04040');
+        try { document.getElementById('rlAttestationSection').scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (_) {}
         return;
       }
       const title = (document.getElementById('rlTitleField') && document.getElementById('rlTitleField').value || '').trim();
@@ -25117,6 +25218,19 @@
         // Firestore's merge:true deep-merges maps, so omitting this
         // would still preserve them, but explicit is safer.
         bonuses: (_rlCurrent && Array.isArray(_rlCurrent.bonuses)) ? _rlCurrent.bonuses : [],
+        // Rights & Originality attestation — audit-trail record of
+        // the author's affirmation that this work is theirs or that
+        // they hold rights to publish it. Snapshot of title/author/
+        // description/chapter count means a mid-audit editor swap
+        // will show as "attestation covers different content" on
+        // this record's `at` timestamp. See terms.html Prohibited
+        // Content + Copyright & DMCA sections.
+        rightsAttestation: {
+          at: new Date().toISOString(),
+          uid: (window._user && window._user.uid) || window._uid || null,
+          statementVersion: 1,
+          snapshot: _rlAttestationSnapshot(),
+        },
         // Author signup notification. Opt-in (default off). Email is on
         // the public release doc — the modal warns about that. Worker
         // re-validates the opt-in server-side so a bad client can't email
@@ -36756,7 +36870,11 @@
            hidden from previews shown to signed-out visitors. This does
            NOT authorize prohibited content — Folio bans porn, real
            gore, and filth outright. -->
-      <div id="rlContentRatingSection" style="margin:14px 0 10px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
+      <!-- Hidden by default; visibility is driven by _rlToggleShelfFields
+           based on the "List on the Folio Shelf" checkbox. Content
+           rating is only meaningful when the folio will actually
+           appear in the public marketplace. -->
+      <div id="rlContentRatingSection" style="display:none;margin:14px 0 10px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
         <div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text);margin:0 0 6px">
           🛡️ <strong>Content rating</strong>
           <span style="opacity:.7;font-weight:400;font-size:11px">(any rating above "All ages" queues for moderator review)</span>
@@ -37257,6 +37375,25 @@
            button is ALWAYS visible even when the middle content overflows.
            Own background + padding + border-top so it looks like a proper
            footer, not floating buttons over content. -->
+
+      <!-- ── Rights & Originality attestation (fan-fic block) ─────
+           Actively-checked (NOT pre-checked). Publish is disabled
+           until this is affirmed. Storage: release.rightsAttestation
+           = { at, uid, snapshot: {title, author, description, chapters},
+           statementVersion: 1 }. If any snapshot field materially
+           changes after attestation, the checkbox unticks itself on
+           next modal open + Publish blocks until re-affirmed. Audit
+           trail for any future DMCA / rights dispute. -->
+      <div id="rlAttestationSection" style="margin:16px 0 6px;padding:12px 14px;border:.5px solid var(--accent-ui,#065f46);border-radius:8px;background:rgba(6,95,70,0.05)">
+        <label style="display:flex;align-items:flex-start;gap:10px;font-size:12.5px;color:var(--text);cursor:pointer;line-height:1.55">
+          <input type="checkbox" id="rlRightsAttest" style="margin:3px 0 0;flex-shrink:0">
+          <span>I certify that this work is my own original creation, or that I hold all necessary rights and permissions to publish it, and that it does not infringe any third party&#39;s copyright, trademark, or other intellectual property rights &mdash; including that it is not fan fiction or an unauthorized derivative of another creator&#39;s characters, setting, or story.</span>
+        </label>
+        <div id="rlAttestStatus" style="font-size:10.5px;color:var(--hint);margin:8px 0 0 26px;line-height:1.5">
+          Required to publish. Your certification is logged with your account ID and a timestamp &mdash; see <a href="/terms.html#prohibited" style="color:var(--accent-ui);text-decoration:none;border-bottom:.5px dotted currentColor">Prohibited Content</a> in the ToS.
+        </div>
+      </div>
+
       <div style="display:flex;gap:8px;align-items:center;
                   position:sticky;bottom:0;
                   background:var(--surface);
