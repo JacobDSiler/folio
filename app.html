@@ -38353,6 +38353,9 @@
     <div style="margin-bottom:14px">
       <label style="display:block;font-size:12.5px;font-weight:500;color:var(--text);margin:0 0 6px">What are you giving feedback on?</label>
       <select id="reviewFeature" style="width:100%;font-size:13px;padding:8px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none;font-family:inherit">
+        <!-- "This folio" is injected + selected by _openReviewModal
+             when it opens in reader mode. Reader-flow routes to a
+             folio-content review (not a Folio-platform review). -->
         <option value="overall">Folio overall</option>
         <option value="editor">Editor (writing experience)</option>
         <option value="reader">Reader / share links</option>
