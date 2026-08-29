@@ -1444,7 +1444,17 @@ window._saveSeriesEditor = async function _saveSeriesEditor(seriesKey) {
   // that sets entryPoint=true if selected, false otherwise.
   const _v = function(id, cap){
     const el = document.getElementById(id);
-    const s = ((el && el.value) || '').trim().slice(0, cap);
+    const raw = ((el && el.value) || '').trim();
+    // Smart-truncate: when a cut actually happens, append "..." so the
+    // shelf-side render shows the truncation instead of ending mid-
+    // thought silently. Small-cap fields (slug, saga name, 40-80 char
+    // titles) shouldn't get the ellipsis because their maxlength
+    // already prevents overflow — only long-form fields need this.
+    if (raw.length <= cap) return raw || null;
+    const target = cap - 3;
+    const sp = raw.lastIndexOf(' ', target);
+    const cut = (sp > cap - 40) ? sp : target;
+    const s = raw.slice(0, cut).replace(/[\s.,;:!?—-]+$/u, '') + '...';
     return s || null;
   };
   const sharedPatch = {
