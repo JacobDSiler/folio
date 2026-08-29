@@ -24707,6 +24707,26 @@
       }
     };
 
+    /* Truncate to `cap` characters, appending "..." when a cut
+       actually happened so readers can see the text was intentionally
+       shortened (the previous silent .slice() truncation was invisible
+       — Jacob's ~1500-char series blurbs were cut to 800 with no
+       ending indication, so no one knew there was more to write).
+       Returns the original untouched if it's already within the cap.
+       Uses three ASCII dots by design (not the Unicode ellipsis
+       glyph) so it's visible in every font + terminal + export. */
+    function _smartClip(s, cap) {
+      const str = String(s == null ? '' : s);
+      if (str.length <= cap) return str;
+      // Prefer to cut at a word boundary if one is close to the end,
+      // so we don't end mid-word before the ellipsis.
+      const target = cap - 3;
+      const sp = str.lastIndexOf(' ', target);
+      const cut = (sp > cap - 40) ? sp : target;
+      return str.slice(0, cut).replace(/[\s.,;:!?—-]+$/u, '') + '...';
+    }
+    window._smartClip = _smartClip;
+
     /* ── Digital bonuses (Phase 0) ────────────────────────────────
        Bonuses live as an array on release.bonuses. Owner adds/removes
        via the modal; reader sees the list below the last chapter
@@ -25137,12 +25157,12 @@
           } catch (_) {}
           return ((document.getElementById('rlShelfGenre') && document.getElementById('rlShelfGenre').value) || '').trim().slice(0, 40) || null;
         })(),
-        shelfBlurb: ((document.getElementById('rlShelfBlurb') && document.getElementById('rlShelfBlurb').value) || '').trim().slice(0, 280) || null,
+        shelfBlurb: _smartClip(((document.getElementById('rlShelfBlurb') && document.getElementById('rlShelfBlurb').value) || '').trim(), 280) || null,
         // Long blurb (info-modal content). Distinct from the 280-char
         // shelfBlurb so authors can pitch longer/richer on the info
         // card without cluttering the shelf card. Nulled when empty
         // so shelf render can gracefully fall back to shelfBlurb.
-        longBlurb: ((document.getElementById('rlLongBlurb') && document.getElementById('rlLongBlurb').value) || '').trim().slice(0, 2000) || null,
+        longBlurb: _smartClip(((document.getElementById('rlLongBlurb') && document.getElementById('rlLongBlurb').value) || '').trim(), 2000) || null,
         // NEW — Folio classification (see docs/BISAC_CLASSIFICATION_PLAN.md
         // v2). Ordered array; genreCodes[0] is the PRIMARY genre used for
         // shelf categorisation + display, subsequent entries are
@@ -25284,7 +25304,7 @@
         // Nulled when empty so the shelf renderer can pick the first
         // folio in the series that DOES have one populated. Author
         // only needs to fill this on ONE folio per series.
-        seriesBlurb: ((document.getElementById('rlSeriesBlurb') && document.getElementById('rlSeriesBlurb').value) || '').trim().slice(0, 2000) || null,
+        seriesBlurb: _smartClip(((document.getElementById('rlSeriesBlurb') && document.getElementById('rlSeriesBlurb').value) || '').trim(), 2000) || null,
         seriesOrder: (function(){
           const raw = (document.getElementById('rlSeriesOrder') && document.getElementById('rlSeriesOrder').value) || '';
           const n = parseInt(raw, 10);
@@ -25297,7 +25317,7 @@
         // then behaves exactly as it did before sagas existed.
         saga: ((document.getElementById('rlSagaName') && document.getElementById('rlSagaName').value) || '').trim().slice(0, 80) || null,
         // Same write-once-per-group contract as seriesBlurb, one level up.
-        sagaBlurb: ((document.getElementById('rlSagaBlurb') && document.getElementById('rlSagaBlurb').value) || '').trim().slice(0, 800) || null,
+        sagaBlurb: _smartClip(((document.getElementById('rlSagaBlurb') && document.getElementById('rlSagaBlurb').value) || '').trim(), 2000) || null,
         // Free text on purpose — see the form comment. An in-world era
         // positions a cycle on the saga's timeline without implying that
         // anything must be read before it. Never rendered as "Book N".
@@ -38685,6 +38705,43 @@
     modal.style.display = 'flex';
     _resetReviewForm();
     await _loadReviewFolios();
+    // Reader-mode default: pre-select "This folio" so the natural
+    // end-of-book "★ Leave a review" click reviews the BOOK, not the
+    // platform. Injects an option at the top of the picker if missing,
+    // hides the boost-target picker (irrelevant — this reader isn't
+    // claiming a Folio-platform review boost), and rewords the submit
+    // button. See _submitReview for the routing that pairs with this.
+    try {
+      const isReader = (typeof _readerMode !== 'undefined' && _readerMode === true);
+      const rc = (typeof _rlCurrent !== 'undefined') ? _rlCurrent : null;
+      const readingId = (typeof _readerFolioId !== 'undefined') ? _readerFolioId : null;
+      const sel = document.getElementById('reviewFeature');
+      const boostPickerWrap = document.getElementById('reviewFolioSelect') && document.getElementById('reviewFolioSelect').parentElement;
+      const submitBtn = document.getElementById('reviewSubmitBtn');
+      if (isReader && readingId && sel) {
+        // Add / update the "This folio" option at the top.
+        const thisTitle = (rc && rc.title) ? rc.title : 'This folio';
+        let opt = sel.querySelector('option[value="this-folio"]');
+        if (!opt) {
+          opt = document.createElement('option');
+          opt.value = 'this-folio';
+          sel.insertBefore(opt, sel.firstChild);
+        }
+        opt.textContent = '★ ' + thisTitle + ' (the folio you just read)';
+        sel.value = 'this-folio';
+        // Hide the boost-target picker; the reader isn't claiming a
+        // review boost for their own folio, they're reviewing a book.
+        if (boostPickerWrap) boostPickerWrap.style.display = 'none';
+        if (submitBtn) submitBtn.textContent = 'Submit review';
+      } else {
+        // Non-reader (platform-feedback flow): restore normal state.
+        const existing = sel && sel.querySelector('option[value="this-folio"]');
+        if (existing) existing.remove();
+        if (sel) sel.value = 'overall';
+        if (boostPickerWrap) boostPickerWrap.style.display = '';
+        if (submitBtn) submitBtn.textContent = 'Submit + earn boost';
+      }
+    } catch (e) { console.warn('[review] reader-mode setup failed:', e && e.message); }
   };
   window._closeReviewModal = function _closeReviewModal() {
     const m = document.getElementById('reviewModal');
@@ -38751,11 +38808,26 @@
     const feature = document.getElementById('reviewFeature').value || 'overall';
     const rating = parseInt(document.getElementById('reviewRating').value, 10) || 0;
     const text = (document.getElementById('reviewText').value || '').trim();
-    const folioId = document.getElementById('reviewFolioSelect').value || '';
+    // Reader-mode "This folio" flow routes the review to the CURRENT
+    // folio (the one they just read), not the boost-target picker.
+    // Non-reader flow keeps the platform-review-for-boost swap.
+    const isReader = (typeof _readerMode !== 'undefined' && _readerMode === true);
+    const readingId = (typeof _readerFolioId !== 'undefined') ? _readerFolioId : null;
+    let folioId;
+    if (feature === 'this-folio' && isReader && readingId) {
+      folioId = readingId;
+    } else {
+      folioId = document.getElementById('reviewFolioSelect').value || '';
+    }
     const allowMarketing = document.getElementById('reviewConsent').checked;
     if (!rating || rating < 1 || rating > 5) { status.textContent = 'Please pick a star rating.'; status.style.color = 'var(--danger,#c04040)'; return; }
     if (text.length < 10) { status.textContent = 'Please write at least 10 characters.'; status.style.color = 'var(--danger,#c04040)'; return; }
-    if (!folioId) { status.textContent = 'Please pick a folio to boost.'; status.style.color = 'var(--danger,#c04040)'; return; }
+    if (!folioId) {
+      status.textContent = (feature === 'this-folio')
+        ? 'Could not identify the folio you\'re reading — refresh and try again.'
+        : 'Please pick a folio to boost.';
+      status.style.color = 'var(--danger,#c04040)'; return;
+    }
     const uid = window._uid || '';
     const displayName = (window._authUser && window._authUser.displayName) || (window._user && window._user.displayName) || 'Folio user';
     btn.disabled = true;
