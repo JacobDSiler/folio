@@ -8223,6 +8223,20 @@
       </div>
       <div class="preview-scroller" id="previewScroller">
         <div class="preview-wrap" id="bookPreview"></div>
+        <!-- Digital bonuses (Phase 0). Populated by _rdShowBonuses
+             when in reader mode + release has bonuses + paywall
+             unlocked (or free release). Sits above the end-of-book
+             panel so it feels like "the last chapter of the book" not
+             a marketing surface. Great for serial HTML games — each
+             episode is a new card here. -->
+        <div id="rdBonuses" style="display:none;max-width:640px;margin:48px auto 20px;padding:24px 28px;border:.5px solid var(--border);border-radius:14px;background:var(--surface)">
+          <div style="font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--hint);margin-bottom:4px;font-family:var(--sans, sans-serif)">Included with this book</div>
+          <h3 style="font-family:'Playfair Display',Georgia,serif;font-size:20px;font-weight:600;margin:0 0 14px;color:var(--text);line-height:1.25">
+            🎁 Bonuses
+          </h3>
+          <div id="rdBonusesList" style="display:flex;flex-direction:column;gap:10px"></div>
+        </div>
+
         <!-- End-of-book panel — highest-conversion moment in the app.
              Reader just finished a folio; peak "give me more" intent.
              Shown only in reader mode by _rdHydrate. Three actions:
@@ -25768,6 +25782,7 @@
       try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) { }
       // Show end-of-book panel (reader mode only; helper self-guards)
       try { if (typeof _rdShowEndOfBookPanel === 'function') _rdShowEndOfBookPanel(); } catch (_) {}
+      try { if (typeof _rdShowBonuses === 'function') _rdShowBonuses(); } catch (_) {}
       // One-time view record — anonymous fire-and-forget, no auth needed
       // (worker uses its service account). Session flag prevents double-counting
       // on re-hydrations. Only fires in reader mode on public folios.
@@ -28532,6 +28547,7 @@
         try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) { }
       // Show end-of-book panel (reader mode only; helper self-guards)
       try { if (typeof _rdShowEndOfBookPanel === 'function') _rdShowEndOfBookPanel(); } catch (_) {}
+      try { if (typeof _rdShowBonuses === 'function') _rdShowBonuses(); } catch (_) {}
       // One-time view record — anonymous fire-and-forget, no auth needed
       // (worker uses its service account). Session flag prevents double-counting
       // on re-hydrations. Only fires in reader mode on public folios.
@@ -28586,6 +28602,7 @@
       try { if (typeof _rdHydrate === 'function') _rdHydrate(); } catch (e) { }
       // Show end-of-book panel (reader mode only; helper self-guards)
       try { if (typeof _rdShowEndOfBookPanel === 'function') _rdShowEndOfBookPanel(); } catch (_) {}
+      try { if (typeof _rdShowBonuses === 'function') _rdShowBonuses(); } catch (_) {}
       // One-time view record — anonymous fire-and-forget, no auth needed
       // (worker uses its service account). Session flag prevents double-counting
       // on re-hydrations. Only fires in reader mode on public folios.
@@ -30411,6 +30428,70 @@
     // Reads author name, tipUrl, ownerUid from the currently loaded folio
     // (populated by loadFolioById into _loadedFolio* globals + _rlCurrent).
     // Only runs in reader mode — editor mode keeps the panel hidden.
+    /* Reader-side bonus rendering (Phase 0 Chunk 2). Called alongside
+       _rdShowEndOfBookPanel from every reader hydration point. Hidden
+       if not in reader mode, no bonuses attached, or paywall gate
+       failed (paid release + not unlocked). Buyers who already unlocked
+       see new bonuses appear on next reader open — that's the "serial
+       episodes as they drop" experience. */
+    window._rdShowBonuses = function _rdShowBonuses() {
+      const wrap = document.getElementById('rdBonuses');
+      const list = document.getElementById('rdBonusesList');
+      if (!wrap || !list) return;
+      const isReader = (typeof _readerMode !== 'undefined' && _readerMode === true);
+      if (!isReader) { wrap.style.display = 'none'; return; }
+      const rc = (typeof _rlCurrent !== 'undefined') ? _rlCurrent : null;
+      const bonuses = (rc && Array.isArray(rc.bonuses)) ? rc.bonuses : [];
+      if (!bonuses.length) { wrap.style.display = 'none'; return; }
+      // Paywall gate — paid release requires unlock; free / private-link
+      // release shows bonuses to whoever can see the reader (which is
+      // itself gated by the private-link check upstream).
+      const isPaid = !!(rc && rc.priceMode === 'paid');
+      const isUnlocked = document.documentElement.getAttribute('data-paid-unlocked') === '1';
+      if (isPaid && !isUnlocked) { wrap.style.display = 'none'; return; }
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g,
+        c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+      const fmtBytes = (n) => {
+        if (!n) return '';
+        if (n < 1024) return n + ' B';
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+        return (n / (1024 * 1024)).toFixed(1) + ' MB';
+      };
+      const fmtDate = (ms) => {
+        if (!ms) return '';
+        try { return new Date(ms).toLocaleDateString(undefined, { day:'numeric', month:'short', year:'numeric' }); }
+        catch (_) { return ''; }
+      };
+      // Newest bonus first — mirrors how serial readers expect episodes
+      // ordered (latest drop at the top, older ones below).
+      const ordered = bonuses.slice().sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+      list.innerHTML = ordered.map(b => {
+        const isLink = b.kind === 'link';
+        const url = isLink ? (b.externalUrl || '') : (b.fileUrl || '');
+        if (!url) return '';  // skip broken bonuses defensively
+        const openLabel = isLink ? 'Open ↗' : 'Download';
+        const kindPill = isLink
+          ? '<span style="font-size:10.5px;padding:2px 8px;background:rgba(6,95,70,0.10);color:var(--accent-ui,#065f46);border-radius:10px">🔗 link</span>'
+          : ('<span style="font-size:10.5px;padding:2px 8px;background:rgba(201,140,42,0.10);color:var(--accent,#c98c2a);border-radius:10px">📎 ' + esc(fmtBytes(b.fileSize) || 'file') + '</span>');
+        const meta = fmtDate(b.addedAt);
+        return '<div style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;background:var(--bg);border:.5px solid var(--border);border-radius:10px">' +
+          '<div style="flex:1;min-width:0">' +
+            '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:3px">' +
+              '<span style="font-size:14px;font-weight:600;color:var(--text)">' + esc(b.title || 'Bonus') + '</span>' +
+              kindPill +
+            '</div>' +
+            (b.description ? '<div style="font-size:12.5px;color:var(--muted);line-height:1.55;margin-top:4px">' + esc(b.description) + '</div>' : '') +
+            (meta ? '<div style="font-size:10.5px;color:var(--hint);margin-top:6px">Added ' + esc(meta) + '</div>' : '') +
+          '</div>' +
+          '<a href="' + esc(url) + '"' +
+            (isLink ? ' target="_blank" rel="noopener"' : (' download="' + esc(b.fileName || 'bonus') + '"')) +
+            ' style="flex-shrink:0;padding:8px 14px;background:var(--accent-ui,#065f46);color:#fff;text-decoration:none;font-size:12.5px;font-weight:500;border-radius:7px;font-family:var(--sans,sans-serif);white-space:nowrap">' +
+            esc(openLabel) + '</a>' +
+        '</div>';
+      }).join('');
+      wrap.style.display = 'block';
+    };
+
     window._rdShowEndOfBookPanel = function _rdShowEndOfBookPanel() {
       const panel = document.getElementById('rdEndOfBook');
       if (!panel) return;
