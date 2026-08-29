@@ -133,6 +133,32 @@ a{color:var(--accent-ui);text-decoration:none}
     <h1 class="admin-h1">Shelf moderation queue</h1>
     <p class="admin-lead">Every release opting into the public Shelf enters this queue before appearing. Approve to publish, reject with a short reason to remove from Shelf. Republishing a listed release automatically re-enters the queue.</p>
 
+    <!-- Rights & Originality reviewer checklist (fan-fic block).
+         Companion to the author's mandatory attestation in the
+         release modal and the Prohibited Content clause in the ToS.
+         The attestation exists on release.rightsAttestation; check
+         its timestamp against release.updatedAt to see whether the
+         work was materially edited AFTER certification. -->
+    <details style="margin:0 0 18px;padding:12px 14px;border:.5px solid var(--accent-ui,#065f46);border-radius:8px;background:rgba(6,95,70,0.05);font-size:12.5px;line-height:1.6">
+      <summary style="cursor:pointer;font-weight:600;color:var(--accent-ui,#065f46)">🛡 Rights &amp; Originality reviewer checklist</summary>
+      <div style="margin-top:10px;color:var(--text)">
+        <p style="margin:0 0 8px"><strong>Flag for rejection if a submission contains any of:</strong></p>
+        <ul style="margin:0 0 10px 20px;padding:0">
+          <li>Recognisable third-party character or place names from known media (Harry Potter, Star Wars, Marvel, established franchises, etc.).</li>
+          <li>Phrasing like <em>&ldquo;a [Franchise] story&rdquo;</em>, <em>&ldquo;based on&rdquo;</em>, <em>&ldquo;set in the world of&rdquo;</em>, or explicit fandom terminology (<em>&ldquo;canon&rdquo;</em>, <em>&ldquo;AU&rdquo;</em>, <em>&ldquo;ship&rdquo;</em>, <em>&ldquo;OTP&rdquo;</em>, <em>&ldquo;crossover&rdquo;</em>).</li>
+          <li>A title that closely mimics or parodies an existing copyrighted title.</li>
+          <li>Explicit sexual imagery, real-world gore, sexual content involving minors, or content that exists purely to shock or degrade.</li>
+          <li>Content that incites violence, promotes self-harm, or targets an individual or group for harassment.</li>
+        </ul>
+        <p style="margin:0 0 8px"><strong>Cross-check the attestation on this release:</strong></p>
+        <ul style="margin:0 0 8px 20px;padding:0">
+          <li><code>release.rightsAttestation</code> should exist with <code>at</code>, <code>uid</code>, and <code>snapshot</code>.</li>
+          <li>If <code>release.updatedAt</code> is significantly newer than <code>rightsAttestation.at</code> AND the snapshot fields differ, the author edited after certifying &mdash; note in your reject reason.</li>
+        </ul>
+        <p style="margin:0;color:var(--muted);font-size:11.5px">See <a href="/terms.html#prohibited" style="color:var(--muted)">Terms of Service &rarr; Prohibited Content</a> for the enforceable policy the reject reason should reference.</p>
+      </div>
+    </details>
+
     <div class="tabs">
       <button class="tab active" data-filter="pending" onclick="setFilter('pending')">Pending <span class="count" id="cPending">—</span></button>
       <button class="tab" data-filter="approved" onclick="setFilter('approved')">Approved <span class="count" id="cApproved">—</span></button>
