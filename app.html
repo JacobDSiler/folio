@@ -28760,25 +28760,29 @@
     }
     window._pwReapply = _pwReapply;
 
-    // Free serial release? Apply locks even without going through the
-    // pwGate path. Hook into the reader's renderPreview observer.
+    // Preview re-render → re-apply any lock state that just got wiped.
+    //
+    // Root-cause bug (2026-09-07): the paid+serial branch was falling
+    // through both conditions. Free serial ran _serialApplyLocks; paid
+    // non-serial ran _pwReapply; paid AND serial ran NEITHER, so the
+    // initial paint's lock cards + page-hiding disappeared on the next
+    // render and never came back. Symptom in incognito: chapter titles
+    // visible with empty content and no lock card ("blip correct then
+    // broken"). Fix: paid folios ALWAYS re-apply — _pwReapply itself
+    // already re-runs _serialApplyLocks for serial cases (see the
+    // scheduled call inside _pwReapply), so this is a single unified
+    // path that covers paid-only, serial-only, and paid+serial.
     window.addEventListener('previewRendered', () => {
       try {
         const r = (typeof _rlCurrent !== 'undefined' && _rlCurrent) ? _rlCurrent : null;
-        if (r && r.serial && r.priceMode !== 'paid' &&
-          typeof _serialApplyLocks === 'function') {
-          _serialApplyLocks(r);
-        }
-        // Paid (non-serial) folios: re-assert the paywall layer (page-hiding,
-        // CTA card, TOC-row locks, chapter-dropdown locks) that this render
-        // just wiped. Without this the locks only show for the ~150ms before
-        // the next render repaints #bookPreview clean.
-        if (r && r.priceMode === 'paid' && r.serial !== true &&
-          typeof _pwReapply === 'function') {
-          _pwReapply();
+        if (!r) return;
+        if (r.priceMode === 'paid' && typeof _pwReapply === 'function') {
+          _pwReapply();  // handles paid non-serial AND paid+serial
+        } else if (r.serial && typeof _serialApplyLocks === 'function') {
+          _serialApplyLocks(r);  // free serial only
         }
         // W1 — surface audio button (shows locked on paid+preview, unlocked on free)
-        if (r && typeof _rdAudioMaybeShowButton === 'function') _rdAudioMaybeShowButton(r);
+        if (typeof _rdAudioMaybeShowButton === 'function') _rdAudioMaybeShowButton(r);
       } catch (e) { console.warn('[serial] applyLocks error', e); }
     });
 
