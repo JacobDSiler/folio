@@ -781,6 +781,40 @@ service cloud.firestore {
       allow write: if false;  // worker-only via service account
     }
 
+    // ───────────────────────────────────────────────────────────────
+    // AUTHOR DIRECTORY + SWAP BOARD (2026-09)
+    // ───────────────────────────────────────────────────────────────
+    // Opt-in author directory — one doc per author who joins. Public
+    // read (anyone can browse the directory); write is limited to the
+    // owning uid so no author can edit another's card. Deletes stay
+    // owner-only so someone can un-list themselves at any time.
+    match /folio_author_directory/{uid} {
+      allow read: if true;
+      allow create, update, delete: if isUser(uid);
+    }
+
+    // Swap board — public read. Only the author of a post can update
+    // or delete it; anyone signed in can create. Trust field
+    // (swapTrustScore) is deliberately server-computed later; for MVP
+    // the client can write anything and admins can moderate.
+    match /folio_author_swaps/{swapId} {
+      allow read: if true;
+      allow create: if request.auth != null
+        && isUser(request.resource.data.authorUid);
+      allow update, delete: if request.auth != null
+        && isUser(resource.data.authorUid);
+
+      // Replies on a swap post. Any signed-in user can create;
+      // the reply's author can edit or delete their own.
+      match /replies/{replyId} {
+        allow read: if true;
+        allow create: if request.auth != null
+          && isUser(request.resource.data.authorUid);
+        allow update, delete: if request.auth != null
+          && isUser(resource.data.authorUid);
+      }
+    }
+
     // Anything not matched above is denied by default.
   }
 }
