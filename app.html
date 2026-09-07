@@ -29046,6 +29046,13 @@
     const _pwPaypalMounted = new Set();
     async function _pwMountPaypalNative(releaseId, slotId) {
       if (_pwPaypalMounted.has(releaseId)) return;
+      // Defensive slot check — the caller polls for slot presence but
+      // the DOM can get rebuilt between the poll and the SDK's async
+      // .render(), producing "Document is ready and element X does
+      // not exist" errors. If slot is missing, bail without marking
+      // the release as mounted so a later re-render can retry.
+      // (Reader-mode bug 2026-09-07.)
+      if (!document.getElementById(slotId)) return;
       _pwPaypalMounted.add(releaseId);
       const slot = document.getElementById(slotId);
       const statusEl = slot ? slot.parentElement.querySelector('.pwpc-paypal-status') : null;
@@ -29127,10 +29134,18 @@
             setStatus('PayPal checkout error. Please try again.', true);
           },
           onCancel: () => { setStatus(''); },
-        }).render('#' + slotId);
+        }).render('#' + slotId).catch(function(err){
+          // .render() rejects (rather than throws sync) when the slot
+          // is missing at render time. Silence to keep the console
+          // clean — user-facing status already reads "Loading PayPal"
+          // and the next paywall render will re-mount.
+          console.warn('[paypal-native] render skipped (slot vanished):', err && err.message);
+          _pwPaypalMounted.delete(releaseId);
+        });
       } catch (e) {
         console.warn('[paypal-native] mount failed:', e);
         setStatus('PayPal checkout failed to load: ' + (e.message || 'unknown'), true);
+        _pwPaypalMounted.delete(releaseId);
       }
     }
     window._pwMountPaypalNative = _pwMountPaypalNative;
