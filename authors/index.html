@@ -257,6 +257,9 @@
       <div class="row">
         <label for="sBody">Details</label>
         <textarea id="sBody" required maxlength="2000" placeholder="Book title, list size, what you're offering, what you're looking for."></textarea>
+        <p style="font-size:11px;color:var(--hint);margin:4px 0 0;line-height:1.5">
+          <strong>Group-promo tip:</strong> put your book title on line 1, then a short pitch on the lines after. The public landing page renders line 1 as the book's title. Other participants reply with the same format — their reply body becomes their entry.
+        </p>
       </div>
       <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center">
         <button type="button" class="btn" onclick="closeNewSwap()">Cancel</button>
@@ -322,6 +325,7 @@ window.renderDirectory = function(){
       +(a.bio?'<p class="bio">'+esc(a.bio)+'</p>':'')
       +'<div class="meta">'
         +'<span>List: <strong>'+esc(sizeLabel(a.listSizeBucket))+'</strong></span>'
+        +(a.fulfilledSwaps>0?'<span>✓ <strong>'+String(a.fulfilledSwaps)+'</strong> swap'+(a.fulfilledSwaps===1?'':'s')+' honoured</span>':'')
         +(a.websiteUrl?'<span><a href="'+esc(a.websiteUrl)+'" target="_blank" rel="noopener">Website ↗</a></span>':'')
       +'</div>'
     +'</div>';
@@ -350,13 +354,28 @@ window.renderSwaps = function(){
     const kindLabel = {partner:'Swap partner','group-promo':'Group promo','reviews-wanted':'Reviews / ARC'}[s.type]||s.type;
     const kindCls   = s.type==='partner'?'partner':(s.type==='reviews-wanted'?'review':'');
     const createdAt = s.createdAt && s.createdAt.toDate ? s.createdAt.toDate() : (s.createdAt?new Date(s.createdAt):null);
+    const isMine = state.user && s.authorUid === state.user.uid;
+    const isFulfilled = !!s.fulfilledAt;
+    const isGroupPromo = s.type === 'group-promo';
+    const swapDatePast = s.swapDate && new Date(s.swapDate) < new Date();
+    const fulfilledPill = isFulfilled ? '<span class="badge" style="background:rgba(6,95,70,0.14);color:var(--accent-ui)">✓ Swap completed</span>' : '';
+    // Poster-only actions: mark complete (after swap date), open group-promo landing
+    let ownerBtns = '';
+    if (isMine && !isFulfilled && swapDatePast) {
+      ownerBtns += '<button class="btn" onclick="markSwapFulfilled(\''+esc(s.id)+'\')" style="padding:4px 12px;font-size:11.5px;background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)">✓ Mark swap completed</button>';
+    }
+    if (isGroupPromo) {
+      ownerBtns += '<a class="btn" href="/authors/promo/?id='+esc(s.id)+'" style="padding:4px 12px;font-size:11.5px" target="_blank">Landing page ↗</a>';
+    }
     return '<div class="swap" data-swap-id="'+esc(s.id)+'">'
-      +'<div class="swap-head"><span class="swap-type '+kindCls+'">'+kindLabel+'</span><span style="font-size:11.5px;color:var(--hint)">'+esc(s.genre||'')+(s.swapDate?' · '+esc(s.swapDate):'')+'</span></div>'
+      +'<div class="swap-head"><span class="swap-type '+kindCls+'">'+kindLabel+' '+fulfilledPill+'</span><span style="font-size:11.5px;color:var(--hint)">'+esc(s.genre||'')+(s.swapDate?' · '+esc(s.swapDate):'')+'</span></div>'
       +'<h3>'+esc(s.title||'Untitled post')+'</h3>'
       +'<div class="by">by '+esc(s.authorPenName||'Author')+(createdAt?' · '+fmtDate(createdAt):'')+'</div>'
       +'<div class="body">'+esc(s.body||'')+'</div>'
       +'<div class="foot"><span>'+String(s.replyCount||0)+' repl'+(s.replyCount===1?'y':'ies')+'</span>'
-        +'<button class="btn" onclick="toggleReplies(\''+esc(s.id)+'\')" style="padding:4px 12px;font-size:11.5px">Open thread →</button>'
+        +'<div style="display:flex;gap:6px;flex-wrap:wrap">'+ownerBtns
+          +'<button class="btn" onclick="toggleReplies(\''+esc(s.id)+'\')" style="padding:4px 12px;font-size:11.5px">Open thread →</button>'
+        +'</div>'
       +'</div>'
       +'<div class="replies" id="replies-'+esc(s.id)+'" style="display:none"></div>'
     +'</div>';
@@ -387,6 +406,35 @@ window.toggleReplies = async function(swapId){
       +'</form>';
     box.innerHTML = html;
   } catch (e) { box.innerHTML = '<div style="color:var(--danger);font-size:12.5px">Load failed: '+esc(e.message)+'</div>'; }
+};
+
+// Mark a swap fulfilled — poster-only, after swap date. Two side
+// effects: stamp fulfilledAt on the swap doc (so the card renders
+// the ✓ Swap completed pill from now on) AND bump the poster's
+// directory doc's fulfilledSwaps counter (surfaces as trust signal
+// on their author card). Only the swap's authorUid can do this
+// (Firestore rules already enforce owner-only update).
+window.markSwapFulfilled = async function(swapId){
+  if (!state.user) return alert('Sign in first.');
+  const swap = state.swaps.find(s => s.id === swapId);
+  if (!swap || swap.authorUid !== state.user.uid) return alert('Only the swap poster can mark it complete.');
+  if (!confirm('Mark this swap as completed? Your directory card will show one more ✓ fulfilled swap. Only mark real, mutually-honoured swaps — the trust signal only works if it means something.')) return;
+  try {
+    await setDoc(doc(db,'folio_author_swaps',swapId), {
+      fulfilledAt: serverTimestamp(),
+      status: 'closed',
+    }, { merge: true });
+    // Bump the poster's directory counter. Uses a get→+1→set cycle
+    // rather than an atomic increment because the directory doc might
+    // not exist yet for authors who post before joining the directory.
+    const dirRef = doc(db,'folio_author_directory',state.user.uid);
+    const cur = await getDoc(dirRef);
+    const prevCount = cur.exists() ? (cur.data().fulfilledSwaps || 0) : 0;
+    await setDoc(dirRef, { fulfilledSwaps: prevCount + 1, updatedAt: serverTimestamp() }, { merge: true });
+    // Refresh views.
+    await loadSwaps();
+    await loadDirectory();
+  } catch (e) { alert('Failed: ' + e.message); }
 };
 
 window.submitReply = async function(ev, swapId){
