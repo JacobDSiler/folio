@@ -28723,14 +28723,28 @@
           setTimeout(() => _serialApplyLocks(release), 60);
         }
       } else {
-        // 0-preview paid folio: the full gate. Don't re-show it if it's
-        // already open (re-showing clears the license-key input); just
-        // re-assert the TOC dimming the render wiped.
-        const _gate = document.getElementById('pwGate');
-        if (_gate && _gate.classList.contains('open')) {
-          try { _lockApplyTocRows(release); } catch (e) { }
-        } else {
-          _pwShowGate(folioId, release);
+        // 0-preview paid folio, no teasers.
+        //
+        // Historical dead-branch bug (2026-09-07): this branch used
+        // to call _pwShowGate(folioId, release) — but #pwGate is dead
+        // HTML (the template was removed at some point and the
+        // function early-returns). See the matching note in
+        // _pwCheckAccess: "Route ALL paid releases through
+        // _pwShowPreview." _pwCheckAccess was fixed; _pwReapply was
+        // missed. Result: readers of 0-preview folios saw the paywall
+        // apply once on initial paint (from _pwCheckAccess), then
+        // every previewRendered re-render called this dead branch,
+        // wiped state was never restored, and ghost pages with just
+        // chapter titles rendered instead of the CTA.
+        //
+        // Fix: route through _pwShowPreview with numChapters=0. The
+        // CTA card lands at the top of the hidden region and every
+        // paid chapter picks up pw-hidden-page, matching the initial
+        // _pwCheckAccess path exactly. Also re-runs _serialApplyLocks
+        // for per-chapter lock cards on paid+serial folios.
+        _pwShowPreview(folioId, release, 0);
+        if (typeof _serialApplyLocks === 'function') {
+          setTimeout(() => _serialApplyLocks(release), 60);
         }
       }
       // Chapter dropdown needs its own refresh so locked rows get the lock.
