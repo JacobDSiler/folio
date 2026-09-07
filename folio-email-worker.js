@@ -1369,6 +1369,95 @@ export default {
       }
     }
 
+    // ══ Author swap board — reply notification ═════════════════════
+    // Fires when a signed-in user replies to a swap post. Emails the
+    // post's author so they don't have to keep checking the board.
+    // Server-mediated so we can vet the reply exists + resolve the
+    // poster's email without leaking uids to the client. Rate-limited
+    // by IP (60/hr).
+    if (request.method === 'POST' && path === '/send-author-swap-reply') {
+      const okRate = await checkRateLimit(request, { cap: 60, bucket: 'swap-reply' });
+      if (!okRate) return errorJson('Rate limited', 429, request, env);
+      let payload;
+      try { payload = await request.json(); }
+      catch (e) { return errorJson('Body must be valid JSON', 400, request, env); }
+      const swapId  = String((payload && payload.swapId)  || '').trim();
+      const replyId = String((payload && payload.replyId) || '').trim();
+      if (!swapId || !replyId) return errorJson('Missing swapId or replyId', 400, request, env);
+      // Read the swap + the reply via service account.
+      let auth;
+      try { auth = await getAccessToken(env); }
+      catch (e) { return errorJson('Server misconfig', 500, request, env); }
+      const projectId = env.FIRESTORE_PROJECT_ID || auth.projectId;
+      const swapUrl  = 'https://firestore.googleapis.com/v1/projects/' + projectId +
+        '/databases/(default)/documents/folio_author_swaps/' + encodeURIComponent(swapId);
+      const replyUrl = swapUrl + '/replies/' + encodeURIComponent(replyId);
+      let swap = null, reply = null;
+      try {
+        const sr = await fetch(swapUrl,  { headers: { 'Authorization': 'Bearer ' + auth.token } });
+        const rr = await fetch(replyUrl, { headers: { 'Authorization': 'Bearer ' + auth.token } });
+        if (!sr.ok || !rr.ok) return errorJson('Swap or reply not found', 404, request, env);
+        swap  = fsDecodeFields((await sr.json()).fields || {});
+        reply = fsDecodeFields((await rr.json()).fields || {});
+      } catch (e) {
+        return errorJson('Fetch failed: ' + (e.message || 'unknown'), 502, request, env);
+      }
+      // Silent no-op if the replier is the swap's own author (a poster
+      // shouldn't email themselves for replying to their own post).
+      if (swap.authorUid && reply.authorUid && swap.authorUid === reply.authorUid) {
+        return json({ ok: true, sent: false, reason: 'self-reply' }, 200, request, env);
+      }
+      // Resolve poster's email via Identity Toolkit.
+      let posterEmail = null;
+      try {
+        const eRes = await fetch(
+          'https://identitytoolkit.googleapis.com/v1/projects/' + projectId + '/accounts:lookup',
+          { method: 'POST', headers: { 'Authorization': 'Bearer ' + auth.token, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ localId: [swap.authorUid] }) }
+        );
+        if (eRes.ok) {
+          const d = await eRes.json();
+          posterEmail = d && Array.isArray(d.users) && d.users[0] && d.users[0].email;
+        }
+      } catch (_) {}
+      if (!posterEmail) {
+        return json({ ok: true, sent: false, reason: 'no-poster-email' }, 200, request, env);
+      }
+      const base = allowedOrigins(env)[0] || DEFAULT_ORIGIN;
+      const boardUrl = base + '/authors/#swap-' + encodeURIComponent(swapId);
+      const posterName  = String(swap.authorPenName  || 'Author');
+      const replierName = String(reply.authorPenName || 'A Folio author');
+      const swapTitle   = String(swap.title || 'your swap post');
+      const replyBody   = String(reply.body || '').slice(0, 800);
+      const subject = replierName + ' replied to "' + swapTitle.slice(0, 60) + '"';
+      const text =
+        'Hi ' + posterName + ',\n\n' +
+        replierName + ' just replied to your swap post "' + swapTitle + '" on the Folio author board.\n\n' +
+        '---\n\n' + replyBody + '\n\n---\n\n' +
+        'Open the thread: ' + boardUrl + '\n\n' +
+        'If you\'d rather not get these, remove your listing from the My listing tab on ' + base + '/authors/.\n';
+      const html =
+        '<!DOCTYPE html><html><body style="font-family:Georgia,serif;max-width:600px;margin:0 auto;padding:28px 22px;color:#222;background:#fafafa">' +
+          '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:8px">Author board · new reply</div>' +
+          '<h1 style="font-size:20px;margin:0 0 6px;font-weight:600;font-family:\'Playfair Display\',Georgia,serif">' + esc(replierName) + ' replied to your post</h1>' +
+          '<div style="font-size:13px;color:#666;margin-bottom:20px">"' + esc(swapTitle) + '"</div>' +
+          '<div style="background:#fff;border-radius:10px;padding:20px;border:1px solid #eee;font-size:14px;line-height:1.65;white-space:pre-wrap">' + esc(replyBody) + '</div>' +
+          '<p style="margin-top:22px;font-size:14px"><a href="' + esc(boardUrl) + '" style="display:inline-block;background:#065f46;color:#fff;text-decoration:none;padding:10px 18px;border-radius:7px;font-size:13.5px;font-weight:500;font-family:-apple-system,\'Segoe UI\',sans-serif">Open the thread →</a></p>' +
+          '<p style="font-size:11.5px;color:#999;margin-top:26px;line-height:1.6">' +
+            'You\'re receiving this because you posted on the Folio author board. Remove your listing from the My listing tab on <a href="' + esc(base) + '/authors/" style="color:#999">the author board</a> to stop these.' +
+          '</p>' +
+        '</body></html>';
+      try {
+        const result = await sendRawViaResend(env, {
+          to: posterEmail, subject, html, text,
+        });
+        return json({ ok: true, sent: true, id: result && result.id }, 200, request, env);
+      } catch (e) {
+        return errorJson('Send failed: ' + (e.message || 'unknown'),
+                         e.status || 502, request, env);
+      }
+    }
+
     // ══ Support tickets — heads-up + reply emails ══════════════════
     // /support/ form → paywall /support-submit → we send Jacob a
     // "new ticket" email. Admin reply → paywall /support-reply → we
