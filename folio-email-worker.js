@@ -1424,7 +1424,7 @@ export default {
         return json({ ok: true, sent: false, reason: 'no-poster-email' }, 200, request, env);
       }
       const base = allowedOrigins(env)[0] || DEFAULT_ORIGIN;
-      const boardUrl = base + '/authors/#swap-' + encodeURIComponent(swapId);
+      const boardUrl = base + '/guild/#swap-' + encodeURIComponent(swapId);
       const posterName  = String(swap.authorPenName  || 'Author');
       const replierName = String(reply.authorPenName || 'A Folio author');
       const swapTitle   = String(swap.title || 'your swap post');
@@ -1432,10 +1432,10 @@ export default {
       const subject = replierName + ' replied to "' + swapTitle.slice(0, 60) + '"';
       const text =
         'Hi ' + posterName + ',\n\n' +
-        replierName + ' just replied to your swap post "' + swapTitle + '" on the Folio author board.\n\n' +
+        replierName + ' just replied to your swap post "' + swapTitle + '" on the Folio Guild.\n\n' +
         '---\n\n' + replyBody + '\n\n---\n\n' +
         'Open the thread: ' + boardUrl + '\n\n' +
-        'If you\'d rather not get these, remove your listing from the My listing tab on ' + base + '/authors/.\n';
+        'If you\'d rather not get these, remove your listing from the My listing tab on ' + base + '/guild/.\n';
       const html =
         '<!DOCTYPE html><html><body style="font-family:Georgia,serif;max-width:600px;margin:0 auto;padding:28px 22px;color:#222;background:#fafafa">' +
           '<div style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#888;margin-bottom:8px">Author board · new reply</div>' +
@@ -1444,7 +1444,7 @@ export default {
           '<div style="background:#fff;border-radius:10px;padding:20px;border:1px solid #eee;font-size:14px;line-height:1.65;white-space:pre-wrap">' + esc(replyBody) + '</div>' +
           '<p style="margin-top:22px;font-size:14px"><a href="' + esc(boardUrl) + '" style="display:inline-block;background:#065f46;color:#fff;text-decoration:none;padding:10px 18px;border-radius:7px;font-size:13.5px;font-weight:500;font-family:-apple-system,\'Segoe UI\',sans-serif">Open the thread →</a></p>' +
           '<p style="font-size:11.5px;color:#999;margin-top:26px;line-height:1.6">' +
-            'You\'re receiving this because you posted on the Folio author board. Remove your listing from the My listing tab on <a href="' + esc(base) + '/authors/" style="color:#999">the author board</a> to stop these.' +
+            'You\'re receiving this because you posted on the Folio Guild. Remove your listing from the My listing tab on <a href="' + esc(base) + '/guild/" style="color:#999">the author board</a> to stop these.' +
           '</p>' +
         '</body></html>';
       try {
