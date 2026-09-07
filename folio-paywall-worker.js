@@ -86,6 +86,12 @@ function corsHeaders(request, env, extra) {
     'Access-Control-Allow-Origin': pickOrigin(request, env),
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    // Required when the client sends credentials:'include' (the
+    // reader POSTs analytics events + affiliate materialize with
+    // credentials so cookies ride along). Without this header the
+    // preflight fails with "Access-Control-Allow-Credentials must
+    // be 'true'". Broke /event entirely on 2026-09-07.
+    'Access-Control-Allow-Credentials': 'true',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   };
