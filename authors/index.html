@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Author Directory + Swap Board — Folio</title>
+<meta name="description" content="An opt-in directory of Folio authors, plus a board for newsletter swaps, group promos, and ARC reviewer requests."/>
+<meta name="robots" content="index, follow"/>
+<link rel="canonical" href="https://onfolio.press/authors/"/>
+<link rel="icon" href="/favicon.ico"/>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin/>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&display=swap" rel="stylesheet"/>
+<style>
+  :root{
+    --bg:#f6f4ee;--surface:#fffcf5;--text:#1a1611;--muted:#5a5347;--hint:#8a8378;
+    --border:rgba(0,0,0,0.09);--border-mid:rgba(0,0,0,0.14);
+    --accent:#c98c2a;--accent-ui:#065f46;--danger:#b91c1c;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+    --serif:'Playfair Display',Georgia,serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#141210;--surface:#1e1b17;--text:#f0ece2;--muted:#a89e8d;
+      --border:rgba(255,255,255,0.09);--border-mid:rgba(255,255,255,0.14);}
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14.5px;line-height:1.6}
+  a{color:var(--accent-ui);text-decoration:none}
+  a:hover{text-decoration:underline}
+  header{background:var(--surface);border-bottom:.5px solid var(--border);padding:14px 22px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;position:sticky;top:0;z-index:15}
+  header .brand{display:flex;align-items:center;gap:10px;font-family:var(--serif);font-size:20px;font-weight:600}
+  header .brand-mark{width:28px;height:28px;border-radius:7px;background:var(--accent);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:600;font-family:var(--serif)}
+  header nav{display:flex;gap:16px;font-size:13px;color:var(--muted)}
+  header nav a{color:var(--muted)}
+  #authArea{display:flex;align-items:center;gap:10px;font-size:12.5px;color:var(--muted)}
+  main{max-width:1000px;margin:0 auto;padding:26px 22px 70px}
+  h1{font-family:var(--serif);font-size:30px;font-weight:600;margin:0 0 8px}
+  .lead{color:var(--muted);margin:0 0 22px;max-width:640px;font-size:14.5px}
+  .tabs{display:flex;gap:2px;border-bottom:.5px solid var(--border);margin-bottom:20px}
+  .tab{padding:9px 16px;font-size:13.5px;color:var(--muted);cursor:pointer;border:0;background:transparent;font-family:inherit;border-bottom:2px solid transparent;margin-bottom:-1px;font-weight:500}
+  .tab.active{color:var(--text);border-bottom-color:var(--accent)}
+  .tab:hover{color:var(--text)}
+  .filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center}
+  .filters select,.filters input[type=search]{padding:7px 10px;font-size:12.5px;border:.5px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-family:inherit}
+  .filters input[type=search]{min-width:200px}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;font-size:12.5px;border-radius:6px;border:.5px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;font-weight:500}
+  .btn:hover{border-color:var(--accent)}
+  .btn.primary{background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)}
+  .btn.primary:hover{background:#054a37;border-color:#054a37}
+  .btn:disabled{opacity:.55;cursor:not-allowed}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+  .card{background:var(--surface);border:.5px solid var(--border);border-radius:11px;padding:18px 20px;transition:border-color .15s}
+  .card:hover{border-color:var(--accent)}
+  .card h3{font-family:var(--serif);font-size:17.5px;margin:0 0 3px;font-weight:600}
+  .card .genre{font-size:11.5px;color:var(--hint);letter-spacing:.05em;text-transform:uppercase;margin-bottom:8px}
+  .card .bio{font-size:13px;color:var(--muted);line-height:1.55;margin:0 0 12px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .card .meta{display:flex;gap:12px;font-size:11.5px;color:var(--muted);flex-wrap:wrap;padding-top:10px;border-top:.5px solid var(--border)}
+  .card .meta strong{color:var(--text)}
+  .badge{display:inline-block;font-size:10.5px;padding:2px 7px;border-radius:9px;background:rgba(6,95,70,0.10);color:var(--accent-ui);font-weight:500}
+  .empty{padding:36px 20px;text-align:center;color:var(--hint);border:.5px dashed var(--border);border-radius:12px;line-height:1.7}
+  .empty h3{font-family:var(--serif);font-size:17px;margin:0 0 6px;color:var(--muted);font-weight:600}
+  .swap{background:var(--surface);border:.5px solid var(--border);border-radius:11px;padding:16px 20px;margin-bottom:12px}
+  .swap-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap;margin-bottom:6px}
+  .swap-type{font-size:11px;font-weight:600;padding:3px 9px;border-radius:9px;background:rgba(201,140,42,0.14);color:var(--accent);letter-spacing:.04em;text-transform:uppercase}
+  .swap-type.partner{background:rgba(6,95,70,0.14);color:var(--accent-ui)}
+  .swap-type.review{background:rgba(139,92,246,0.14);color:#7c3aed}
+  .swap h3{font-family:var(--serif);font-size:17px;margin:2px 0 4px;font-weight:600}
+  .swap .by{font-size:12px;color:var(--muted);margin-bottom:10px}
+  .swap .body{font-size:13.5px;line-height:1.65;color:var(--text);white-space:pre-wrap;margin:0 0 12px}
+  .swap .foot{display:flex;justify-content:space-between;font-size:11.5px;color:var(--hint);border-top:.5px solid var(--border);padding-top:10px;gap:10px;flex-wrap:wrap}
+  .replies{margin-top:14px;padding:12px 14px;background:var(--bg);border-radius:9px;border:.5px solid var(--border)}
+  .reply{padding:9px 0;border-bottom:.5px solid var(--border);font-size:13px;line-height:1.55}
+  .reply:last-child{border-bottom:0}
+  .reply .rby{font-size:11.5px;color:var(--muted);margin-bottom:3px}
+  .reply-form{display:flex;flex-direction:column;gap:8px;padding-top:12px;margin-top:6px;border-top:.5px solid var(--border)}
+  textarea,input[type=text],input[type=date],input[type=url]{width:100%;padding:8px 12px;font-size:13px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit;line-height:1.55;box-sizing:border-box}
+  textarea{min-height:100px;resize:vertical}
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:4px;font-weight:500}
+  .row{margin-bottom:12px}
+  .row-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  #signInPrompt{padding:34px 22px;text-align:center;background:var(--surface);border-radius:14px;border:.5px solid var(--border)}
+  .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:100;padding:16px}
+  .modal{background:var(--surface);border-radius:12px;max-width:560px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.35);max-height:88vh;overflow-y:auto}
+  .modal h3{font-family:var(--serif);margin:0 0 8px;font-size:19px}
+  .close-btn{position:absolute;top:14px;right:16px;background:none;border:0;font-size:22px;color:var(--muted);cursor:pointer;line-height:1}
+  .msg{font-size:12px;color:var(--muted);min-height:16px;margin-top:6px}
+  .msg.err{color:var(--danger)}
+  .msg.ok{color:var(--accent-ui)}
+</style>
+</head>
+<body>
+
+<header>
+  <a href="/" class="brand"><span class="brand-mark">F</span>Folio</a>
+  <nav>
+    <a href="/shelf/">Shelf</a>
+    <a href="/press/">Press</a>
+    <a href="/help/tutorials/">Tutorials</a>
+    <a href="/support/">Support</a>
+  </nav>
+  <div id="authArea">
+    <span id="authLabel">Loading…</span>
+    <button id="signInBtn" class="btn" style="display:none">Sign in</button>
+    <button id="signOutBtn" class="btn" style="display:none">Sign out</button>
+  </div>
+</header>
+
+<main>
+  <h1>Author Directory + Swap Board</h1>
+  <p class="lead">An opt-in space for Folio authors to find each other, run newsletter swaps, coordinate group promos, and trade ARCs for honest reviews. Everything is peer-to-peer — Folio just hosts the table.</p>
+
+  <div class="tabs">
+    <button class="tab active" data-tab="directory" onclick="setTab('directory')">Directory <span class="count" id="cDir">—</span></button>
+    <button class="tab" data-tab="swaps" onclick="setTab('swaps')">Swap board <span class="count" id="cSwaps">—</span></button>
+    <button class="tab" data-tab="me" onclick="setTab('me')">My listing</button>
+  </div>
+
+  <!-- ═══ DIRECTORY ═══ -->
+  <section id="tabDirectory">
+    <div class="filters">
+      <input type="search" id="dirSearch" placeholder="Search by name…" oninput="renderDirectory()"/>
+      <select id="dirGenre" onchange="renderDirectory()">
+        <option value="">All genres</option>
+        <option>Literary fiction</option><option>Fantasy</option><option>Science fiction</option>
+        <option>Romance</option><option>Mystery / Thriller</option><option>Horror</option>
+        <option>Historical fiction</option><option>Young adult</option><option>Children's</option>
+        <option>Memoir / Biography</option><option>Self-help</option><option>Business</option>
+        <option>Poetry</option><option>Essays</option><option>Other</option>
+      </select>
+      <select id="dirSize" onchange="renderDirectory()">
+        <option value="">Any list size</option>
+        <option value="starting">Starting (&lt; 500)</option>
+        <option value="growing">Growing (500 – 2,000)</option>
+        <option value="established">Established (2k – 10k)</option>
+        <option value="large">Large (10k+)</option>
+      </select>
+      <select id="dirSwap" onchange="renderDirectory()">
+        <option value="">Everyone</option>
+        <option value="open">Open to swaps</option>
+      </select>
+    </div>
+    <div id="dirList"></div>
+  </section>
+
+  <!-- ═══ SWAP BOARD ═══ -->
+  <section id="tabSwaps" style="display:none">
+    <div class="filters">
+      <select id="swapsType" onchange="renderSwaps()">
+        <option value="">All post types</option>
+        <option value="partner">Newsletter swap</option>
+        <option value="group-promo">Group promo</option>
+        <option value="reviews-wanted">Reviews / ARC</option>
+      </select>
+      <select id="swapsGenre" onchange="renderSwaps()">
+        <option value="">All genres</option>
+        <option>Literary fiction</option><option>Fantasy</option><option>Science fiction</option>
+        <option>Romance</option><option>Mystery / Thriller</option><option>Horror</option>
+        <option>Historical fiction</option><option>Young adult</option><option>Children's</option>
+        <option>Memoir / Biography</option><option>Self-help</option><option>Business</option>
+        <option>Poetry</option><option>Essays</option><option>Other</option>
+      </select>
+      <button class="btn primary" onclick="openNewSwap()">+ New post</button>
+    </div>
+    <div id="swapsList"></div>
+  </section>
+
+  <!-- ═══ MY LISTING (opt-in form) ═══ -->
+  <section id="tabMe" style="display:none">
+    <div id="meSignedOut" style="display:none">
+      <div id="signInPrompt">
+        <h3 style="font-family:var(--serif);margin:0 0 6px">Sign in to add your listing</h3>
+        <p style="margin:0 0 14px;color:var(--muted)">You'll need a Folio account to appear in the directory or post to the swap board.</p>
+        <button class="btn primary" onclick="doSignIn()">Sign in with Google</button>
+      </div>
+    </div>
+    <div id="meSignedIn" style="display:none">
+      <form id="meForm" onsubmit="return saveMe(event)">
+        <label for="mPen">Pen name</label>
+        <div class="row"><input type="text" id="mPen" required maxlength="100" placeholder="The name your readers know you by"/></div>
+        <label for="mBio">Short bio</label>
+        <div class="row"><textarea id="mBio" maxlength="500" placeholder="What you write, how you write, what a partner would want to know before reaching out."></textarea></div>
+        <div class="row row-grid">
+          <div>
+            <label for="mGenre">Primary genre</label>
+            <select id="mGenre" style="width:100%;padding:8px 12px;font-size:13px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit">
+              <option>Literary fiction</option><option>Fantasy</option><option>Science fiction</option>
+              <option>Romance</option><option>Mystery / Thriller</option><option>Horror</option>
+              <option>Historical fiction</option><option>Young adult</option><option>Children's</option>
+              <option>Memoir / Biography</option><option>Self-help</option><option>Business</option>
+              <option>Poetry</option><option>Essays</option><option>Other</option>
+            </select>
+          </div>
+          <div>
+            <label for="mSize">Newsletter list size</label>
+            <select id="mSize" style="width:100%;padding:8px 12px;font-size:13px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit">
+              <option value="starting">Starting (&lt; 500)</option>
+              <option value="growing">Growing (500 – 2,000)</option>
+              <option value="established">Established (2k – 10k)</option>
+              <option value="large">Large (10k+)</option>
+            </select>
+          </div>
+        </div>
+        <label for="mWeb">Website / imprint URL (optional)</label>
+        <div class="row"><input type="url" id="mWeb" placeholder="https://"/></div>
+        <div class="row" style="padding:10px 12px;background:var(--bg);border-radius:8px;border:.5px solid var(--border)">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+            <input type="checkbox" id="mOpen" style="margin:0"/>
+            <span style="font-size:13px;color:var(--text)"><strong>Open to newsletter swaps</strong> — a green badge on your card so partners find you.</span>
+          </label>
+        </div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:6px">
+          <button type="submit" class="btn primary">Save my listing</button>
+          <button type="button" class="btn" onclick="deleteMe()" id="mDelBtn" style="display:none;color:var(--danger);border-color:rgba(185,28,28,0.35)">Remove my listing</button>
+          <span id="mMsg" class="msg"></span>
+        </div>
+      </form>
+    </div>
+  </section>
+</main>
+
+<!-- ═══ New-swap modal ═══ -->
+<div id="newSwapWrap" class="modal-backdrop" style="display:none" onclick="if(event.target===this)closeNewSwap()">
+  <div class="modal" style="position:relative">
+    <button class="close-btn" onclick="closeNewSwap()">×</button>
+    <h3>New swap board post</h3>
+    <p style="color:var(--muted);font-size:12.5px;margin:0 0 14px">Be concrete. Genre, list size, dates. The clearer the ask, the faster you'll find a match.</p>
+    <form onsubmit="return saveSwap(event)">
+      <div class="row">
+        <label for="sType">Post type</label>
+        <select id="sType" style="width:100%;padding:8px 12px;font-size:13px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit">
+          <option value="partner">Newsletter swap partner wanted</option>
+          <option value="group-promo">Group promo (multi-author)</option>
+          <option value="reviews-wanted">Reviews / ARC readers wanted</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="sTitle">Title</label>
+        <input type="text" id="sTitle" required maxlength="140" placeholder="e.g. Cosy mystery swap for June 15 send"/>
+      </div>
+      <div class="row row-grid">
+        <div>
+          <label for="sGenre">Genre</label>
+          <select id="sGenre" style="width:100%;padding:8px 12px;font-size:13px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit">
+            <option>Literary fiction</option><option>Fantasy</option><option>Science fiction</option>
+            <option>Romance</option><option>Mystery / Thriller</option><option>Horror</option>
+            <option>Historical fiction</option><option>Young adult</option><option>Children's</option>
+            <option>Memoir / Biography</option><option>Self-help</option><option>Business</option>
+            <option>Poetry</option><option>Essays</option><option>Other</option>
+          </select>
+        </div>
+        <div>
+          <label for="sDate">Swap date (optional)</label>
+          <input type="date" id="sDate"/>
+        </div>
+      </div>
+      <div class="row">
+        <label for="sBody">Details</label>
+        <textarea id="sBody" required maxlength="2000" placeholder="Book title, list size, what you're offering, what you're looking for."></textarea>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center">
+        <button type="button" class="btn" onclick="closeNewSwap()">Cancel</button>
+        <button type="submit" class="btn primary" id="saveSwapBtn">Post to board</button>
+        <span id="sMsg" class="msg"></span>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, addDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const firebaseConfig = { apiKey:'AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0', authDomain:'auth.jacobsiler.com', projectId:'miscellaneous-117e9', storageBucket:'miscellaneous-117e9.firebasestorage.app', messagingSenderId:'514858431339', appId:'1:514858431339:web:8b3acbe89966b45fe3922e' };
+const app = initializeApp(firebaseConfig, 'authors');
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const state = { user:null, tab:'directory', directory:[], swaps:[], myListing:null };
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDate(d){ try{ return new Date(d).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}); }catch(_){ return ''; } }
+function sizeLabel(s){ return {starting:'Starting (<500)',growing:'Growing (500–2k)',established:'Established (2k–10k)',large:'Large (10k+)'}[s]||''; }
+
+window.setTab = function(t){
+  state.tab = t;
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===t));
+  document.getElementById('tabDirectory').style.display = t==='directory'?'':'none';
+  document.getElementById('tabSwaps').style.display     = t==='swaps'?'':'none';
+  document.getElementById('tabMe').style.display        = t==='me'?'':'none';
+  if (t==='me') renderMe();
+};
+
+async function loadDirectory(){
+  try {
+    const snap = await getDocs(query(collection(db, 'folio_author_directory'), limit(500)));
+    state.directory = snap.docs.map(d=>({ uid:d.id, ...d.data() })).filter(x=>x.status!=='hidden');
+    document.getElementById('cDir').textContent = state.directory.length?('('+state.directory.length+')'):'';
+    renderDirectory();
+  } catch (e) { console.warn('[dir] load:', e); }
+}
+window.renderDirectory = function(){
+  const list = document.getElementById('dirList');
+  const search = (document.getElementById('dirSearch').value||'').toLowerCase();
+  const genre  = document.getElementById('dirGenre').value;
+  const size   = document.getElementById('dirSize').value;
+  const swap   = document.getElementById('dirSwap').value;
+  const rows = state.directory.filter(a=>{
+    if (search && !(a.penName||'').toLowerCase().includes(search)) return false;
+    if (genre && a.primaryGenre !== genre) return false;
+    if (size  && a.listSizeBucket !== size) return false;
+    if (swap==='open' && !a.openToSwaps) return false;
+    return true;
+  });
+  if (!rows.length){ list.innerHTML = '<div class="empty"><h3>No authors match those filters.</h3><p>Loosen a filter, or add yourself in <strong>My listing</strong>.</p></div>'; return; }
+  list.innerHTML = '<div class="grid">' + rows.map(a=>{
+    const swapBadge = a.openToSwaps ? '<span class="badge">Open to swaps</span>' : '';
+    return '<div class="card">'
+      +'<div class="genre">'+esc(a.primaryGenre||'')+' '+swapBadge+'</div>'
+      +'<h3>'+esc(a.penName||'Author')+'</h3>'
+      +(a.bio?'<p class="bio">'+esc(a.bio)+'</p>':'')
+      +'<div class="meta">'
+        +'<span>List: <strong>'+esc(sizeLabel(a.listSizeBucket))+'</strong></span>'
+        +(a.websiteUrl?'<span><a href="'+esc(a.websiteUrl)+'" target="_blank" rel="noopener">Website ↗</a></span>':'')
+      +'</div>'
+    +'</div>';
+  }).join('') + '</div>';
+};
+
+async function loadSwaps(){
+  try {
+    const snap = await getDocs(query(collection(db, 'folio_author_swaps'), orderBy('createdAt','desc'), limit(200)));
+    state.swaps = snap.docs.map(d=>({ id:d.id, ...d.data() })).filter(s=>s.status!=='closed');
+    document.getElementById('cSwaps').textContent = state.swaps.length?('('+state.swaps.length+')'):'';
+    renderSwaps();
+  } catch (e) { console.warn('[swaps] load:', e); }
+}
+window.renderSwaps = function(){
+  const list = document.getElementById('swapsList');
+  const type  = document.getElementById('swapsType').value;
+  const genre = document.getElementById('swapsGenre').value;
+  const rows = state.swaps.filter(s=>{
+    if (type && s.type !== type) return false;
+    if (genre && s.genre !== genre) return false;
+    return true;
+  });
+  if (!rows.length){ list.innerHTML = '<div class="empty"><h3>No posts match those filters.</h3><p>Loosen a filter, or <button class="btn primary" onclick="openNewSwap()" style="margin-left:6px">+ create a post</button></p></div>'; return; }
+  list.innerHTML = rows.map(s=>{
+    const kindLabel = {partner:'Swap partner','group-promo':'Group promo','reviews-wanted':'Reviews / ARC'}[s.type]||s.type;
+    const kindCls   = s.type==='partner'?'partner':(s.type==='reviews-wanted'?'review':'');
+    const createdAt = s.createdAt && s.createdAt.toDate ? s.createdAt.toDate() : (s.createdAt?new Date(s.createdAt):null);
+    return '<div class="swap" data-swap-id="'+esc(s.id)+'">'
+      +'<div class="swap-head"><span class="swap-type '+kindCls+'">'+kindLabel+'</span><span style="font-size:11.5px;color:var(--hint)">'+esc(s.genre||'')+(s.swapDate?' · '+esc(s.swapDate):'')+'</span></div>'
+      +'<h3>'+esc(s.title||'Untitled post')+'</h3>'
+      +'<div class="by">by '+esc(s.authorPenName||'Author')+(createdAt?' · '+fmtDate(createdAt):'')+'</div>'
+      +'<div class="body">'+esc(s.body||'')+'</div>'
+      +'<div class="foot"><span>'+String(s.replyCount||0)+' repl'+(s.replyCount===1?'y':'ies')+'</span>'
+        +'<button class="btn" onclick="toggleReplies(\''+esc(s.id)+'\')" style="padding:4px 12px;font-size:11.5px">Open thread →</button>'
+      +'</div>'
+      +'<div class="replies" id="replies-'+esc(s.id)+'" style="display:none"></div>'
+    +'</div>';
+  }).join('');
+};
+
+const _openReplies = new Set();
+window.toggleReplies = async function(swapId){
+  const box = document.getElementById('replies-'+swapId);
+  if (!box) return;
+  if (_openReplies.has(swapId)){
+    box.style.display = 'none'; _openReplies.delete(swapId); return;
+  }
+  _openReplies.add(swapId);
+  box.style.display = 'block';
+  box.innerHTML = '<div style="color:var(--hint);font-size:12.5px">Loading replies…</div>';
+  try {
+    const snap = await getDocs(query(collection(db,'folio_author_swaps',swapId,'replies'), orderBy('createdAt','asc'), limit(50)));
+    const replies = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+    let html = '';
+    if (!replies.length) html = '<div style="color:var(--hint);font-size:12.5px;padding:6px 0">No replies yet — be the first.</div>';
+    else html = replies.map(r=>{
+      const at = r.createdAt && r.createdAt.toDate ? r.createdAt.toDate() : (r.createdAt?new Date(r.createdAt):null);
+      return '<div class="reply"><div class="rby"><strong>'+esc(r.authorPenName||'Author')+'</strong>'+(at?' · '+fmtDate(at):'')+'</div>'+esc(r.body||'')+'</div>';
+    }).join('');
+    html += '<form class="reply-form" onsubmit="return submitReply(event,\''+esc(swapId)+'\')">'
+      +(state.user?'<textarea required maxlength="1500" placeholder="Your reply…"></textarea><div style="display:flex;gap:8px;align-items:center"><button type="submit" class="btn primary">Send reply</button><span class="msg"></span></div>':'<div style="color:var(--hint);font-size:12.5px">Sign in to reply.</div>')
+      +'</form>';
+    box.innerHTML = html;
+  } catch (e) { box.innerHTML = '<div style="color:var(--danger);font-size:12.5px">Load failed: '+esc(e.message)+'</div>'; }
+};
+
+window.submitReply = async function(ev, swapId){
+  ev.preventDefault();
+  const form = ev.target;
+  const body = (form.querySelector('textarea').value||'').trim();
+  const msg = form.querySelector('.msg');
+  if (!state.user){ msg.textContent = 'Sign in first.'; msg.className='msg err'; return false; }
+  if (body.length < 3){ msg.textContent = 'Say a bit more.'; msg.className='msg err'; return false; }
+  msg.textContent = 'Sending…'; msg.className='msg';
+  try {
+    await addDoc(collection(db,'folio_author_swaps',swapId,'replies'), {
+      authorUid: state.user.uid,
+      authorPenName: (state.myListing && state.myListing.penName) || state.user.displayName || 'Author',
+      body,
+      createdAt: serverTimestamp(),
+    });
+    msg.textContent = 'Sent.'; msg.className='msg ok';
+    // Re-open the thread to pull the fresh list.
+    _openReplies.delete(swapId);
+    toggleReplies(swapId);
+  } catch (e) { msg.textContent = 'Failed: '+e.message; msg.className='msg err'; }
+  return false;
+};
+
+// ═══ My listing ═══
+async function loadMyListing(){
+  if (!state.user){ state.myListing = null; return; }
+  try {
+    const snap = await getDoc(doc(db,'folio_author_directory',state.user.uid));
+    state.myListing = snap.exists() ? snap.data() : null;
+  } catch (_) { state.myListing = null; }
+}
+function renderMe(){
+  document.getElementById('meSignedOut').style.display = state.user ? 'none' : '';
+  document.getElementById('meSignedIn').style.display  = state.user ? '' : 'none';
+  if (!state.user) return;
+  const m = state.myListing || {};
+  document.getElementById('mPen').value    = m.penName || (state.user.displayName || '');
+  document.getElementById('mBio').value    = m.bio || '';
+  document.getElementById('mGenre').value  = m.primaryGenre || 'Literary fiction';
+  document.getElementById('mSize').value   = m.listSizeBucket || 'starting';
+  document.getElementById('mWeb').value    = m.websiteUrl || '';
+  document.getElementById('mOpen').checked = !!m.openToSwaps;
+  document.getElementById('mDelBtn').style.display = state.myListing ? '' : 'none';
+}
+window.saveMe = async function(ev){
+  ev.preventDefault();
+  const msg = document.getElementById('mMsg');
+  if (!state.user) { msg.textContent='Sign in first.'; msg.className='msg err'; return false; }
+  const patch = {
+    uid: state.user.uid,
+    penName: (document.getElementById('mPen').value||'').trim().slice(0,100),
+    bio:     (document.getElementById('mBio').value||'').trim().slice(0,500),
+    primaryGenre: document.getElementById('mGenre').value,
+    listSizeBucket: document.getElementById('mSize').value,
+    websiteUrl: (document.getElementById('mWeb').value||'').trim().slice(0,300) || null,
+    openToSwaps: !!document.getElementById('mOpen').checked,
+    status: 'active',
+    updatedAt: serverTimestamp(),
+    createdAt: state.myListing?state.myListing.createdAt||serverTimestamp():serverTimestamp(),
+  };
+  msg.textContent='Saving…'; msg.className='msg';
+  try {
+    await setDoc(doc(db,'folio_author_directory',state.user.uid), patch, { merge: true });
+    msg.textContent='Saved.'; msg.className='msg ok';
+    await loadMyListing();
+    await loadDirectory();
+    renderMe();
+  } catch (e) { msg.textContent='Save failed: '+e.message; msg.className='msg err'; }
+  return false;
+};
+window.deleteMe = async function(){
+  if (!confirm('Remove your listing? You can re-add it any time.')) return;
+  try {
+    await deleteDoc(doc(db,'folio_author_directory',state.user.uid));
+    state.myListing = null;
+    await loadDirectory();
+    renderMe();
+  } catch (e) { alert(e.message); }
+};
+
+// ═══ New swap ═══
+window.openNewSwap = function(){
+  if (!state.user){ alert('Sign in first — you can post as soon as you have a Folio account.'); return; }
+  document.getElementById('newSwapWrap').style.display = 'flex';
+};
+window.closeNewSwap = function(){ document.getElementById('newSwapWrap').style.display='none'; };
+window.saveSwap = async function(ev){
+  ev.preventDefault();
+  const msg = document.getElementById('sMsg');
+  const btn = document.getElementById('saveSwapBtn');
+  if (!state.user){ msg.textContent='Sign in first.'; msg.className='msg err'; return false; }
+  const payload = {
+    authorUid: state.user.uid,
+    authorPenName: (state.myListing && state.myListing.penName) || state.user.displayName || 'Author',
+    type:     document.getElementById('sType').value,
+    title:    (document.getElementById('sTitle').value||'').trim().slice(0,140),
+    genre:    document.getElementById('sGenre').value,
+    swapDate: document.getElementById('sDate').value || null,
+    body:     (document.getElementById('sBody').value||'').trim().slice(0,2000),
+    status:   'open',
+    replyCount: 0,
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  };
+  btn.disabled = true; msg.textContent='Posting…'; msg.className='msg';
+  try {
+    await addDoc(collection(db,'folio_author_swaps'), payload);
+    msg.textContent='Posted.'; msg.className='msg ok';
+    setTimeout(()=>{ closeNewSwap(); loadSwaps(); }, 500);
+  } catch (e) { msg.textContent='Failed: '+e.message; msg.className='msg err'; }
+  btn.disabled = false;
+  return false;
+};
+
+// ═══ Auth ═══
+const provider = new GoogleAuthProvider();
+window.doSignIn = async function(){ try { await signInWithPopup(auth, provider); } catch (e) { alert('Sign-in failed: '+e.message); } };
+document.getElementById('signInBtn').addEventListener('click', doSignIn);
+document.getElementById('signOutBtn').addEventListener('click', ()=>signOut(auth).catch(()=>{}));
+
+onAuthStateChanged(auth, async (u)=>{
+  state.user = u || null;
+  document.getElementById('authLabel').textContent = u ? (u.email||'Signed in') : 'Not signed in';
+  document.getElementById('signInBtn').style.display = u ? 'none' : '';
+  document.getElementById('signOutBtn').style.display = u ? '' : 'none';
+  await loadMyListing();
+  if (state.tab === 'me') renderMe();
+});
+
+loadDirectory();
+loadSwaps();
+</script>
+</body>
+</html>

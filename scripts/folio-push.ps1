@@ -371,6 +371,7 @@ try {
     if (Test-Path (Join-Path $repoRoot 'affiliate')) { $toAdd += 'affiliate' }
     if (Test-Path (Join-Path $repoRoot 'support'))   { $toAdd += 'support' }
     if (Test-Path (Join-Path $repoRoot 'for'))       { $toAdd += 'for' }
+    if (Test-Path (Join-Path $repoRoot 'authors'))   { $toAdd += 'authors' }
     if (Test-Path (Join-Path $repoRoot 'lib'))       { $toAdd += 'lib' }
     if (Test-Path (Join-Path $repoRoot 'functions')) { $toAdd += 'functions' }
     if (Test-Path (Join-Path $repoRoot 'help'))      { $toAdd += 'help' }
