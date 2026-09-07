@@ -40,11 +40,16 @@
   header nav{display:flex;gap:22px;font-size:13px;color:var(--muted)}
   header nav a{color:var(--muted);border-bottom-color:transparent}
 
-  section{max-width:900px;margin:0 auto;padding:0 24px}
-  section.wide{max-width:1100px}
+  /* Section wrappers are full-width so backgrounds bleed edge-to-edge;
+     an `.inner` container inside each caps the readable content at
+     900px + centres it. This shape lets the pain-vs-Folio panel and
+     the gold money band actually span the viewport instead of being
+     900px islands with blank flanks on desktop. */
+  section > .inner{max-width:900px;margin:0 auto;padding:0 24px}
 
   /* ── Hero ── */
   .hero{padding:48px 24px 40px;text-align:center}
+  .hero-inner{max-width:760px;margin:0 auto}
   .hero .eyebrow{display:inline-block;font-size:11.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:600;margin-bottom:14px}
   .hero h1{font-family:var(--serif);font-size:52px;font-weight:600;line-height:1.08;margin:0 0 18px;letter-spacing:-0.015em}
   .hero h1 .kicker{color:var(--accent);font-style:italic}
@@ -116,20 +121,23 @@
 
 <!-- ═══════════════════════════════════════════════════════════ HERO ═══ -->
 <section class="hero">
-  <span class="eyebrow">Folio for serial-fiction writers</span>
-  <h1>Publish your serial.<br><span class="kicker">Grow with your readers.</span> Keep 100%.</h1>
-  <p class="lead">
-    Folio is a browser-based publishing studio built for authors who release chapter by chapter. Your own URL. Your own reader list. Zero commission on tips or sales. Drop episodes on your schedule. Bundle bonus content — art packs, HTML games, translations — with every release.
-  </p>
-  <div class="cta-row">
-    <a href="/app.html" class="btn btn-primary">Start writing — free →</a>
-    <a href="/shelf/" class="btn btn-ghost">Browse the Shelf</a>
+  <div class="hero-inner">
+    <span class="eyebrow">Folio for serial-fiction writers</span>
+    <h1>Publish your serial.<br><span class="kicker">Grow with your readers.</span> Keep 100%.</h1>
+    <p class="lead">
+      Folio is a browser-based publishing studio built for authors who release chapter by chapter. Your own URL. Your own reader list. Zero commission on tips or sales. Drop episodes on your schedule. Bundle bonus content — art packs, HTML games, translations — with every release.
+    </p>
+    <div class="cta-row">
+      <a href="/app.html" class="btn btn-primary">Start writing — free →</a>
+      <a href="/shelf/" class="btn btn-ghost">Browse the Shelf</a>
+    </div>
+    <div class="fine">No credit card. Autosaves the moment you start typing. Sign-in optional.</div>
   </div>
-  <div class="fine">No credit card. Autosaves the moment you start typing. Sign-in optional.</div>
 </section>
 
 <!-- ══════════════════════════════════════════════════════════ PAIN ═══ -->
 <section class="pain">
+  <div class="inner">
   <h2>You're already writing serials.<br>You shouldn't be losing your audience to the platform.</h2>
   <p class="subhead">Wattpad, Royal Road, Kindle Vella — every one of them owns your readers, takes a cut, or locks you in. Here's what serial writers switch to Folio for.</p>
   <div class="pain-grid">
@@ -156,10 +164,12 @@
       </ul>
     </div>
   </div>
+  </div>
 </section>
 
 <!-- ══════════════════════════════════════════════════════════ FEAT ═══ -->
 <section class="features">
+  <div class="inner">
   <h2>Everything a serial actually needs.</h2>
   <p class="subhead">Not a general blogging tool with chapters bolted on. Built from the ground up around the way serials release, reward, and grow.</p>
   <div class="feat-grid">
@@ -194,23 +204,28 @@
       <p>Every published folio gets its own SEO landing page (<code style="font-size:12.5px;background:var(--bg);padding:2px 6px;border-radius:4px">onfolio.press/f/&lt;your-slug&gt;</code>) with rich metadata, so readers searching for your title actually find it.</p>
     </div>
   </div>
+  </div>
 </section>
 
 <!-- ══════════════════════════════════════════════════════════ MONEY ═══ -->
 <section class="money">
-  <h2>The math is simple.</h2>
-  <div class="big">$0</div>
-  <div style="font-size:14px;opacity:.85;letter-spacing:.05em;text-transform:uppercase">Folio commission on your tips and sales. Ever.</div>
-  <p>
-    Folio funds itself through optional <a href="/press/">Folio Press subscriptions</a> for authors who want extra marketing tools + boost discounts. Everything essential — writing, typesetting, publishing, receiving tips, gating paid unlocks — is free forever.
-  </p>
+  <div class="inner">
+    <h2>The math is simple.</h2>
+    <div class="big">$0</div>
+    <div style="font-size:14px;opacity:.85;letter-spacing:.05em;text-transform:uppercase">Folio commission on your tips and sales. Ever.</div>
+    <p>
+      Folio funds itself through optional <a href="/press/">Folio Press subscriptions</a> for authors who want extra marketing tools + boost discounts. Everything essential — writing, typesetting, publishing, receiving tips, gating paid unlocks — is free forever.
+    </p>
+  </div>
 </section>
 
 <!-- ══════════════════════════════════════════════════════════ CLOSE ═══ -->
 <section class="close">
-  <h2>Your next chapter is <em>one blank page</em> from being live.</h2>
-  <p class="lead">Open the editor, paste your first chapter, hit Release. Your serial is a URL you can share by dinner.</p>
-  <a href="/app.html" class="btn btn-primary" style="padding:15px 26px;font-size:15.5px">Start your serial — free →</a>
+  <div class="inner">
+    <h2>Your next chapter is <em>one blank page</em> from being live.</h2>
+    <p class="lead">Open the editor, paste your first chapter, hit Release. Your serial is a URL you can share by dinner.</p>
+    <a href="/app.html" class="btn btn-primary" style="padding:15px 26px;font-size:15.5px">Start your serial — free →</a>
+  </div>
 </section>
 
 <footer>
