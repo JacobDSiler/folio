@@ -65,6 +65,8 @@
   .swap-type{font-size:11px;font-weight:600;padding:3px 9px;border-radius:9px;background:rgba(201,140,42,0.14);color:var(--accent);letter-spacing:.04em;text-transform:uppercase}
   .swap-type.partner{background:rgba(6,95,70,0.14);color:var(--accent-ui)}
   .swap-type.review{background:rgba(139,92,246,0.14);color:#7c3aed}
+  .swap-type.affiliate{background:rgba(220,38,127,0.14);color:#be185d}
+  .swap-type.service{background:rgba(37,99,235,0.14);color:#2563eb}
   .swap h3{font-family:var(--serif);font-size:17px;margin:2px 0 4px;font-weight:600}
   .swap .by{font-size:12px;color:var(--muted);margin-bottom:10px}
   .swap .body{font-size:13.5px;line-height:1.65;color:var(--text);white-space:pre-wrap;margin:0 0 12px}
@@ -148,9 +150,18 @@
     <div class="filters">
       <select id="swapsType" onchange="renderSwaps()">
         <option value="">All post types</option>
-        <option value="partner">Newsletter swap</option>
-        <option value="group-promo">Group promo</option>
-        <option value="reviews-wanted">Reviews / ARC</option>
+        <optgroup label="Promo">
+          <option value="partner">Newsletter swap</option>
+          <option value="group-promo">Group promo</option>
+          <option value="reviews-wanted">Reviews / ARC</option>
+        </optgroup>
+        <optgroup label="Affiliates">
+          <option value="affiliate-wanted">Looking for affiliates</option>
+        </optgroup>
+        <optgroup label="Marketplace">
+          <option value="offering-service">Offering a service</option>
+          <option value="seeking-service">Seeking a service</option>
+        </optgroup>
       </select>
       <select id="swapsGenre" onchange="renderSwaps()">
         <option value="">All genres</option>
@@ -203,6 +214,13 @@
         </div>
         <label for="mWeb">Website / imprint URL (optional)</label>
         <div class="row"><input type="url" id="mWeb" placeholder="https://"/></div>
+        <label for="mTool">Newsletter tool you use</label>
+        <div class="row">
+          <select id="mTool" style="width:100%;padding:8px 12px;font-size:13px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit">
+            <option value="">Not using one yet</option>
+          </select>
+          <p style="font-size:11px;color:var(--hint);margin:4px 0 0;line-height:1.5">Displayed as a badge on your card so partners know how you'll send. <strong>Ink</strong> is Folio's own tool — free forever up to 25k sends/month, and free with any Folio Press subscription.</p>
+        </div>
         <div class="row" style="padding:10px 12px;background:var(--bg);border-radius:8px;border:.5px solid var(--border)">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
             <input type="checkbox" id="mOpen" style="margin:0"/>
@@ -228,11 +246,24 @@
     <form onsubmit="return saveSwap(event)">
       <div class="row">
         <label for="sType">Post type</label>
-        <select id="sType" style="width:100%;padding:8px 12px;font-size:13px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit">
-          <option value="partner">Newsletter swap partner wanted</option>
-          <option value="group-promo">Group promo (multi-author)</option>
-          <option value="reviews-wanted">Reviews / ARC readers wanted</option>
+        <select id="sType" onchange="onSwapTypeChange()" style="width:100%;padding:8px 12px;font-size:13px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit">
+          <optgroup label="Promo">
+            <option value="partner">Newsletter swap partner wanted</option>
+            <option value="group-promo">Group promo (multi-author)</option>
+            <option value="reviews-wanted">Reviews / ARC readers wanted</option>
+          </optgroup>
+          <optgroup label="Affiliates">
+            <option value="affiliate-wanted">Looking for affiliates (my folio)</option>
+          </optgroup>
+          <optgroup label="Marketplace">
+            <option value="offering-service">Offering a service (editor / cover / narrator / etc)</option>
+            <option value="seeking-service">Seeking a service (find pros)</option>
+          </optgroup>
         </select>
+      </div>
+      <div class="row" id="sServiceRow" style="display:none">
+        <label for="sService">Service category</label>
+        <select id="sService" style="width:100%;padding:8px 12px;font-size:13px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit"></select>
       </div>
       <div class="row">
         <label for="sTitle">Title</label>
@@ -282,6 +313,32 @@ const db = getFirestore(app);
 
 const state = { user:null, tab:'directory', directory:[], swaps:[], myListing:null };
 
+/* ── Mailing-tool registry ────────────────────────────────────────
+   Each author picks one for their listing. Ink is Folio's own tool
+   (link only, no affiliate). Others have affiliate URLs; replace the
+   AFFID placeholder with your real ID after you sign up for each
+   program (typically at /affiliates on the vendor's site). Kickback
+   rates as of Sep 2026 for reference: Beehiiv 50%/first-year, Kit
+   30%/recurring 24mo, MailerLite 30%/lifetime, ActiveCampaign 20-30%.
+   Mailchimp killed their public program in 2022 — link only. */
+const MAILING_TOOLS = {
+  ink:           { name:'Ink',              url:'https://ink.jacobsiler.com',              desc:"Folio's own newsletter tool. Unlimited subscribers, 25k sends/month free. Free with any Folio Press subscription.", isInk:true },
+  kit:           { name:'Kit (ConvertKit)', url:'https://kit.com/?lmref=AFFID',            desc:'10,000 subscribers free. Rich automations, creator-focused.', affiliate:true },
+  beehiiv:       { name:'Beehiiv',          url:'https://www.beehiiv.com?via=AFFID',       desc:'2,500 subscribers free. Growth + monetization focus.', affiliate:true },
+  mailerlite:    { name:'MailerLite',       url:'https://www.mailerlite.com/?rc=AFFID',    desc:'1,000 subscribers free. Simple, no-frills UI.', affiliate:true },
+  substack:      { name:'Substack',         url:'https://substack.com',                    desc:'Newsletter-first publisher. They keep 10% of subscription revenue.' },
+  buttondown:    { name:'Buttondown',       url:'https://buttondown.email',                desc:'Minimalist, indie-developer flavor.' },
+  mailchimp:     { name:'Mailchimp',        url:'https://mailchimp.com',                   desc:'500 contacts free. Best-known name; slower to grow with, no affiliate program.' },
+  activecampaign:{ name:'ActiveCampaign',   url:'https://www.activecampaign.com',          desc:'Advanced automation. Better once your list is 5k+.' },
+  other:         { name:'Something else',   url:null,                                      desc:'Not in this list.' },
+};
+
+const SERVICE_TYPES = [
+  'Developmental editor', 'Copy editor', 'Proofreader', 'Cover designer',
+  'Interior formatter', 'Audiobook narrator', 'Illustrator',
+  'Marketing / launch consultant', 'Beta reader', 'Other'
+];
+
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function fmtDate(d){ try{ return new Date(d).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}); }catch(_){ return ''; } }
 function sizeLabel(s){ return {starting:'Starting (<500)',growing:'Growing (500–2k)',established:'Established (2k–10k)',large:'Large (10k+)'}[s]||''; }
@@ -326,6 +383,9 @@ window.renderDirectory = function(){
       +'<div class="meta">'
         +'<span>List: <strong>'+esc(sizeLabel(a.listSizeBucket))+'</strong></span>'
         +(a.fulfilledSwaps>0?'<span>✓ <strong>'+String(a.fulfilledSwaps)+'</strong> swap'+(a.fulfilledSwaps===1?'':'s')+' honoured</span>':'')
+        +(a.mailingTool && MAILING_TOOLS[a.mailingTool]
+            ? '<span><button class="badge" onclick="showTool(\''+esc(a.mailingTool)+'\')" style="background:'+(a.mailingTool==='ink'?'rgba(201,140,42,0.14);color:var(--accent)':'rgba(139,92,246,0.14);color:#7c3aed')+';border:0;cursor:pointer;font-family:inherit">📮 '+esc(MAILING_TOOLS[a.mailingTool].name)+'</button></span>'
+            : '')
         +(a.websiteUrl?'<span><a href="'+esc(a.websiteUrl)+'" target="_blank" rel="noopener">Website ↗</a></span>':'')
       +'</div>'
     +'</div>';
@@ -351,8 +411,19 @@ window.renderSwaps = function(){
   });
   if (!rows.length){ list.innerHTML = '<div class="empty"><h3>No posts match those filters.</h3><p>Loosen a filter, or <button class="btn primary" onclick="openNewSwap()" style="margin-left:6px">+ create a post</button></p></div>'; return; }
   list.innerHTML = rows.map(s=>{
-    const kindLabel = {partner:'Swap partner','group-promo':'Group promo','reviews-wanted':'Reviews / ARC'}[s.type]||s.type;
-    const kindCls   = s.type==='partner'?'partner':(s.type==='reviews-wanted'?'review':'');
+    const kindLabel = {
+      partner:'Swap partner',
+      'group-promo':'Group promo',
+      'reviews-wanted':'Reviews / ARC',
+      'affiliate-wanted':'Looking for affiliates',
+      'offering-service':'Offering: ' + (s.serviceCategory || 'service'),
+      'seeking-service':'Seeking: ' + (s.serviceCategory || 'service'),
+    }[s.type]||s.type;
+    const kindCls   = s.type==='partner' ? 'partner'
+      : s.type==='reviews-wanted' ? 'review'
+      : s.type==='affiliate-wanted' ? 'affiliate'
+      : (s.type==='offering-service' || s.type==='seeking-service') ? 'service'
+      : '';
     const createdAt = s.createdAt && s.createdAt.toDate ? s.createdAt.toDate() : (s.createdAt?new Date(s.createdAt):null);
     const isMine = state.user && s.authorUid === state.user.uid;
     const isFulfilled = !!s.fulfilledAt;
@@ -414,6 +485,31 @@ window.toggleReplies = async function(swapId){
 // directory doc's fulfilledSwaps counter (surfaces as trust signal
 // on their author card). Only the swap's authorUid can do this
 // (Firestore rules already enforce owner-only update).
+// Click-to-info modal for a mailing tool badge on a directory card.
+// Displays the tool's description + a "Try it →" button that opens
+// its affiliate URL if we have one (falls back to the direct link).
+// Ink links to itself with a "Folio's own tool" framing.
+window.showTool = function(key){
+  const t = MAILING_TOOLS[key];
+  if (!t) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-backdrop';
+  overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+  const isInk = !!t.isInk;
+  const tryUrl = t.url || '';
+  const affNote = t.affiliate ? '<div style="font-size:11px;color:var(--hint);margin-top:12px;padding-top:10px;border-top:.5px solid var(--border)">If you sign up through this link, Folio may earn a referral fee. It doesn\'t cost you anything extra and helps keep the platform free.</div>' : '';
+  const inkPitch = isInk ? '<div style="font-size:12.5px;color:var(--accent-ui);background:rgba(6,95,70,0.08);padding:10px 12px;border-radius:8px;margin-top:12px;line-height:1.6">Free forever up to 25,000 sends per month · Included at no extra cost with any <a href="/press/" style="color:var(--accent-ui);font-weight:600">Folio Press subscription</a></div>' : '';
+  overlay.innerHTML = '<div class="modal" style="position:relative">'
+    +'<button class="close-btn" onclick="this.closest(\'.modal-backdrop\').remove()">×</button>'
+    +'<h3>'+esc(t.name)+(isInk?' — Folio\'s own':'')+'</h3>'
+    +'<p style="color:var(--muted);font-size:13.5px;line-height:1.65;margin:6px 0 0">'+esc(t.desc)+'</p>'
+    +inkPitch
+    +affNote
+    +(tryUrl?'<div style="margin-top:16px;text-align:right"><a href="'+esc(tryUrl)+'" target="_blank" rel="noopener" class="btn primary">Try '+esc(t.name)+' →</a></div>':'')
+  +'</div>';
+  document.body.appendChild(overlay);
+};
+
 window.markSwapFulfilled = async function(swapId){
   if (!state.user) return alert('Sign in first.');
   const swap = state.swaps.find(s => s.id === swapId);
@@ -483,12 +579,23 @@ function renderMe(){
   document.getElementById('meSignedOut').style.display = state.user ? 'none' : '';
   document.getElementById('meSignedIn').style.display  = state.user ? '' : 'none';
   if (!state.user) return;
+  // Populate the mailing-tool dropdown from the registry (once).
+  const toolSel = document.getElementById('mTool');
+  if (toolSel && toolSel.options.length <= 1) {
+    Object.keys(MAILING_TOOLS).forEach(k => {
+      const opt = document.createElement('option');
+      opt.value = k;
+      opt.textContent = MAILING_TOOLS[k].name + (k === 'ink' ? ' — Folio\'s own' : '');
+      toolSel.appendChild(opt);
+    });
+  }
   const m = state.myListing || {};
   document.getElementById('mPen').value    = m.penName || (state.user.displayName || '');
   document.getElementById('mBio').value    = m.bio || '';
   document.getElementById('mGenre').value  = m.primaryGenre || 'Literary fiction';
   document.getElementById('mSize').value   = m.listSizeBucket || 'starting';
   document.getElementById('mWeb').value    = m.websiteUrl || '';
+  document.getElementById('mTool').value   = m.mailingTool || '';
   document.getElementById('mOpen').checked = !!m.openToSwaps;
   document.getElementById('mDelBtn').style.display = state.myListing ? '' : 'none';
 }
@@ -503,6 +610,7 @@ window.saveMe = async function(ev){
     primaryGenre: document.getElementById('mGenre').value,
     listSizeBucket: document.getElementById('mSize').value,
     websiteUrl: (document.getElementById('mWeb').value||'').trim().slice(0,300) || null,
+    mailingTool: document.getElementById('mTool').value || null,
     openToSwaps: !!document.getElementById('mOpen').checked,
     status: 'active',
     updatedAt: serverTimestamp(),
@@ -529,9 +637,28 @@ window.deleteMe = async function(){
 };
 
 // ═══ New swap ═══
+// Populate the service-category dropdown once + show/hide it based
+// on post type. Fires from the type <select> onchange and once on
+// modal open so the row starts in the correct state.
+window.onSwapTypeChange = function(){
+  const t = document.getElementById('sType').value;
+  const wrap = document.getElementById('sServiceRow');
+  const sel = document.getElementById('sService');
+  const isService = t === 'offering-service' || t === 'seeking-service';
+  if (isService && sel && !sel.options.length) {
+    SERVICE_TYPES.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s; opt.textContent = s;
+      sel.appendChild(opt);
+    });
+  }
+  if (wrap) wrap.style.display = isService ? '' : 'none';
+};
+
 window.openNewSwap = function(){
   if (!state.user){ alert('Sign in first — you can post as soon as you have a Folio account.'); return; }
   document.getElementById('newSwapWrap').style.display = 'flex';
+  onSwapTypeChange();
 };
 window.closeNewSwap = function(){ document.getElementById('newSwapWrap').style.display='none'; };
 window.saveSwap = async function(ev){
@@ -539,14 +666,17 @@ window.saveSwap = async function(ev){
   const msg = document.getElementById('sMsg');
   const btn = document.getElementById('saveSwapBtn');
   if (!state.user){ msg.textContent='Sign in first.'; msg.className='msg err'; return false; }
+  const swapType = document.getElementById('sType').value;
+  const isService = swapType === 'offering-service' || swapType === 'seeking-service';
   const payload = {
     authorUid: state.user.uid,
     authorPenName: (state.myListing && state.myListing.penName) || state.user.displayName || 'Author',
-    type:     document.getElementById('sType').value,
+    type:     swapType,
     title:    (document.getElementById('sTitle').value||'').trim().slice(0,140),
     genre:    document.getElementById('sGenre').value,
     swapDate: document.getElementById('sDate').value || null,
     body:     (document.getElementById('sBody').value||'').trim().slice(0,2000),
+    serviceCategory: isService ? (document.getElementById('sService').value || null) : null,
     status:   'open',
     replyCount: 0,
     createdAt: serverTimestamp(),
