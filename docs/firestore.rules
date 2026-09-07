@@ -790,28 +790,30 @@ service cloud.firestore {
     // owner-only so someone can un-list themselves at any time.
     match /folio_author_directory/{uid} {
       allow read: if true;
-      allow create, update, delete: if isUser(uid);
+      // Owner: full control. Admin: update (hide/unhide + moderation
+      // stamps) + delete for moderation. The admin bypass lands the
+      // /admin/authors/ page's Hide + Delete actions.
+      allow create: if isUser(uid);
+      allow update, delete: if isUser(uid) || isAdmin();
     }
 
-    // Swap board — public read. Only the author of a post can update
-    // or delete it; anyone signed in can create. Trust field
-    // (swapTrustScore) is deliberately server-computed later; for MVP
-    // the client can write anything and admins can moderate.
+    // Swap board — public read. Author + admin can update/delete.
+    // Anyone signed in can create.
     match /folio_author_swaps/{swapId} {
       allow read: if true;
       allow create: if request.auth != null
         && isUser(request.resource.data.authorUid);
       allow update, delete: if request.auth != null
-        && isUser(resource.data.authorUid);
+        && (isUser(resource.data.authorUid) || isAdmin());
 
-      // Replies on a swap post. Any signed-in user can create;
-      // the reply's author can edit or delete their own.
+      // Replies on a swap post. Anyone signed in creates; author + admin
+      // edit/delete their own.
       match /replies/{replyId} {
         allow read: if true;
         allow create: if request.auth != null
           && isUser(request.resource.data.authorUid);
         allow update, delete: if request.auth != null
-          && isUser(resource.data.authorUid);
+          && (isUser(resource.data.authorUid) || isAdmin());
       }
     }
 

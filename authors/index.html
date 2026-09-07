@@ -335,7 +335,7 @@ window.renderDirectory = function(){
 async function loadSwaps(){
   try {
     const snap = await getDocs(query(collection(db, 'folio_author_swaps'), orderBy('createdAt','desc'), limit(200)));
-    state.swaps = snap.docs.map(d=>({ id:d.id, ...d.data() })).filter(s=>s.status!=='closed');
+    state.swaps = snap.docs.map(d=>({ id:d.id, ...d.data() })).filter(s => s.status !== 'closed' && s.status !== 'hidden');
     document.getElementById('cSwaps').textContent = state.swaps.length?('('+state.swaps.length+')'):'';
     renderSwaps();
   } catch (e) { console.warn('[swaps] load:', e); }
@@ -446,12 +446,23 @@ window.submitReply = async function(ev, swapId){
   if (body.length < 3){ msg.textContent = 'Say a bit more.'; msg.className='msg err'; return false; }
   msg.textContent = 'Sending…'; msg.className='msg';
   try {
-    await addDoc(collection(db,'folio_author_swaps',swapId,'replies'), {
+    const ref = await addDoc(collection(db,'folio_author_swaps',swapId,'replies'), {
       authorUid: state.user.uid,
       authorPenName: (state.myListing && state.myListing.penName) || state.user.displayName || 'Author',
       body,
       createdAt: serverTimestamp(),
     });
+    // Fire-and-forget: notify the swap's poster so they don't have to
+    // keep checking the board. Silent on any failure — the reply is
+    // saved regardless, and worst case the poster just doesn't get
+    // the email nudge.
+    try {
+      fetch('https://folio-email.jacobdsiler.workers.dev/send-author-swap-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ swapId, replyId: ref.id }),
+      }).catch(()=>{});
+    } catch (_) {}
     msg.textContent = 'Sent.'; msg.className='msg ok';
     // Re-open the thread to pull the fresh list.
     _openReplies.delete(swapId);
