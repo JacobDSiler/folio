@@ -7950,6 +7950,25 @@
              (b) Non-subscriber: Support Folio (Ko-fi) + Try Folio Press
            Updated on 'press-sub-updated' custom event. ═══ -->
       <div id="sidebarCtaBar" style="padding:8px 1.25rem;background:var(--surface);border-top:.5px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0">
+        <!-- The Guild — always visible small chip; open in new tab so
+             authors don't lose their editor state. -->
+        <a href="/guild/" target="_blank" rel="noopener"
+          title="The Folio Guild — find swap partners, group promos, editors, cover designers"
+          style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;background:none;border:.5px solid var(--border-mid);border-radius:20px;color:var(--muted);text-decoration:none;font-size:11px;font-family:inherit;transition:border-color .15s,color .15s"
+          onmouseover="this.style.borderColor='var(--accent-ui)';this.style.color='var(--accent-ui)'"
+          onmouseout="this.style.borderColor='var(--border-mid)';this.style.color='var(--muted)'">
+          <span>🛡</span><span>The Guild</span>
+        </a>
+        <!-- Ink — Folio's newsletter tool. Same tab because it's a
+             related workflow (write your book here, tell your list
+             about it there). -->
+        <a href="https://ink.jacobsiler.com" target="_blank" rel="noopener"
+          title="Ink — Folio's newsletter tool. Free for everyone, Pro included with Folio Press."
+          style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;background:none;border:.5px solid var(--border-mid);border-radius:20px;color:var(--muted);text-decoration:none;font-size:11px;font-family:inherit;transition:border-color .15s,color .15s"
+          onmouseover="this.style.borderColor='#c98c2a';this.style.color='#c98c2a'"
+          onmouseout="this.style.borderColor='var(--border-mid)';this.style.color='var(--muted)'">
+          <span>📮</span><span>Ink</span>
+        </a>
         <!-- Support Folio (Ko-fi) — always visible, small + subtle -->
         <a href="https://ko-fi.com/jacobsiler" target="_blank" rel="noopener"
           title="Tip Jacob to keep Folio 0% commission + ad-free"
