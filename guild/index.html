@@ -227,6 +227,12 @@
             <span style="font-size:13px;color:var(--text)"><strong>Open to newsletter swaps</strong> — a green badge on your card so partners find you.</span>
           </label>
         </div>
+        <div class="row" id="mFoliosRow" style="display:none">
+          <label>Show my folios on this card</label>
+          <p style="font-size:11px;color:var(--hint);margin:0 0 8px;line-height:1.5">Pulled from your published folios on <a href="/shelf/" target="_blank">the Shelf</a>. Tick which ones to display — up to 6. Partners scanning the directory can jump straight into your work.</p>
+          <div id="mFoliosPicker" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;max-height:280px;overflow-y:auto;padding:8px;background:var(--bg);border:.5px solid var(--border);border-radius:8px"></div>
+          <p id="mFoliosEmpty" style="display:none;font-size:12px;color:var(--muted);margin:6px 0 0">You don't have any published folios yet. Once you publish one on <a href="/app.html">Folio</a>, it'll appear here.</p>
+        </div>
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:6px">
           <button type="submit" class="btn primary">Save my listing</button>
           <button type="button" class="btn" onclick="deleteMe()" id="mDelBtn" style="display:none;color:var(--danger);border-color:rgba(185,28,28,0.35)">Remove my listing</button>
@@ -311,7 +317,7 @@ const app = initializeApp(firebaseConfig, 'authors');
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-const state = { user:null, tab:'directory', directory:[], swaps:[], myListing:null };
+const state = { user:null, tab:'directory', directory:[], swaps:[], myListing:null, myFolios:[] };
 
 /* ── Mailing-tool registry ────────────────────────────────────────
    Each author picks one for their listing. Ink is Folio's own tool
@@ -388,6 +394,17 @@ window.renderDirectory = function(){
             : '')
         +(a.websiteUrl?'<span><a href="'+esc(a.websiteUrl)+'" target="_blank" rel="noopener">Website ↗</a></span>':'')
       +'</div>'
+      + (Array.isArray(a.folios) && a.folios.length
+          ? '<div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">'
+              + a.folios.slice(0,6).map(function(f){
+                  var cov = (f && typeof f.cover === 'string' && /^https:\/\//i.test(f.cover)) ? f.cover : '';
+                  var bg = cov
+                    ? 'background-image:url('+JSON.stringify(cov)+');background-size:cover;background-position:center'
+                    : 'background:linear-gradient(135deg,#c98c2a33,#0d5b3e33)';
+                  return '<a href="/app.html?read='+encodeURIComponent(f.id)+'" target="_blank" rel="noopener" title="'+esc(f.title||'Folio')+'" style="display:block;width:38px;height:57px;border-radius:4px;'+bg+';border:.5px solid var(--border);text-decoration:none"></a>';
+                }).join('')
+            + '</div>'
+          : '')
     +'</div>';
   }).join('') + '</div>';
 };
@@ -569,11 +586,35 @@ window.submitReply = async function(ev, swapId){
 
 // ═══ My listing ═══
 async function loadMyListing(){
-  if (!state.user){ state.myListing = null; return; }
+  if (!state.user){ state.myListing = null; state.myFolios = []; return; }
   try {
     const snap = await getDoc(doc(db,'folio_guild_directory',state.user.uid));
     state.myListing = snap.exists() ? snap.data() : null;
   } catch (_) { state.myListing = null; }
+  // Pull the user's published folios so we can offer them as a
+  // "show on my card" picker. Query is uid-scoped, so it matches the
+  // owner branch of the folio_projects LIST rule (see firestore.rules).
+  // We keep only published ones — an unfinished draft on someone's
+  // guild card would waste a click.
+  try {
+    const q = query(collection(db,'folio_projects'), where('uid','==', state.user.uid), limit(50));
+    const snap = await getDocs(q);
+    const rows = [];
+    snap.forEach(d => {
+      const r = d.data() || {};
+      const rel = r.release || {};
+      if (!rel.published) return;
+      rows.push({
+        id: d.id,
+        title: String(r.title || rel.title || 'Untitled'),
+        cover: (typeof r.coverUrl === 'string' && /^https:\/\//i.test(r.coverUrl)) ? r.coverUrl : '',
+        publishedAt: Number(rel.publishedAt || r.publishedAt || 0),
+        listedOnShelf: !!rel.listOnShelf,
+      });
+    });
+    rows.sort((a,b) => b.publishedAt - a.publishedAt);
+    state.myFolios = rows;
+  } catch (_) { state.myFolios = []; }
 }
 function renderMe(){
   document.getElementById('meSignedOut').style.display = state.user ? 'none' : '';
@@ -598,6 +639,46 @@ function renderMe(){
   document.getElementById('mTool').value   = m.mailingTool || '';
   document.getElementById('mOpen').checked = !!m.openToSwaps;
   document.getElementById('mDelBtn').style.display = state.myListing ? '' : 'none';
+  // Folios picker. Only show the row if we actually pulled some
+  // folios; a signed-in reader with no publications sees the "publish
+  // one first" hint rather than an empty box.
+  const picker = document.getElementById('mFoliosPicker');
+  const emptyMsg = document.getElementById('mFoliosEmpty');
+  const row = document.getElementById('mFoliosRow');
+  if (picker && row) {
+    row.style.display = '';
+    const selected = new Set((Array.isArray(m.folios) ? m.folios : []).map(f => f && f.id).filter(Boolean));
+    if (!state.myFolios.length) {
+      picker.style.display = 'none';
+      if (emptyMsg) emptyMsg.style.display = '';
+    } else {
+      picker.style.display = 'grid';
+      if (emptyMsg) emptyMsg.style.display = 'none';
+      picker.innerHTML = state.myFolios.map(f => {
+        const isSel = selected.has(f.id);
+        const coverBg = f.cover
+          ? 'background-image:url('+JSON.stringify(f.cover)+');background-size:cover;background-position:center'
+          : 'background:linear-gradient(135deg,#c98c2a22,#0d5b3e22)';
+        return '<label style="display:block;cursor:pointer;border:'+(isSel?'1.5px solid var(--accent)':'.5px solid var(--border)')
+          +';border-radius:8px;padding:8px;background:var(--surface);position:relative" data-fid="'+esc(f.id)+'">'
+          +'<div style="width:100%;aspect-ratio:2/3;border-radius:5px;'+coverBg+';margin-bottom:6px"></div>'
+          +'<div style="font-size:12px;line-height:1.3;color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+esc(f.title)+'</div>'
+          +'<input type="checkbox" class="mFolioChk" value="'+esc(f.id)+'" '+(isSel?'checked':'')+' style="position:absolute;top:6px;right:6px;transform:scale(1.2)"/>'
+          +'</label>';
+      }).join('');
+      // Cap selection at 6 — six cover thumbnails fit on a card without
+      // pushing the swap-partner details off the fold.
+      picker.querySelectorAll('.mFolioChk').forEach(cb => {
+        cb.addEventListener('change', () => {
+          const checked = picker.querySelectorAll('.mFolioChk:checked');
+          if (checked.length > 6) { cb.checked = false; alert('Cap of 6 folios on your card. Unpick one first.'); return; }
+          // Restyle border to reflect selection.
+          const lbl = cb.closest('label');
+          if (lbl) lbl.style.border = cb.checked ? '1.5px solid var(--accent)' : '.5px solid var(--border)';
+        });
+      });
+    }
+  }
 }
 window.saveMe = async function(ev){
   ev.preventDefault();
@@ -612,6 +693,19 @@ window.saveMe = async function(ev){
     websiteUrl: (document.getElementById('mWeb').value||'').trim().slice(0,300) || null,
     mailingTool: document.getElementById('mTool').value || null,
     openToSwaps: !!document.getElementById('mOpen').checked,
+    // Author-chosen folios to display on the directory card. We store
+    // an inline snapshot (title/cover/id) rather than a live ref, so
+    // the directory renders without a per-card lookup and the card
+    // survives if the folio is later delisted. Refreshes whenever the
+    // author re-saves their listing.
+    folios: (function(){
+      const checked = Array.from(document.querySelectorAll('#mFoliosPicker .mFolioChk:checked'))
+        .map(cb => cb.value);
+      return state.myFolios
+        .filter(f => checked.includes(f.id))
+        .slice(0, 6)
+        .map(f => ({ id: f.id, title: f.title, cover: f.cover || null }));
+    })(),
     status: 'active',
     updatedAt: serverTimestamp(),
     createdAt: state.myListing?state.myListing.createdAt||serverTimestamp():serverTimestamp(),
