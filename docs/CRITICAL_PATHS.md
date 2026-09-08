@@ -1,5 +1,27 @@
 # Critical paths — client queries → Firestore rule branches
 
+> **⚠ SHARED RULES FILE — READ BEFORE EDITING.**
+> `docs/firestore.rules` is shared verbatim with the Ink repo
+> (`C:\dev\ink\firestore.rules`) and the Boxes/Beam repo. All three apps
+> live in the same Firebase project (`miscellaneous-117e9`), and every
+> `firebase deploy --only firestore:rules` REPLACES the entire ruleset —
+> whichever repo deploys last silently wipes the others' rules.
+>
+> **Rules to follow when editing:**
+> 1. Never delete or rewrite the block between `INK — author list marketing`
+>    and `end INK block`. Ink's Worker + app depend on it
+>    (`authors/{uid}/**`, `slugs`, `jobs`, `schedule`, `automationRuns`,
+>    `emailIndex`, `meta`).
+> 2. New Folio rules go ABOVE the Ink block, never inside it.
+> 3. After editing, copy the entire file to `C:\dev\ink\firestore.rules`
+>    (and to the Boxes/Beam repo if that's where you're deploying from)
+>    so all three repos stay identical.
+> 4. Deploy with `firebase deploy --only firestore:rules`; verify the
+>    Firebase console shows both the Folio blocks AND the Ink
+>    `match /authors/{uid}` block afterwards.
+> 5. Shared helpers (`isUser`, `isAdmin`, `isModerator`, `parentUid`, …)
+>    live in the Folio section and are reused by Ink — don't rename them.
+
 **Purpose.** Every time we ship a new page or refactor a query, this
 document should be checked and updated. It is the ground truth for
 "which client query relies on which rule branch." When the shelf
