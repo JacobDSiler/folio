@@ -93,7 +93,7 @@ const id = params.get('id') || '';
   const statusEl = document.getElementById('loadStatus');
   if (!id) { statusEl.innerHTML = 'No promo id — pass <code>?id=&lt;swapId&gt;</code>.'; return; }
   try {
-    const swapSnap = await getDoc(doc(db, 'folio_author_swaps', id));
+    const swapSnap = await getDoc(doc(db, 'folio_guild_swaps', id));
     if (!swapSnap.exists()) { statusEl.textContent = 'Promo not found.'; return; }
     const swap = swapSnap.data() || {};
     if (swap.type !== 'group-promo') { statusEl.textContent = 'That swap is not a group promo.'; return; }
@@ -103,7 +103,7 @@ const id = params.get('id') || '';
     if (swap.swapDate) document.getElementById('promoDate').textContent = 'Live on ' + fmtDate(swap.swapDate);
     // Books = the replies. Convention: each replier types their book pitch
     // in the reply body. First line = book title, second line + = pitch.
-    const repSnap = await getDocs(query(collection(db, 'folio_author_swaps', id, 'replies'), orderBy('createdAt','asc'), limit(50)));
+    const repSnap = await getDocs(query(collection(db, 'folio_guild_swaps', id, 'replies'), orderBy('createdAt','asc'), limit(50)));
     const replies = repSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     // The poster's OWN book is the first entry — take it from swap.body.
     const list = document.getElementById('bookList');

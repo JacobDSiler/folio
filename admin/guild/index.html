@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Folio Admin — Guild moderation</title>
+<meta name="robots" content="noindex"/>
+<link rel="icon" href="/favicon.ico"/>
+<link rel="preconnect" href="https://www.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600&display=swap" rel="stylesheet"/>
+<style>
+  :root{
+    --bg:#f6f4ee;--surface:#fff;--text:#1a1611;--muted:#5a5347;--hint:#8a8378;
+    --border:rgba(0,0,0,0.10);--accent-ui:#065f46;--danger:#b91c1c;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+    --serif:'Playfair Display',Georgia,serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{--bg:#141210;--surface:#1e1b17;--text:#f0ece2;--muted:#a89e8d;
+      --border:rgba(255,255,255,0.10);}
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.55}
+  a{color:var(--accent-ui);text-decoration:none}
+  header{background:var(--surface);border-bottom:.5px solid var(--border);padding:12px 22px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:15}
+  header h1{font-family:var(--serif);font-size:18px;margin:0;font-weight:600}
+  header nav{margin-left:auto;display:flex;gap:14px;font-size:12.5px}
+  header nav a{color:var(--muted)}
+  main{max-width:1000px;margin:0 auto;padding:22px}
+  .tabs{display:flex;gap:2px;border-bottom:.5px solid var(--border);margin-bottom:18px}
+  .tab{padding:8px 16px;font-size:13px;color:var(--muted);cursor:pointer;background:transparent;border:0;font-family:inherit;font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .tab.active{color:var(--text);border-bottom-color:var(--accent-ui)}
+  .row{background:var(--surface);border:.5px solid var(--border);border-radius:9px;padding:14px 18px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+  .row .main{flex:1;min-width:220px}
+  .row h3{font-family:var(--serif);font-size:15px;margin:0 0 3px;font-weight:600}
+  .row .meta{font-size:11.5px;color:var(--muted);margin:0 0 6px}
+  .row .body{font-size:13px;color:var(--muted);line-height:1.55;white-space:pre-wrap;margin:0}
+  .actions{display:flex;gap:6px}
+  .btn{padding:6px 12px;font-size:12px;border-radius:6px;border:.5px solid var(--border);background:var(--surface);color:var(--text);cursor:pointer;font-family:inherit;font-weight:500}
+  .btn:hover{border-color:var(--accent-ui)}
+  .btn.danger{color:#fff;background:var(--danger);border-color:var(--danger)}
+  .btn.danger:hover{background:#8a1414;border-color:#8a1414}
+  .badge{display:inline-block;font-size:10.5px;padding:2px 8px;border-radius:9px;font-weight:500}
+  .badge.hidden{background:rgba(139,92,246,0.14);color:#7c3aed}
+  .badge.active{background:rgba(6,95,70,0.14);color:var(--accent-ui)}
+  .empty{padding:34px;text-align:center;color:var(--hint);border:.5px dashed var(--border);border-radius:12px}
+  #authBanner{background:var(--danger);color:#fff;padding:22px;text-align:center;font-size:14px}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🛡 The Folio Guild</h1>
+  <nav>
+    <a href="/admin/">← Admin home</a>
+    <a href="/admin/shelf/">Shelf</a>
+    <a href="/admin/support/">Support</a>
+  </nav>
+</header>
+
+<div id="authBanner" style="display:none">
+  <p>Sign in with an admin account to moderate the author board.</p>
+  <button id="signInBtn" class="btn" style="margin-top:8px;background:#fff;color:var(--danger)">Sign in with Google</button>
+</div>
+
+<main id="mainCol" style="display:none">
+  <div class="tabs">
+    <button class="tab active" data-tab="dir" onclick="setTab('dir')">Directory <span id="cDir">—</span></button>
+    <button class="tab" data-tab="swaps" onclick="setTab('swaps')">Swap posts <span id="cSwaps">—</span></button>
+  </div>
+
+  <section id="tabDir">
+    <div id="dirList"></div>
+  </section>
+
+  <section id="tabSwaps" style="display:none">
+    <div id="swapsList"></div>
+  </section>
+</main>
+
+<script type="module">
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import { getFirestore, collection, doc, getDocs, updateDoc, deleteDoc, query, orderBy, limit } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+const firebaseConfig = { apiKey:'AIzaSyDxLI57pgS9WX1ekMerbcx8M6aVeWacpy0', authDomain:'auth.jacobsiler.com', projectId:'miscellaneous-117e9', storageBucket:'miscellaneous-117e9.firebasestorage.app', messagingSenderId:'514858431339', appId:'1:514858431339:web:8b3acbe89966b45fe3922e' };
+const app = initializeApp(firebaseConfig, 'admin-authors');
+const auth = getAuth(app);
+const db = getFirestore(app);
+const state = { user:null, dir:[], swaps:[], tab:'dir' };
+
+// Same bootstrap admin allowlist as firestore.rules.
+const BOOTSTRAP_ADMINS = ['x9AgFZ7O8WVz2UVtyO4ggWKNfc73', 'Y1bO4mc8aAclkbRNIYXyez8i7Rj2'];
+
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function fmtDate(x){ if(!x) return ''; try{ const d=x&&x.toDate?x.toDate():new Date(x); return d.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'}); }catch(_){return '';} }
+
+window.setTab = function(t){
+  state.tab = t;
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===t));
+  document.getElementById('tabDir').style.display   = t==='dir'  ? '' : 'none';
+  document.getElementById('tabSwaps').style.display = t==='swaps'? '' : 'none';
+};
+
+async function loadDir(){
+  const snap = await getDocs(query(collection(db,'folio_guild_directory'), limit(500)));
+  state.dir = snap.docs.map(d=>({ uid:d.id, ...d.data() }));
+  document.getElementById('cDir').textContent = '('+state.dir.length+')';
+  const list = document.getElementById('dirList');
+  if (!state.dir.length){ list.innerHTML = '<div class="empty">No directory entries yet.</div>'; return; }
+  list.innerHTML = state.dir.map(a=>{
+    const hidden = a.status === 'hidden';
+    return '<div class="row"><div class="main">'
+      +'<h3>'+esc(a.penName||'—')+' <span class="badge '+(hidden?'hidden':'active')+'">'+(hidden?'hidden':'active')+'</span></h3>'
+      +'<div class="meta">'+esc(a.primaryGenre||'')+' · '+esc(a.listSizeBucket||'')+(a.openToSwaps?' · open to swaps':'')+(a.fulfilledSwaps?' · ✓ '+a.fulfilledSwaps+' fulfilled':'')+'</div>'
+      +(a.bio?'<p class="body">'+esc(a.bio.slice(0,240))+(a.bio.length>240?'…':'')+'</p>':'')
+      +'</div><div class="actions">'
+        +(hidden
+          ? '<button class="btn" onclick="setDirStatus(\''+esc(a.uid)+'\', \'active\')">Unhide</button>'
+          : '<button class="btn" onclick="setDirStatus(\''+esc(a.uid)+'\', \'hidden\')">Hide</button>')
+        +'<button class="btn danger" onclick="deleteDir(\''+esc(a.uid)+'\')">Delete</button>'
+      +'</div></div>';
+  }).join('');
+}
+async function loadSwaps(){
+  const snap = await getDocs(query(collection(db,'folio_guild_swaps'), orderBy('createdAt','desc'), limit(200)));
+  state.swaps = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+  document.getElementById('cSwaps').textContent = '('+state.swaps.length+')';
+  const list = document.getElementById('swapsList');
+  if (!state.swaps.length){ list.innerHTML = '<div class="empty">No swap posts yet.</div>'; return; }
+  list.innerHTML = state.swaps.map(s=>{
+    const hidden = s.status === 'hidden';
+    return '<div class="row"><div class="main">'
+      +'<h3>'+esc(s.title||'(no title)')+' <span class="badge '+(hidden?'hidden':'active')+'">'+(hidden?'hidden':(s.status||'open'))+'</span></h3>'
+      +'<div class="meta">'+esc(s.type||'')+' · '+esc(s.genre||'')+' · by '+esc(s.authorPenName||'')+' · '+fmtDate(s.createdAt)+(s.swapDate?' · date '+esc(s.swapDate):'')+(s.replyCount?' · '+s.replyCount+' replies':'')+'</div>'
+      +'<p class="body">'+esc((s.body||'').slice(0,320))+((s.body||'').length>320?'…':'')+'</p>'
+      +'</div><div class="actions">'
+        +(hidden
+          ? '<button class="btn" onclick="setSwapStatus(\''+esc(s.id)+'\', \'open\')">Unhide</button>'
+          : '<button class="btn" onclick="setSwapStatus(\''+esc(s.id)+'\', \'hidden\')">Hide</button>')
+        +'<button class="btn danger" onclick="deleteSwap(\''+esc(s.id)+'\')">Delete</button>'
+      +'</div></div>';
+  }).join('');
+}
+
+window.setDirStatus = async function(uid, next){
+  try { await updateDoc(doc(db,'folio_guild_directory',uid), { status: next, moderatedAt: new Date().toISOString(), moderatedBy: state.user.uid }); await loadDir(); }
+  catch (e) { alert('Failed: '+e.message); }
+};
+window.deleteDir = async function(uid){
+  if (!confirm('Delete this directory entry? Author can re-create by re-joining.')) return;
+  try { await deleteDoc(doc(db,'folio_guild_directory',uid)); await loadDir(); }
+  catch (e) { alert('Failed: '+e.message); }
+};
+window.setSwapStatus = async function(id, next){
+  try { await updateDoc(doc(db,'folio_guild_swaps',id), { status: next, moderatedAt: new Date().toISOString(), moderatedBy: state.user.uid }); await loadSwaps(); }
+  catch (e) { alert('Failed: '+e.message); }
+};
+window.deleteSwap = async function(id){
+  if (!confirm('Delete this swap post AND all its replies? This cannot be undone.')) return;
+  try {
+    // Delete replies subcollection first — client-side no cascading delete.
+    const repSnap = await getDocs(collection(db,'folio_guild_swaps',id,'replies'));
+    await Promise.all(repSnap.docs.map(d=>deleteDoc(d.ref)));
+    await deleteDoc(doc(db,'folio_guild_swaps',id));
+    await loadSwaps();
+  } catch (e) { alert('Failed: '+e.message); }
+};
+
+const provider = new GoogleAuthProvider();
+document.getElementById('signInBtn').addEventListener('click', ()=>signInWithPopup(auth, provider).catch(e=>alert(e.message)));
+
+onAuthStateChanged(auth, async (u)=>{
+  state.user = u || null;
+  const isAdmin = !!u && BOOTSTRAP_ADMINS.includes(u.uid);
+  document.getElementById('authBanner').style.display = isAdmin ? 'none' : '';
+  document.getElementById('mainCol').style.display    = isAdmin ? '' : 'none';
+  if (isAdmin) { await loadDir(); await loadSwaps(); }
+});
+</script>
+</body>
+</html>
