@@ -8,7 +8,6 @@
 <meta name="robots" content="index, follow"/>
 <link rel="canonical" href="https://onfolio.press/guild/"/>
 <link rel="icon" type="image/svg+xml" href="/guild/seal.svg"/>
-<link rel="alternate icon" href="/favicon.ico"/>
 <meta property="og:image" content="https://onfolio.press/guild/seal.svg"/>
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -405,8 +404,14 @@ window.renderDirectory = function(){
                   var cov = (f && typeof f.cover === 'string' && /^https:\/\//i.test(f.cover)) ? f.cover : '';
                   var bg = cov
                     ? 'background-image:url('+JSON.stringify(cov)+');background-size:cover;background-position:center'
-                    : 'background:linear-gradient(135deg,#c98c2a33,#0d5b3e33)';
-                  return '<a href="/app.html?read='+encodeURIComponent(f.id)+'" target="_blank" rel="noopener" title="'+esc(f.title||'Folio')+'" style="display:block;width:38px;height:57px;border-radius:4px;'+bg+';border:.5px solid var(--border);text-decoration:none"></a>';
+                    : 'background:linear-gradient(160deg,#c98c2a 0%,#8a5f1c 45%,#0d5b3e 100%)';
+                  // First letter of the title as a minimal wordless
+                  // hint for coverless folios at this tiny size.
+                  var initial = cov ? '' : (esc((f.title||'F').trim().charAt(0).toUpperCase()));
+                  var inner = initial
+                    ? '<span style="display:flex;align-items:center;justify-content:center;width:100%;height:100%;color:#fffcf5;font-family:Playfair Display,Georgia,serif;font-size:20px;font-weight:600">'+initial+'</span>'
+                    : '';
+                  return '<a href="/app.html?read='+encodeURIComponent(f.id)+'" target="_blank" rel="noopener" title="'+esc(f.title||'Folio')+'" style="display:block;width:38px;height:57px;border-radius:4px;'+bg+';border:.5px solid var(--border);text-decoration:none;overflow:hidden">'+inner+'</a>';
                 }).join('')
             + '</div>'
           : '')
@@ -609,11 +614,17 @@ async function loadMyListing(){
       const r = d.data() || {};
       const rel = r.release || {};
       if (!rel.published) return;
+      // Cover URL lives on the release map (r.release.coverUrl) — that's
+      // where the Shelf renderer reads it from. Top-level r.coverUrl is
+      // a legacy field on very old drafts. Check both, prefer release.
+      const cov = (typeof rel.coverUrl === 'string' && /^https:\/\//i.test(rel.coverUrl))
+        ? rel.coverUrl
+        : (typeof r.coverUrl === 'string' && /^https:\/\//i.test(r.coverUrl)) ? r.coverUrl : '';
       rows.push({
         id: d.id,
-        title: String(r.title || rel.title || 'Untitled'),
-        author: String(r.author || rel.author || '').trim(),
-        cover: (typeof r.coverUrl === 'string' && /^https:\/\//i.test(r.coverUrl)) ? r.coverUrl : '',
+        title: String(rel.title || r.title || 'Untitled'),
+        author: String(rel.author || r.author || '').trim(),
+        cover: cov,
         publishedAt: Number(rel.publishedAt || r.publishedAt || 0),
         listedOnShelf: !!rel.listOnShelf,
       });
@@ -669,10 +680,14 @@ function renderMe(){
         const isSel = selected.has(f.id);
         const coverBg = f.cover
           ? 'background-image:url('+JSON.stringify(f.cover)+');background-size:cover;background-position:center'
-          : 'background:linear-gradient(135deg,#c98c2a22,#0d5b3e22)';
+          : 'background:linear-gradient(160deg,#c98c2a 0%,#8a5f1c 45%,#0d5b3e 100%)';
+        // Show a small title chip on the placeholder so authors can
+        // still tell which folio is which when there's no cover art.
+        const placeholderInner = f.cover ? '' :
+          '<div style="position:absolute;inset:0;display:flex;align-items:flex-end;padding:8px;color:#fffcf5;font-family:Playfair Display,Georgia,serif;font-size:13px;font-weight:600;line-height:1.15;text-shadow:0 1px 3px rgba(0,0,0,0.35)">'+esc(f.title)+'</div>';
         return '<label style="display:block;cursor:pointer;border:'+(isSel?'1.5px solid var(--accent)':'.5px solid var(--border)')
           +';border-radius:8px;padding:8px;background:var(--surface);position:relative" data-fid="'+esc(f.id)+'">'
-          +'<div style="width:100%;aspect-ratio:2/3;border-radius:5px;'+coverBg+';margin-bottom:6px"></div>'
+          +'<div style="width:100%;aspect-ratio:2/3;border-radius:5px;'+coverBg+';margin-bottom:6px;position:relative;overflow:hidden">'+placeholderInner+'</div>'
           +'<div style="font-size:12px;line-height:1.3;color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical">'+esc(f.title)+'</div>'
           +'<input type="checkbox" class="mFolioChk" value="'+esc(f.id)+'" '+(isSel?'checked':'')+' style="position:absolute;top:6px;right:6px;transform:scale(1.2)"/>'
           +'</label>';
