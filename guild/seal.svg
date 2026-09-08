@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="The Folio Guild">
+  <!-- Cream field -->
+  <circle cx="32" cy="32" r="30" fill="#f6f4ee"/>
+  <!-- Deep green outer ring -->
+  <circle cx="32" cy="32" r="30" fill="none" stroke="#065f46" stroke-width="2.4"/>
+  <!-- Amber inner ring -->
+  <circle cx="32" cy="32" r="24.5" fill="none" stroke="#c98c2a" stroke-width="0.9"/>
+  <!-- Six fellowship dots around the seal (one per guild role) -->
+  <g fill="#c98c2a">
+    <circle cx="32" cy="5.5" r="1.35"/>
+    <circle cx="54.9" cy="19" r="1.35"/>
+    <circle cx="54.9" cy="45" r="1.35"/>
+    <circle cx="32" cy="58.5" r="1.35"/>
+    <circle cx="9.1" cy="45" r="1.35"/>
+    <circle cx="9.1" cy="19" r="1.35"/>
+  </g>
+  <!-- Illuminated serif G -->
+  <text x="32" y="44.5" text-anchor="middle"
+        font-family="Playfair Display, Georgia, 'Times New Roman', serif"
+        font-size="34" font-weight="600" fill="#065f46"
+        style="font-style:italic">G</text>
+  <!-- Small quill flourish underline -->
+  <path d="M20 51 Q32 54 44 51" stroke="#c98c2a" stroke-width="0.9" fill="none" stroke-linecap="round"/>
+</svg>
