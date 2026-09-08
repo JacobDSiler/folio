@@ -354,7 +354,7 @@ window.setTab = function(t){
 
 async function loadDirectory(){
   try {
-    const snap = await getDocs(query(collection(db, 'folio_author_directory'), limit(500)));
+    const snap = await getDocs(query(collection(db, 'folio_guild_directory'), limit(500)));
     state.directory = snap.docs.map(d=>({ uid:d.id, ...d.data() })).filter(x=>x.status!=='hidden');
     document.getElementById('cDir').textContent = state.directory.length?('('+state.directory.length+')'):'';
     renderDirectory();
@@ -394,7 +394,7 @@ window.renderDirectory = function(){
 
 async function loadSwaps(){
   try {
-    const snap = await getDocs(query(collection(db, 'folio_author_swaps'), orderBy('createdAt','desc'), limit(200)));
+    const snap = await getDocs(query(collection(db, 'folio_guild_swaps'), orderBy('createdAt','desc'), limit(200)));
     state.swaps = snap.docs.map(d=>({ id:d.id, ...d.data() })).filter(s => s.status !== 'closed' && s.status !== 'hidden');
     document.getElementById('cSwaps').textContent = state.swaps.length?('('+state.swaps.length+')'):'';
     renderSwaps();
@@ -464,7 +464,7 @@ window.toggleReplies = async function(swapId){
   box.style.display = 'block';
   box.innerHTML = '<div style="color:var(--hint);font-size:12.5px">Loading replies…</div>';
   try {
-    const snap = await getDocs(query(collection(db,'folio_author_swaps',swapId,'replies'), orderBy('createdAt','asc'), limit(50)));
+    const snap = await getDocs(query(collection(db,'folio_guild_swaps',swapId,'replies'), orderBy('createdAt','asc'), limit(50)));
     const replies = snap.docs.map(d=>({ id:d.id, ...d.data() }));
     let html = '';
     if (!replies.length) html = '<div style="color:var(--hint);font-size:12.5px;padding:6px 0">No replies yet — be the first.</div>';
@@ -516,14 +516,14 @@ window.markSwapFulfilled = async function(swapId){
   if (!swap || swap.authorUid !== state.user.uid) return alert('Only the swap poster can mark it complete.');
   if (!confirm('Mark this swap as completed? Your directory card will show one more ✓ fulfilled swap. Only mark real, mutually-honoured swaps — the trust signal only works if it means something.')) return;
   try {
-    await setDoc(doc(db,'folio_author_swaps',swapId), {
+    await setDoc(doc(db,'folio_guild_swaps',swapId), {
       fulfilledAt: serverTimestamp(),
       status: 'closed',
     }, { merge: true });
     // Bump the poster's directory counter. Uses a get→+1→set cycle
     // rather than an atomic increment because the directory doc might
     // not exist yet for authors who post before joining the directory.
-    const dirRef = doc(db,'folio_author_directory',state.user.uid);
+    const dirRef = doc(db,'folio_guild_directory',state.user.uid);
     const cur = await getDoc(dirRef);
     const prevCount = cur.exists() ? (cur.data().fulfilledSwaps || 0) : 0;
     await setDoc(dirRef, { fulfilledSwaps: prevCount + 1, updatedAt: serverTimestamp() }, { merge: true });
@@ -542,7 +542,7 @@ window.submitReply = async function(ev, swapId){
   if (body.length < 3){ msg.textContent = 'Say a bit more.'; msg.className='msg err'; return false; }
   msg.textContent = 'Sending…'; msg.className='msg';
   try {
-    const ref = await addDoc(collection(db,'folio_author_swaps',swapId,'replies'), {
+    const ref = await addDoc(collection(db,'folio_guild_swaps',swapId,'replies'), {
       authorUid: state.user.uid,
       authorPenName: (state.myListing && state.myListing.penName) || state.user.displayName || 'Author',
       body,
@@ -571,7 +571,7 @@ window.submitReply = async function(ev, swapId){
 async function loadMyListing(){
   if (!state.user){ state.myListing = null; return; }
   try {
-    const snap = await getDoc(doc(db,'folio_author_directory',state.user.uid));
+    const snap = await getDoc(doc(db,'folio_guild_directory',state.user.uid));
     state.myListing = snap.exists() ? snap.data() : null;
   } catch (_) { state.myListing = null; }
 }
@@ -618,7 +618,7 @@ window.saveMe = async function(ev){
   };
   msg.textContent='Saving…'; msg.className='msg';
   try {
-    await setDoc(doc(db,'folio_author_directory',state.user.uid), patch, { merge: true });
+    await setDoc(doc(db,'folio_guild_directory',state.user.uid), patch, { merge: true });
     msg.textContent='Saved.'; msg.className='msg ok';
     await loadMyListing();
     await loadDirectory();
@@ -629,7 +629,7 @@ window.saveMe = async function(ev){
 window.deleteMe = async function(){
   if (!confirm('Remove your listing? You can re-add it any time.')) return;
   try {
-    await deleteDoc(doc(db,'folio_author_directory',state.user.uid));
+    await deleteDoc(doc(db,'folio_guild_directory',state.user.uid));
     state.myListing = null;
     await loadDirectory();
     renderMe();
@@ -684,7 +684,7 @@ window.saveSwap = async function(ev){
   };
   btn.disabled = true; msg.textContent='Posting…'; msg.className='msg';
   try {
-    await addDoc(collection(db,'folio_author_swaps'), payload);
+    await addDoc(collection(db,'folio_guild_swaps'), payload);
     msg.textContent='Posted.'; msg.className='msg ok';
     setTimeout(()=>{ closeNewSwap(); loadSwaps(); }, 500);
   } catch (e) { msg.textContent='Failed: '+e.message; msg.className='msg err'; }

@@ -1390,7 +1390,7 @@ export default {
       catch (e) { return errorJson('Server misconfig', 500, request, env); }
       const projectId = env.FIRESTORE_PROJECT_ID || auth.projectId;
       const swapUrl  = 'https://firestore.googleapis.com/v1/projects/' + projectId +
-        '/databases/(default)/documents/folio_author_swaps/' + encodeURIComponent(swapId);
+        '/databases/(default)/documents/folio_guild_swaps/' + encodeURIComponent(swapId);
       const replyUrl = swapUrl + '/replies/' + encodeURIComponent(replyId);
       let swap = null, reply = null;
       try {

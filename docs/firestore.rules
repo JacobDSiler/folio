@@ -788,7 +788,7 @@ service cloud.firestore {
     // read (anyone can browse the directory); write is limited to the
     // owning uid so no author can edit another's card. Deletes stay
     // owner-only so someone can un-list themselves at any time.
-    match /folio_author_directory/{uid} {
+    match /folio_guild_directory/{uid} {
       allow read: if true;
       // Owner: full control. Admin: update (hide/unhide + moderation
       // stamps) + delete for moderation. The admin bypass lands the
@@ -799,7 +799,7 @@ service cloud.firestore {
 
     // Swap board — public read. Author + admin can update/delete.
     // Anyone signed in can create.
-    match /folio_author_swaps/{swapId} {
+    match /folio_guild_swaps/{swapId} {
       allow read: if true;
       allow create: if request.auth != null
         && isUser(request.resource.data.authorUid);
