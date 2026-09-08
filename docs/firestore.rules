@@ -1,4 +1,4 @@
-// Combined rules for Boxes app + Folio Projects app
+// Combined rules for Boxes + Folio + Ink — ONE file, deployed by every repo to miscellaneous-117e9
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -23,7 +23,6 @@ service cloud.firestore {
     match /_ping/{doc} {
       allow read, write: if true;
     }
-
 // ───────────────────────────────────────────────────────────────────
 // Folio — Firestore security rules
 // ───────────────────────────────────────────────────────────────────
@@ -38,7 +37,6 @@ service cloud.firestore {
 // now flows through the folio-email worker's /unsubscribe endpoint,
 // which uses a service account (IAM) rather than browser auth.
 // ───────────────────────────────────────────────────────────────────
-
     // request.auth.uid == uid, with the null-auth guard built in.
     function isUser(uid) {
       return request.auth != null && uid != null && request.auth.uid == uid;
@@ -107,7 +105,6 @@ service cloud.firestore {
     function folioVisible(id) {
       return parentDoc(id) != null;
     }
-
     match /folio_projects/{id} {
       // Per-doc GET: unrestricted. Folio IDs are unguessable
       // (13-digit timestamp + 6-char base36 suffix); knowing the ID
@@ -156,7 +153,6 @@ service cloud.firestore {
                     || (resource.data.release != null
                         && resource.data.release.published == true)
                     || isAdmin();
-
       // Create: the new doc must be stamped with the creator's own uid.
       // Public Shelf listing is blocked for anonymous accounts — an
       // author must have a real identity provider linked before their
@@ -170,7 +166,6 @@ service cloud.firestore {
                       || request.resource.data.release.listOnShelf != true
                       || request.auth.token.firebase.sign_in_provider != 'anonymous'
                     );
-
       // Update / delete: must already own it. Checked against the
       // EXISTING doc — partial merge-updates (publishing a release,
       // setting shelfId) legitimately omit `uid` from the payload, so
@@ -193,7 +188,6 @@ service cloud.firestore {
                       )
                     ) || isAdmin();
       allow delete: if isUser(resource.data.uid);
-
       // Manuscript body subdocs.
       //   body/main — free preview / non-paid content. Same visibility
       //               as the parent folio (owner OR published).
@@ -212,12 +206,10 @@ service cloud.firestore {
                        : folioVisible(id);
         allow write: if isUser(parentUid(id));
       }
-
       // Version history — owner only, both directions.
       match /versions/{vid} {
         allow read, write: if isUser(parentUid(id));
       }
-
       // Character cast — written by characters.js (src/modules) when the
       // user adds / edits / deletes a character in Manage Characters.
       // Stored at folio_projects/<id>/characters/<charId>.
@@ -229,7 +221,6 @@ service cloud.firestore {
         allow read:  if folioVisible(id);
         allow write: if isUser(parentUid(id));
       }
-
       // Editorial metadata — single-doc helpers written by the modules
       // alongside the main body. Currently used for:
       //   metadata/dialogueAssignments  →  { chapterId: { hash: charId } }
@@ -243,14 +234,12 @@ service cloud.firestore {
         allow read:  if folioVisible(id);
         allow write: if isUser(parentUid(id));
       }
-
       // Live presence — readable by anyone who can see the folio; each
       // user may write only their own presence doc (it's keyed by uid).
       match /presence/{uid} {
         allow read:  if folioVisible(id);
         allow write: if isUser(uid);
       }
-
       // Annotations.
       // Per-doc scope enforcement (audit B4 — fixed). The folio owner
       // sees every annotation on their own folio; anyone else can read
@@ -279,7 +268,6 @@ service cloud.firestore {
         allow update, delete: if isUser(parentUid(id))
                       || isUser(resource.data.uid);
       }
-
       // ── Editor suggestions (non-destructive) ─────────────────────
       // When a share-link user with 'editor' or 'collab' role edits
       // the manuscript, their save is diverted to this subcollection
@@ -303,7 +291,6 @@ service cloud.firestore {
                     || isUser(suggesterUid)
                     || isUser(resource.data.suggestedByUid);
       }
-
       // Subscribers — the serial-release email list.
       match /subscribers/{sid} {
         // Anyone may CREATE a subscriber doc — that's the public
@@ -313,7 +300,6 @@ service cloud.firestore {
                           .hasOnly(['email','subscribedAt','unsubscribeToken'])
                       && request.resource.data.email is string
                       && request.resource.data.email.size() < 320;
-
         // Locked down (audit B5 — done). Anonymous readers no longer
         // touch this subcollection: the unsubscribe link in chapter
         // emails now points at the folio-email worker's /unsubscribe
@@ -322,11 +308,9 @@ service cloud.firestore {
         // read + delete here are strictly the owner's prerogative —
         // closes the email-harvest / arbitrary-delete risk.
         allow read, delete: if isUser(parentUid(id));
-
         // Updates are owner-only regardless.
         allow update: if isUser(parentUid(id));
       }
-
       // Signed teaser links — per-folio Firestore-backed share tokens
       // that unlock ONE specific chapter for whoever holds the URL,
       // without making that chapter publicly listed in release.teasers.
@@ -354,13 +338,11 @@ service cloud.firestore {
         allow update: if false;
       }
     }
-
     // Per-user app settings — your own OR admin (needed for comping Press
     // subscriptions from /admin/press/ for testing + edge cases).
     match /folio_user_settings/{uid} {
       allow read, write: if isUser(uid) || isAdmin();
     }
-
     // Reviews / testimonials — authors submit reviews from the app + reader.
     // Each submission earns a free 24h Featured Boost on one of their folios
     // (the boost is applied server-side via the paywall worker's
@@ -398,7 +380,6 @@ service cloud.firestore {
       // Delete: author or admin.
       allow delete: if isUser(resource.data.uid) || isAdmin();
     }
-
     // ── Promos / seasonal discount codes ───────────────────────────
     // Managed via /admin/promos/. See docs/DISCOUNT_SCHEDULE.md for the
     // marketing calendar this feeds. Doc id is the promo CODE itself
@@ -425,7 +406,6 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isModerator();
     }
-
     // ── Promo redemption audit log ─────────────────────────────────
     // Written by the paywall Worker's /press-subscribe endpoint via
     // service account when a valid promo code is applied to a
@@ -443,7 +423,6 @@ service cloud.firestore {
       allow read: if isAdmin();
       allow write: if false;
     }
-
     // ── Admin outbound messages (queued from /admin/users/) ────────
     // Managed via /admin/users/. Every "Contact" action from the admin
     // users page writes one doc here per targeted uid. Payload:
@@ -474,7 +453,6 @@ service cloud.firestore {
                     && request.resource.data.body.size() < 5000;
       allow update, delete: if isAdmin();
     }
-
     // Admin + moderator role assignments — used by isAdmin() and
     // isModerator() functions above. Managed via /admin/admins/.
     //   Read:  public — needed so client-side code can check role state
@@ -487,7 +465,6 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isAdmin();
     }
-
     // Public imprint themes — Indie+ subscribers customize their /imprint/
     // page (accent color, hero image, header font). Anyone can READ (needed
     // to render another author's customized imprint to visitors), but only
@@ -504,14 +481,12 @@ service cloud.firestore {
       allow read:  if isUser(resource.data.uid) || isAdmin();
       allow write: if false;  // worker only (bypasses rules via SA)
     }
-
     match /folio_imprint_themes/{uid} {
       allow read: if true;
       // Owner writes their own customization; admins can also write to mark
       // fields like `foundingContributor` from /admin/press/ comp flow.
       allow write: if isUser(uid) || isAdmin();
     }
-
     // ── Custom subdomain slugs (Imprint tier) ───────────────────────
     // Reverse index for the wildcard-subdomain feature. Doc id IS the
     // slug (thomas.onfolio.press → doc id 'thomas'). Payload:
@@ -539,7 +514,6 @@ service cloud.firestore {
     // per the shelf-moderation contract.
     match /folio_imprint_slugs/{slug} {
       allow read: if true;
-
       // Create: must be signed in, stamping your own uid, and the
       // slug doc must not already exist (Firestore enforces this
       // when `resource == null` is implicit in a create-only branch).
@@ -547,7 +521,6 @@ service cloud.firestore {
                     && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
                     && request.resource.data.uid is string
                     && request.resource.data.createdAt is number;
-
       // Update: owner can refresh createdAt (rare — mostly a re-claim
       // after a delete-then-recreate flow). Cannot re-assign a slug
       // to a different uid — the payload's uid must match the
@@ -555,11 +528,9 @@ service cloud.firestore {
       allow update: if (isUser(resource.data.uid)
                         && request.resource.data.uid == resource.data.uid)
                     || isAdmin();
-
       // Delete: owner can release their own slug; admins can reclaim.
       allow delete: if isUser(resource.data.uid) || isAdmin();
     }
-
     // Lulu print-on-demand job records. Doc id is "<uid>_<jobId>" and
     // the payload carries `uid`. create checks the incoming payload;
     // read / update / delete check the EXISTING doc (no payload on a
@@ -569,7 +540,6 @@ service cloud.firestore {
       allow create: if isUser(request.resource.data.uid);
       allow read, update, delete: if isUser(resource.data.uid);
     }
-
     // ── Analytics events ────────────────────────────────────────────
     // Written ONLY by the paywall worker's /event endpoint via its
     // service account (which bypasses these rules). Clients have zero
@@ -581,7 +551,6 @@ service cloud.firestore {
     match /folio_events/{eventId} {
       allow read, write: if false;
     }
-
     // ── Metrics rollup docs (per-folio subcollection) ───────────────
     // Written by the daily rollup cron (service account, bypasses).
     // Read by folio owners (for the author Metrics tab) and admins
@@ -591,7 +560,6 @@ service cloud.firestore {
       allow read:  if isUser(parentUid(id)) || isAdmin();
       allow write: if false;
     }
-
     // ── Vendor webhook config (Option C+ auto-delivery) ─────────
     // Stores each folio's payment-vendor webhook secret + type. Written
     // only by the paywall worker's /vendor-config endpoint via service
@@ -600,7 +568,6 @@ service cloud.firestore {
     match /folio_vendor_webhooks/{folioId} {
       allow read, write: if false;
     }
-
     // ── Owner-level vendor config (multi-tenant Option C+) ──────
     // One doc per Folio account (keyed by ownerUid) holding each
     // vendor's webhook secret. Written only by the paywall worker's
@@ -610,7 +577,6 @@ service cloud.firestore {
     match /folio_vendor_owner_configs/{ownerUid} {
       allow read, write: if false;
     }
-
     // ── Paid-sales log per folio (Option C+ audit trail) ────────
     // Written by the paywall worker on every validated vendor webhook.
     // Read by folio owner + admins for revenue metrics; write is
@@ -620,7 +586,6 @@ service cloud.firestore {
       allow read:  if isUser(parentUid(id)) || isAdmin();
       allow write: if false;
     }
-
     // ── Admin digest latch (worker → admin metrics tile) ────────
     // Populated by folio-email-worker.js runAdminDigest() after each
     // digest send — stores lastSentMs, lastPendingCount,
@@ -634,7 +599,6 @@ service cloud.firestore {
       allow read:  if isAdmin();
       allow write: if false; // worker-only via service account
     }
-
     // ───────────────────────────────────────────────────────────────
     // AFFILIATE PROGRAM (Phase 1)
     // ───────────────────────────────────────────────────────────────
@@ -650,7 +614,6 @@ service cloud.firestore {
     // and only if the acting user's email matches the invited email.
     // Everything else is server-mediated so rates, ledgers, and
     // settlements cannot be tampered with client-side.
-
     // ── Affiliations (one doc per owner+folio+affiliate triple) ──
     // Readable by the folio owner AND the affiliate (once accepted).
     // Client-writable ONLY for the invited affiliate to accept —
@@ -690,7 +653,6 @@ service cloud.firestore {
       // Create / delete / all other updates: worker only.
       allow create, delete: if false;
     }
-
     // ── Attribution cookies materialised server-side ─────────────
     // Composite key = "{userId}_{folioId}". Written by the paywall
     // worker when a signed-in reader lands on a folio via an
@@ -700,7 +662,6 @@ service cloud.firestore {
     match /folio_affiliate_attributions/{attributionId} {
       allow read, write: if false;
     }
-
     // ── Click log for affiliate dashboards ───────────────────────
     // Sampled writes from the reader worker. Readable by the folio
     // owner + the affiliate whose code was clicked (for their
@@ -713,7 +674,6 @@ service cloud.firestore {
       );
       allow write: if false;
     }
-
     // ── Settlements (owner payouts to affiliates) ────────────────
     // One doc per settlement event. Readable by both parties —
     // affiliate needs to see "Jacob paid me $124 on X date". Written
@@ -730,7 +690,6 @@ service cloud.firestore {
       );
       allow write: if false;
     }
-
     // ───────────────────────────────────────────────────────────────
     // KO-FI TIPS LOG (Task #30 Phase 3a — instrumentation)
     // ───────────────────────────────────────────────────────────────
@@ -744,7 +703,6 @@ service cloud.firestore {
       allow read: if isUser(uid) || isAdmin();
       allow write: if false;
     }
-
     // ───────────────────────────────────────────────────────────────
     // FOLIO SLUGS (Task #26 — per-folio SEO)
     // ───────────────────────────────────────────────────────────────
@@ -763,7 +721,6 @@ service cloud.firestore {
       allow update, delete: if request.auth != null
         && isUser(resource.data.ownerUid);
     }
-
     // ───────────────────────────────────────────────────────────────
     // SUPPORT TICKETS (Task #27)
     // ───────────────────────────────────────────────────────────────
@@ -796,7 +753,6 @@ service cloud.firestore {
       allow create: if isUser(uid);
       allow update, delete: if isUser(uid) || isAdmin();
     }
-
     // Swap board — public read. Author + admin can update/delete.
     // Anyone signed in can create.
     match /folio_guild_swaps/{swapId} {
@@ -805,7 +761,6 @@ service cloud.firestore {
         && isUser(request.resource.data.authorUid);
       allow update, delete: if request.auth != null
         && (isUser(resource.data.authorUid) || isAdmin());
-
       // Replies on a swap post. Anyone signed in creates; author + admin
       // edit/delete their own.
       match /replies/{replyId} {
@@ -816,6 +771,66 @@ service cloud.firestore {
           && (isUser(resource.data.authorUid) || isAdmin());
       }
     }
+
+    /* =========================================================
+     * INK — author list marketing (ink.jacobsiler.com)
+     * =========================================================
+     * DO NOT REMOVE. This block is shared with the Ink repo
+     * (C:\dev\ink\firestore.rules). Boxes, Folio and Ink all deploy
+     * the SAME rules file to project miscellaneous-117e9, so every
+     * repo's copy must contain every app's block. When you change
+     * rules in one repo, copy the whole file to the others.
+     *
+     * Each author owns their own subtree under /authors/{uid}. The
+     * Ink Worker (ink-worker) uses a service account, which bypasses
+     * these rules, for everything else: sending jobs, schedules,
+     * welcome-series runs, the email index, public join/unsubscribe/
+     * approve pages, and paid-feature entitlements. None of these
+     * paths are used by Folio or Beam.
+     * ========================================================= */
+    // Fields on /authors/{uid} that only the Worker may set. Authors can
+    // read them but any client write that touches them is rejected.
+    function inkWorkerOnlyFields() {
+      return ['entitlements', 'plan', 'billing', 'customDomain', 'totalSent'];
+    }
+    match /authors/{uid} {
+      allow read:   if isUser(uid);
+      allow create: if isUser(uid)
+                    && !request.resource.data.keys().hasAny(inkWorkerOnlyFields());
+      allow update: if isUser(uid)
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(inkWorkerOnlyFields());
+      allow delete: if false;
+
+      // subscribers, campaigns, plans, suggestions, automations, metricsDaily
+      match /{collection}/{doc} {
+        allow read, write: if isUser(uid);
+      }
+      // Per-recipient delivery/open/click records — Worker writes only.
+      match /campaigns/{cid}/recipients/{sid} {
+        allow read:  if isUser(uid);
+        allow write: if false;
+      }
+      // Secrets the author hands Ink (e.g. their own Resend API key,
+      // stored encrypted by the Worker). Never readable from a browser.
+      match /private/{doc} {
+        allow read, write: if false;
+      }
+    }
+    // Sign-up slug → uid reverse index. Written by the Worker when an
+    // author sets their join address; readable by signed-in users so
+    // the app can show availability.
+    match /slugs/{slug} {
+      allow read:  if request.auth != null;
+      allow write: if false;
+    }
+    // Worker-only root collections (service account bypasses rules).
+    match /jobs/{id}           { allow read, write: if false; }
+    match /jobs/{id}/q/{chunk} { allow read, write: if false; }
+    match /schedule/{id}       { allow read, write: if false; }
+    match /automationRuns/{id} { allow read, write: if false; }
+    match /emailIndex/{id}     { allow read, write: if false; }
+    match /meta/{id}           { allow read, write: if false; }
+    /* ===================== end INK block ===================== */
 
     // Anything not matched above is denied by default.
   }
