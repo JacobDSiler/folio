@@ -7,7 +7,9 @@
 <meta name="description" content="The Folio Guild — an opt-in directory of authors, a board for newsletter swaps and group promos, and a marketplace for editors, cover designers, narrators, and reviewers."/>
 <meta name="robots" content="index, follow"/>
 <link rel="canonical" href="https://onfolio.press/guild/"/>
-<link rel="icon" href="/favicon.ico"/>
+<link rel="icon" type="image/svg+xml" href="/guild/seal.svg"/>
+<link rel="alternate icon" href="/favicon.ico"/>
+<meta property="og:image" content="https://onfolio.press/guild/seal.svg"/>
 <link rel="preconnect" href="https://www.gstatic.com" crossorigin/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
@@ -109,7 +111,10 @@
 </header>
 
 <main>
-  <h1>The Folio Guild</h1>
+  <div style="display:flex;align-items:center;gap:16px;margin:6px 0 2px">
+    <img src="/guild/seal.svg" alt="The Folio Guild seal" width="64" height="64" style="flex-shrink:0;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.08))"/>
+    <h1 style="margin:0">The Folio Guild</h1>
+  </div>
   <p class="lead">Authors, editors, cover designers, narrators, and the people who help their books happen — under one roof. Find swap partners, run group promos, offer or hire a service, discover other authors' newsletters. Everything is peer-to-peer; Folio just hosts the table.</p>
 
   <div class="tabs">
@@ -607,6 +612,7 @@ async function loadMyListing(){
       rows.push({
         id: d.id,
         title: String(r.title || rel.title || 'Untitled'),
+        author: String(r.author || rel.author || '').trim(),
         cover: (typeof r.coverUrl === 'string' && /^https:\/\//i.test(r.coverUrl)) ? r.coverUrl : '',
         publishedAt: Number(rel.publishedAt || r.publishedAt || 0),
         listedOnShelf: !!rel.listOnShelf,
@@ -631,7 +637,12 @@ function renderMe(){
     });
   }
   const m = state.myListing || {};
-  document.getElementById('mPen').value    = m.penName || (state.user.displayName || '');
+  // Pen-name pre-fill order: existing listing > most-recent published
+  // folio's author field (that's what readers see on the book) >
+  // Google displayName as a last resort. The folio-author path is the
+  // real "Folio identity" — a pseudonym stays consistent across books.
+  const folioAuthor = (state.myFolios || []).map(f => f.author).find(a => a && a.trim());
+  document.getElementById('mPen').value    = m.penName || folioAuthor || (state.user.displayName || '');
   document.getElementById('mBio').value    = m.bio || '';
   document.getElementById('mGenre').value  = m.primaryGenre || 'Literary fiction';
   document.getElementById('mSize').value   = m.listSizeBucket || 'starting';
