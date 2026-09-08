@@ -616,10 +616,18 @@ async function loadMyListing(){
       if (!rel.published) return;
       // Cover URL lives on the release map (r.release.coverUrl) — that's
       // where the Shelf renderer reads it from. Top-level r.coverUrl is
-      // a legacy field on very old drafts. Check both, prefer release.
-      const cov = (typeof rel.coverUrl === 'string' && /^https:\/\//i.test(rel.coverUrl))
-        ? rel.coverUrl
-        : (typeof r.coverUrl === 'string' && /^https:\/\//i.test(r.coverUrl)) ? r.coverUrl : '';
+      // a legacy field on very old drafts. Check every known field
+      // where a cover could be stored across all schema eras.
+      const candidates = [
+        rel.coverUrl, rel.cover, rel.coverImage, rel.coverImageUrl,
+        r.coverUrl, r.cover, r.coverImage, r.coverImageUrl,
+        r.thumbnailUrl, r.thumbnail,
+      ];
+      const cov = candidates.find(c => typeof c === 'string' && /^https?:\/\//i.test(c)) || '';
+      // Diagnostic: dump the doc shape so we can see where the cover
+      // actually lives if none of the guesses hit. Remove once wired.
+      try { console.log('[guild folio]', d.id, 'cover-found:', cov,
+        'release-keys:', Object.keys(rel), 'top-keys:', Object.keys(r).slice(0,20)); } catch(_){}
       rows.push({
         id: d.id,
         title: String(rel.title || r.title || 'Untitled'),
