@@ -26921,6 +26921,30 @@
     window._rlSetMode = _rlSetMode;
     window._rlPublish = _rlPublish;
 
+    /* Post-publish handoff to Ink. Opens ink.jacobsiler.com with a
+       #compose fragment carrying the folio's key metadata. Ink's
+       compose route reads these params on load and hydrates the
+       AI-drafted campaign form — so an author's first newsletter
+       about their new folio is one click from published. Uses the
+       # fragment (not query string) so nothing sensitive lands in
+       the browser's referrer log. */
+    window._rlAnnounceInInk = function () {
+      const rc = _rlCurrent || {};
+      const title = rc.title || (document.getElementById('rlTitleField') || {}).value || '';
+      const author = rc.author || (document.getElementById('rlAuthorField') || {}).value || '';
+      const desc = rc.description || (document.getElementById('rlDescField') || {}).value || '';
+      const cover = (rc.coverUrl && /^https:\/\//i.test(rc.coverUrl)) ? rc.coverUrl : '';
+      const readerUrl = (typeof _rlUrl === 'function') ? _rlUrl() : '';
+      // Base64-encode the JSON blob so a single `?ink_folio=…` query
+      // param covers everything without colliding with Ink's hash
+      // router. Ink's boot snippet decodes on load.
+      const blob = { title, author, blurb: (desc || '').slice(0, 500), cover, readerUrl, src: 'folio' };
+      let b64 = '';
+      try { b64 = btoa(unescape(encodeURIComponent(JSON.stringify(blob)))); } catch (_) { b64 = ''; }
+      const inkUrl = 'https://ink.jacobsiler.com/?ink_folio=' + encodeURIComponent(b64);
+      window.open(inkUrl, '_blank', 'noopener');
+    };
+
     // Export release settings as a JSON snapshot for support requests.
     // Reads the current DOM state of the release modal (not the saved
     // Firestore data — that way authors can capture in-flight edits
@@ -37377,6 +37401,19 @@
           <button type="button" onclick="_rlCopyUrl(event)"
             style="font-size:11.5px;padding:6px 10px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap">📋
             Copy</button>
+        </div>
+        <!-- Post-publish action row: announce this release to your
+             mailing list via Ink. Opens Ink with pre-fill params
+             (title, author, blurb, cover, reader URL) so a launch
+             draft is one click away. Ink's compose recognises these
+             params and hydrates the AI-drafted campaign. -->
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:.5px dashed var(--border-mid)">
+          <span style="font-size:11px;color:var(--hint)">Now tell your list:</span>
+          <button type="button" onclick="_rlAnnounceInInk()" title="Draft a launch email about this folio in Ink — auto-fills title, author, blurb, cover, and reader link."
+            style="font-size:11.5px;padding:6px 12px;border-radius:6px;border:.5px solid #c98c2a;background:rgba(201,140,42,0.10);color:#8a5a13;cursor:pointer;font-weight:500;display:inline-flex;align-items:center;gap:5px">
+            <span>📮</span><span>Announce in Ink</span>
+          </button>
+          <span style="font-size:10.5px;color:var(--hint)">Free · included with Folio Press</span>
         </div>
       </div>
 
