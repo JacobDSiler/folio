@@ -1180,6 +1180,17 @@ boot();
     <label style="margin-top:16px;padding-top:12px;border-top:.5px solid var(--border)">Tagline <span style="color:var(--hint);font-weight:400">(one line, under your name)</span></label>
     <input type="text" id="cdTaglineInput" maxlength="120" placeholder="e.g. Novelist. Slow reader of long books." oninput="_cdSetTagline(this.value)">
 
+    <label style="margin-top:16px;padding-top:12px;border-top:.5px solid var(--border)">Custom subdomain
+      <span style="color:var(--hint);font-weight:400">(your imprint at <em>yourname</em>.onfolio.press)</span>
+    </label>
+    <div style="display:flex;gap:6px;align-items:stretch">
+      <input type="text" id="cdSlugInput" maxlength="64" placeholder="yourname" autocomplete="off" style="flex:1"
+             oninput="this.value=this.value.toLowerCase().replace(/[^a-z0-9-]/g,'')" />
+      <button type="button" id="cdSlugSaveBtn" onclick="_cdSaveSlug()"
+              style="padding:8px 14px;background:var(--accent-ui,#065f46);color:#fff;border:0;border-radius:6px;font-family:inherit;font-size:12.5px;cursor:pointer">Claim</button>
+    </div>
+    <div id="cdSlugStatus" style="font-size:11px;color:var(--hint);margin-top:4px;line-height:1.5;min-height:14px"></div>
+
     <label>Photo URL <span style="color:var(--hint);font-weight:400">(square image, 400×400+)</span></label>
     <input type="url" id="cdPhotoInput" placeholder="https://…" oninput="_cdSetPhoto(this.value)">
 
@@ -1210,6 +1221,102 @@ boot();
   window._cdOpen = function(){
     const d = document.getElementById('customizeDrawer');
     if (d) d.classList.add('open');
+    // Hydrate the current custom-subdomain slug so the owner sees
+    // "you own thomas.onfolio.press" the moment the drawer opens.
+    try { _cdLoadSlug(); } catch (_) {}
+  };
+
+  // ── Custom-subdomain slug (folio_imprint_slugs/{slug}) ─────────
+  // Owners claim a subdomain via a Firestore transaction so the
+  // create + delete-old-slug pair is atomic. The rule already
+  // enforces uid-stamped writes and first-come-first-served
+  // uniqueness — see docs/firestore.rules.
+  let _cdCurrentSlug = '';
+  async function _cdLoadSlug(){
+    const input = document.getElementById('cdSlugInput');
+    const status = document.getElementById('cdSlugStatus');
+    if (!input || !status || !window._myUid || !_fbDb) return;
+    status.textContent = 'Checking…';
+    status.style.color = 'var(--hint)';
+    try {
+      const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      // Query the collection for the doc whose uid matches me. Rule
+      // allows public list because the collection is small + public.
+      const q = fsMod.query(fsMod.collection(_fbDb, 'folio_imprint_slugs'),
+                            fsMod.where('uid','==', window._myUid),
+                            fsMod.limit(1));
+      const snap = await fsMod.getDocs(q);
+      if (!snap.empty) {
+        _cdCurrentSlug = snap.docs[0].id;
+        input.value = _cdCurrentSlug;
+        status.innerHTML = 'Live at <strong><a href="https://' + _cdCurrentSlug + '.onfolio.press" target="_blank" rel="noopener" style="color:var(--accent-ui)">' + _cdCurrentSlug + '.onfolio.press</a></strong>';
+        status.style.color = 'var(--accent-ui,#065f46)';
+      } else {
+        _cdCurrentSlug = '';
+        status.textContent = 'You don\'t have a custom subdomain yet — pick one below.';
+      }
+    } catch (e) {
+      status.textContent = 'Couldn\'t load current slug: ' + (e.message || 'error');
+      status.style.color = 'var(--danger, #b91c1c)';
+    }
+  }
+
+  window._cdSaveSlug = async function(){
+    const input = document.getElementById('cdSlugInput');
+    const status = document.getElementById('cdSlugStatus');
+    const btn = document.getElementById('cdSlugSaveBtn');
+    if (!window._myUid) { status.textContent = 'Sign in first.'; status.style.color = 'var(--danger,#b91c1c)'; return; }
+    const raw = (input.value || '').trim().toLowerCase();
+    if (!/^[a-z0-9][a-z0-9-]{1,63}$/.test(raw)) {
+      status.textContent = 'Slug must be 2–64 chars, start with a letter/number, and use only a-z 0-9 or -.';
+      status.style.color = 'var(--danger,#b91c1c)';
+      return;
+    }
+    // Reserved list — mirrors the wildcard-subdomain worker's guard.
+    const reserved = ['www','api','app','admin','mail','static','cdn','assets','press','shelf','guild','help','support','imprint','affiliate','for'];
+    if (reserved.includes(raw)) {
+      status.textContent = 'That subdomain is reserved. Try something else.';
+      status.style.color = 'var(--danger,#b91c1c)';
+      return;
+    }
+    if (raw === _cdCurrentSlug) {
+      status.textContent = 'That\'s already your slug.';
+      status.style.color = 'var(--hint)';
+      return;
+    }
+    btn.disabled = true;
+    status.textContent = 'Claiming ' + raw + '.onfolio.press…';
+    status.style.color = 'var(--hint)';
+    try {
+      const fsMod = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js');
+      const newRef = _fbDoc(_fbDb, 'folio_imprint_slugs', raw);
+      const oldRef = _cdCurrentSlug ? _fbDoc(_fbDb, 'folio_imprint_slugs', _cdCurrentSlug) : null;
+      await fsMod.runTransaction(_fbDb, async (tx) => {
+        const existing = await tx.get(newRef);
+        if (existing.exists()) {
+          if (existing.data().uid !== window._myUid) {
+            throw new Error('Taken');
+          }
+          // Already ours — treat as idempotent, just refresh createdAt.
+        } else {
+          tx.set(newRef, { uid: window._myUid, createdAt: Date.now() });
+        }
+        // Release the previous slug so we don't leave orphaned claims.
+        if (oldRef && _cdCurrentSlug !== raw) {
+          tx.delete(oldRef);
+        }
+      });
+      _cdCurrentSlug = raw;
+      status.innerHTML = '✅ Claimed. Live at <strong><a href="https://' + raw + '.onfolio.press" target="_blank" rel="noopener" style="color:var(--accent-ui)">' + raw + '.onfolio.press</a></strong> (DNS may take a minute).';
+      status.style.color = 'var(--accent-ui,#065f46)';
+    } catch (e) {
+      if ((e.message || '').includes('Taken')) {
+        status.textContent = 'That subdomain is already taken. Try another.';
+      } else {
+        status.textContent = 'Claim failed: ' + (e.message || 'unknown');
+      }
+      status.style.color = 'var(--danger,#b91c1c)';
+    } finally { btn.disabled = false; }
   };
   window._cdClose = function(){
     const d = document.getElementById('customizeDrawer');
