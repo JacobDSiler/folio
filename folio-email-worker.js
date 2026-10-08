@@ -32,6 +32,10 @@
  *                          }
  *                          → { ok: true, id }
  *                            or { error } with 4xx/5xx status.
+ *   POST /ink-sync-subscriber { folioId, subscriberEmail }
+ *                          Optional, author-controlled: mirrors a new Folio
+ *                          subscriber into the owner's Ink list (see the
+ *                          block above the /unsubscribe handler).
  *   GET  /unsubscribe       { ?token=<unsubscribeToken>&folio=<folioId> }
  *                          Top-level navigation target for the
  *                          unsubscribe link in chapter-release
@@ -725,6 +729,27 @@ async function fsDelete(projectId, token, name) {
   }
 }
 
+/* ── Ink sync helpers ────────────────────────────────────────────
+   Used by POST /ink-sync-subscriber. Folio and Ink share one Firebase
+   project, so the service account can write straight into
+   authors/{listId}/subscribers using Ink's own document shape. */
+function fsDocUrl(projectId, docPath) {
+  return 'https://firestore.googleapis.com/v1/projects/' + projectId +
+    '/databases/(default)/documents/' + docPath;
+}
+async function fsGetDoc(projectId, token, docPath) {
+  const r = await fetch(fsDocUrl(projectId, docPath), { headers: { 'Authorization': 'Bearer ' + token } });
+  if (r.status === 404) return null;
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error('Firestore get ' + docPath + ' failed: ' + ((data.error && data.error.message) || r.status));
+  return fsDecodeFields(data.fields || {});
+}
+/* Ink's subscriber id: SHA-256 of the lowercased email, base64url, first 20 chars. */
+async function inkSubscriberId(email) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(email).trim().toLowerCase()));
+  return b64url(new Uint8Array(buf)).slice(0, 20);
+}
+
 /* ── Confirmation HTML for the /unsubscribe page ────────────────
    Returned as a real top-level page (user clicked an email link),
    styled to match Folio's palette. state: 'ok' | 'already' | 'error'. */
@@ -1087,6 +1112,114 @@ export default {
       } catch (e) {
         return errorJson('Notify send failed: ' + (e.message || 'unknown'),
                          502, request, env);
+      }
+    }
+
+    // ── Ink sync (optional, author-controlled) ──────────────────────
+    // POST /ink-sync-subscriber
+    //   { folioId, subscriberEmail }
+    //
+    // Called from the reader page right after a new subscriber is saved,
+    // IFF the public release carries inkAutoSync. Everything that matters
+    // is re-checked server-side with the service account:
+    //   1. the release really has inkAutoSync set;
+    //   2. the owner's PRIVATE setting (folio_user_settings/{uid}.inkSync)
+    //      says mode "auto" and names an Ink list;
+    //   3. that list is the owner's own (their uid, or a list whose
+    //      ownerUid is theirs and is not deleted);
+    //   4. this email is genuinely in the folio's subscribers.
+    // The reader lands in Ink as "pending" unless the owner ticked
+    // "already agreed to hear from me" (inkSync.active). Idempotent:
+    // an existing Ink reader is never touched (an Ink unsubscribe stays
+    // an unsubscribe). No welcome series is started.
+    if (request.method === 'POST' && path === '/ink-sync-subscriber') {
+      const okRate = await checkRateLimit(request, { cap: 60, bucket: 'ink-sync' });
+      if (!okRate) return errorJson('Rate limited (60/hr per IP)', 429, request, env);
+      let payload;
+      try { payload = await request.json(); }
+      catch (e) { return errorJson('Body must be valid JSON', 400, request, env); }
+      const folioId = String((payload && payload.folioId) || '').trim();
+      const email = String((payload && payload.subscriberEmail) || '').trim().toLowerCase();
+      if (!folioId) return errorJson('Missing folioId', 400, request, env);
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return errorJson('Missing or invalid subscriberEmail', 400, request, env);
+      try {
+        const auth = await getAccessToken(env);
+        const pid = auth.projectId, tok = auth.token;
+        const skip = (reason) => json({ ok: true, synced: false, reason }, 200, request, env);
+
+        const parent = await fsGetDoc(pid, tok, 'folio_projects/' + encodeURIComponent(folioId));
+        if (!parent) return errorJson('Folio not found', 404, request, env);
+        const release = parent.release || {};
+        const owner = String(parent.uid || '');
+        if (!release.inkAutoSync || !owner) return skip('opt-out');
+
+        const settings = await fsGetDoc(pid, tok, 'folio_user_settings/' + encodeURIComponent(owner));
+        const sync = (settings && settings.inkSync) || {};
+        const listId = String(sync.listId || '');
+        if (sync.mode !== 'auto' || !listId) return skip('opt-out');
+
+        const list = await fsGetDoc(pid, tok, 'authors/' + encodeURIComponent(listId));
+        if (!list) return skip('no-list');
+        if (listId !== owner && (list.ownerUid !== owner || list.deleted)) return skip('list-not-owned');
+
+        // The subscriber must really exist on the folio (blocks hand-made requests).
+        const qr = await fetch(fsDocUrl(pid, 'folio_projects/' + encodeURIComponent(folioId)) + ':runQuery', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ structuredQuery: {
+            from: [{ collectionId: 'subscribers' }],
+            where: { fieldFilter: { field: { fieldPath: 'email' }, op: 'EQUAL', value: { stringValue: email } } },
+            limit: 1,
+          } }),
+        });
+        const qdata = await qr.json().catch(() => []);
+        if (!qr.ok || !Array.isArray(qdata) || !qdata.some(x => x && x.document)) return skip('not-a-subscriber');
+        const folioSub = qdata.find(x => x && x.document).document;
+        const subscribedAtMs = Number((fsDecodeFields(folioSub.fields || {}).subscribedAt) || 0);
+
+        const sid = await inkSubscriberId(email);
+        const subPath = 'authors/' + encodeURIComponent(listId) + '/subscribers/' + sid;
+        if (await fsGetDoc(pid, tok, subPath)) return skip('already-on-list');
+
+        const active = !!sync.active;
+        const nowIso = new Date().toISOString();
+        const subscribedIso = subscribedAtMs ? new Date(subscribedAtMs).toISOString() : nowIso;
+        const title = String(release.title || parent.name || '').trim();
+        const tags = ['folio'];
+        if (title) tags.push(('folio: ' + title).slice(0, 60));
+        const S = (v) => ({ stringValue: v });
+        const fields = {
+          email: S(email), name: S(''),
+          tags: { arrayValue: { values: tags.map(S) } },
+          status: S(active ? 'active' : 'pending'),
+          source: S('import'), origin: S('folio'),
+          createdAt: S(nowIso), updatedAt: S(nowIso), importedAt: S(nowIso),
+          subscribedAt: S(subscribedIso),
+          confirmedAt: active ? S(subscribedIso) : { nullValue: null },
+          lastOpenAt: { nullValue: null },
+          opens: { integerValue: '0' }, clicks: { integerValue: '0' },
+        };
+        const docName = 'projects/' + pid + '/databases/(default)/documents/' + subPath;
+        const listName = 'projects/' + pid + '/databases/(default)/documents/authors/' + encodeURIComponent(listId);
+        const writes = [{ update: { name: docName, fields }, currentDocument: { exists: false } }];
+        if (active) {
+          writes.push({ transform: { document: listName, fieldTransforms: [{ fieldPath: 'subscriberCount', increment: { integerValue: '1' } }] } });
+          writes.push({ transform: { document: listName + '/metricsDaily/' + nowIso.slice(0, 10), fieldTransforms: [{ fieldPath: 'subscribed', increment: { integerValue: '1' } }] } });
+        }
+        const cr = await fetch('https://firestore.googleapis.com/v1/projects/' + pid + '/databases/(default)/documents:commit', {
+          method: 'POST',
+          headers: { 'Authorization': 'Bearer ' + tok, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ writes }),
+        });
+        if (!cr.ok) {
+          const cd = await cr.json().catch(() => ({}));
+          // ALREADY_EXISTS from a double-fire is fine.
+          if (cr.status === 409) return skip('already-on-list');
+          return errorJson('Ink write failed: ' + ((cd.error && cd.error.message) || cr.status), 502, request, env);
+        }
+        return json({ ok: true, synced: true, status: active ? 'active' : 'pending' }, 200, request, env);
+      } catch (e) {
+        return errorJson('Ink sync failed: ' + (e.message || 'unknown'), 502, request, env);
       }
     }
 
