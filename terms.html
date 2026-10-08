@@ -204,22 +204,22 @@
     <h2>Third-party services</h2>
     <p>
       Folio relies on Google Firebase, Google Cloud Text-to-Speech (opt-in), ElevenLabs (opt-in),
-      Gumroad (for paid releases), and Cloudflare Workers. Using the corresponding Folio features
+      your chosen payment vendor (PayPal, Ko-fi, Payhip, Gumroad or similar, for paid releases), and Cloudflare Workers. Using the corresponding Folio features
       means you also accept those providers&#39; terms:
     </p>
     <ul>
       <li><a href="https://policies.google.com/terms" target="_blank" rel="noopener">Google Terms of Service</a></li>
       <li><a href="https://cloud.google.com/terms" target="_blank" rel="noopener">Google Cloud Terms</a></li>
       <li><a href="https://elevenlabs.io/terms-of-use" target="_blank" rel="noopener">ElevenLabs Terms of Use</a></li>
-      <li><a href="https://gumroad.com/terms" target="_blank" rel="noopener">Gumroad Terms</a></li>
+      <li><a href="https://gumroad.com/terms" target="_blank" rel="noopener">Gumroad Terms</a> (and the terms of whichever other payment vendor you connect)</li>
     </ul>
 
     <h2>Paid releases</h2>
     <p>
-      If you publish a paid release on Folio, payments are processed entirely by Gumroad.
+      If you publish a paid release on Folio, payments are processed entirely by the payment vendor you connect (PayPal checkout, Ko-fi, Payhip, Gumroad, or another provider).
       Folio takes no cut and never handles card data. Refunds, chargebacks, and tax obligations
-      are governed by Gumroad&#39;s own terms and your own agreement with buyers.
-      Licence-key verification happens via a stateless Cloudflare Worker that does not log or
+      are governed by that vendor&#39;s own terms and your own agreement with buyers.
+      For Gumroad releases, licence-key verification happens via a stateless Cloudflare Worker that does not log or
       persist buyer identity.
     </p>
 

@@ -97,8 +97,10 @@ below.
   publicly; the rest stays locked).
 - Serial releases: schedule chapters to unlock over days, weeks,
   or months. Subscribers get an email when each chapter drops.
-- Paid releases via Gumroad — set a price, readers unlock the
-  whole folio after purchase, you keep 100% of the revenue.
+- Paid releases — checkout with PayPal right inside Folio, or use
+  Ko-fi, Payhip, Gumroad or any vendor with a checkout link. Set a
+  price, readers unlock the whole folio after purchase, you keep
+  100% of the revenue.
 - Print-on-demand via Lulu (order proofs, sell hardcopies).
 - Export to PDF, EPUB, MOBI, DOCX, RTF, Markdown, HTML, or plain
   text at any time.
@@ -135,8 +137,8 @@ below.
 
 - Tips at 0% commission — Folio never touches the money, it goes
   straight to you.
-- Paid releases via Gumroad — set your own price, keep 100% after
-  Gumroad's own processing fees.
+- Paid releases — set your own price, keep 100% after your payment
+  vendor's own processing fees (PayPal, Ko-fi, Payhip, Gumroad).
 - Founding contributor badge for early Press subscribers, visible
   on your imprint page.
 - Comp system for testing, family + friends, accessibility, or
