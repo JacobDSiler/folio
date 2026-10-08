@@ -7950,6 +7950,14 @@
              (b) Non-subscriber: Support Folio (Ko-fi) + Try Folio Press
            Updated on 'press-sub-updated' custom event. ═══ -->
       <div id="sidebarCtaBar" style="padding:8px 1.25rem;background:var(--surface);border-top:.5px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0">
+        <!-- New here? Short video tutorials + the guided help library. -->
+        <a href="/help/tutorials/" target="_blank" rel="noopener"
+          title="Short how-to videos: your first folio, publishing, serials, imprint, teasers"
+          style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;background:none;border:.5px solid var(--border-mid);border-radius:20px;color:var(--muted);text-decoration:none;font-size:11px;font-family:inherit;transition:border-color .15s,color .15s"
+          onmouseover="this.style.borderColor='var(--accent-ui)';this.style.color='var(--accent-ui)'"
+          onmouseout="this.style.borderColor='var(--border-mid)';this.style.color='var(--muted)'">
+          <span>🎬</span><span>New here? Tutorials</span>
+        </a>
         <!-- The Guild — always visible small chip; open in new tab so
              authors don't lose their editor state. -->
         <a href="/guild/" target="_blank" rel="noopener"
@@ -23217,6 +23225,224 @@
     window._rlSubscribersToggleList = _rlSubscribersToggleList;
     window._rlSubscribersExport = _rlSubscribersExport;
 
+    // ─────────────────────────────────────────────────────────────
+    // Send subscribers to Ink (ink.jacobsiler.com).
+    //
+    // Folio and Ink share one Firebase project and one Google sign-in,
+    // so the signed-in author is already the owner of their Ink lists.
+    // Two ways to move readers across:
+    //   1. "Import to Ink" button — always available, runs in the browser
+    //      with the author's own sign-in, writes straight into
+    //      authors/{listId}/subscribers using Ink's own document shape.
+    //   2. A default (folio_user_settings/{uid}.inkSync) chosen by the author:
+    //        mode 'manual' (default) — nothing moves unless they click.
+    //        mode 'auto'             — each new subscriber is also added to
+    //                                  the chosen Ink list by the email
+    //                                  worker (/ink-sync-subscriber).
+    // Consent: Folio readers signed up for chapter notifications. Imported
+    // and auto-added readers therefore land as "pending" unless the author
+    // confirms they agreed to hear from them (inkSync.active = true).
+    // ─────────────────────────────────────────────────────────────
+    const _INK_WORKERS = ['https://go.jacobsiler.com', 'https://ink-worker.jacobdsiler.workers.dev'];
+    let _inkLists = null;
+    let _inkSettings = { mode: 'manual', listId: '', active: false };
+    window._rlInkMode = 'manual';
+
+    async function _inkSubId(email) {
+      const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(email).trim().toLowerCase()));
+      return btoa(String.fromCharCode.apply(null, new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '').slice(0, 20);
+    }
+
+    function _inkStatus(msg, kind) {
+      const el = document.getElementById('rlInkStatus');
+      if (!el) return;
+      el.style.color = kind === 'err' ? '#c04040' : (kind === 'ok' ? '#0a7' : 'var(--hint)');
+      el.textContent = msg || '';
+    }
+
+    async function _inkLoadLists(force) {
+      if (_inkLists && !force) return _inkLists;
+      const user = window._user, uid = window._uid;
+      if (!user || user.isAnonymous || !uid) throw new Error('Sign in with the Google account you use for Ink first.');
+      const F = window._fb, db = window._db;
+      const primary = await F.getDoc(F.doc(db, 'authors', uid));
+      if (!primary.exists()) throw new Error('No Ink list found for this account yet. Open ink.jacobsiler.com once with this Google account, then come back.');
+      const pd = primary.data() || {};
+      const lists = [{ id: uid, name: pd.listName || pd.penName || 'My list' }];
+      try {
+        const snap = await F.getDocs(F.query(F.collection(db, 'authors'), F.where('ownerUid', '==', uid)));
+        snap.forEach(d => { const x = d.data() || {}; if (!x.deleted) lists.push({ id: d.id, name: x.listName || x.penName || 'Untitled list' }); });
+      } catch (e) { console.warn('[ink] extra lists query failed', e); }
+      _inkLists = lists;
+      return lists;
+    }
+
+    async function _inkLoadSettings() {
+      try {
+        if (!window._uid || !window._fb || !window._db) return;
+        const snap = await window._fb.getDoc(window._fb.doc(window._db, 'folio_user_settings', window._uid));
+        const s = (snap.exists() && (snap.data() || {}).inkSync) || {};
+        _inkSettings = {
+          mode: s.mode === 'auto' ? 'auto' : 'manual',
+          listId: typeof s.listId === 'string' ? s.listId : '',
+          active: !!s.active,
+        };
+      } catch (e) { console.warn('[ink] settings load failed', e); }
+      window._rlInkMode = _inkSettings.mode;
+    }
+
+    async function _rlInkInit() {
+      const sel = document.getElementById('rlInkList');
+      const modeEl = document.getElementById('rlInkMode');
+      const activeEl = document.getElementById('rlInkActive');
+      if (!sel) return;
+      _inkStatus('');
+      await _inkLoadSettings();
+      if (modeEl) modeEl.value = _inkSettings.mode;
+      if (activeEl) activeEl.checked = _inkSettings.active;
+      try {
+        const lists = await _inkLoadLists(true);
+        sel.innerHTML = lists.map(l => '<option value="' + String(l.id).replace(/"/g, '&quot;') + '">' +
+          String(l.name).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c])) + '</option>').join('');
+        const want = _inkSettings.listId && lists.some(l => l.id === _inkSettings.listId) ? _inkSettings.listId : lists[0].id;
+        sel.value = want;
+      } catch (e) {
+        sel.innerHTML = '<option value="">—</option>';
+        _inkStatus(e.message || 'Could not reach your Ink lists.', 'err');
+      }
+      _rlInkToggleUi();
+    }
+
+    function _rlInkToggleUi() {
+      const modeEl = document.getElementById('rlInkMode');
+      const note = document.getElementById('rlInkAutoNote');
+      if (modeEl) window._rlInkMode = modeEl.value === 'auto' ? 'auto' : 'manual';
+      if (note) note.style.display = window._rlInkMode === 'auto' ? '' : 'none';
+    }
+
+    async function _rlInkSaveDefault() {
+      const sel = document.getElementById('rlInkList');
+      const modeEl = document.getElementById('rlInkMode');
+      const activeEl = document.getElementById('rlInkActive');
+      _rlInkToggleUi();
+      const next = {
+        mode: modeEl && modeEl.value === 'auto' ? 'auto' : 'manual',
+        listId: (sel && sel.value) || '',
+        active: !!(activeEl && activeEl.checked),
+      };
+      if (next.mode === 'auto' && !next.listId) { _inkStatus('Pick an Ink list first.', 'err'); return; }
+      try {
+        await window._fb.setDoc(window._fb.doc(window._db, 'folio_user_settings', window._uid),
+          { inkSync: next, updatedAt: window._fb.serverTimestamp() }, { merge: true });
+        _inkSettings = next;
+        window._rlInkMode = next.mode;
+        _inkStatus(next.mode === 'auto'
+          ? 'Saved. New subscribers will be added to this Ink list once you publish / update this release.'
+          : 'Saved. Nothing moves to Ink unless you press Import.', 'ok');
+      } catch (e) {
+        _inkStatus('Could not save: ' + (e.message || 'unknown'), 'err');
+      }
+    }
+
+    async function _rlImportToInk() {
+      const btn = document.getElementById('rlInkImportBtn');
+      const sel = document.getElementById('rlInkList');
+      const activeEl = document.getElementById('rlInkActive');
+      const listId = sel && sel.value;
+      if (!listId) { _inkStatus('Pick an Ink list first.', 'err'); return; }
+      if (!_projId) { _inkStatus('Save this folio first.', 'err'); return; }
+      const asActive = !!(activeEl && activeEl.checked);
+      if (btn) btn.disabled = true;
+      try {
+        _inkStatus('Reading your Folio subscribers…');
+        const subs = await _subList(_projId);
+        if (!subs.length) { _inkStatus('No Folio subscribers to import yet.', 'err'); return; }
+        const title = String((typeof _rlCurrent !== 'undefined' && _rlCurrent && _rlCurrent.title) || (typeof S !== 'undefined' && S && S.title) || '').trim();
+        const tags = ['folio'];
+        if (title) tags.push(('folio: ' + title).slice(0, 60));
+        const F = window._fb, db = window._db;
+        const t = new Date().toISOString();
+        let created = 0, merged = 0, skipped = 0, done = 0;
+        const seen = new Set();
+        const queue = [];
+        subs.forEach(s => {
+          const email = String(s.email || '').trim().toLowerCase();
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email) || seen.has(email)) { skipped++; return; }
+          seen.add(email);
+          queue.push({ email, at: s.subscribedAt || 0 });
+        });
+        const work = async (item) => {
+          const id = await _inkSubId(item.email);
+          const ref = F.doc(db, 'authors', listId, 'subscribers', id);
+          const snap = await F.getDoc(ref);
+          if (snap.exists()) {
+            // Already on the list: keep their status (an Ink unsubscribe must stay an unsubscribe), just add the tags.
+            const have = (snap.data() || {}).tags || [];
+            const union = Array.from(new Set(have.concat(tags)));
+            if (union.length !== have.length) await F.setDoc(ref, { tags: union, updatedAt: t }, { merge: true });
+            merged++;
+          } else {
+            const subscribedAt = item.at ? new Date(item.at).toISOString() : null;
+            await F.setDoc(ref, {
+              email: item.email, name: '', tags: tags, status: asActive ? 'active' : 'pending',
+              source: 'import', origin: 'folio', createdAt: t,
+              confirmedAt: asActive ? (subscribedAt || t) : null, subscribedAt: subscribedAt,
+              lastOpenAt: null, importedAt: t, updatedAt: t, opens: 0, clicks: 0,
+            });
+            created++;
+          }
+          done++;
+          if (done % 25 === 0) _inkStatus('Importing… ' + done + ' of ' + queue.length);
+        };
+        const POOL = 8;
+        let next = 0;
+        await Promise.all(Array.from({ length: Math.min(POOL, queue.length) }, async () => {
+          while (next < queue.length) { const item = queue[next++]; await work(item); }
+        }));
+        // Ask Ink to refresh the list's reader count (best effort).
+        try {
+          const token = await window._user.getIdToken();
+          let ok = false;
+          for (const base of _INK_WORKERS) {
+            try {
+              const r = await fetch(base + '/me/recount', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token, 'X-Ink-List': listId }, body: '{}' });
+              if (r.ok) { ok = true; break; }
+            } catch (e) { /* try next */ }
+          }
+          if (!ok) console.warn('[ink] recount did not succeed — Ink will refresh the count next time it recounts');
+        } catch (e) { console.warn('[ink] recount failed', e); }
+        _inkStatus('Done: ' + created + ' added' + (asActive ? '' : ' as pending') + ', ' + merged + ' already on that list, ' + skipped + ' skipped. Open Ink to see them.', 'ok');
+      } catch (e) {
+        console.warn('[ink] import failed', e);
+        _inkStatus('Import failed: ' + (e.message || 'unknown'), 'err');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+    }
+
+    // Reader side: ask the email worker to mirror this new subscriber into the
+    // owner's chosen Ink list. The worker re-checks the owner's setting and that
+    // the subscriber really exists, so a crafted request cannot add anyone.
+    async function _subInkSync(folioId, email) {
+      if (!folioId || !email) return;
+      const url = (typeof window.FOLIO_EMAIL_WORKER_URL === 'string' && window.FOLIO_EMAIL_WORKER_URL)
+        ? window.FOLIO_EMAIL_WORKER_URL
+        : 'https://folio-email.jacobdsiler.workers.dev';
+      try {
+        await fetch(url + '/ink-sync-subscriber', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ folioId: folioId, subscriberEmail: email }),
+        });
+      } catch (e) { console.warn('[ink-sync] fetch failed:', e.message || e); }
+    }
+
+    window._rlInkInit = _rlInkInit;
+    window._rlInkToggleUi = _rlInkToggleUi;
+    window._rlInkSaveDefault = _rlInkSaveDefault;
+    window._rlImportToInk = _rlImportToInk;
+    window._subInkSync = _subInkSync;
+
     // Show/hide the notification email input row based on the toggle.
     // Called on toggle change + on modal-open pre-fill.
     function _rlToggleNotifyEmail() {
@@ -24181,6 +24407,7 @@
           if (listEl) listEl.style.display = 'none';
           if (toggleBtn) toggleBtn.textContent = 'View';
           if (typeof _rlSubscribersRefresh === 'function') _rlSubscribersRefresh();
+          if (typeof _rlInkInit === 'function') _rlInkInit();
         } catch (e) { console.warn('[subscribers] modal-open refresh:', e); }
       }, 80);
       // Signed teaser links count refresh (same timing).
@@ -24391,7 +24618,10 @@
           if (_tipEl) _tipEl.value = _rlCurrent.tipUrl || '';
           try {
             const _p = _rlCurrent.provider;
-            _rlSetProvider(_p === 'custom' || _p === 'paypal_native' ? _p : 'gumroad');
+            // Existing Gumroad releases stay on Gumroad; a release that has never chosen a vendor
+            // starts on PayPal Native (the recommended path in the serials guide).
+            _rlSetProvider(_p === 'custom' || _p === 'paypal_native' ? _p
+              : ((_p === 'gumroad' || _rlCurrent.product) ? 'gumroad' : 'paypal_native'));
           } catch (e) { }
           // Post-populate state syncs — call unconditionally (even the
           // _rlCurrent branch benefits, and the no-_rlCurrent branch
@@ -25256,6 +25486,9 @@
         // re-validates the opt-in server-side so a bad client can't email
         // an author who hasn't asked for it.
         notifyOwnerOnSubscribe: !!(document.getElementById('rlNotifyOwnerOnSubscribe') && document.getElementById('rlNotifyOwnerOnSubscribe').checked),
+        // Public flag only (no list id): tells the reader page to ask the email worker to mirror new
+        // subscribers into the owner's Ink list. The worker re-checks the owner's private setting.
+        inkAutoSync: window._rlInkMode === 'auto',
         notifyEmail: ((document.getElementById('rlNotifyEmail') && document.getElementById('rlNotifyEmail').value) || '').trim().slice(0, 200) || null,
         // Folio Shelf opt-in + shelf metadata. shelfBlurb falls back to
         // release.description at render time when shelfUseDescription
@@ -26334,6 +26567,9 @@
         if (_rl && _rl.notifyOwnerOnSubscribe && typeof _subNotifyAuthor === 'function') {
           _subNotifyAuthor(folioId, email);
         }
+        if (_rl && _rl.inkAutoSync && typeof _subInkSync === 'function') {
+          _subInkSync(folioId, email);
+        }
       } catch (e) {
         status.style.color = '#c04040';
         status.textContent = (e && e.message) || 'Subscribe failed';
@@ -26575,6 +26811,9 @@
         }
         if (_rl && _rl.notifyOwnerOnSubscribe && typeof _subNotifyAuthor === 'function') {
           _subNotifyAuthor(folioId, email);
+        }
+        if (_rl && _rl.inkAutoSync && typeof _subInkSync === 'function') {
+          _subInkSync(folioId, email);
         }
       } catch (e) {
         status.style.color = '#c04040';
@@ -27006,6 +27245,7 @@
         audioBundle: _c('rlAudioBundle'),
         disableUnpurchasedExport: _c('rlDisableUnpurchasedExport'),
         notifyOwnerOnSubscribe: _c('rlNotifyOwnerOnSubscribe'),
+        inkAutoSync: window._rlInkMode === 'auto',
         notifyEmail: _v('rlNotifyEmail'),
         subscribeHeading: _v('rlSubscribeHeading'),
         subscribeWebhookUrl: _v('rlSubscribeWebhookUrl'),
@@ -37434,6 +37674,39 @@
         </div>
         <div id="rlSubscribersList" style="display:none;margin-top:10px;max-height:240px;overflow-y:auto;font-size:11.5px;color:var(--text)"></div>
         <div id="rlSubscribersStatus" style="font-size:10.5px;color:var(--hint);margin-top:6px;min-height:14px"></div>
+
+        <!-- Send subscribers to Ink. The button always works; the default
+             decides whether new subscribers also move over on their own. -->
+        <div id="rlInkSection" style="margin-top:12px;padding-top:10px;border-top:.5px dotted var(--border-mid)">
+          <label style="display:block;font-size:11px;font-weight:500;color:var(--hint);margin:0 0 6px">
+            📮 Send subscribers to Ink
+            <span style="opacity:.6;font-weight:400">(your mailing-list app at ink.jacobsiler.com)</span>
+          </label>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+            <select id="rlInkList" aria-label="Ink list" onchange="_rlInkSaveDefault()"
+              style="flex:1;min-width:140px;font-size:11.5px;padding:6px 8px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text)">
+              <option value="">Loading your Ink lists…</option>
+            </select>
+            <button type="button" id="rlInkImportBtn" onclick="_rlImportToInk()"
+              style="font-size:10.5px;padding:6px 12px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer;white-space:nowrap">Import to Ink</button>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px">
+            <span style="font-size:11px;color:var(--hint)">When someone subscribes:</span>
+            <select id="rlInkMode" onchange="_rlInkToggleUi(); _rlInkSaveDefault()" aria-label="Default for new subscribers"
+              style="font-size:11.5px;padding:5px 8px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text)">
+              <option value="manual">Keep in Folio — I'll import when I choose</option>
+              <option value="auto">Also add to this Ink list automatically</option>
+            </select>
+          </div>
+          <label style="display:flex;gap:6px;align-items:flex-start;font-size:10.5px;color:var(--hint);margin-top:8px;line-height:1.45;cursor:pointer">
+            <input type="checkbox" id="rlInkActive" onchange="_rlInkSaveDefault()" style="margin-top:2px">
+            <span>These readers already agreed to hear from me by email. Leave this unticked and they arrive in Ink as <em>pending</em>: listed, but not mailed until they confirm.</span>
+          </label>
+          <div id="rlInkAutoNote" style="display:none;font-size:10px;color:var(--hint);margin-top:6px;line-height:1.45">
+            Automatic adds start with the next publish / update of this release. Make sure your subscribe prompt tells readers they will hear from you by email.
+          </div>
+          <div id="rlInkStatus" style="font-size:10.5px;color:var(--hint);margin-top:6px;min-height:14px;line-height:1.4"></div>
+        </div>
 
         <!-- Webhook pass-through. Author pastes a Zapier / Make / n8n /
              custom URL. Every new subscriber is POSTed there as JSON in

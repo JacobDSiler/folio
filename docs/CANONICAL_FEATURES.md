@@ -4,7 +4,7 @@
 
 **Convention.** Path + rough function name or DOM anchor lets a future refactor grep back to the right place. Rules-file line numbers are as of 2026-09-09; grep the collection name if the numbers drift.
 
-**Last audited:** 2026-09-09.
+**Last audited:** 2026-09-09. Added 2026-10-08: Send subscribers to Ink, Shelf search & filters, sidebar Tutorials chip.
 
 ---
 
@@ -241,8 +241,8 @@ UI: `app.html` release-panel help tabs `#rlHelpTabKofi/Payhip/Paypal`, `#rlAutoV
 Price + currency selector on release.
 Files: `app.html` — `#rlCurrency`, price fields in release panel
 
-### Gumroad legacy fields
-Legacy payment-link fallback.
+### Gumroad provider fields
+Gumroad auto-verify (product id + licence key), one of three release providers alongside PayPal Native and "any vendor" (redirect + unlock code). New releases default to PayPal Native; existing Gumroad releases stay on Gumroad.
 Files: `app.html` — `#rlGumroadFields`
 
 ### Promo codes / discounts
@@ -382,6 +382,10 @@ Worker: `folio-subdomain-worker.js` routes `<slug>` subdomain to imprint
 Browsable grid of published folios and series.
 Files: `C:\dev\folio\shelf.html` — `#shelfGrid`, `#shelfFeaturedGrid`, `#shelfBrowseSeriesBtn`
 Backing: `folio_projects` where `release.listOnShelf==true`
+
+### Shelf search & filters
+Title/author search, price (free / paid / serial), genre, language, tag include/exclude, series, sort and age-rating filtering on the public Shelf.
+Files: `C:\dev\folio\shelf.html` — `renderShelf()`, `#shelfSearch`, `#shelfPrice`, `#shelfGenre`, `#shelfLanguage`, `#shelfSort`, `#shelfTagsInclude`, `#shelfTagsExclude`
 
 ### Shelf moderation queue
 Admin approves/rejects listings before they appear publicly.
@@ -593,6 +597,12 @@ Files: `C:\dev\folio\policy\index.html`
 Post-publish button on the release success screen: opens Ink with a base64-encoded blob of {title, author, blurb, cover, readerUrl} for a launch newsletter.
 Files: `app.html` L26944 (`ink_folio=` URL construction), `#rlUrlBox` `_rlAnnounceInInk` handler
 Ink side: `C:\dev\ink\index.html` — `#folioHandoff` banner + receiver script
+
+### Send subscribers to Ink (button + author default)
+Release modal, Subscribers panel. "Import to Ink" button copies this folio's subscribers into a chosen Ink list (the author's own sign-in writes `authors/{listId}/subscribers` in Ink's document shape; tags `folio` + `folio: <title>`; arrive as `pending` unless the author ticks "already agreed to hear from me"; existing Ink readers keep their status). The author's default lives in `folio_user_settings/{uid}.inkSync` = `{mode: 'manual'|'auto', listId, active}`; `manual` is the default. In `auto` mode the public release carries `inkAutoSync` and the reader page calls the email worker, which re-checks the owner's setting and adds the subscriber.
+Files: `app.html` — `_rlInkInit()`, `_rlInkSaveDefault()`, `_rlImportToInk()`, `_subInkSync()`, `#rlInkSection`
+Worker: `folio-email-worker.js` — `POST /ink-sync-subscriber`
+Backing: `folio_user_settings/{uid}.inkSync`, `folio_projects/{id}.release.inkAutoSync`, Ink `authors/{listId}/subscribers/{sid}`
 
 ### Ink launcher in header
 Explicit "open in Ink" affordance in the studio.
