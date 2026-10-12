@@ -26,15 +26,15 @@
 
 ---
 
-## UX findings from the pilot (Jacob, please read before filming)
+## UX findings from the pilot (RESOLVED 2026-10-12)
 
-Three things I noticed while clicking through live that affect the script. You can either (a) fix them before Radi films, or (b) have me script around them. I've scripted *around* them for now; flag any you'd prefer to fix:
+Two findings worth noting; the toolbar one is now fixed:
 
-1. **The top-right "📦 Publish" button opens Print-On-Demand (Lulu / KDP / IngramSpark), NOT the digital Publish-to-Shelf flow.** A new user clicking the biggest, most prominent button in the toolbar expecting to publish their book will land on a modal full of print trim-size readiness checks and KDP vendor cards. The actual "release my folio online" button is the **🔖 Publish** button inside **Ship tab → Folio sub-tab**, below the sign-in prompt. In the script I route users through the Ship tab explicitly. If you want new users to intuitively hit the top-right button, rename the top-right one to **📦 Print** and move the digital publish action there, OR add a prominent "Release online" button next to it.
+1. **Toolbar now has `🔖 Release` + `📄 Print` as separate buttons.** (Was a single ambiguous `📦 Publish` that opened POD; shipped the split 2026-10-12.) The hero shot now uses the top-right `🔖 Release` as the primary click, no detour through the Ship tab required to reach the release panel.
 
-2. **The default demo content "The Midnight Garden" by Eleanor Ashford is beautiful and well-chosen.** We can leverage it in the video — "You start with a short sample so you can see how everything looks before you paste your own in." No change needed.
+2. **Default demo content "The Midnight Garden" by Eleanor Ashford** is beautiful and well-chosen. The script leverages it in the opening — *"You start with a short sample so you can see how everything looks before you paste your own in."*
 
-3. **"You're browsing as a guest"** prompt is tasteful and clear. The sign-in nudge in the Ship tab is appropriate but a *new user who hits Publish before signing in* might get a permission denial. I've put the Google sign-in step up front in the script so this never happens on camera.
+3. **"You're browsing as a guest"** prompt is tasteful. Google sign-in is step 3 in the script so new users don't hit a permission denial mid-publish.
 
 ---
 
@@ -151,18 +151,18 @@ Three things I noticed while clicking through live that affect the script. You c
 
 ---
 
-### Shot 7 — Ship tab → fill the release details (2:50 – 4:10)
+### Shot 7 — Click Release → fill the details (2:50 – 4:10)
 
-**Screen:** Click the **Ship** tab, scroll to the Release panel.
+**Screen:** Click the top-right **🔖 Release** button. Release panel opens as a centered modal.
 
 **Voiceover:**
-> *Nearly done. The Ship tab is where you release your folio to the world. Fill in a few details — the title and author pull in automatically, so you only need to add a description, choose whether it's free or paid, and if you want it on Folio's public shelf, tick that box too.*
+> *Nearly done. Hit the Release button in the top right. This is where you publish your folio to the world. Fill in a few details — the title and author pull in automatically, so you only need to add a description, choose whether it's free or paid, and if you want it on Folio's public shelf, tick that box too.*
 >
 > *Everything is unchecked by default, so your folio stays private until you decide otherwise. You can share it with just a link, or list it where readers can find it.*
 
 **Camera action:**
-1. Click **Ship** tab. (2:52)
-2. Scroll to the Release panel. (2:58)
+1. Click **🔖 Release** (top-right toolbar). (2:52)
+2. Release modal opens. (2:55)
 3. Zoom in on the Description field. Type a 2-line description. (3:10)
 4. Show the price toggle: Free / Paid. Keep Free. (3:25)
 5. Tick **"List on the Folio Shelf"**. (3:40)
@@ -178,7 +178,7 @@ Three things I noticed while clicking through live that affect the script. You c
 
 ### Shot 8 — Publish (4:10 – 4:40)
 
-**Screen:** The **🔖 Publish** button in the Ship panel.
+**Screen:** The **🔖 Publish** button inside the open Release modal.
 
 **Voiceover:**
 > *One click. Your folio is live, your share link is ready, and if you ticked the Shelf, moderators will review it within a day or two. In the meantime, your link works right now — send it to anyone.*
@@ -271,7 +271,7 @@ Provide to Radi before filming:
 
 ## Decisions for Jacob before this ships
 
-1. **Fix the top-right "📦 Publish" button first?** My current script routes through the Ship tab, which is the correct path but one extra click. If you rename the top-right to "📦 Print" and surface a "🔖 Publish online" button next to it, I'll re-cut Shot 7 and shave ~15 seconds off the video.
+1. ~~Fix the top-right "📦 Publish" button first?~~ **DONE 2026-10-12.** Toolbar now has `🔖 Release` (primary, opens release modal) + `📄 Print` (secondary, opens POD). Script updated to use the shortcut.
 
 2. **Length target.** Current estimate is ~6:15. Comfortably in your 5–7 minute window. If Radi says 5-min flat is a hard cap, I can trim Shot 9 (reader view) and Shot 10 (announce in Ink) to a quick combined 20-second montage.
 
