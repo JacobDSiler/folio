@@ -146,7 +146,11 @@ Files: `app.html` — `showChapterExportMenu()` L18355, `#writingExportBtn`
 Full-document rendered view for review or copying.
 Files: `app.html` — `openManuscriptView()` L19804
 
-### Print-on-Demand (Lulu integration)
+### Toolbar Release + Print split (2026-10-12)
+Top-right primary action is **🔖 Release** (opens the digital release panel — Ship → Folio → Release — via `openReleaseModal()`). Ghost-styled sibling **📄 Print** opens the POD modal. Previously a single "📦 Publish" button that led to POD confused new users expecting digital release.
+Files: `app.html` ~L8248-8266 (toolbar), `openReleaseModal()` L24378, `openPOD()` L20252
+
+### Print edition (POD — Lulu / KDP / IngramSpark)
 Send the finalized book to Lulu for print fulfilment.
 Files: `app.html` — `openPOD()` L20244, `openLuluModal()` L20337, `_lmBuildCoverLinks()`, `_lmSaveJob()`, `#podPanel`, `#luluModal`
 Worker: `C:\dev\folio\folio-publish-lulu-worker.js` — `POST /job`, `GET /cost`, `GET /token`, `GET /debug`

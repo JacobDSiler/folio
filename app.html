@@ -8245,9 +8245,22 @@
           style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">👁 Preview as reader</button>
         <button class="zoom-fit-btn" onclick="openFindReplace()" title="Find &amp; Replace (Ctrl+H)"
           style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">⌕ Find</button>
-        <button onclick="openPOD()" title="Print &amp; Publish"
-          style="background:rgba(201,149,106,0.3);padding:3px 10px;font-size:11px;border:1px solid rgba(201,149,106,0.5);border-radius:5px;color:#f0ebe0;cursor:pointer;font-family:var(--sans)">📦
-          Publish</button>
+        <!-- Toolbar release + print buttons (2026-10-12 split).
+             Release is the primary action — opens the digital publish
+             flow (Ship → Folio → Release panel) that most authors
+             actually want. Print is the secondary ghost-styled sibling
+             for POD vendors (Lulu / KDP / IngramSpark). Previously a
+             single "📦 Publish" button opened Print, which routed new
+             users into trim-size readiness checks when they just
+             wanted to put their book online. Keeps Jacob's muscle
+             memory of "Ship → Folio → Release" working because this
+             shortcut lands on the same panel. -->
+        <button onclick="openReleaseModal()" title="Release — publish online, get a share link, optionally list on the Shelf"
+          style="background:rgba(201,149,106,0.3);padding:3px 10px;font-size:11px;border:1px solid rgba(201,149,106,0.5);border-radius:5px;color:#f0ebe0;cursor:pointer;font-family:var(--sans)">🔖
+          Release</button>
+        <button onclick="openPOD()" title="Print edition — order paperbacks via Lulu, KDP, or IngramSpark"
+          class="zoom-fit-btn"
+          style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">📄 Print</button>
       </div>
       <div class="preview-scroller" id="previewScroller">
         <div class="preview-wrap" id="bookPreview"></div>
@@ -20248,7 +20261,7 @@
     let _frMatches = [];  // [{chId, field:'content'|'title', start, end}]
     let _frCurrent = -1;
 
-    // ── Print & Publish ──
+    // ── Print edition (POD vendors) ──
     async function openPOD() {
       const pages = document.querySelectorAll('.book-page').length;
       const title = getV('bookTitle'); const author = getV('bookAuthor');
@@ -36474,7 +36487,7 @@
     <div
       style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:560px;width:94%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:26px 28px 0;font-family:var(--sans);color:var(--text)">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-        <h3 id="podTitle" style="font-size:15px;font-weight:600;margin:0;letter-spacing:-0.01em">📦 Print &amp; Publish
+        <h3 id="podTitle" style="font-size:15px;font-weight:600;margin:0;letter-spacing:-0.01em">📄 Print edition
         </h3>
         <button onclick="closePOD()" aria-label="Close"
           style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint);padding:2px 6px;border-radius:4px">×</button>
