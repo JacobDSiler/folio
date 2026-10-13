@@ -7546,8 +7546,13 @@
                  token, Payhip signing secret) live here so the release
                  modal can be a simple vendor picker without repeating
                  credential entry per folio. -->
+            <!-- UI audit T3-7 2026-10-13: hidden by default. Revealed
+                 by _vcToggleVisibility() when the folio list contains
+                 at least one paid folio. Free users with nothing paid
+                 would otherwise open this and bounce off an empty
+                 credentials panel. -->
             <button class="btn-sm btn-ghost" id="btnVendorConnections" onclick="_vcOpen()"
-              style="width:100%;margin-top:5px;padding:6px 8px;font-size:11px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--bg);color:var(--muted);cursor:pointer;font-family:var(--sans);display:flex;align-items:center;justify-content:center;gap:6px"
+              style="width:100%;margin-top:5px;padding:6px 8px;font-size:11px;border-radius:6px;border:.5px solid var(--border-mid);background:var(--bg);color:var(--muted);cursor:pointer;font-family:var(--sans);display:none;align-items:center;justify-content:center;gap:6px"
               title="Configure your PayPal / Ko-fi / Payhip credentials once — they apply to every paid folio">
               <span style="font-size:12px">🔌</span>
               <span>Vendor connections</span>
@@ -8291,6 +8296,58 @@
           style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">👁 Preview as reader</button>
         <button class="zoom-fit-btn" onclick="openFindReplace()" title="Find &amp; Replace (Ctrl+H)"
           style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">⌕ Find</button>
+
+        <!-- Unified Help menu (UI audit T2-15 + T2-8 2026-10-13).
+             Replaces three scattered entry points (Help+FAQ inside
+             the collapsible Shortcuts panel, the Tutorials chip at
+             the bottom of the sidebar, the Guided Tour launcher
+             buried inside the Write-tab sidebar region) with a
+             single top-level toolbar button reachable from EVERY
+             tab. The sidebar entries are kept for muscle memory;
+             this menu is the always-visible home. -->
+        <div style="position:relative;display:inline-block" id="helpMenuWrap">
+          <button id="helpMenuBtn" class="zoom-fit-btn"
+            onclick="(function(e){var m=document.getElementById('helpMenu');if(!m)return;var open=m.style.display==='block';m.style.display=open?'none':'block';e.stopPropagation();})(event)"
+            title="Tutorials, guided tour, and help"
+            aria-haspopup="true" aria-expanded="false"
+            style="background:rgba(255,255,255,0.12);padding:3px 10px;font-size:11px">❓ Help</button>
+          <div id="helpMenu" role="menu" aria-label="Help menu"
+            style="display:none;position:absolute;top:100%;right:0;margin-top:4px;min-width:220px;background:var(--surface,#fffcf5);color:var(--text,#1a1611);border:.5px solid var(--border-mid,rgba(0,0,0,0.14));border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,0.14);z-index:1000;overflow:hidden;font-family:var(--sans)">
+            <a href="/help/tutorials/" target="_blank" rel="noopener"
+              onclick="document.getElementById('helpMenu').style.display='none'"
+              style="display:flex;align-items:center;gap:8px;padding:10px 12px;font-size:12.5px;color:var(--text);text-decoration:none;border-bottom:.5px solid var(--border,rgba(0,0,0,0.09))">
+              <span style="font-size:14px">🎬</span><span>Watch tutorials</span>
+            </a>
+            <button type="button"
+              onclick="document.getElementById('helpMenu').style.display='none';if(typeof _tourStart==='function'){_tourStart();}else{alert('Tour unavailable right now.');}"
+              style="display:flex;align-items:center;gap:8px;padding:10px 12px;font-size:12.5px;color:var(--text);background:none;border:0;border-bottom:.5px solid var(--border,rgba(0,0,0,0.09));width:100%;text-align:left;cursor:pointer;font-family:inherit">
+              <span style="font-size:14px">🧭</span><span>Start guided tour</span>
+            </button>
+            <a href="/help/" target="_blank" rel="noopener"
+              onclick="document.getElementById('helpMenu').style.display='none'"
+              style="display:flex;align-items:center;gap:8px;padding:10px 12px;font-size:12.5px;color:var(--text);text-decoration:none">
+              <span style="font-size:14px">📖</span><span>Help + FAQ</span>
+            </a>
+          </div>
+        </div>
+        <script>
+          /* Close the Help menu on any outside click or Escape press. */
+          (function(){
+            document.addEventListener('click', function(e){
+              var m = document.getElementById('helpMenu');
+              var wrap = document.getElementById('helpMenuWrap');
+              if (m && m.style.display === 'block' && wrap && !wrap.contains(e.target)) {
+                m.style.display = 'none';
+              }
+            });
+            document.addEventListener('keydown', function(e){
+              if (e.key === 'Escape') {
+                var m = document.getElementById('helpMenu');
+                if (m) m.style.display = 'none';
+              }
+            });
+          })();
+        </script>
         <!-- Toolbar release + print buttons (2026-10-12 split).
              Release is the primary action — opens the digital publish
              flow (Ship → Folio → Release panel) that most authors
@@ -11383,6 +11440,24 @@
       }
     }
 
+    // UI audit T3-7 2026-10-13: reveal the "Vendor connections"
+    // sidebar button only when the author owns at least one paid folio.
+    // Checks both top-level priceMode and release.priceMode because
+    // the folio-list payload shape has varied across refactors.
+    function _vcToggleVisibility(list) {
+      try {
+        const btn = document.getElementById('btnVendorConnections');
+        if (!btn) return;
+        const hasPaid = Array.isArray(list) && list.some(function(p){
+          if (!p) return false;
+          if (p.priceMode === 'paid') return true;
+          if (p.release && p.release.priceMode === 'paid') return true;
+          return false;
+        });
+        btn.style.display = hasPaid ? 'flex' : 'none';
+      } catch (_) {}
+    }
+
     function _renderFolioList(list) {
       _lastFolioList = list;
       const el = document.getElementById('projList');
@@ -11391,6 +11466,9 @@
       // localStorage / cloud load failed earlier.
       if (!Array.isArray(_shelves)) _shelves = [];
       if (!Array.isArray(list)) list = [];
+      // Reveal or hide the Vendor-connections sidebar entry based on
+      // whether this author has any paid folios yet.
+      _vcToggleVisibility(list);
       if (!list.length) {
         el.innerHTML = '<p class="small-note">No saved projects yet.</p>'
           + '<button class="shelf-add-btn" onclick="_createShelf()">+ New shelf</button>';
@@ -36543,7 +36621,7 @@
   <div id="podPanel" role="dialog" aria-modal="true" aria-labelledby="podTitle"
     style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:250;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);align-items:center;justify-content:center">
     <div
-      style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:560px;width:94%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:26px 28px 0;font-family:var(--sans);color:var(--text)">
+      style="background:var(--surface);border:.5px solid var(--border-mid);border-radius:14px;max-width:560px;width:94%;max-height:92vh;overflow-y:auto;box-shadow:0 8px 40px rgba(0,0,0,0.5);padding:26px 28px;font-family:var(--sans);color:var(--text)">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
         <h3 id="podTitle" style="font-size:15px;font-weight:600;margin:0;letter-spacing:-0.01em">📄 Print edition
         </h3>
@@ -36727,6 +36805,29 @@
       <input type="text" id="rlAuthorField" placeholder="Author name…"
         style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--bg);color:var(--text);outline:none">
 
+      <!-- Access picker — moved above Description / URL-slug (UI audit
+           T2-12 2026-10-13) so the decision that drives which
+           downstream sections appear (paid-only, shelf-only, serial)
+           is made BEFORE the author scrolls past fields that are
+           either required or hidden depending on the choice.
+           Reveal logic uses display:none/block on wrappers, so DOM
+           position doesn't affect behaviour — only reading order. -->
+      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:14px 0 6px">Access</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+        <button type="button" id="rlModeFree" onclick="_rlSetMode('free')" class="rl-mode"
+          style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">🌐
+          Public &amp; free</button>
+        <button type="button" id="rlModePaid" onclick="_rlSetMode('paid')" class="rl-mode"
+          style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">💳
+          Paid</button>
+        <button type="button" id="rlModePriv" onclick="_rlSetMode('private')" class="rl-mode"
+          style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">🔒
+          Private link</button>
+      </div>
+      <p id="rlModeHint" style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:4px 0 12px">
+        Anyone with the link can read. No account required beyond Folio's auto sign-in.
+      </p>
+
       <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:12px 0 4px">Short
         description <span style="opacity:.6;font-weight:400">(optional)</span></label>
       <textarea id="rlDescField" rows="3" placeholder="A one-paragraph blurb readers see before they open the book."
@@ -36765,22 +36866,6 @@
       <div id="rlSlugStatus" style="font-size:10.5px;color:var(--hint);margin-top:4px;line-height:1.5">
         Your folio gets a nice auto-generated short link above. Want to pick your own? <a href="/press/" style="color:var(--accent-ui);text-decoration:none;border-bottom:.5px dotted currentColor">Customize this on Indie or Imprint →</a>
       </div>
-
-      <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:14px 0 6px">Access</label>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
-        <button type="button" id="rlModeFree" onclick="_rlSetMode('free')" class="rl-mode"
-          style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">🌐
-          Public &amp; free</button>
-        <button type="button" id="rlModePaid" onclick="_rlSetMode('paid')" class="rl-mode"
-          style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">💳
-          Paid</button>
-        <button type="button" id="rlModePriv" onclick="_rlSetMode('private')" class="rl-mode"
-          style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">🔒
-          Private link</button>
-      </div>
-      <p id="rlModeHint" style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:4px 0 12px">
-        Anyone with the link can read. No account required beyond Folio's auto sign-in.
-      </p>
 
       <!-- Paid-mode fields, shown only when priceMode === 'paid' -->
       <div id="rlPaidFields"
