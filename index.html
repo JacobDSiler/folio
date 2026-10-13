@@ -653,7 +653,7 @@ main,header,footer,section{position:relative;z-index:1}
 .tier-foot{margin-top:auto;font-family:var(--ui);font-size:12px;color:var(--hint);line-height:1.55}
 
 /* ── Comparison ──────────────────────────────── */
-.compare{background:var(--surface);border:.5px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:var(--shadow-1)}
+.compare{background:var(--surface);border:.5px solid var(--border);border-radius:14px;overflow-x:auto;box-shadow:var(--shadow-1)}
 .compare table{width:100%;border-collapse:collapse;font-family:var(--ui);font-size:14px}
 .compare th,.compare td{padding:16px 18px;text-align:left;border-bottom:.5px solid var(--rule);vertical-align:middle}
 .compare thead th{font-family:var(--serif);font-weight:700;font-size:18px;color:var(--ink);letter-spacing:-.01em;background:var(--surface-2)}
@@ -792,7 +792,7 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
     </div>
     <div class="nav-spacer"></div>
     <div class="nav-cta">
-      <a class="btn ghost tiny" href="app.html">Sign in</a>
+      <a class="btn ghost tiny" href="app.html?signin=1">Sign in</a>
       <a class="btn primary tiny" href="app.html">Start writing — free</a>
     </div>
   </div>
@@ -822,7 +822,7 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
     <div id="liveStats" class="hero-stats" style="display:none">
       <div class="stat">
         <span class="stat-n" id="statFolios">—</span>
-        <span class="stat-lbl">folios on the Shelf</span>
+        <span class="stat-lbl">books on the Shelf</span>
       </div>
       <div class="stat">
         <span class="stat-n" id="statAuthors">—</span>
@@ -943,16 +943,16 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
       <ul><li>Markdown</li><li>Autosave</li><li>Collaborate</li><li>Offline</li></ul>
     </div>
     <div class="fcard">
-      <div class="glyph">F</div>
+      <div class="glyph">D</div>
       <div class="num">ii.</div>
-      <h3>Format</h3>
+      <h3>Design</h3>
       <p>Real galley-grade typesetting in the browser. Drop caps, ornaments, ligatures, scene breaks — controlled by toggles, not InDesign degrees.</p>
       <ul><li>EPUB</li><li>PDF</li><li>Print-ready</li><li>Trim sizes</li></ul>
     </div>
     <div class="fcard">
-      <div class="glyph">A</div>
+      <div class="glyph">P</div>
       <div class="num">iii.</div>
-      <h3>Narrate</h3>
+      <h3>Produce</h3>
       <p>Generate an audiobook from your chapters with Google or ElevenLabs voices — including your own cloned narration. Export as a chaptered MP3.</p>
       <ul><li>40+ voices</li><li>Voice clone</li><li>Chapter marks</li><li>ID3 tags</li></ul>
     </div>
@@ -976,9 +976,9 @@ window.__TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
     <p class="lede">No file conversions, no plugin chains, no "export, open, re-export." The same document carries through from first sentence to ship.</p>
   </div>
   <div class="steps">
-    <div class="step"><div class="n">01</div><h4>Draft</h4><p>Start typing. Folio autosaves locally and syncs to your account the moment you sign in.</p></div>
-    <div class="step"><div class="n">02</div><h4>Set type</h4><p>Choose a typeface, trim size, and ornament style. Folio renders a galley-grade preview as you write.</p></div>
-    <div class="step"><div class="n">03</div><h4>Narrate</h4><p>Pick a voice — or upload thirty minutes of your own. One click turns the manuscript into a chaptered MP3.</p></div>
+    <div class="step"><div class="n">01</div><h4>Write</h4><p>Start typing. Folio autosaves locally and syncs to your account the moment you sign in.</p></div>
+    <div class="step"><div class="n">02</div><h4>Design</h4><p>Choose a typeface, trim size, and ornament style. Folio renders a galley-grade preview as you write.</p></div>
+    <div class="step"><div class="n">03</div><h4>Produce</h4><p>Pick a voice — or upload thirty minutes of your own. One click turns the manuscript into a chaptered MP3.</p></div>
     <div class="step"><div class="n">04</div><h4>Release</h4><p>Send free copies anywhere, sell through PayPal, Ko-fi, Payhip or Gumroad, or release weekly chapters with built-in email blasts.</p></div>
   </div>
 </section>

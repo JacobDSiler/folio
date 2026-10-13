@@ -582,19 +582,11 @@ function renderHeader(authorName, tipUrl, count){
   const shelfLink=document.createElement('a');
   shelfLink.href='/shelf';shelfLink.textContent='📚 Browse the Shelf';
   actions.appendChild(shelfLink);
-  // Owner-only Customize button — links to the editor with ?customize=1
-  // which auto-opens the imprint theme modal. Indie+ subscribers get the
-  // real editor; free-tier authors get the upgrade pitch inside the modal.
-  const urlUid = (typeof getUidParam === 'function') ? getUidParam() : '';
-  const isOwner = !!(window._myUid && urlUid && window._myUid === urlUid);
-  if (isOwner) {
-    const customizeLink = document.createElement('a');
-    customizeLink.href = '/app.html?customize=1';
-    customizeLink.className = 'customize';
-    customizeLink.style.cssText = 'background:var(--accent);color:#fff;border:1px solid var(--accent);padding:8px 14px;border-radius:8px;font-size:13px;font-weight:500;text-decoration:none';
-    customizeLink.textContent = '🎨 Customize my imprint';
-    actions.appendChild(customizeLink);
-  }
+  // UI audit T3-8 2026-10-13: removed the duplicate header-area
+  // "Customize imprint" owner CTA. The floating #customizeToggle pill
+  // at the bottom-right of the imprint page is the single entry
+  // point for owners now, which avoids two prominent buttons for the
+  // same action pulling the owner's eye in two directions.
   try{document.title=(authorName||'Author')+' on Folio';}catch(e){}
 }
 
@@ -1124,7 +1116,7 @@ boot();
   #customizeToggle:hover{filter:brightness(.94)}
 </style>
 
-<button id="customizeToggle" onclick="_cdOpen()">🎨 Customize this imprint</button>
+<button id="customizeToggle" onclick="_cdOpen()">🎨 Customize imprint</button>
 
 <div id="customizeDrawer" role="dialog" aria-label="Customize imprint">
   <div class="cd-hdr">

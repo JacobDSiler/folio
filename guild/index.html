@@ -119,7 +119,7 @@
   <div class="tabs">
     <button class="tab active" data-tab="directory" onclick="setTab('directory')">Directory <span class="count" id="cDir">—</span></button>
     <button class="tab" data-tab="swaps" onclick="setTab('swaps')">Swap board <span class="count" id="cSwaps">—</span></button>
-    <button class="tab" data-tab="me" onclick="setTab('me')">My listing</button>
+    <button class="tab" data-tab="me" onclick="setTab('me')">My listing <span id="meLiveDot" title="Your listing is live in the directory" style="display:none;width:7px;height:7px;background:var(--accent-ui,#065f46);border-radius:50%;margin-left:4px;vertical-align:middle"></span></button>
   </div>
 
   <!-- ═══ DIRECTORY ═══ -->
@@ -128,11 +128,12 @@
       <input type="search" id="dirSearch" placeholder="Search by name…" oninput="renderDirectory()"/>
       <select id="dirGenre" onchange="renderDirectory()">
         <option value="">All genres</option>
+        <!-- UI audit T2-5 2026-10-13: aligned with Shelf + release-modal taxonomy. -->
         <option>Literary fiction</option><option>Fantasy</option><option>Science fiction</option>
-        <option>Romance</option><option>Mystery / Thriller</option><option>Horror</option>
+        <option>Romance</option><option>Mystery / Crime</option><option>Thriller / Suspense</option><option>Horror</option>
         <option>Historical fiction</option><option>Young adult</option><option>Children's</option>
         <option>Memoir / Biography</option><option>Self-help</option><option>Business</option>
-        <option>Poetry</option><option>Essays</option><option>Other</option>
+        <option>Educational / How-to</option><option>Poetry</option><option>Essays</option><option>Other</option>
       </select>
       <select id="dirSize" onchange="renderDirectory()">
         <option value="">Any list size</option>
@@ -170,10 +171,10 @@
       <select id="swapsGenre" onchange="renderSwaps()">
         <option value="">All genres</option>
         <option>Literary fiction</option><option>Fantasy</option><option>Science fiction</option>
-        <option>Romance</option><option>Mystery / Thriller</option><option>Horror</option>
+        <option>Romance</option><option>Mystery / Crime</option><option>Thriller / Suspense</option><option>Horror</option>
         <option>Historical fiction</option><option>Young adult</option><option>Children's</option>
         <option>Memoir / Biography</option><option>Self-help</option><option>Business</option>
-        <option>Poetry</option><option>Essays</option><option>Other</option>
+        <option>Educational / How-to</option><option>Poetry</option><option>Essays</option><option>Other</option>
       </select>
       <button class="btn primary" onclick="openNewSwap()">+ New post</button>
     </div>
@@ -198,12 +199,14 @@
         <div class="row row-grid">
           <div>
             <label for="mGenre">Primary genre</label>
-            <select id="mGenre" style="width:100%;padding:8px 12px;font-size:13px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit">
+            <select id="mGenre" required style="width:100%;padding:8px 12px;font-size:13px;border:.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit">
+              <!-- UI audit T2-6 2026-10-13: placeholder prepended so saves can't silently mis-tag; required attr blocks empty save. -->
+              <option value="" disabled selected>Pick a genre…</option>
               <option>Literary fiction</option><option>Fantasy</option><option>Science fiction</option>
-              <option>Romance</option><option>Mystery / Thriller</option><option>Horror</option>
+              <option>Romance</option><option>Mystery / Crime</option><option>Thriller / Suspense</option><option>Horror</option>
               <option>Historical fiction</option><option>Young adult</option><option>Children's</option>
               <option>Memoir / Biography</option><option>Self-help</option><option>Business</option>
-              <option>Poetry</option><option>Essays</option><option>Other</option>
+              <option>Educational / How-to</option><option>Poetry</option><option>Essays</option><option>Other</option>
             </select>
           </div>
           <div>
@@ -322,6 +325,16 @@ const auth = getAuth(app);
 const db = getFirestore(app);
 
 const state = { user:null, tab:'directory', directory:[], swaps:[], myListing:null, myFolios:[] };
+
+// UI audit T3-9 2026-10-13: tiny helper to toggle the "My listing"
+// tab's live-badge dot based on whether state.myListing is populated
+// AND the listing is actively visible (status !== 'hidden').
+function _updateMeLiveDot(){
+  const dot = document.getElementById('meLiveDot');
+  if (!dot) return;
+  const live = !!(state.myListing && state.myListing.status !== 'hidden');
+  dot.style.display = live ? 'inline-block' : 'none';
+}
 
 /* ── Mailing-tool registry ────────────────────────────────────────
    Each author picks one for their listing. Ink is Folio's own tool
@@ -595,11 +608,16 @@ window.submitReply = async function(ev, swapId){
 
 // ═══ My listing ═══
 async function loadMyListing(){
-  if (!state.user){ state.myListing = null; state.myFolios = []; return; }
+  if (!state.user){ state.myListing = null; state.myFolios = []; _updateMeLiveDot(); return; }
   try {
     const snap = await getDoc(doc(db,'folio_guild_directory',state.user.uid));
     state.myListing = snap.exists() ? snap.data() : null;
   } catch (_) { state.myListing = null; }
+  // UI audit T3-9 2026-10-13: badge the "My listing" tab with a live
+  // green dot when the author has an active directory listing. Lets a
+  // returning user see at a glance whether they're in the directory
+  // without opening the tab.
+  _updateMeLiveDot();
   // Pull the user's published folios so we can offer them as a
   // "show on my card" picker. Query is uid-scoped, so it matches the
   // owner branch of the folio_projects LIST rule (see firestore.rules).
@@ -756,6 +774,7 @@ window.deleteMe = async function(){
   try {
     await deleteDoc(doc(db,'folio_guild_directory',state.user.uid));
     state.myListing = null;
+    _updateMeLiveDot();
     await loadDirectory();
     renderMe();
   } catch (e) { alert(e.message); }
