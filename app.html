@@ -6439,7 +6439,7 @@
              localStorage `folio_preset`. -->
         <select id="sidebarPresetPicker" class="sidebar-preset-picker"
                 onchange="window._presetSet && window._presetSet(this.value)"
-                title="Workspace layout — see docs/MODULAR_UI_PLAN.md">
+                title="Workspace layout — Full, Write mode, or Focus (distraction-free)">
           <option value="full">Full workspace</option>
           <option value="write">Write mode</option>
           <option value="focus">Focus (distraction-free)</option>
@@ -6480,7 +6480,7 @@
              for their /imprint/ page. Free-tier authors get a "Try Indie"
              CTA instead. Rendered but hidden by default; auth state +
              subscription state determine which UI shows. -->
-        <button id="imprintCustomizeBtn" type="button" onclick="(function(){ const u=(window._uid||(window._user&&window._user.uid)||''); if(u){ window.open('/imprint/?uid='+encodeURIComponent(u)+'&customize=1', '_blank'); } else if(typeof _openImprintCustomize==='function'){ _openImprintCustomize(); } else { alert('Sign in first, then click Customize again.'); } })()"
+        <button id="imprintCustomizeBtn" type="button" onclick="(function(){ const u=(window._uid||(window._user&&window._user.uid)||''); if(u){ window.location.href='/imprint/?uid='+encodeURIComponent(u)+'&customize=1'; } else if(typeof _openImprintCustomize==='function'){ _openImprintCustomize(); } else if(typeof _requireSignIn==='function'){ _requireSignIn('customize your imprint'); } else { const el=document.getElementById('authSignInBtn'); if(el){ el.click(); } } })()"
           style="display:flex;align-items:center;gap:6px;margin-top:8px;padding:7px 10px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:6px;color:var(--text);text-decoration:none;font-size:12px;font-weight:500;transition:background .15s ease,border-color .15s ease;cursor:pointer;font-family:inherit;width:100%"
           onmouseover="this.style.background='var(--surface)';this.style.borderColor='var(--accent)'"
           onmouseout="this.style.background='var(--bg)';this.style.borderColor='var(--border-mid)'">
@@ -6856,7 +6856,7 @@
       <div id="shipSubtabs"
            style="display:none;padding:0 12px;gap:6px;background:var(--surface);border-bottom:.5px solid var(--border);flex-wrap:wrap">
         <button class="tab-btn ship-subtab" onclick="switchTab('folio',this)"
-                style="font-size:11.5px;padding:4px 10px" data-ship-tab="folio">☁ Folio</button>
+                style="font-size:11.5px;padding:4px 10px" data-ship-tab="folio" title="Release settings, custom URL, visibility, ownership">⚙ Settings</button>
         <button class="tab-btn ship-subtab" onclick="switchTab('metrics',this)"
                 style="font-size:11.5px;padding:4px 10px" data-ship-tab="metrics" title="How this folio is performing">📊 Metrics</button>
         <button class="tab-btn ship-subtab" onclick="switchTab('affiliates',this)"
@@ -7496,8 +7496,10 @@
               <input type="text" id="projName" placeholder="Folio name…" maxlength="80" style="flex:1"
                 oninput="if(typeof _updateInviteUI==='function')_updateInviteUI();_scheduleAutoSave()">
               <button class="btn-sm btn-primary" id="btnSaveProj" onclick="saveFolio()" disabled
+                title="Name your folio above and this button lights up. Folio also autosaves to your browser."
                 style="white-space:nowrap">Save</button>
             </div>
+            <p id="btnSaveProjHint" style="font-size:10.5px;color:var(--hint);margin:-2px 0 6px;line-height:1.4">Name your folio above and the Save button lights up. Folio autosaves as you type.</p>
             <div id="projSavingRow"
               style="display:none;align-items:center;gap:7px;font-size:10.5px;color:var(--hint);margin-bottom:6px">
               <div
@@ -7950,13 +7952,18 @@
              (b) Non-subscriber: Support Folio (Ko-fi) + Try Folio Press
            Updated on 'press-sub-updated' custom event. ═══ -->
       <div id="sidebarCtaBar" style="padding:8px 1.25rem;background:var(--surface);border-top:.5px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex-shrink:0">
-        <!-- New here? Short video tutorials + the guided help library. -->
+        <!-- New here? Short video tutorials + the guided help library.
+             Promoted 2026-10-13 (UI audit T1-9) from a muted ghost chip
+             to the first-rank filled pill in the sidebar CTA bar — this
+             is the single highest-value link for a brand-new author and
+             should NOT compete with Guild/Ink/Support chips for 11px of
+             grey text. -->
         <a href="/help/tutorials/" target="_blank" rel="noopener"
           title="Short how-to videos: your first folio, publishing, serials, imprint, teasers"
-          style="display:inline-flex;align-items:center;gap:5px;padding:5px 10px;background:none;border:.5px solid var(--border-mid);border-radius:20px;color:var(--muted);text-decoration:none;font-size:11px;font-family:inherit;transition:border-color .15s,color .15s"
-          onmouseover="this.style.borderColor='var(--accent-ui)';this.style.color='var(--accent-ui)'"
-          onmouseout="this.style.borderColor='var(--border-mid)';this.style.color='var(--muted)'">
-          <span>🎬</span><span>New here? Tutorials</span>
+          style="display:inline-flex;align-items:center;gap:5px;padding:6px 12px;background:var(--accent-ui,#065f46);border:.5px solid var(--accent-ui,#065f46);border-radius:20px;color:#fff;text-decoration:none;font-size:11.5px;font-weight:500;font-family:inherit;transition:background .15s,border-color .15s"
+          onmouseover="this.style.background='#054a37';this.style.borderColor='#054a37'"
+          onmouseout="this.style.background='var(--accent-ui,#065f46)';this.style.borderColor='var(--accent-ui,#065f46)'">
+          <span>🎬</span><span>New here? Watch tutorials</span>
         </a>
         <!-- The Guild — always visible small chip; open in new tab so
              authors don't lose their editor state. -->
@@ -36695,14 +36702,14 @@
       <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:14px 0 6px">Access</label>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px">
         <button type="button" id="rlModeFree" onclick="_rlSetMode('free')" class="rl-mode"
-          style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Public
-          &amp; free</button>
+          style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">🌐
+          Public &amp; free</button>
         <button type="button" id="rlModePaid" onclick="_rlSetMode('paid')" class="rl-mode"
           style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">💳
           Paid</button>
         <button type="button" id="rlModePriv" onclick="_rlSetMode('private')" class="rl-mode"
-          style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">Private
-          link</button>
+          style="flex:1;min-width:120px;padding:9px;border-radius:8px;border:1px solid var(--border-mid);background:var(--bg);color:var(--text);font-family:var(--sans);font-size:12px;cursor:pointer">🔒
+          Private link</button>
       </div>
       <p id="rlModeHint" style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:4px 0 12px">
         Anyone with the link can read. No account required beyond Folio's auto sign-in.
@@ -36743,6 +36750,30 @@
         <p id="rlProvHint" style="font-size:10.5px;color:var(--hint);line-height:1.5;margin:0 0 10px">
           Ko-fi, Payhip, PayPal, Stripe, Lemon Squeezy — any vendor with a checkout URL. Add auto-delivery below and Folio emails the unlock link on your behalf.
         </p>
+
+        <!-- Price + Currency: moved above vendor-specific sub-fields
+             (2026-10-13 UI audit T1-4) so authors answer "what am I
+             selling and for how much?" BEFORE touching webhook wiring.
+             Universal across all vendors. -->
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <div style="flex:1">
+            <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Price</label>
+            <input type="number" id="rlPrice" min="0" step="0.01" placeholder="9.99"
+              style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+          </div>
+          <div style="width:100px">
+            <label
+              style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Currency</label>
+            <select id="rlCurrency"
+              style="width:100%;font-size:13px;padding:7px 8px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
+              <option value="USD">USD</option>
+              <option value="EUR">EUR</option>
+              <option value="GBP">GBP</option>
+              <option value="CAD">CAD</option>
+              <option value="AUD">AUD</option>
+            </select>
+          </div>
+        </div>
 
         <!-- PayPal Native — credentials live in Vendor Connections.
              This section is now a compact status line + a nudge to
@@ -36973,26 +37004,6 @@
             Tweak the lock-card copy to match your wording — "This chapter is part of the pre-launch reward,"
             "Back the project for instant access," etc. Each placeholder shows the default; leave blank to keep it.
           </p>
-        </div>
-
-        <div style="display:flex;gap:8px;margin-bottom:8px">
-          <div style="flex:1">
-            <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Price</label>
-            <input type="number" id="rlPrice" min="0" step="0.01" placeholder="9.99"
-              style="width:100%;font-size:13px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
-          </div>
-          <div style="width:100px">
-            <label
-              style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:0 0 4px">Currency</label>
-            <select id="rlCurrency"
-              style="width:100%;font-size:13px;padding:7px 8px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--surface);color:var(--text);outline:none">
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-              <option value="GBP">GBP</option>
-              <option value="CAD">CAD</option>
-              <option value="AUD">AUD</option>
-            </select>
-          </div>
         </div>
 
         <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:8px 0 4px">Free preview
@@ -37778,7 +37789,7 @@
                   z-index:2">
         <button type="button" id="rlPublishBtn" onclick="_rlPublish()"
           style="flex:1;font-size:13px;font-weight:500;padding:10px 14px;border-radius:8px;border:none;background:#065f46;color:#fff;cursor:pointer">🔖
-          Publish</button>
+          Release</button>
         <!-- Export release settings for support — copies a redacted
              JSON snapshot to clipboard so authors can paste it into
              help requests without needing to screenshot the whole
@@ -37788,7 +37799,7 @@
           title="Copy the current release settings to clipboard as JSON — useful for pasting into a support request."
           style="font-size:11.5px;padding:10px 12px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--muted);cursor:pointer">🩺 Export for support</button>
         <button type="button" id="rlUnpublishBtn" onclick="_rlUnpublish()"
-          style="display:none;font-size:12px;padding:10px 12px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">Unpublish</button>
+          style="display:none;font-size:12px;padding:10px 12px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">Take down</button>
       </div>
     </div>
   </div>
