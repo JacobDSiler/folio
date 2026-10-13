@@ -6428,8 +6428,8 @@
     <aside class="sidebar">
       <div class="sidebar-header">
         <h1><span>📖</span> Folio</h1>
-        <p>Format · Export · Collaborate — PDF · EPUB · MD · and more</p>
-        <button id="darkModeBtn" onclick="toggleDarkMode()" title="Toggle dark mode"
+        <p>Write · Design · Narrate · Release — PDF · EPUB · MP3 · and more</p>
+        <button id="darkModeBtn" onclick="toggleDarkMode()" title="Switch to dark mode (☀ / ☽) — easier on the eyes at night" aria-label="Toggle dark mode"
           style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 5px;color:var(--hint);border-radius:4px;transition:color .15s"
           onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--hint)'">☽</button>
         <!-- Workspace preset picker (Phase 1 of MODULAR_UI_PLAN.md).
@@ -6505,14 +6505,15 @@
              discover it here; some become KDP low-content sellers who
              then return to Folio for their novels. Future: Imprint-tier
              Papermint perks (AI covers, bulk export, premium templates). -->
+        <!-- Papermint demoted 2026-10-13 (UI audit T2-4) from a top-level
+             sidebar tile to a quiet text link so first-time users don't
+             mistake a companion tool for a core feature. Discovery
+             preserved; visual weight reduced to the same tier as the
+             footer link cluster. -->
         <a id="papermintLink" href="https://jacobdsiler.github.io/PaperMint/" target="_blank" rel="noopener"
           title="Companion tool: create blank journals, notebooks, and low-content books ready for KDP"
-          style="display:flex;align-items:center;gap:6px;margin-top:8px;padding:7px 10px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:6px;color:var(--text);text-decoration:none;font-size:12px;font-weight:500;transition:background .15s ease,border-color .15s ease"
-          onmouseover="this.style.background='var(--surface)';this.style.borderColor='var(--accent)'"
-          onmouseout="this.style.background='var(--bg)';this.style.borderColor='var(--border-mid)'">
-          <span style="font-size:14px">📔</span>
-          <span style="flex:1;text-align:left">Blank journals · Papermint</span>
-          <span style="color:var(--hint);font-size:10px">↗</span>
+          style="display:inline-block;margin-top:6px;padding:4px 10px;color:var(--hint);text-decoration:none;font-size:10.5px;font-weight:400;letter-spacing:.02em">
+          Also: blank-journal maker (Papermint) ↗
         </a>
         <!-- Help + FAQ link. Wired in after Thomas's first-time-user
              feedback showed how much confusion could be solved by a
@@ -6545,7 +6546,11 @@
           <span style="font-size:14px">💬</span>
           <span style="flex:1;text-align:left;line-height:1.35">
             <span style="display:block">Review Folio</span>
-            <span style="display:block;color:var(--accent);font-size:10px;font-weight:600;margin-top:1px">Earn a free 24h Featured Boost</span>
+            <!-- UI audit T2-13 2026-10-13: softened the Boost line
+                 (hint-coloured, not bold) and relabelled as a thank-you
+                 rather than earnings copy so the review doesn't read
+                 as pay-for-stars. -->
+            <span style="display:block;color:var(--hint);font-size:10px;font-weight:400;margin-top:1px">Thanks: a free 24h Featured Boost</span>
           </span>
           <span style="color:var(--hint);font-size:10px">→</span>
         </button>
@@ -6847,7 +6852,7 @@
         <button class="tab-btn active" onclick="switchTab('manuscript',this)" data-group="write">✍ Write</button>
         <button class="tab-btn" onclick="switchTab('book',this)" data-group="design">🎨 Design</button>
         <button class="tab-btn" onclick="switchTab('audio',this)" data-group="produce">🎧 Produce</button>
-        <button class="tab-btn" onclick="_shipGroupClicked(this)" data-group="ship" title="Publish, sell, track — Folio settings + Metrics">📤 Ship</button>
+        <button class="tab-btn" onclick="_shipGroupClicked(this)" data-group="ship" title="Release, sell, track — folio settings + metrics">🔖 Release</button>
       </div>
       <!-- Ship sub-strip. Hidden by default; #shipSubtabs becomes
            display:flex when the Ship group is active. Buttons route
@@ -8042,6 +8047,40 @@
             }
           } catch (_) {}
         })();
+
+        // ?signin=1 → kick the Google sign-in flow immediately. Lets the
+        // homepage "Sign in" nav link deep-link straight to the Google
+        // popup instead of dumping returning users into the editor and
+        // making them hunt for the sign-in control.
+        // UI audit T2-7 2026-10-13.
+        (function autoSignIn(){
+          try {
+            const p = new URLSearchParams(location.search);
+            if (p.get('signin') !== '1') return;
+            // Strip the param so a refresh doesn't re-trigger the flow.
+            try {
+              const url = new URL(location.href);
+              url.searchParams.delete('signin');
+              history.replaceState({}, '', url.pathname + url.hash);
+            } catch (_) {}
+            // Try several known sign-in entry points, in order of
+            // likelihood, with a short retry loop so we don't fire before
+            // the auth module boots. Give up silently after ~6s.
+            let attempts = 0;
+            const tryKick = function() {
+              attempts++;
+              if (typeof window._kickSignIn === 'function') { try { window._kickSignIn(); return; } catch (_) {} }
+              if (typeof window.signIn === 'function')      { try { window.signIn();      return; } catch (_) {} }
+              if (typeof window._doSignIn === 'function')   { try { window._doSignIn();   return; } catch (_) {} }
+              const btn = document.getElementById('authSignInBtn')
+                       || document.getElementById('signInBtn')
+                       || document.getElementById('btnSignIn');
+              if (btn) { try { btn.click(); return; } catch (_) {} }
+              if (attempts < 20) setTimeout(tryKick, 300);
+            };
+            setTimeout(tryKick, 400);
+          } catch (_) {}
+        })();
       </script>
 
       <div class="sidebar-footer"
@@ -8314,7 +8353,7 @@
             <a href="/shelf"
               style="padding:10px 18px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--surface);color:var(--text);font-size:13px;font-weight:500;text-decoration:none;transition:border-color .15s ease"
               onmouseover="this.style.borderColor='var(--accent-ui)'" onmouseout="this.style.borderColor='var(--border-mid)'">
-              📚 Browse The Shelf
+              📚 Browse the Shelf
             </a>
           </div>
           <!-- Reader-facing review CTA (added 2026-08-04 after Jacob
@@ -30985,11 +31024,23 @@
       const ownerUid = (typeof _loadedFolioOwnerUid !== 'undefined' && _loadedFolioOwnerUid) || '';
       // Author name in the "More by ..." button
       const nameEl = document.getElementById('rdEndAuthorName');
-      if (nameEl) nameEl.textContent = authorName;
-      // Imprint link — falls back to /shelf if no owner uid is known
+      // Imprint link — falls back to /shelf if no owner uid is known.
+      // UI audit T2-9 2026-10-13: when no uid, change the label to the
+      // honest generic ("Browse more books") instead of promising "More
+      // by X" and delivering the unfiltered shelf.
       const imprintEl = document.getElementById('rdEndImprintLink');
       if (imprintEl) {
         imprintEl.href = ownerUid ? ('/imprint/?uid=' + encodeURIComponent(ownerUid)) : '/shelf';
+      }
+      if (nameEl) {
+        if (ownerUid) {
+          nameEl.textContent = authorName;
+        } else {
+          // Rewrite the surrounding button text to avoid the "More by —"
+          // dead-end. The nameEl holds just the author span, so we flip
+          // the whole label by setting it to the honest generic prompt.
+          nameEl.textContent = 'other books';
+        }
       }
       // Tip link — only visible when the author set a tipUrl
       const tipEl = document.getElementById('rdEndTipLink');
@@ -36684,7 +36735,11 @@
       <!-- Public URL slug (Task #26). Auto-generated from the title
            on every plan; paid plans can override. Field is enabled if
            the user has an active Press subscription; free-tier users
-           see the input disabled with a small note pointing at /press/. -->
+           see the input disabled with a small note pointing at /press/.
+           UI audit T2-11 2026-10-13: when disabled, the input renders
+           as a muted monospace chip rather than a dead text field,
+           and the status copy leads with the slug + a quiet upgrade
+           nudge rather than reading as a wall of restriction. -->
       <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:12px 0 4px">
         Public URL slug <span style="opacity:.6;font-weight:400">— <span id="rlSlugPreview">onfolio.press/f/&lt;auto-generated&gt;</span></span>
       </label>
@@ -36695,8 +36750,20 @@
           oninput="if(window._rlUpdateSlugPreview) _rlUpdateSlugPreview()"
           style="flex:1;font-size:12.5px;padding:7px 10px;border:.5px solid var(--border-mid);border-radius:7px;background:var(--bg);color:var(--text);outline:none;font-family:ui-monospace,Menlo,monospace">
       </div>
+      <style>
+        /* Disabled-slug visual treatment (UI audit T2-11): render as a
+           quiet read-only chip so free-tier users don't try to click an
+           already-dead input. */
+        #rlSlug:disabled {
+          background: var(--surface) !important;
+          color: var(--muted) !important;
+          cursor: default;
+          border-style: dashed;
+          opacity: 0.85;
+        }
+      </style>
       <div id="rlSlugStatus" style="font-size:10.5px;color:var(--hint);margin-top:4px;line-height:1.5">
-        Free plan uses an auto-generated slug. <a href="/press/" style="color:var(--accent-ui);text-decoration:none;border-bottom:.5px dotted currentColor">Indie or Imprint</a> unlocks a custom slug for shareable, memorable links.
+        Your folio gets a nice auto-generated short link above. Want to pick your own? <a href="/press/" style="color:var(--accent-ui);text-decoration:none;border-bottom:.5px dotted currentColor">Customize this on Indie or Imprint →</a>
       </div>
 
       <label style="display:block;font-size:11.5px;font-weight:500;color:var(--hint);margin:14px 0 6px">Access</label>
@@ -37771,13 +37838,18 @@
            changes after attestation, the checkbox unticks itself on
            next modal open + Publish blocks until re-affirmed. Audit
            trail for any future DMCA / rights dispute. -->
-      <div id="rlAttestationSection" style="margin:16px 0 6px;padding:12px 14px;border:.5px solid var(--accent-ui,#065f46);border-radius:8px;background:rgba(6,95,70,0.05)">
+      <!-- UI audit T2-14 2026-10-13: attestation box starts neutral (not
+           emerald) so an UNticked state doesn't read as success/done.
+           JS flips it to emerald once rlRightsAttest is checked. -->
+      <div id="rlAttestationSection" style="margin:16px 0 6px;padding:12px 14px;border:1px solid var(--border-mid);border-radius:8px;background:var(--surface);transition:background .15s,border-color .15s">
+        <div style="font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--accent,#c98c2a);margin:0 0 6px">Required to release</div>
         <label style="display:flex;align-items:flex-start;gap:10px;font-size:12.5px;color:var(--text);cursor:pointer;line-height:1.55">
-          <input type="checkbox" id="rlRightsAttest" style="margin:3px 0 0;flex-shrink:0">
+          <input type="checkbox" id="rlRightsAttest" style="margin:3px 0 0;flex-shrink:0"
+            onchange="(function(cb){var sec=document.getElementById('rlAttestationSection');if(!sec)return;if(cb.checked){sec.style.borderColor='var(--accent-ui,#065f46)';sec.style.background='rgba(6,95,70,0.05)';}else{sec.style.borderColor='var(--border-mid)';sec.style.background='var(--surface)';}})(this)">
           <span>I certify that this work is my own original creation, or that I hold all necessary rights and permissions to publish it, and that it does not infringe any third party&#39;s copyright, trademark, or other intellectual property rights &mdash; including that it is not fan fiction or an unauthorized derivative of another creator&#39;s characters, setting, or story.</span>
         </label>
         <div id="rlAttestStatus" style="font-size:10.5px;color:var(--hint);margin:8px 0 0 26px;line-height:1.5">
-          Required to publish. Your certification is logged with your account ID and a timestamp &mdash; see <a href="/terms.html#prohibited" style="color:var(--accent-ui);text-decoration:none;border-bottom:.5px dotted currentColor">Prohibited Content</a> in the ToS.
+          Required to release. Your certification is logged with your account ID and a timestamp &mdash; see <a href="/terms.html#prohibited" style="color:var(--accent-ui);text-decoration:none;border-bottom:.5px dotted currentColor">Prohibited Content</a> in the ToS.
         </div>
       </div>
 
@@ -37794,10 +37866,14 @@
              JSON snapshot to clipboard so authors can paste it into
              help requests without needing to screenshot the whole
              modal. Secrets are stripped server-side; this is just
-             a client-side settings dump. -->
+             a client-side settings dump.
+             UI audit T2-10 2026-10-13: tucked to a tiny icon-only
+             button so an edge-case diagnostic doesn't share equal
+             visual weight with Release/Take-down. -->
         <button type="button" id="rlExportBtn" onclick="_rlExportForSupport()"
-          title="Copy the current release settings to clipboard as JSON — useful for pasting into a support request."
-          style="font-size:11.5px;padding:10px 12px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--muted);cursor:pointer">🩺 Export for support</button>
+          title="Copy current release settings to clipboard (for a support ticket)"
+          aria-label="Export release settings for support"
+          style="font-size:14px;padding:10px 9px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--muted);cursor:pointer;line-height:1">🩺</button>
         <button type="button" id="rlUnpublishBtn" onclick="_rlUnpublish()"
           style="display:none;font-size:12px;padding:10px 12px;border-radius:8px;border:.5px solid var(--border-mid);background:var(--surface);color:var(--text);cursor:pointer">Take down</button>
       </div>
