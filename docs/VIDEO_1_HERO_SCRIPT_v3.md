@@ -25,7 +25,7 @@ Now, your own writing. If you have a Word document, a plain text file, or a Mark
 
 Or, if you'd rather, click any paragraph in the preview on the right and type directly. Folio autosaves as you write. Nothing to remember. Nothing to lose.
 
-Switch over to the Design tab. This is where your book becomes a real book. Pick a theme that matches the mood of your writing. Choose an accent colour — chapter breaks and headers will inherit it, so the whole book feels of a piece.
+Switch over to the Design tab. This is where your book becomes a real book. Pick a theme that matches the mood of your writing. Choose an accent colour — chapter breaks and headers will inherit it, so the whole book feels complete.
 
 Upload a cover image. If you don't have cover art ready yet, Folio generates a tasteful placeholder from your title and author name, so you always have something to share.
 
