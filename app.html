@@ -8053,12 +8053,15 @@
           } catch (_) {}
         })();
 
-        // ?signin=1 → kick the Google sign-in flow immediately. Lets the
-        // homepage "Sign in" nav link deep-link straight to the Google
-        // popup instead of dumping returning users into the editor and
-        // making them hunt for the sign-in control.
-        // UI audit T2-7 2026-10-13.
-        (function autoSignIn(){
+        // ?signin=1 → show the sign-in choice modal immediately. Lets
+        // the homepage "Sign in" link deep-link to a visible Google/
+        // guest choice instead of silently dropping users into an
+        // anonymous session with no feedback.
+        // UI audit T2-7 2026-10-13 (initial auto-popup attempt).
+        // Rewired 2026-10-21 to show the choice modal — the old
+        // auto-click fell through because `authSignInBtn` didn't exist
+        // as an ID in the DOM.
+        (function signInChoiceFromParam(){
           try {
             const p = new URLSearchParams(location.search);
             if (p.get('signin') !== '1') return;
@@ -8068,24 +8071,77 @@
               url.searchParams.delete('signin');
               history.replaceState({}, '', url.pathname + url.hash);
             } catch (_) {}
-            // Try several known sign-in entry points, in order of
-            // likelihood, with a short retry loop so we don't fire before
-            // the auth module boots. Give up silently after ~6s.
+            // Wait for both the modal DOM and the signInGoogle function
+            // to be ready before showing — short retry loop handles the
+            // few-ms race between HTML parse and script eval.
             let attempts = 0;
-            const tryKick = function() {
+            const tryShow = function() {
               attempts++;
-              if (typeof window._kickSignIn === 'function') { try { window._kickSignIn(); return; } catch (_) {} }
-              if (typeof window.signIn === 'function')      { try { window.signIn();      return; } catch (_) {} }
-              if (typeof window._doSignIn === 'function')   { try { window._doSignIn();   return; } catch (_) {} }
-              const btn = document.getElementById('authSignInBtn')
-                       || document.getElementById('signInBtn')
-                       || document.getElementById('btnSignIn');
-              if (btn) { try { btn.click(); return; } catch (_) {} }
-              if (attempts < 20) setTimeout(tryKick, 300);
+              const modal = document.getElementById('authChoiceModal');
+              if (modal && typeof window._showAuthChoice === 'function') {
+                window._showAuthChoice();
+                return;
+              }
+              if (attempts < 20) setTimeout(tryShow, 300);
             };
-            setTimeout(tryKick, 400);
+            setTimeout(tryShow, 400);
           } catch (_) {}
         })();
+
+        // Modal handlers — defined on window so inline onclick works.
+        // _showAuthChoice()           — open the modal
+        // _authChoiceSignInGoogle()   — Google button inside the modal
+        // _authChoiceContinueGuest()  — Guest button inside the modal
+        // _authChoiceClose()          — × close (same as guest, no-op if
+        //                               they're already anon-signed-in)
+        window._showAuthChoice = function _showAuthChoice() {
+          const m = document.getElementById('authChoiceModal');
+          if (!m) return;
+          m.style.display = 'flex';
+        };
+        window._authChoiceClose = function _authChoiceClose() {
+          const m = document.getElementById('authChoiceModal');
+          if (m) m.style.display = 'none';
+        };
+        window._authChoiceContinueGuest = function _authChoiceContinueGuest() {
+          // Anonymous sign-in already fires automatically on page load,
+          // so this button just dismisses the modal — the user is already
+          // guest-authed by the time they see it. If somehow they're not,
+          // kick the anon flow explicitly.
+          window._authChoiceClose();
+          try {
+            if (window._auth && !window._user) {
+              const fbAuth = window._fbAuth || {};
+              if (fbAuth.signInAnonymously) fbAuth.signInAnonymously(window._auth);
+            }
+          } catch (_) {}
+        };
+        window._authChoiceSignInGoogle = function _authChoiceSignInGoogle() {
+          window._authChoiceClose();
+          // Prefer the GIS-prompt path (signInGoogle), fall back to
+          // the module's signInWithPopup if GIS isn't ready yet.
+          try {
+            if (typeof window.signInGoogle === 'function') {
+              window.signInGoogle();
+              return;
+            }
+          } catch (_) {}
+          try {
+            if (window._fbAuth && window._fbAuth.signInWithPopup && window._auth && window._googleProvider) {
+              window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
+            }
+          } catch (_) {}
+        };
+        // Close on backdrop click + Escape key.
+        document.addEventListener('click', function(e) {
+          if (e.target && e.target.id === 'authChoiceModal') window._authChoiceClose();
+        });
+        document.addEventListener('keydown', function(e) {
+          if (e.key === 'Escape') {
+            const m = document.getElementById('authChoiceModal');
+            if (m && m.style.display === 'flex') window._authChoiceClose();
+          }
+        });
       </script>
 
       <div class="sidebar-footer"
@@ -9188,6 +9244,9 @@
         _showGISButtonFallback();
       }
     }
+    // Expose on window so the new auth-choice modal (added 2026-10-21)
+    // can call it from an inline onclick handler.
+    try { window.signInGoogle = signInGoogle; } catch (_) {}
 
     function _showGISButtonFallback() {
       let modal = document.getElementById('gisFallbackModal');
@@ -36765,6 +36824,46 @@
 
       <button type="button" id="lmSubmitBtn" class="lm-submit" onclick="_lmConfirmSubmit()">Submit print order</button>
       <div id="lmStatus" class="lm-status"></div>
+    </div>
+  </div>
+
+  <!-- ════════════════ SIGN-IN CHOICE MODAL ════════════════
+       Shown when:
+         (a) ?signin=1 is in the URL (homepage "Sign in" link)
+         (b) First-time visitor (anonymous, no prior session) on the
+             editor — soft overlay they can dismiss to continue as guest
+       Replaces the previous silent anonymous auto-sign-in UX, which
+       looked like nothing happened when a user clicked "Sign in" on
+       the homepage. Added 2026-10-21.
+  -->
+  <div id="authChoiceModal" role="dialog" aria-modal="true" aria-labelledby="authChoiceTitle"
+    style="display:none;position:fixed;inset:0;z-index:300;background:rgba(10,8,5,0.72);backdrop-filter:blur(4px);align-items:center;justify-content:center;font-family:var(--sans)">
+    <div style="background:var(--surface,#fffcf5);border:.5px solid var(--border-mid,rgba(0,0,0,0.14));border-radius:14px;max-width:460px;width:94%;padding:30px 32px 26px;box-shadow:0 8px 40px rgba(0,0,0,0.5);color:var(--text,#1a1611);text-align:center">
+      <div style="font-family:'Playfair Display',Georgia,serif;font-size:22px;font-weight:600;margin-bottom:6px" id="authChoiceTitle">Welcome to Folio</div>
+      <p style="font-size:13px;color:var(--muted,#5a5347);line-height:1.5;margin:0 0 22px">Choose how you'd like to start. You can change your mind any time.</p>
+
+      <button type="button" id="authChoiceGoogle" onclick="_authChoiceSignInGoogle()"
+        style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:12px 14px;border-radius:9px;border:1px solid var(--accent-ui,#065f46);background:var(--accent-ui,#065f46);color:#fff;cursor:pointer;font-family:inherit;font-size:13.5px;font-weight:500;margin-bottom:10px;transition:background .15s">
+        <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+          <path fill="#fff" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.42 17.74 9.5 24 9.5z"/>
+          <path fill="#fff" opacity=".85" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+          <path fill="#fff" opacity=".7" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+          <path fill="#fff" opacity=".85" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-3.92-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+        </svg>
+        Continue with Google
+      </button>
+      <p style="font-size:11px;color:var(--hint,#8a8378);margin:0 0 16px;line-height:1.5">Saves your folios to your account. Available from any device. One click, no credit card.</p>
+
+      <button type="button" id="authChoiceGuest" onclick="_authChoiceContinueGuest()"
+        style="display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:11px 14px;border-radius:9px;border:.5px solid var(--border-mid,rgba(0,0,0,0.14));background:var(--bg,#f6f4ee);color:var(--text,#1a1611);cursor:pointer;font-family:inherit;font-size:13px;font-weight:400;margin-bottom:8px;transition:border-color .15s">
+        👤&nbsp;Continue as a guest
+      </button>
+      <p style="font-size:11px;color:var(--hint,#8a8378);margin:0 0 16px;line-height:1.5">Start writing immediately. Your work lives in <em>this browser only</em> — if you clear cookies or switch devices, it's gone. You can upgrade to Google any time from the sidebar.</p>
+
+      <button type="button" onclick="_authChoiceClose()"
+        aria-label="Close"
+        style="position:absolute;top:14px;right:16px;background:none;border:none;font-size:20px;color:var(--hint,#8a8378);cursor:pointer;line-height:1;padding:4px 8px;border-radius:4px"
+        title="Close">×</button>
     </div>
   </div>
 
