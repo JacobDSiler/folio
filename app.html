@@ -8116,21 +8116,96 @@
             }
           } catch (_) {}
         };
-        window._authChoiceSignInGoogle = function _authChoiceSignInGoogle() {
+        window._authChoiceSignInGoogle = async function _authChoiceSignInGoogle() {
+          console.log('[authChoice] Continue with Google clicked');
           window._authChoiceClose();
-          // Prefer the GIS-prompt path (signInGoogle), fall back to
-          // the module's signInWithPopup if GIS isn't ready yet.
-          try {
-            if (typeof window.signInGoogle === 'function') {
+
+          // We prefer the Firebase popup path over signInGoogle()
+          // because signInGoogle uses Google Identity Services (GIS)
+          // which can silently fail (GIS not loaded, FedCM blocked,
+          // rate-limited, etc.) with no visible UI. The Firebase popup
+          // path (linkWithPopup / signInWithPopup) always opens a
+          // visible OAuth window and completes end-to-end.
+          //
+          // Order of preference:
+          //   1. linkWithPopup  — user is currently anon; keeps their
+          //      in-progress folios tied to the new Google account
+          //   2. signInWithPopup — no anon user; fresh Google sign-in
+          //   3. signInGoogle() — GIS path as last resort
+          //   4. Sidebar button click — reuses the proven path
+          //
+          // Any method that produces a visible OAuth window and
+          // completes the flow wins.
+
+          const user = window._user || (window._auth && window._auth.currentUser) || null;
+          const fbAuth = window._fbAuth || {};
+          const provider = window._googleProvider
+            || (fbAuth.GoogleAuthProvider && new fbAuth.GoogleAuthProvider());
+
+          // Approach 1 + 2 — Firebase popup.
+          if (window._auth && provider) {
+            try {
+              if (user && user.isAnonymous && fbAuth.linkWithPopup) {
+                console.log('[authChoice] linkWithPopup (anon → Google)');
+                await fbAuth.linkWithPopup(user, provider);
+                console.log('[authChoice] linkWithPopup OK');
+                return;
+              }
+              if (fbAuth.signInWithPopup) {
+                console.log('[authChoice] signInWithPopup (fresh)');
+                await fbAuth.signInWithPopup(window._auth, provider);
+                console.log('[authChoice] signInWithPopup OK');
+                return;
+              }
+            } catch (e) {
+              // Common case: credential-already-in-use (user picked a
+              // Google account that already has its own Folio session).
+              // Fall through to signInWithPopup if we were trying link.
+              const code = e && e.code;
+              console.warn('[authChoice] primary popup failed:', code || e.message, e);
+              if (code === 'auth/credential-already-in-use'
+                || code === 'auth/email-already-in-use'
+                || code === 'auth/provider-already-linked') {
+                try {
+                  if (fbAuth.signInWithPopup) {
+                    console.log('[authChoice] falling back to signInWithPopup');
+                    await fbAuth.signInWithPopup(window._auth, provider);
+                    console.log('[authChoice] fallback signInWithPopup OK');
+                    return;
+                  }
+                } catch (e2) {
+                  console.error('[authChoice] fallback signInWithPopup failed:', e2);
+                }
+              }
+            }
+          } else {
+            console.warn('[authChoice] no window._auth or no provider:', !!window._auth, !!provider);
+          }
+
+          // Approach 3 — GIS path.
+          if (typeof window.signInGoogle === 'function') {
+            try {
+              console.log('[authChoice] falling back to signInGoogle()');
               window.signInGoogle();
               return;
+            } catch (e) {
+              console.warn('[authChoice] signInGoogle threw:', e);
             }
-          } catch (_) {}
-          try {
-            if (window._fbAuth && window._fbAuth.signInWithPopup && window._auth && window._googleProvider) {
-              window._fbAuth.signInWithPopup(window._auth, window._googleProvider);
+          }
+
+          // Approach 4 — click the sidebar button programmatically.
+          const sidebarBtn = document.querySelector('#authLinkPrompt button');
+          if (sidebarBtn) {
+            console.log('[authChoice] clicking sidebar #authLinkPrompt button');
+            try { sidebarBtn.click(); return; } catch (e) {
+              console.warn('[authChoice] sidebar click threw:', e);
             }
-          } catch (_) {}
+          }
+
+          // All paths failed.
+          console.error('[authChoice] every Google sign-in path exhausted');
+          alert('Could not open Google sign-in automatically. Open the sidebar and ' +
+            'click the "Connect Google account" button in the "You\'re browsing as a guest" box.');
         };
         // Close on backdrop click + Escape key.
         document.addEventListener('click', function(e) {
