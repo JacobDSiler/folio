@@ -312,6 +312,20 @@ function _renderFolioLanding({ slug, folio, folioId, readerBase, fbAppId }) {
   parts.push('<meta name="description" content="' + esc(displayDesc) + '">');
   parts.push('<link rel="canonical" href="' + esc(canonical) + '">');
   parts.push('<meta name="robots" content="index, follow, max-image-preview:large">');
+  // Per-folio AI opt-in (2026-10-31). Default: no AI crawlers / no
+  // AI training. Authors can opt-in via a toggle on the release modal
+  // (release.allowAiBots). When opted-in, we omit the noai + noimageai
+  // meta tags so AI search engines (ChatGPT-User, PerplexityBot,
+  // OAI-SearchBot, DuckAssistBot, etc.) can surface their folio in
+  // generative-answer results. The author's work only shows up in
+  // those surfaces when THEY say yes — never by Folio's default.
+  const allowAi = rel.allowAiBots === true;
+  if (!allowAi) {
+    parts.push('<meta name="robots" content="noai, noimageai">');
+    parts.push('<meta name="ChatGPT-User" content="noindex">');
+    parts.push('<meta name="PerplexityBot" content="noindex">');
+    parts.push('<meta name="OAI-SearchBot" content="noindex">');
+  }
   parts.push('<meta property="og:site_name" content="Folio">');
   parts.push('<meta property="og:type" content="book">');
   parts.push('<meta property="og:title" content="' + esc(displayTitle) + '">');
@@ -530,10 +544,20 @@ export default {
         const html = _renderFolioLanding({
           slug, folio, folioId: slugDoc.folioId, readerBase, fbAppId,
         });
+        // Mirror the AI opt-in in an X-Robots-Tag response header
+        // (defense in depth — some AI crawlers honour the header but
+        // skip the HTML meta parse, especially when they fetch via a
+        // non-rendering client). Default: block AI; opt-in authors
+        // omit the AI directives.
+        const allowAi = (folio.release && folio.release.allowAiBots) === true;
+        const robotsHeader = allowAi
+          ? 'index, follow'
+          : 'index, follow, noai, noimageai';
         return new Response(html, {
           status: 200,
           headers: {
             'Content-Type': 'text/html; charset=utf-8',
+            'X-Robots-Tag': robotsHeader,
             // Cache 5 min at the edge — folios change infrequently but
             // authors expect fresh data when they update their release.
             'Cache-Control': 'public, max-age=300',

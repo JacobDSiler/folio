@@ -24794,6 +24794,10 @@
           if (_shelfGenre)   _shelfGenre.value     = _rlCurrent.shelfGenre || '';
           if (_shelfBlurb)   _shelfBlurb.value     = _rlCurrent.shelfBlurb || '';
           if (_shelfUseDesc) _shelfUseDesc.checked = !!_rlCurrent.shelfUseDescription;
+          // AI opt-in (2026-10-31). Default FALSE for existing releases
+          // that don't have the field — authors must opt in explicitly.
+          const _aiEl = document.getElementById('rlAllowAiBots');
+          if (_aiEl) _aiEl.checked = !!_rlCurrent.allowAiBots;
           // Long-blurb hydration (info-modal content). Falls through empty
           // for older releases that never had the field — save handler
           // stores null when blank so we don't stamp empty strings on
@@ -25780,6 +25784,12 @@
           if (window._user && window._user.isAnonymous) return false;
           return true;
         })(),
+        // Per-folio AI opt-in (2026-10-31). Default FALSE — AI
+        // crawlers are blocked unless the author explicitly ticks
+        // the box in the release modal. Mirrored in the Worker's
+        // /f/<slug> landing page via meta robots + X-Robots-Tag.
+        allowAiBots: !!(document.getElementById('rlAllowAiBots')
+          && document.getElementById('rlAllowAiBots').checked),
         // Legacy single-string genre (still populated for the current
         // shelf's Genre-filter dropdown backwards-compat). Auto-derived
         // from genreCodes[0] via the reverse-map when the new picker
@@ -38097,6 +38107,26 @@
            changes after attestation, the checkbox unticks itself on
            next modal open + Publish blocks until re-affirmed. Audit
            trail for any future DMCA / rights dispute. -->
+      <!-- AI discoverability (2026-10-31). Per-author opt-in for AI
+           search engines (ChatGPT, Perplexity, Google AI Overview,
+           DuckAssist, etc.) to crawl + surface this folio in
+           generative-answer results. OFF by default — the author's
+           work only enters AI surfaces when they explicitly say yes.
+           Writes release.allowAiBots: boolean. Worker enforces the
+           default via meta robots + X-Robots-Tag on /f/<slug> pages. -->
+      <div id="rlAiSection" style="margin:12px 0 10px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
+        <label style="display:flex;align-items:flex-start;gap:10px;font-size:12px;color:var(--text);cursor:pointer;line-height:1.55">
+          <input type="checkbox" id="rlAllowAiBots" style="margin:3px 0 0;flex-shrink:0">
+          <span>🤖 <strong>Let AI search engines find this folio</strong>
+            <span style="opacity:.7;font-weight:400">(ChatGPT, Perplexity, Google AI Overviews, DuckAssist)</span></span>
+        </label>
+        <p style="font-size:10.5px;color:var(--hint);line-height:1.55;margin:6px 0 0 26px">
+          Default is off. Folio blocks AI crawlers unless you turn this on. Tick it if you want your folio to be mentionable
+          in AI chat answers when a reader asks about your topic or genre. Does not affect Google / Bing search — those
+          are always allowed (they're how most readers still find books).
+        </p>
+      </div>
+
       <!-- UI audit T2-14 2026-10-13: attestation box starts neutral (not
            emerald) so an UNticked state doesn't read as success/done.
            JS flips it to emerald once rlRightsAttest is checked. -->
