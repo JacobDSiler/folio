@@ -26,10 +26,23 @@
 # Added 2026-08-11 (Jacob's request).
 # ═══════════════════════════════════════════════════════════════════
 
-# ── AI training / LLM crawlers — full deny ─────────────────────────
-# When adding new ones, prefer the User-agent string the bot self-
-# identifies with (case-insensitive substring match per RFC). Order
-# doesn't matter; each block is evaluated independently.
+# ── AI crawlers — per-folio opt-in policy ──────────────────────────
+# Updated 2026-10-31. The site is blocked globally for AI crawlers
+# BUT per-folio landing pages at /f/<slug> are explicitly allowed —
+# each page emits its own meta robots directive based on the
+# author's `release.allowAiBots` toggle. So:
+#   • Author opts in on their folio → /f/<slug> page serves without
+#     noai meta → AI crawler indexes it.
+#   • Author leaves default off → /f/<slug> page serves with noai
+#     meta + X-Robots-Tag → AI crawler must skip it per the per-
+#     page directive.
+# The site root, /shelf, /app.html etc remain blocked for AI
+# crawlers so Folio-the-platform doesn't leak into AI answers
+# unless an author chose it.
+#
+# Training-only crawlers (Google-Extended, Applebot-Extended, CCBot,
+# etc.) stay fully disallowed everywhere since training is a
+# different consent conversation than discovery indexing.
 
 # OpenAI
 User-agent: GPTBot
@@ -37,9 +50,11 @@ Disallow: /
 
 User-agent: ChatGPT-User
 Disallow: /
+Allow: /f/
 
 User-agent: OAI-SearchBot
 Disallow: /
+Allow: /f/
 
 # Anthropic
 User-agent: ClaudeBot
@@ -47,36 +62,40 @@ Disallow: /
 
 User-agent: Claude-Web
 Disallow: /
+Allow: /f/
 
 User-agent: anthropic-ai
 Disallow: /
 
 # Google's AI training pipeline (SEPARATE from Googlebot search —
 # blocking Google-Extended does NOT affect Google Search rankings).
+# Kept fully blocked (training ≠ discovery).
 User-agent: Google-Extended
 Disallow: /
 
 # Apple's AI training pipeline (same pattern — Applebot is search,
-# Applebot-Extended is AI training).
+# Applebot-Extended is AI training). Fully blocked.
 User-agent: Applebot-Extended
 Disallow: /
 
-# Common Crawl — feeds many downstream LLMs.
+# Common Crawl — feeds many downstream LLMs. Training; fully blocked.
 User-agent: CCBot
 Disallow: /
 
-# Perplexity
+# Perplexity (discovery/answer crawler — per-folio opt-in applies)
 User-agent: PerplexityBot
 Disallow: /
+Allow: /f/
 
 User-agent: Perplexity-User
 Disallow: /
+Allow: /f/
 
 # ByteDance (TikTok's crawler, also used for their AI models)
 User-agent: Bytespider
 Disallow: /
 
-# Meta AI (Llama training)
+# Meta AI (Llama training) — training pipeline, fully blocked.
 User-agent: Meta-ExternalAgent
 Disallow: /
 
@@ -98,20 +117,23 @@ Disallow: /
 User-agent: Diffbot
 Disallow: /
 
-# You.com
+# You.com (discovery/answer — per-folio opt-in applies)
 User-agent: YouBot
 Disallow: /
+Allow: /f/
 
-# AI2 (Allen Institute)
+# AI2 (Allen Institute) — training; fully blocked.
 User-agent: AI2Bot
 Disallow: /
 
 User-agent: AI2Bot-Dolma
 Disallow: /
 
-# DuckDuckGo's AI assistant crawler (separate from DuckDuckBot search)
+# DuckDuckGo's AI assistant crawler (separate from DuckDuckBot search
+# — discovery/answer, per-folio opt-in applies)
 User-agent: DuckAssistBot
 Disallow: /
+Allow: /f/
 
 # ImageSift (image-scraping for training)
 User-agent: ImagesiftBot
