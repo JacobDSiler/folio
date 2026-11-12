@@ -681,8 +681,19 @@ Also `folio-tts-worker.js`, `folio-email-worker.js`, `folio-publish-lulu-worker.
 Single-source rules shared with Boxes + Ink. **Never delete another app's block.** See top of `docs/CRITICAL_PATHS.md`.
 Files: `C:\dev\folio\docs\firestore.rules`
 
+### Google Drive integration (import + sync)
+Browser-side Drive module. Tier split (locked 2026-11-12):
+- **Free**: Import-once from Drive (Google Docs, .docx, .md, .txt).
+- **Indie**: + Linked folio ↔ Drive file (two-way save to Doc or .md).
+- **Imprint**: + Multiple connected Google accounts.
+Scope: `drive.file` only (never-broader access, no OAuth verification needed).
+Session-only tokens for v1; Phase 3 adds Worker-backed cross-session persistence.
+Files: `C:\dev\folio\folio-drive.js`, setup in `docs/GOOGLE_DRIVE_SETUP.md`,
+Phase 2 UI scaffolding in `docs/DRIVE_INTEGRATION_PHASE_2.md`.
+Firestore: `folio_user_settings.driveConnections[]`, `folios.{id}.release.driveLink`.
+
 ---
 
-**Total: ~110 distinct user- or admin-facing features across 21 categories.**
+**Total: ~111 distinct user- or admin-facing features across 21 categories.**
 
 If a feature disappears from the app but is still listed here, that's a regression — file paths above tell you where it lived.
