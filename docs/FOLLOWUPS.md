@@ -7,6 +7,33 @@ and link it back here. When shipped, delete from this file and note in the
 
 ---
 
+## folio-email worker CORS allow-list
+
+**Flagged 2026-11-12 during Drive integration smoke test.** Request
+from `https://onfolio.press` → `folio-email.jacobdsiler.workers.dev/send-welcome`
+was rejected by preflight because the Worker sends
+`Access-Control-Allow-Origin: https://www.onfolio.press` as a static
+string. Both the apex and `www.` origins need to pass.
+
+Fix: `folio-email-worker.js` — replace the hard-coded origin header with
+a check against an allow-list and echo the request origin when it
+matches:
+
+```js
+const ALLOWED = ['https://onfolio.press', 'https://www.onfolio.press', 'http://localhost:8787'];
+const origin = request.headers.get('Origin') || '';
+const allow  = ALLOWED.includes(origin) ? origin : ALLOWED[0];
+// use `allow` in both the preflight response and the real response
+// also include: Vary: Origin
+```
+
+Not blocking Drive — Drive uses no cross-origin header of its own. But
+`send-welcome` is currently failing silently for every user signing in
+on the apex domain, which likely explains any "where's my welcome
+email?" reports.
+
+Owner: Jacob + Claude. Priority: high-ish (silent user-visible failure).
+
 ## Drive integration — Phase 2 + 3
 
 - **Phase 2** (release-modal Save-to-Drive section + Settings connections
