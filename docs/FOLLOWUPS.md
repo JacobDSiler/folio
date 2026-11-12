@@ -1,0 +1,56 @@
+# Followups — tracked but not yet scheduled
+
+Running list of known rough edges and planned improvements. When something
+here gets scheduled, move it into a dated plan doc (`docs/PLAN_<topic>.md`)
+and link it back here. When shipped, delete from this file and note in the
+`.deploy-tick`.
+
+---
+
+## Drive integration — Phase 2 + 3
+
+- **Phase 2** (release-modal Save-to-Drive section + Settings connections
+  panel): scaffolded in `docs/DRIVE_INTEGRATION_PHASE_2.md`. Needs drop-in
+  into `app.html` once Jacob has pasted the Client ID / API Key.
+- **Phase 3**:
+  - `.docx` save-back (use the `docx@8.5.0` library already loaded).
+  - Cross-session token persistence via a new `folio-drive-worker.js`
+    (OAuth refresh token exchange with client secret).
+  - Conflict detection: compare Drive's `modifiedTime` against
+    `driveLink.lastSyncedAt` before overwriting.
+  - Shared Drive picker (shared Drives, not just My Drive).
+
+## Product mockup quality
+
+**Flagged by Jacob 2026-11-12.** The custom product-mockup generator
+produces output that looks like junk — the mockups don't sell the book
+visually. Imprint-tier buyers judge Folio partly by what their book
+*looks like* in the mockup output, and the current generator is
+undermining that.
+
+Likely culprits (not investigated yet):
+- Low-res base images for the mockup frames (hardware, paperback, etc.)
+- Cover-art placement math — perspective / shadows / lighting look pasted-on
+- No depth: single flat layer rather than realistic compositing
+- Possibly too many templates, each of mediocre quality — better to have
+  3 excellent mockups than 10 mediocre ones
+
+When this is scheduled:
+1. Find the mockup-rendering code in `app.html` (grep for `mockup` + the
+   product-photos section near line 6491 — Imprint-tier gated).
+2. Audit the current output visually against competitors (Vellum, Atticus,
+   Reedsy, and the main POD vendors' preview tools).
+3. Design pass: pick 3–5 mockup styles that genuinely look professional.
+   Prefer static high-quality PNG frames + careful placement math over
+   trying to do 3D compositing in the browser.
+4. Consider offloading to a Cloudflare Worker that composites via
+   something like Sharp / Jimp for higher-quality results if browser
+   canvas isn't enough.
+
+Owner: Jacob + Claude pair. Priority: medium (not blocking launch but
+hurts Imprint-tier sell).
+
+---
+
+(Add new followups above this line; keep the oldest at the bottom so
+the newest stuff is easy to see.)
