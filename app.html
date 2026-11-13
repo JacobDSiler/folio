@@ -14025,12 +14025,14 @@
       const normalised = _normalizeMdBody(_stripped.body);
       const lines = normalised.split('\n');
 
-      // Bug 2 fix (defence-in-depth): if the author used explicit #/##
-      // headings, defer to them entirely. Keyword detection is a best-
-      // effort fallback for plain-text manuscripts with no explicit
-      // structure; if the author told us the boundaries, don't second-
-      // guess them.
-      const hasExplicitHeadings = /^#{1,3}\s+\S/m.test(normalised);
+      // Note: the previous "hasExplicitHeadings short-circuit" was removed
+      // 2026-11-13. It used an inline /^#{1,2}\s+(.+)$/ regex that bypassed
+      // all of detectChapterLine()'s logic (H3 support, bare-number synth,
+      // bare-roman, and the user-tunable rules from the Advanced modal).
+      // Result: the modal's preview said 10 chapters, the actual split said
+      // 1. detectChapterLine already has an 80-char length guard which is
+      // the right defence against prose-line false positives \u2014 we don't
+      // need a second one that disagrees with the first.
 
       const sections = [];
       let curTitle = null;
@@ -14046,22 +14048,8 @@
         }
       };
 
-      const isHeadingLine = (line) => {
-        if (hasExplicitHeadings) {
-          // Only explicit # / ## headings count as section breaks.
-          const m = line.match(/^#{1,2}\s+(.+)$/);
-          if (!m) return { match: false };
-          const title = m[1]
-            .replace(/^(chapter\s+[\divxlcdmIVXLCDM]+)[\s:.,\-\u2014]*/i, '$1 ')
-            .replace(/\s+/g, ' ')
-            .trim();
-          return { match: true, title };
-        }
-        return detectChapterLine(line);
-      };
-
       lines.forEach(line => {
-        const det = isHeadingLine(line);
+        const det = detectChapterLine(line);
         if (det.match) {
           flush();
           curTitle = det.title;
