@@ -146,7 +146,10 @@ function corsHeaders(request, env, extra) {
   const h = {
     'Access-Control-Allow-Origin': pickOrigin(request, env),
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    // Authorization needed for Firebase ID token forwarded by /send-welcome
+    // and similar auth-aware endpoints. Nov 2026 fix (preflight was rejecting
+    // the Authorization header from https://onfolio.press).
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   };
