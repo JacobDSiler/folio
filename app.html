@@ -25069,6 +25069,10 @@
           // that don't have the field — authors must opt in explicitly.
           const _aiEl = document.getElementById('rlAllowAiBots');
           if (_aiEl) _aiEl.checked = !!_rlCurrent.allowAiBots;
+          // Drive save-back (Phase 2a, 2026-11-13). Idempotent — wires
+          // handlers on first call, hydrates from _rlCurrent.driveLink
+          // + tier + connection state every time the modal opens.
+          if (typeof _rlDriveHydrate === 'function') _rlDriveHydrate();
           // Long-blurb hydration (info-modal content). Falls through empty
           // for older releases that never had the field — save handler
           // stores null when blank so we don't stamp empty strings on
@@ -25815,6 +25819,302 @@
        Publish button enable/disable. Called from the release-modal
        hydration path AND from any oninput change on title/author/desc
        so a mid-modal edit re-arms the block. */
+
+    /* ═══════════════════════════════════════════════
+       DRIVE SAVE-BACK (Phase 2a, 2026-11-13)
+
+       Three UI states the panel can be in, picked at hydrate time:
+         • Upsell    — free tier (import-only; sell the sync feature)
+         • NoConn    — Indie+ with zero connected Drive accounts
+         • Controls  — Indie+ with ≥1 connection (the real UI)
+
+       Linked vs Copy mode:
+         linked → PATCH the fileId stored in release.driveLink.fileId.
+                  Overwrites the same Drive file on every save.
+         copy   → POST a new file every time the user clicks Save now.
+                  Older copies stay in the user's Drive.
+
+       Formats (v1):
+         gdoc → HTML upload, Drive converts → editable Google Doc
+         md   → raw markdown upload
+         docx → disabled (Phase 3 — needs the already-loaded docx lib wired)
+
+       All state is kept on _rlCurrent.driveLink — written on every
+       successful save and persisted with the rest of the release doc
+       by the normal save path (which grabs release.driveLink alongside
+       release.allowAiBots).
+    ═══════════════════════════════════════════════ */
+
+    // Collect the current manuscript as plain markdown — mirrors
+    // exportMarkdown() but returns a string instead of downloading.
+    // We duplicate the logic rather than refactor exportMarkdown()
+    // because that function has real side effects (setExportState,
+    // setStatus) that would be awkward to decouple right now.
+    function _rlDriveBuildMarkdown() {
+      try {
+        const title    = (typeof getV === 'function' && getV('bookTitle'))    || 'Untitled';
+        const author   = (typeof getV === 'function' && getV('bookAuthor'))   || 'Author';
+        const subtitle = (typeof getV === 'function' && getV('bookSubtitle')) || '';
+        const dedic    = (typeof getV === 'function' && getV('dedication'))   || '';
+        const copy     = (typeof getV === 'function' && getV('copyright'))    || '';
+        const chs   = (typeof getChapters === 'function') ? getChapters() : [];
+        const front = (typeof getFront    === 'function') ? getFront()    : [];
+        const back  = (typeof getBack     === 'function') ? getBack()     : [];
+        const orn   = (typeof S !== 'undefined' && S && S.ornament) ? S.ornament : '✦';
+        let md = '---\n';
+        md += 'title: "'  + title.replace(/"/g,'\\"')  + '"\n';
+        md += 'author: "' + author.replace(/"/g,'\\"') + '"\n';
+        if (subtitle) md += 'subtitle: "' + subtitle.replace(/"/g,'\\"') + '"\n';
+        md += '---\n\n';
+        md += '# ' + title + '\n\n';
+        if (subtitle) md += '*' + subtitle + '*\n\n';
+        md += author + '\n\n---\n\n';
+        const _emit = (txt) => {
+          (typeof _paragraphsOf === 'function' ? _paragraphsOf(txt) : String(txt||'').split(/\n\n+/))
+            .forEach(p => {
+              if (p === '__SCENE_BREAK__') { md += '\n' + orn + ' ' + orn + ' ' + orn + '\n\n'; return; }
+              md += p + '\n\n';
+            });
+        };
+        front.forEach(sec => { md += '## ' + (sec.title||'') + '\n\n'; _emit(sec.content); md += '---\n\n'; });
+        if (copy)  md += '> ' + copy + '\n\n';
+        if (dedic) md += '*' + dedic + '*\n\n---\n\n';
+        chs.forEach((ch, i) => {
+          const cn = (typeof chapterNumber === 'function') ? chapterNumber(i + 1) : (i + 1);
+          if (cn && ch.title)   md += '# Chapter ' + cn + ': ' + ch.title + '\n\n';
+          else if (cn)          md += '# Chapter ' + cn + '\n\n';
+          else if (ch.title)    md += '# ' + ch.title + '\n\n';
+          md += orn + '\n\n';
+          _emit(ch.content);
+        });
+        back.forEach(sec => { md += '---\n\n## ' + (sec.title||'') + '\n\n'; _emit(sec.content); });
+        return md;
+      } catch (e) {
+        console.error('[Drive save] markdown build failed', e);
+        return '# ' + ((typeof getV === 'function' && getV('bookTitle')) || 'Untitled') + '\n\n(Error collecting content: ' + e.message + ')\n';
+      }
+    }
+
+    // Build a minimal, Google-Docs-friendly HTML view of the manuscript.
+    // Drive converts this to a real Google Doc on upload with proper
+    // heading styles. We don't try to mirror Folio's reader CSS here —
+    // Docs gets its own clean structure.
+    function _rlDriveBuildHtml() {
+      const esc = (s) => String(s||'').replace(/[&<>"]/g, c =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+      try {
+        const title    = (typeof getV === 'function' && getV('bookTitle'))    || 'Untitled';
+        const author   = (typeof getV === 'function' && getV('bookAuthor'))   || 'Author';
+        const subtitle = (typeof getV === 'function' && getV('bookSubtitle')) || '';
+        const dedic    = (typeof getV === 'function' && getV('dedication'))   || '';
+        const chs   = (typeof getChapters === 'function') ? getChapters() : [];
+        const front = (typeof getFront    === 'function') ? getFront()    : [];
+        const back  = (typeof getBack     === 'function') ? getBack()     : [];
+        let h = '<html><body>';
+        h += '<h1>' + esc(title) + '</h1>';
+        if (subtitle) h += '<p><em>' + esc(subtitle) + '</em></p>';
+        h += '<p>' + esc(author) + '</p><hr/>';
+        const emit = (txt) => {
+          (typeof _paragraphsOf === 'function' ? _paragraphsOf(txt) : String(txt||'').split(/\n\n+/))
+            .forEach(p => {
+              if (p === '__SCENE_BREAK__') h += '<hr/>';
+              else h += '<p>' + esc(p) + '</p>';
+            });
+        };
+        front.forEach(sec => { h += '<h2>' + esc(sec.title||'') + '</h2>'; emit(sec.content); h += '<hr/>'; });
+        if (dedic) h += '<p><em>' + esc(dedic) + '</em></p><hr/>';
+        chs.forEach((ch, i) => {
+          const cn = (typeof chapterNumber === 'function') ? chapterNumber(i + 1) : (i + 1);
+          const head = cn && ch.title ? 'Chapter ' + cn + ': ' + ch.title
+                     : cn              ? 'Chapter ' + cn
+                     : (ch.title || '');
+          h += '<h2>' + esc(head) + '</h2>';
+          emit(ch.content);
+        });
+        back.forEach(sec => { h += '<hr/><h2>' + esc(sec.title||'') + '</h2>'; emit(sec.content); });
+        h += '</body></html>';
+        return h;
+      } catch (e) {
+        console.error('[Drive save] html build failed', e);
+        return '<html><body><h1>' + esc((typeof getV === 'function' && getV('bookTitle')) || 'Untitled') + '</h1><p>Error collecting content: ' + esc(e.message) + '</p></body></html>';
+      }
+    }
+
+    // Decide which of the three panels (upsell / no-conn / controls)
+    // to show. Also populates the account dropdown and prefills from
+    // any existing _rlCurrent.driveLink.
+    async function _rlDriveHydrate() {
+      const upsell   = document.getElementById('rlDriveUpsell');
+      const noConn   = document.getElementById('rlDriveNoConn');
+      const controls = document.getElementById('rlDriveControls');
+      const badge    = document.getElementById('rlDriveTierBadge');
+      if (!upsell || !noConn || !controls) return;
+
+      // No Drive module loaded at all (misconfig / not deployed yet).
+      if (!window.FolioDrive) {
+        upsell.style.display = 'none';
+        noConn.style.display = 'none';
+        controls.style.display = 'none';
+        if (badge) badge.textContent = 'unavailable';
+        return;
+      }
+
+      // Tier gate — free tier gets the upsell card, nothing else.
+      if (!FolioDrive.canLink()) {
+        upsell.style.display   = 'block';
+        noConn.style.display   = 'none';
+        controls.style.display = 'none';
+        if (badge) badge.textContent = 'Indie+';
+        return;
+      }
+      if (badge) badge.textContent = FolioDrive.canConnectMultiple() ? 'Imprint — multi-account' : 'Indie';
+
+      // Need at least one connected account. We check persisted (survives
+      // across tabs) because session-only tokens may have lapsed and the
+      // re-auth is silent when the browser cookie session is still live.
+      let persisted = [];
+      try { persisted = await FolioDrive.listPersistedConnections(); } catch (_) { persisted = []; }
+      if (!persisted.length) {
+        upsell.style.display   = 'none';
+        noConn.style.display   = 'block';
+        controls.style.display = 'none';
+        return;
+      }
+      upsell.style.display   = 'none';
+      noConn.style.display   = 'none';
+      controls.style.display = 'block';
+
+      // Populate account picker. Indie locks to the first account only.
+      const sel = document.getElementById('rlDriveAccount');
+      if (sel) {
+        sel.innerHTML = '';
+        persisted.forEach(c => {
+          const opt = document.createElement('option');
+          opt.value = c.email;
+          opt.textContent = c.displayName ? (c.displayName + ' (' + c.email + ')') : c.email;
+          sel.appendChild(opt);
+        });
+        sel.disabled = (!FolioDrive.canConnectMultiple() && persisted.length > 1);
+      }
+
+      // Prefill from the existing release.driveLink, if any.
+      const existing = (_rlCurrent && _rlCurrent.driveLink) || null;
+      if (existing) {
+        const sel2 = document.getElementById('rlDriveAccount');
+        if (sel2 && existing.accountEmail) {
+          for (const o of sel2.options) if (o.value === existing.accountEmail) { o.selected = true; break; }
+        }
+        const fmt = document.getElementById('rlDriveFormat');
+        if (fmt && existing.format) fmt.value = (existing.format === 'docx' ? 'gdoc' : existing.format);
+        const modeVal = existing.mode || 'linked';
+        const r = document.querySelector('input[name=rlDriveMode][value="' + modeVal + '"]');
+        if (r) r.checked = true;
+        const info = document.getElementById('rlDriveTargetInfo');
+        if (info) {
+          if (existing.fileName) info.textContent = 'Linked to: ' + existing.fileName +
+            (existing.lastSyncedAt ? ' · last saved ' + new Date(existing.lastSyncedAt).toLocaleString() : '');
+          else info.textContent = '';
+        }
+      } else {
+        const info = document.getElementById('rlDriveTargetInfo');
+        if (info) info.textContent = 'No file linked yet. Pick an existing Drive file or save as new.';
+      }
+
+      _rlDriveBindHandlers();
+    }
+
+    // Wire event handlers exactly once per modal lifecycle. The dataset
+    // guard means repeated hydrate calls don't double-attach listeners.
+    function _rlDriveBindHandlers() {
+      const bindOnce = (id, evt, fn) => {
+        const el = document.getElementById(id);
+        if (!el || el.dataset.driveBound) return;
+        el.addEventListener(evt, fn);
+        el.dataset.driveBound = '1';
+      };
+
+      bindOnce('rlDriveConnectNow', 'click', async () => {
+        try {
+          await FolioDrive.connect({});
+          _rlDriveHydrate();
+        } catch (e) {
+          const s = document.getElementById('rlDriveSaveStatus');
+          if (s) s.textContent = 'Could not connect: ' + (e && e.message ? e.message : e);
+        }
+      });
+
+      bindOnce('rlDrivePickTarget', 'click', async () => {
+        const email = document.getElementById('rlDriveAccount').value;
+        const fmt   = document.getElementById('rlDriveFormat').value;
+        const info  = document.getElementById('rlDriveTargetInfo');
+        if (!email) return;
+        try {
+          const types = fmt === 'md'   ? FolioDrive.MIME.MD + ',' + FolioDrive.MIME.TXT
+                      : fmt === 'gdoc' ? FolioDrive.MIME.GDOC
+                                       : null;
+          const picked = await FolioDrive.pickFile(email, { mimeTypes: types, title: 'Pick a Drive file to link this folio to' });
+          if (!picked) return;
+          _rlCurrent = _rlCurrent || {};
+          _rlCurrent.driveLink = Object.assign({}, _rlCurrent.driveLink, {
+            accountEmail: email,
+            fileId: picked.id,
+            fileName: picked.name,
+          });
+          if (info) info.textContent = 'Linked to: ' + picked.name;
+        } catch (e) {
+          if (info) info.textContent = 'Picker error: ' + (e && e.message ? e.message : e);
+        }
+      });
+
+      bindOnce('rlDriveNewTarget', 'click', () => {
+        const info = document.getElementById('rlDriveTargetInfo');
+        if (_rlCurrent) {
+          _rlCurrent.driveLink = Object.assign({}, _rlCurrent.driveLink, { fileId: null, fileName: null });
+        }
+        if (info) info.textContent = 'Will create a new Drive file on next save.';
+      });
+
+      bindOnce('rlDriveSaveNow', 'click', async () => {
+        const email  = document.getElementById('rlDriveAccount').value;
+        const fmt    = document.getElementById('rlDriveFormat').value;
+        const modeEl = document.querySelector('input[name=rlDriveMode]:checked');
+        const mode   = modeEl ? modeEl.value : 'linked';
+        const status = document.getElementById('rlDriveSaveStatus');
+        const btn    = document.getElementById('rlDriveSaveNow');
+        if (!email)  { if (status) status.textContent = 'Pick an account first.'; return; }
+        if (fmt === 'docx') { if (status) status.textContent = '.docx save is coming in Phase 3 — pick Google Doc or Markdown for now.'; return; }
+
+        const existing = (_rlCurrent && _rlCurrent.driveLink) || {};
+        const useFileId = (mode === 'linked' && existing.fileId) ? existing.fileId : null;
+        const title = (typeof getV === 'function' && getV('bookTitle')) || 'Folio export';
+        const name = title + (fmt === 'md' ? '.md' : '');
+        const content = (fmt === 'md') ? _rlDriveBuildMarkdown() : _rlDriveBuildHtml();
+
+        btn.disabled = true;
+        if (status) status.textContent = 'Saving to Drive…';
+        try {
+          const r = await FolioDrive.saveFile(email, { fileId: useFileId, name, content, format: fmt });
+          _rlCurrent = _rlCurrent || {};
+          _rlCurrent.driveLink = {
+            accountEmail: email,
+            fileId: r.id,
+            fileName: r.name || name,
+            format: fmt,
+            mode,
+            lastSyncedAt: Date.now(),
+          };
+          const info = document.getElementById('rlDriveTargetInfo');
+          if (info) info.textContent = 'Linked to: ' + (r.name || name) + ' · just now';
+          if (status) status.innerHTML = '<span style="color:var(--accent-ui)">Saved.</span> Open in Drive: ' +
+            '<a href="https://drive.google.com/file/d/' + r.id + '/view" target="_blank" rel="noopener">' + (r.name || name) + '</a>';
+        } catch (e) {
+          if (status) status.textContent = 'Save failed: ' + (e && e.message ? e.message : e);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    }
+
     window._rlSyncAttestation = function () {
       const cb   = document.getElementById('rlRightsAttest');
       const pub  = document.getElementById('rlPublishBtn');
@@ -26061,6 +26361,14 @@
         // /f/<slug> landing page via meta robots + X-Robots-Tag.
         allowAiBots: !!(document.getElementById('rlAllowAiBots')
           && document.getElementById('rlAllowAiBots').checked),
+        // Drive save-back link (Phase 2a, 2026-11-13). Set by the
+        // Save-to-Drive flow on successful saves; `null` for folios
+        // that have never been linked. Shape:
+        //   { accountEmail, fileId, fileName, format, mode, lastSyncedAt }
+        // Tokens are NEVER written — only the identity of the account
+        // and the Drive file ID. folio-drive.js re-authenticates per
+        // session against that email via silent GIS prompt.
+        driveLink: (_rlCurrent && _rlCurrent.driveLink) ? _rlCurrent.driveLink : null,
         // Legacy single-string genre (still populated for the current
         // shelf's Genre-filter dropdown backwards-compat). Auto-derived
         // from genreCodes[0] via the reverse-map when the new picker
@@ -38378,6 +38686,76 @@
            changes after attestation, the checkbox unticks itself on
            next modal open + Publish blocks until re-affirmed. Audit
            trail for any future DMCA / rights dispute. -->
+      <!-- ═════════ Save to Google Drive (Phase 2a, 2026-11-13) ═════════
+           Per-folio two-way link with a Drive file. Indie: single account
+           + linked-or-copy mode + Doc or Markdown. Imprint: + multi-account
+           via Settings. Free tier sees upsell. Writes release.driveLink.
+           See docs/DRIVE_INTEGRATION_PHASE_2.md for the full design. -->
+      <div id="rlDriveSection" style="margin:12px 0 10px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:500;color:var(--text);display:flex;align-items:center;gap:8px">
+            <svg width="14" height="14" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
+              <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/>
+              <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/>
+              <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>
+              <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/>
+              <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
+            </svg>
+            Save to Google Drive
+          </div>
+          <span id="rlDriveTierBadge" style="font-size:10.5px;color:var(--hint)">optional</span>
+        </div>
+        <!-- Upsell card (free tier) -->
+        <div id="rlDriveUpsell" style="display:none">
+          <p style="font-size:11.5px;color:var(--muted);line-height:1.55;margin:0 0 8px">
+            Keep a Drive copy of this folio that updates when you release — edit in Google Docs, share with a critique partner, download as .docx any time. Import-from-Drive is free; two-way save-back is an Indie feature.
+          </p>
+          <a href="/press" class="btn-sm" style="font-size:11px;padding:5px 12px;display:inline-block">Unlock with Indie →</a>
+        </div>
+        <!-- No-connection state (Indie+ but no Drive account connected yet) -->
+        <div id="rlDriveNoConn" style="display:none">
+          <p style="font-size:11.5px;color:var(--muted);line-height:1.55;margin:0 0 8px">
+            Connect a Google account first, then come back here to pick a target file.
+          </p>
+          <button type="button" class="btn-sm" id="rlDriveConnectNow" style="font-size:11px;padding:5px 12px">Connect Google Drive</button>
+        </div>
+        <!-- Controls (Indie+ with at least one connection) -->
+        <div id="rlDriveControls" style="display:none">
+          <div style="display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--text)">
+            <label style="display:flex;gap:7px;align-items:flex-start;cursor:pointer;line-height:1.4">
+              <input type="radio" name="rlDriveMode" value="linked" style="margin:2px 0 0" checked>
+              <span><strong>Linked</strong> <span style="color:var(--hint)">— overwrite the same Drive file every time I release this folio</span></span>
+            </label>
+            <label style="display:flex;gap:7px;align-items:flex-start;cursor:pointer;line-height:1.4">
+              <input type="radio" name="rlDriveMode" value="copy" style="margin:2px 0 0">
+              <span><strong>Copy on command</strong> <span style="color:var(--hint)">— write a fresh file each time I click "Save now"</span></span>
+            </label>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+            <label style="font-size:10.5px;color:var(--hint);display:block">
+              Format
+              <select id="rlDriveFormat" style="margin-top:3px;width:100%;font-size:12px;padding:4px 6px">
+                <option value="gdoc">Google Doc (editable)</option>
+                <option value="md">Markdown (.md)</option>
+                <option value="docx" disabled>Word (.docx) — coming in Phase 3</option>
+              </select>
+            </label>
+            <label style="font-size:10.5px;color:var(--hint);display:block">
+              Save to account
+              <select id="rlDriveAccount" style="margin-top:3px;width:100%;font-size:12px;padding:4px 6px"></select>
+            </label>
+          </div>
+          <div id="rlDriveTargetInfo" style="font-size:10.5px;color:var(--hint);margin-top:10px;min-height:14px"></div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button type="button" class="btn-sm btn-ghost" id="rlDrivePickTarget" style="font-size:11px;padding:5px 10px;flex:1">Pick existing file…</button>
+            <button type="button" class="btn-sm btn-ghost" id="rlDriveNewTarget" style="font-size:11px;padding:5px 10px;flex:1">New file</button>
+            <button type="button" class="btn-sm" id="rlDriveSaveNow" style="font-size:11px;padding:5px 12px;background:var(--accent-ui);color:#fff;border-color:var(--accent-ui);flex:1.3">Save to Drive now</button>
+          </div>
+          <div id="rlDriveSaveStatus" style="font-size:10.5px;color:var(--hint);margin-top:6px;min-height:14px"></div>
+        </div>
+      </div>
+
       <!-- AI discoverability (2026-10-31). Per-author opt-in for AI
            search engines (ChatGPT, Perplexity, Google AI Overview,
            DuckAssist, etc.) to crawl + surface this folio in
