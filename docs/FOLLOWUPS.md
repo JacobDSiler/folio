@@ -34,17 +34,27 @@ email?" reports.
 
 Owner: Jacob + Claude. Priority: high-ish (silent user-visible failure).
 
-## Drive integration — Phase 2 + 3
+## Drive integration — remaining pieces
 
-- **Phase 2** (release-modal Save-to-Drive section + Settings connections
-  panel): scaffolded in `docs/DRIVE_INTEGRATION_PHASE_2.md`. Needs drop-in
-  into `app.html` once Jacob has pasted the Client ID / API Key.
+- **Phase 2a** — ✅ shipped 2026-11-13. Release-modal Save-to-Drive section
+  with tier gating, Linked/Copy mode, Doc/Markdown format, per-folio
+  file link persisted on `release.driveLink`.
+- **Phase 2b** — not yet shipped. Settings tab "Google Drive connections"
+  panel: list persisted connections with avatar + email + lastUsedAt,
+  Disconnect buttons, tier-gated "+ Connect another account" button
+  (free locked to 1, Indie 1, Imprint unlimited). Scaffold in
+  `docs/DRIVE_INTEGRATION_PHASE_2.md` section 2b. The release-modal's
+  NoConn state already covers the main "I need to connect" case, so
+  2b is quality-of-life for authors managing multiple accounts rather
+  than blocking.
 - **Phase 3**:
   - `.docx` save-back (use the `docx@8.5.0` library already loaded).
   - Cross-session token persistence via a new `folio-drive-worker.js`
-    (OAuth refresh token exchange with client secret).
+    (OAuth refresh token exchange with client secret — the JSON you
+    downloaded during Cloud Console setup holds what the Worker needs).
   - Conflict detection: compare Drive's `modifiedTime` against
-    `driveLink.lastSyncedAt` before overwriting.
+    `driveLink.lastSyncedAt` before overwriting so edits made in Docs
+    between Folio saves don't get silently clobbered.
   - Shared Drive picker (shared Drives, not just My Drive).
 
 ## Product mockup quality
