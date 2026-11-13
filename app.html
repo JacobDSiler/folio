@@ -134,7 +134,7 @@
     // See docs/DRIVE_INTEGRATION_PHASE_3.md.
     window.FOLIO_DRIVE_WORKER_URL = 'https://folio-drive.jacobdsiler.workers.dev';
   </script>
-  <script src="/folio-drive.js?v=3" defer></script>
+  <script src="/folio-drive.js?v=4" defer></script>
   <!-- ═════════════════════════════════════════════════════════════════════════════ -->
   <script type="module">
     import { A11Y_PRESETS } from './src/utils/constants.js';
@@ -24968,6 +24968,12 @@
       // half-rendered or invisible.
       panel.style.display = 'flex';
       panel.setAttribute('aria-hidden', 'false');
+      // Drive save-back hydration — fires unconditionally regardless of
+      // whether this folio has ever been released, because the Drive
+      // section is independent of release state. 2026-11-13 fix: the
+      // previous hydration call lived inside the `if (_rlCurrent)` arm,
+      // so first-time releases never saw any Drive UI.
+      setTimeout(() => { try { if (typeof _rlDriveHydrate === 'function') _rlDriveHydrate(); } catch (e) { console.warn('[Drive] hydrate failed:', e); } }, 40);
       // Funnel: render the teaser-chapter checklist after the synchronous
       // hydration below has populated the previewN field + _rlCurrent.
       setTimeout(() => { try { if (typeof _rlRenderTeasers === 'function') _rlRenderTeasers(); } catch (e) { } }, 60);
@@ -25980,7 +25986,12 @@
       const noConn   = document.getElementById('rlDriveNoConn');
       const controls = document.getElementById('rlDriveControls');
       const badge    = document.getElementById('rlDriveTierBadge');
-      if (!upsell || !noConn || !controls) return;
+      console.log('[Drive hydrate] upsell=', !!upsell, 'noConn=', !!noConn,
+                  'controls=', !!controls, 'FolioDrive=', !!window.FolioDrive);
+      if (!upsell || !noConn || !controls) {
+        console.warn('[Drive hydrate] One of the sub-panel divs is missing — did the release-modal HTML get clobbered?');
+        return;
+      }
 
       // No Drive module loaded at all (misconfig / not deployed yet).
       if (!window.FolioDrive) {
@@ -25988,6 +25999,7 @@
         noConn.style.display = 'none';
         controls.style.display = 'none';
         if (badge) badge.textContent = 'unavailable';
+        console.warn('[Drive hydrate] FolioDrive not loaded yet — try reopening the modal in a few seconds.');
         return;
       }
 
