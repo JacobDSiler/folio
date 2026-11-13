@@ -34,28 +34,25 @@ email?" reports.
 
 Owner: Jacob + Claude. Priority: high-ish (silent user-visible failure).
 
-## Drive integration — remaining pieces
+## Drive integration — status
 
-- **Phase 2a** — ✅ shipped 2026-11-13. Release-modal Save-to-Drive section
-  with tier gating, Linked/Copy mode, Doc/Markdown format, per-folio
-  file link persisted on `release.driveLink`.
-- **Phase 2b** — not yet shipped. Settings tab "Google Drive connections"
-  panel: list persisted connections with avatar + email + lastUsedAt,
-  Disconnect buttons, tier-gated "+ Connect another account" button
-  (free locked to 1, Indie 1, Imprint unlimited). Scaffold in
-  `docs/DRIVE_INTEGRATION_PHASE_2.md` section 2b. The release-modal's
-  NoConn state already covers the main "I need to connect" case, so
-  2b is quality-of-life for authors managing multiple accounts rather
-  than blocking.
-- **Phase 3**:
-  - `.docx` save-back (use the `docx@8.5.0` library already loaded).
-  - Cross-session token persistence via a new `folio-drive-worker.js`
-    (OAuth refresh token exchange with client secret — the JSON you
-    downloaded during Cloud Console setup holds what the Worker needs).
-  - Conflict detection: compare Drive's `modifiedTime` against
-    `driveLink.lastSyncedAt` before overwriting so edits made in Docs
-    between Folio saves don't get silently clobbered.
-  - Shared Drive picker (shared Drives, not just My Drive).
+- **Phase 2a** — ✅ shipped 2026-11-13. Release-modal Save-to-Drive section.
+- **Phase 2b** — ✅ shipped 2026-11-13. Settings tab Drive connections panel.
+- **Phase 3** — code shipped 2026-11-13; needs Jacob to deploy the
+  Worker and paste the URL into `app.html`:
+  - `.docx` save-back using the `docx@8.5.0` library on the page — ✅ code.
+  - Shared Drive picker — ✅ code.
+  - Conflict detection vs Drive's `modifiedTime` — ✅ code (prompts
+    the author before overwriting a Drive-newer file).
+  - Cross-session token persistence via `folio-drive-worker.js` — ✅ code
+    and client wiring, ❌ not deployed. Deploy steps in
+    `docs/DRIVE_INTEGRATION_PHASE_3.md`. Until deployed the client
+    gracefully falls back to session-only tokens (no regression).
+- **Phase 4 candidates** (nothing started):
+  - Live Docs embed inside the editor (needs full `drive` scope — triggers
+    Google verification, big lift).
+  - Diff-aware merge dialog instead of "overwrite yes/no" on conflict.
+  - Scheduled background sync via Cloud Scheduler + the Worker.
 
 ## Product mockup quality
 

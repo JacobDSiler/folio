@@ -343,6 +343,16 @@ service cloud.firestore {
     match /folio_user_settings/{uid} {
       allow read, write: if isUser(uid) || isAdmin();
     }
+    // Drive refresh tokens (Phase 3 cross-session persistence). Only the
+    // owning user can READ, never write from client — folio-drive-worker
+    // writes via its service account (Datastore User role), which bypasses
+    // these client-facing rules. Keeping client write OFF is deliberate:
+    // a refresh token with Drive scope is sensitive even for the owner
+    // (clipboard paste, devtools exfiltration) — the Worker owns writes.
+    match /folio_drive_tokens/{uid}/accounts/{emailSlug} {
+      allow read: if isUser(uid);
+      allow write: if false;
+    }
     // Reviews / testimonials — authors submit reviews from the app + reader.
     // Each submission earns a free 24h Featured Boost on one of their folios
     // (the boost is applied server-side via the paywall worker's
