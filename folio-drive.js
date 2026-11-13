@@ -46,11 +46,20 @@
   'use strict';
 
   // ────────── Configuration ──────────
+  // Project number is the leading digits of the OAuth Client ID (e.g.
+  // '514858431339' in '514858431339-xxxxx.apps.googleusercontent.com').
+  // Picker MUST be built with this as appId so the drive.file grant it
+  // creates is recognized by subsequent Drive API calls from the same
+  // project — otherwise files.get / files.export return 403 even on
+  // user-picked files. See bug fix 2026-11-12 (first real import attempt).
+  const _clientId = (typeof window !== 'undefined' && window.FOLIO_DRIVE_CLIENT_ID) || '';
+  const _derivedProject = _clientId.split('-')[0] || '';
   const CFG = {
-    CLIENT_ID: (typeof window !== 'undefined' && window.FOLIO_DRIVE_CLIENT_ID) || '',
-    API_KEY:   (typeof window !== 'undefined' && window.FOLIO_DRIVE_API_KEY)   || '',
-    SCOPES:    'https://www.googleapis.com/auth/drive.file',
-    DISCOVERY: 'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest',
+    CLIENT_ID:      _clientId,
+    API_KEY:        (typeof window !== 'undefined' && window.FOLIO_DRIVE_API_KEY) || '',
+    PROJECT_NUMBER: (typeof window !== 'undefined' && window.FOLIO_DRIVE_PROJECT_NUMBER) || _derivedProject,
+    SCOPES:         'https://www.googleapis.com/auth/drive.file',
+    DISCOVERY:      'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest',
   };
 
   const MIME = {
@@ -173,11 +182,19 @@
           .setIncludeFolders(false)
           .setSelectFolderEnabled(false)
           .setMimeTypes(types);
-        const picker = new google.picker.PickerBuilder()
+        const builder = new google.picker.PickerBuilder()
           .addView(view)
           .setOAuthToken(token)
           .setDeveloperKey(CFG.API_KEY)
-          .setTitle(title || 'Pick a manuscript')
+          .setTitle(title || 'Pick a manuscript');
+        // CRITICAL for drive.file scope: appId must match the OAuth client's
+        // project number so the Picker's implicit drive.file grant is
+        // recognized by subsequent Drive API calls. Without this you get
+        // 403 on files.get / files.export even for files the user just picked.
+        if (CFG.PROJECT_NUMBER) builder.setAppId(CFG.PROJECT_NUMBER);
+        console.log('[FolioDrive] Opening Picker with appId=' + CFG.PROJECT_NUMBER +
+                    ', apiKey=' + CFG.API_KEY.slice(0, 10) + '…');
+        const picker = builder
           .setCallback((data) => {
             if (data.action === google.picker.Action.PICKED) {
               const d = data.docs && data.docs[0];
@@ -406,6 +423,12 @@
   window.FolioDrive = {
     // Config / init
     configured: !!(CFG.CLIENT_ID && CFG.API_KEY),
+    configDebug: () => ({
+      clientId: CFG.CLIENT_ID,
+      apiKeyPreview: CFG.API_KEY ? CFG.API_KEY.slice(0, 10) + '…' : '(none)',
+      projectNumber: CFG.PROJECT_NUMBER,
+      scopes: CFG.SCOPES,
+    }),
     init: _ensureInit,
 
     // Accounts
