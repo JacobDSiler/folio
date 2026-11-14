@@ -134,7 +134,7 @@
     // See docs/DRIVE_INTEGRATION_PHASE_3.md.
     window.FOLIO_DRIVE_WORKER_URL = 'https://folio-drive.jacobdsiler.workers.dev';
   </script>
-  <script src="/folio-drive.js?v=4" defer></script>
+  <script src="/folio-drive.js?v=5" defer></script>
   <!-- ═════════════════════════════════════════════════════════════════════════════ -->
   <script type="module">
     import { A11Y_PRESETS } from './src/utils/constants.js';
@@ -2945,10 +2945,22 @@
       float: left;
       font-family: 'Playfair Display', Georgia, serif;
       font-size: 3.5em;
-      line-height: .74;
-      margin: .06em .07em 0 0;
+      /* Was line-height:.74 (super tight) which pulled the glyph up but left
+         its descender dangling into whatever paragraph / section came next —
+         especially with a 'b' or 'y' or 'j' as the first letter. Loosening
+         to .85 + a hair of top padding keeps the cap visually dropped
+         without the descender punching through the next block.
+         Reported 2026-11-14 on the Fain Cycle 'b' cap. */
+      line-height: .88;
+      margin: .04em .08em -.1em 0;
+      padding-top: .04em;
       font-weight: 700
     }
+
+    /* Belt-and-braces: a paragraph that hosts a drop cap gets min-height
+       equal to the cap, so a very short first paragraph can't also leave
+       the cap hanging into whatever's below it. */
+    #printBook p.dc { min-height: 2.6em; }
 
     [data-tip] {
       position: relative
@@ -7458,6 +7470,75 @@
             </div>
             <input type="file" id="imgInput" accept="image/*" multiple style="display:none"
               onchange="handleImages(this)">
+
+            <!-- ═════════ Pick from Google Drive (2026-11-14) ═════════
+                 Author workflow: a lot of cover art + inline illustrations
+                 live in Drive next to the manuscript. Instead of download-
+                 and-upload, pick it directly. Downloads via the drive.file
+                 grant from Picker, then feeds the bytes straight into the
+                 existing handleImages() pipeline so WebP conversion, 1600px
+                 upscale, chip rendering etc. all work identically. -->
+            <button type="button" id="btnImgFromDrive" class="btn-sm btn-ghost"
+              style="width:100%;margin-top:8px;padding:7px 10px;font-size:11.5px;display:flex;align-items:center;justify-content:center;gap:8px"
+              onclick="_folioDriveImagePick()"
+              title="Pick an image from your Google Drive">
+              <svg width="12" height="12" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
+                <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/>
+                <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/>
+                <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>
+                <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/>
+                <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
+              </svg>
+              Pick cover from Google Drive
+            </button>
+            <div id="imgFromDriveHint" style="display:none;font-size:10.5px;color:var(--hint);text-align:center;margin-top:4px"></div>
+            <script>
+              window._folioDriveImagePick = async function () {
+                const btn  = document.getElementById('btnImgFromDrive');
+                const hint = document.getElementById('imgFromDriveHint');
+                const setHint = (t) => { if (hint) { hint.textContent = t || ''; hint.style.display = t ? 'block' : 'none'; } };
+                if (!window.FolioDrive) { setHint('Drive module not loaded.'); return; }
+                if (!FolioDrive.configured) { setHint('Drive not configured — see docs/GOOGLE_DRIVE_SETUP.md.'); return; }
+                btn.disabled = true;
+                setHint('Opening Google Drive…');
+                try {
+                  let email = null;
+                  const persisted = await FolioDrive.listPersistedConnections();
+                  if (persisted.length) email = persisted[0].email;
+                  else {
+                    const conn = await FolioDrive.connect({});
+                    email = conn.email;
+                  }
+                  const picked = await FolioDrive.pickFile(email, {
+                    mimeTypes: 'image/png,image/jpeg,image/webp,image/svg+xml,image/gif',
+                    title: 'Pick an image from Drive',
+                  });
+                  if (!picked) { setHint(''); btn.disabled = false; return; }
+                  setHint('Downloading "' + picked.name + '"…');
+                  const tok = await FolioDrive.ensureToken(email);
+                  const r = await fetch(
+                    'https://www.googleapis.com/drive/v3/files/' + picked.id + '?alt=media&supportsAllDrives=true',
+                    { headers: { Authorization: 'Bearer ' + tok } }
+                  );
+                  if (!r.ok) throw new Error('Drive download failed: ' + r.status);
+                  const blob = await r.blob();
+                  const file = new File([blob], picked.name, { type: picked.mimeType || blob.type || 'image/png' });
+                  const dt = new DataTransfer();
+                  dt.items.add(file);
+                  const inp = document.getElementById('imgInput');
+                  inp.files = dt.files;
+                  handleImages(inp);
+                  setHint('Imported "' + picked.name + '" from Drive.');
+                } catch (e) {
+                  console.error('[Drive image pick]', e);
+                  setHint('Drive import failed: ' + (e && e.message ? e.message : String(e)));
+                } finally {
+                  btn.disabled = false;
+                }
+              };
+            </script>
+
             <p class="small-note" style="margin:6px 0 0;font-size:10.5px;line-height:1.5;opacity:0.85">
               For crisp shelf display, upload covers at <strong>1600×2400 or larger</strong>.
               Smaller sources are auto-scaled to 1600px on their short edge at upload — this
@@ -7856,6 +7937,52 @@
             <button class="btn-sm" id="driveConnAddBtn"
               style="width:100%;font-size:11.5px;padding:7px 10px">+ Connect a Google account</button>
             <p class="small-note" id="driveConnNote" style="margin-top:6px;font-size:10.5px;color:var(--hint);line-height:1.5"></p>
+          </div>
+
+          <!-- ═════════ Save the current folio to Drive (2026-11-14 move) ═════════
+               Previously lived in the release modal, but Drive is really an
+               author-workflow feature (backup, familiarity, drafting) rather
+               than a publication-time decision. Every save/snapshot can land
+               here, whether or not you've ever released the folio. The
+               release modal keeps a one-line status strip. -->
+          <div class="section" id="driveSaveToDriveSection" style="display:none">
+            <div class="section-title">Save this folio to Drive</div>
+            <p class="small-note" style="margin:0 0 10px;font-size:11px;color:var(--muted);line-height:1.55">
+              Keep a Drive copy of this folio as a backup, or so you can edit sections in Google Docs. Updates on demand &mdash; or every time you release, if Linked mode is on.
+            </p>
+            <div id="driveSaveControls">
+              <div style="display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--text);margin-bottom:10px">
+                <label style="display:flex;gap:7px;align-items:flex-start;cursor:pointer;line-height:1.4">
+                  <input type="radio" name="dvSaveMode" value="linked" style="margin:2px 0 0" checked>
+                  <span><strong>Linked</strong> <span style="color:var(--hint)">— overwrite the same Drive file every save</span></span>
+                </label>
+                <label style="display:flex;gap:7px;align-items:flex-start;cursor:pointer;line-height:1.4">
+                  <input type="radio" name="dvSaveMode" value="copy" style="margin:2px 0 0">
+                  <span><strong>Copy</strong> <span style="color:var(--hint)">— write a fresh file each time I save</span></span>
+                </label>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <label style="font-size:10.5px;color:var(--hint);display:block">
+                  Format
+                  <select id="dvSaveFormat" style="margin-top:3px;width:100%;font-size:12px;padding:4px 6px">
+                    <option value="gdoc">Google Doc (editable)</option>
+                    <option value="md">Markdown (.md)</option>
+                    <option value="docx">Word (.docx)</option>
+                  </select>
+                </label>
+                <label style="font-size:10.5px;color:var(--hint);display:block">
+                  Save to account
+                  <select id="dvSaveAccount" style="margin-top:3px;width:100%;font-size:12px;padding:4px 6px"></select>
+                </label>
+              </div>
+              <div id="dvSaveTargetInfo" style="font-size:10.5px;color:var(--hint);margin-top:10px;min-height:14px"></div>
+              <div style="display:flex;gap:6px;margin-top:8px">
+                <button type="button" class="btn-sm btn-ghost" id="dvSavePickTarget" style="font-size:11px;padding:5px 10px;flex:1">Pick existing file…</button>
+                <button type="button" class="btn-sm btn-ghost" id="dvSaveNewTarget" style="font-size:11px;padding:5px 10px;flex:1">New file</button>
+                <button type="button" class="btn-sm" id="dvSaveNow" style="font-size:11px;padding:5px 12px;background:var(--accent-ui);color:#fff;border-color:var(--accent-ui);flex:1.3">Save to Drive now</button>
+              </div>
+              <div id="dvSaveStatus" style="font-size:10.5px;color:var(--hint);margin-top:6px;min-height:14px"></div>
+            </div>
           </div>
 
         </div><!-- /tab-project -->
@@ -25981,25 +26108,198 @@
     // Decide which of the three panels (upsell / no-conn / controls)
     // to show. Also populates the account dropdown and prefills from
     // any existing _rlCurrent.driveLink.
+    // Compact release-modal status strip. All save mechanics live in
+    // Settings → Drive now (2026-11-14 rework); this strip just tells
+    // the author at a glance whether a Drive link exists and when the
+    // last save happened. Clicking the Open settings button in the
+    // strip's HTML scrolls to #driveSaveToDriveSection.
     async function _rlDriveHydrate() {
+      const status = document.getElementById('rlDriveStatus');
+      if (!status) return;
+      if (!window.FolioDrive) {
+        status.textContent = 'Drive module not loaded.';
+        return;
+      }
+      const existing = (_rlCurrent && _rlCurrent.driveLink) || null;
+      if (existing && existing.fileName) {
+        const when = existing.lastSyncedAt ? new Date(existing.lastSyncedAt).toLocaleString() : '';
+        const mode = existing.mode === 'copy' ? 'copy' : 'linked';
+        status.innerHTML = 'Backed up to Drive · <strong>' +
+          String(existing.fileName).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c])) +
+          '</strong> (' + mode + ')' +
+          (when ? ' · last saved ' + when : '');
+      } else if (!FolioDrive.canLink()) {
+        status.innerHTML = 'Drive backup is an <a href="/press" style="color:var(--accent-ui);text-decoration:none;font-weight:500">Indie</a>+ feature.';
+      } else {
+        status.textContent = 'Not backed up to Drive yet. Open Settings → Drive to link a file.';
+      }
+    }
+
+    // ───── Settings-tab Save-to-Drive section (moved from release modal) ─────
+    async function renderDriveSaveSection() {
+      const sec = document.getElementById('driveSaveToDriveSection');
+      if (!sec) return;
+      // Section visibility: only paid tier + ≥1 connected account.
+      if (!window.FolioDrive || !FolioDrive.canLink()) { sec.style.display = 'none'; return; }
+      let persisted = [];
+      try { persisted = await FolioDrive.listPersistedConnections(); } catch (_) { persisted = []; }
+      if (!persisted.length) { sec.style.display = 'none'; return; }
+      sec.style.display = '';
+
+      // Populate account dropdown. Indie locks to the first.
+      const sel = document.getElementById('dvSaveAccount');
+      if (sel && !sel.dataset.populated) {
+        sel.innerHTML = '';
+        persisted.forEach(c => {
+          const o = document.createElement('option');
+          o.value = c.email;
+          o.textContent = c.displayName ? (c.displayName + ' (' + c.email + ')') : c.email;
+          sel.appendChild(o);
+        });
+        sel.disabled = (!FolioDrive.canConnectMultiple() && persisted.length > 1);
+        sel.dataset.populated = '1';
+      }
+
+      // Hydrate from current folio's driveLink. We use the release-modal's
+      // _rlCurrent so this reflects the same state the release workflow sees.
+      const existing = (typeof _rlCurrent !== 'undefined' && _rlCurrent && _rlCurrent.driveLink) || null;
+      const info = document.getElementById('dvSaveTargetInfo');
+      if (existing) {
+        if (sel && existing.accountEmail) for (const o of sel.options) if (o.value === existing.accountEmail) { o.selected = true; break; }
+        const fmt = document.getElementById('dvSaveFormat');
+        if (fmt && existing.format) fmt.value = existing.format;
+        const modeVal = existing.mode || 'linked';
+        const r = document.querySelector('input[name=dvSaveMode][value="' + modeVal + '"]');
+        if (r) r.checked = true;
+        if (info) info.textContent = existing.fileName
+          ? 'Linked to: ' + existing.fileName + (existing.lastSyncedAt ? ' · last saved ' + new Date(existing.lastSyncedAt).toLocaleString() : '')
+          : 'No file linked yet.';
+      } else if (info) {
+        info.textContent = 'No file linked yet. Pick an existing Drive file or save as new.';
+      }
+
+      _bindDvSaveHandlers();
+    }
+
+    function _bindDvSaveHandlers() {
+      const bindOnce = (id, evt, fn) => {
+        const el = document.getElementById(id);
+        if (!el || el.dataset.dvBound) return;
+        el.addEventListener(evt, fn);
+        el.dataset.dvBound = '1';
+      };
+      bindOnce('dvSavePickTarget', 'click', async () => {
+        const email = document.getElementById('dvSaveAccount').value;
+        const fmt   = document.getElementById('dvSaveFormat').value;
+        const info  = document.getElementById('dvSaveTargetInfo');
+        if (!email) return;
+        try {
+          const types = fmt === 'md'   ? FolioDrive.MIME.MD + ',' + FolioDrive.MIME.TXT
+                      : fmt === 'gdoc' ? FolioDrive.MIME.GDOC
+                      : fmt === 'docx' ? FolioDrive.MIME.DOCX
+                                       : null;
+          const picked = await FolioDrive.pickFile(email, { mimeTypes: types, title: 'Pick a Drive file to link this folio to' });
+          if (!picked) return;
+          if (typeof _rlCurrent === 'undefined' || !_rlCurrent) window._rlCurrent = {};
+          _rlCurrent.driveLink = Object.assign({}, _rlCurrent.driveLink, {
+            accountEmail: email, fileId: picked.id, fileName: picked.name,
+          });
+          if (info) info.textContent = 'Linked to: ' + picked.name;
+        } catch (e) {
+          if (info) info.textContent = 'Picker error: ' + (e && e.message ? e.message : e);
+        }
+      });
+      bindOnce('dvSaveNewTarget', 'click', () => {
+        const info = document.getElementById('dvSaveTargetInfo');
+        if (typeof _rlCurrent === 'undefined' || !_rlCurrent) window._rlCurrent = {};
+        _rlCurrent.driveLink = Object.assign({}, _rlCurrent.driveLink, { fileId: null, fileName: null });
+        if (info) info.textContent = 'Will create a new Drive file on next save.';
+      });
+      bindOnce('dvSaveNow', 'click', async () => {
+        const email  = document.getElementById('dvSaveAccount').value;
+        const fmt    = document.getElementById('dvSaveFormat').value;
+        const modeEl = document.querySelector('input[name=dvSaveMode]:checked');
+        const mode   = modeEl ? modeEl.value : 'linked';
+        const status = document.getElementById('dvSaveStatus');
+        const btn    = document.getElementById('dvSaveNow');
+        if (!email) { if (status) status.textContent = 'Pick an account first.'; return; }
+        const existing = (typeof _rlCurrent !== 'undefined' && _rlCurrent && _rlCurrent.driveLink) || {};
+        const useFileId = (mode === 'linked' && existing.fileId) ? existing.fileId : null;
+        const title = (typeof getV === 'function' && getV('bookTitle')) || 'Folio export';
+        const name  = title + (fmt === 'md' ? '.md' : fmt === 'docx' ? '.docx' : '');
+        btn.disabled = true;
+        if (status) status.textContent = 'Building ' + fmt + '…';
+        try {
+          const content = (fmt === 'md')   ? _rlDriveBuildMarkdown()
+                        : (fmt === 'docx') ? await _rlDriveBuildDocx()
+                                           : _rlDriveBuildHtml();
+          if (status) status.textContent = 'Saving to Drive…';
+          const r = await _rlDriveSaveWithConflict(email, { fileId: useFileId, name, content, format: fmt });
+          if (typeof _rlCurrent === 'undefined' || !_rlCurrent) window._rlCurrent = {};
+          _rlCurrent.driveLink = {
+            accountEmail: email, fileId: r.id, fileName: r.name || name,
+            format: fmt, mode,
+            lastSyncedAt: r.modifiedTime ? Date.parse(r.modifiedTime) : Date.now(),
+          };
+          const info = document.getElementById('dvSaveTargetInfo');
+          if (info) info.textContent = 'Linked to: ' + (r.name || name) + ' · just now';
+          if (status) status.innerHTML = '<span style="color:var(--accent-ui)">Saved.</span> ' +
+            '<a href="https://drive.google.com/file/d/' + r.id + '/view" target="_blank" rel="noopener">Open in Drive</a>';
+          // Also persist the new driveLink on the folio doc if a project is open,
+          // so a later release carries the link without needing the release modal.
+          try {
+            if (window._projId && window._db && window._fb) {
+              const ref = window._fb.doc(window._db, 'folio_projects', window._projId);
+              await window._fb.updateDoc(ref, { 'release.driveLink': _rlCurrent.driveLink });
+            }
+          } catch (_) { /* best-effort; release save covers the fallback */ }
+        } catch (e) {
+          if (status) status.textContent = 'Save failed: ' + (e && e.message ? e.message : e);
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    }
+
+    // Keep the Settings-tab panel in sync whenever connections change or
+    // the user switches projects.
+    document.addEventListener('DOMContentLoaded', function () {
+      const kickoff = () => {
+        try { renderDriveSaveSection(); } catch (_) {}
+        if (window.FolioDrive && window.FolioDrive.onChange) {
+          FolioDrive.onChange(() => renderDriveSaveSection());
+        }
+      };
+      if (window.FolioDrive) kickoff();
+      else document.addEventListener('foliodrive:ready', kickoff, { once: true });
+    });
+
+    // Legacy stub — guards older code paths that still reference these
+    // element IDs after the rework. Returns early (the elements no longer
+    // exist in the release modal). Kept because removing it would cause
+    // a ReferenceError in the openReleaseModal timer.
+    function _rlDriveBindHandlers_legacy() {
+      // No-op since 2026-11-14 rework. Save UI lives in Settings now.
+      return;
+    }
+    // Compat wrapper for old entry-point names.
+    if (typeof _rlDriveBindHandlers !== 'function') {
+      window._rlDriveBindHandlers = _rlDriveBindHandlers_legacy;
+    }
+
+    // ───── Old body kept for reference — BEGIN DEAD CODE ─────
+    async function _rlDriveHydrate_DEAD() {
       const upsell   = document.getElementById('rlDriveUpsell');
       const noConn   = document.getElementById('rlDriveNoConn');
       const controls = document.getElementById('rlDriveControls');
       const badge    = document.getElementById('rlDriveTierBadge');
-      console.log('[Drive hydrate] upsell=', !!upsell, 'noConn=', !!noConn,
-                  'controls=', !!controls, 'FolioDrive=', !!window.FolioDrive);
-      if (!upsell || !noConn || !controls) {
-        console.warn('[Drive hydrate] One of the sub-panel divs is missing — did the release-modal HTML get clobbered?');
-        return;
-      }
+      if (!upsell || !noConn || !controls) return;
 
-      // No Drive module loaded at all (misconfig / not deployed yet).
       if (!window.FolioDrive) {
         upsell.style.display = 'none';
         noConn.style.display = 'none';
         controls.style.display = 'none';
         if (badge) badge.textContent = 'unavailable';
-        console.warn('[Drive hydrate] FolioDrive not loaded yet — try reopening the modal in a few seconds.');
         return;
       }
 
@@ -38910,74 +39210,24 @@
            changes after attestation, the checkbox unticks itself on
            next modal open + Publish blocks until re-affirmed. Audit
            trail for any future DMCA / rights dispute. -->
-      <!-- ═════════ Save to Google Drive (Phase 2a, 2026-11-13) ═════════
-           Per-folio two-way link with a Drive file. Indie: single account
-           + linked-or-copy mode + Doc or Markdown. Imprint: + multi-account
-           via Settings. Free tier sees upsell. Writes release.driveLink.
-           See docs/DRIVE_INTEGRATION_PHASE_2.md for the full design. -->
-      <div id="rlDriveSection" style="margin:12px 0 10px;padding:12px 14px;border:.5px solid var(--border-mid);border-radius:8px;background:var(--bg)">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <div style="font-size:12px;font-weight:500;color:var(--text);display:flex;align-items:center;gap:8px">
-            <svg width="14" height="14" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-              <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
-              <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/>
-              <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/>
-              <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>
-              <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/>
-              <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
-            </svg>
-            Save to Google Drive
-          </div>
-          <span id="rlDriveTierBadge" style="font-size:10.5px;color:var(--hint)">optional</span>
-        </div>
-        <!-- Upsell card (free tier) -->
-        <div id="rlDriveUpsell" style="display:none">
-          <p style="font-size:11.5px;color:var(--muted);line-height:1.55;margin:0 0 8px">
-            Keep a Drive copy of this folio that updates when you release — edit in Google Docs, share with a critique partner, download as .docx any time. Import-from-Drive is free; two-way save-back is an Indie feature.
-          </p>
-          <a href="/press" class="btn-sm" style="font-size:11px;padding:5px 12px;display:inline-block">Unlock with Indie →</a>
-        </div>
-        <!-- No-connection state (Indie+ but no Drive account connected yet) -->
-        <div id="rlDriveNoConn" style="display:none">
-          <p style="font-size:11.5px;color:var(--muted);line-height:1.55;margin:0 0 8px">
-            Connect a Google account first, then come back here to pick a target file.
-          </p>
-          <button type="button" class="btn-sm" id="rlDriveConnectNow" style="font-size:11px;padding:5px 12px">Connect Google Drive</button>
-        </div>
-        <!-- Controls (Indie+ with at least one connection) -->
-        <div id="rlDriveControls" style="display:none">
-          <div style="display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--text)">
-            <label style="display:flex;gap:7px;align-items:flex-start;cursor:pointer;line-height:1.4">
-              <input type="radio" name="rlDriveMode" value="linked" style="margin:2px 0 0" checked>
-              <span><strong>Linked</strong> <span style="color:var(--hint)">— overwrite the same Drive file every time I release this folio</span></span>
-            </label>
-            <label style="display:flex;gap:7px;align-items:flex-start;cursor:pointer;line-height:1.4">
-              <input type="radio" name="rlDriveMode" value="copy" style="margin:2px 0 0">
-              <span><strong>Copy on command</strong> <span style="color:var(--hint)">— write a fresh file each time I click "Save now"</span></span>
-            </label>
-          </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
-            <label style="font-size:10.5px;color:var(--hint);display:block">
-              Format
-              <select id="rlDriveFormat" style="margin-top:3px;width:100%;font-size:12px;padding:4px 6px">
-                <option value="gdoc">Google Doc (editable)</option>
-                <option value="md">Markdown (.md)</option>
-                <option value="docx">Word (.docx)</option>
-              </select>
-            </label>
-            <label style="font-size:10.5px;color:var(--hint);display:block">
-              Save to account
-              <select id="rlDriveAccount" style="margin-top:3px;width:100%;font-size:12px;padding:4px 6px"></select>
-            </label>
-          </div>
-          <div id="rlDriveTargetInfo" style="font-size:10.5px;color:var(--hint);margin-top:10px;min-height:14px"></div>
-          <div style="display:flex;gap:6px;margin-top:8px">
-            <button type="button" class="btn-sm btn-ghost" id="rlDrivePickTarget" style="font-size:11px;padding:5px 10px;flex:1">Pick existing file…</button>
-            <button type="button" class="btn-sm btn-ghost" id="rlDriveNewTarget" style="font-size:11px;padding:5px 10px;flex:1">New file</button>
-            <button type="button" class="btn-sm" id="rlDriveSaveNow" style="font-size:11px;padding:5px 12px;background:var(--accent-ui);color:#fff;border-color:var(--accent-ui);flex:1.3">Save to Drive now</button>
-          </div>
-          <div id="rlDriveSaveStatus" style="font-size:10.5px;color:var(--hint);margin-top:6px;min-height:14px"></div>
-        </div>
+      <!-- ═════════ Drive status strip (2026-11-14 refactor) ═════════
+           Per-folio Drive linkage is MANAGED from Settings → Drive now
+           ("Drive is more about backup / familiarity / workflow than
+           publication" — Jacob, 2026-11-14). The release modal shows a
+           compact status strip only, so a release-time glance tells you
+           whether this folio is backed up and when, without duplicating
+           the save UI two places. -->
+      <div id="rlDriveSection" style="margin:12px 0 10px;padding:9px 12px;border:.5px solid var(--border);border-radius:8px;background:var(--bg);display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--text)">
+        <svg width="14" height="14" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" style="flex-shrink:0">
+          <path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>
+          <path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/>
+          <path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/>
+          <path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>
+          <path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/>
+          <path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>
+        </svg>
+        <div id="rlDriveStatus" style="flex:1;min-width:0;color:var(--hint);line-height:1.4">Drive backup lives in Settings → Drive.</div>
+        <button type="button" class="btn-sm btn-ghost" onclick="(function(){try{switchTab('folio');setTimeout(()=>{var s=document.getElementById('driveSaveToDriveSection');if(s)s.scrollIntoView({behavior:'smooth',block:'center'});},120);}catch(e){}})()" style="font-size:10.5px;padding:4px 10px;flex-shrink:0">Open settings</button>
       </div>
 
       <!-- AI discoverability (2026-10-31). Per-author opt-in for AI
