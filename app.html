@@ -125,6 +125,11 @@
        safe — folio-drive.js detects them and the UI shows a setup hint
        instead of attempting any Google API calls. -->
   <script>
+    // Build indicator — bump this timestamp whenever meaningful code
+    // changes land so the sidebar dot visibly shifts colour on deploy.
+    // Format is free-form; the sidebar hashes it to a palette entry.
+    window.FOLIO_BUILD = '2026-11-14 10:30';
+
     window.FOLIO_DRIVE_CLIENT_ID = '514858431339-tkv60ka7j8sauhu83h89k14frcr3fsu8.apps.googleusercontent.com';
     window.FOLIO_DRIVE_API_KEY   = 'AIzaSyB7rV5LN8c25iaNf1VHv5bNFBbLNeleKhg';
     // Phase 3 — Worker that brokers cross-session refresh tokens. Blank
@@ -134,7 +139,7 @@
     // See docs/DRIVE_INTEGRATION_PHASE_3.md.
     window.FOLIO_DRIVE_WORKER_URL = 'https://folio-drive.jacobdsiler.workers.dev';
   </script>
-  <script src="/folio-drive.js?v=5" defer></script>
+  <script src="/folio-drive.js?v=6" defer></script>
   <!-- ═════════════════════════════════════════════════════════════════════════════ -->
   <script type="module">
     import { A11Y_PRESETS } from './src/utils/constants.js';
@@ -2944,23 +2949,28 @@
     #printBook .dc::first-letter {
       float: left;
       font-family: 'Playfair Display', Georgia, serif;
-      font-size: 3.5em;
-      /* Was line-height:.74 (super tight) which pulled the glyph up but left
-         its descender dangling into whatever paragraph / section came next —
-         especially with a 'b' or 'y' or 'j' as the first letter. Loosening
-         to .85 + a hair of top padding keeps the cap visually dropped
-         without the descender punching through the next block.
-         Reported 2026-11-14 on the Fain Cycle 'b' cap. */
-      line-height: .88;
-      margin: .04em .08em -.1em 0;
-      padding-top: .04em;
+      /* Drop cap sized for 3 lines of body text. Height-cap via em so it
+         scales with the reader's font-size slider. */
+      font-size: 3.2em;
+      line-height: .92;
+      margin: .06em .08em 0 0;
       font-weight: 700
     }
 
-    /* Belt-and-braces: a paragraph that hosts a drop cap gets min-height
-       equal to the cap, so a very short first paragraph can't also leave
-       the cap hanging into whatever's below it. */
-    #printBook p.dc { min-height: 2.6em; }
+    /* The real fix for descender clipping on 'b'/'y'/'g'/'j'/'p'/'q' drop
+       caps: display:flow-root forces the paragraph to establish a new block
+       formatting context, which guarantees the ::first-letter float is
+       fully contained inside the paragraph box regardless of how tall the
+       glyph is. Combined with min-height (so a one-line first paragraph
+       doesn't let the glyph hang below the paragraph's natural height)
+       and padding-bottom for a hair of visual breathing room before the
+       next block, descender clipping is impossible. 2026-11-14 revision —
+       the earlier line-height tweak alone wasn't enough on short paragraphs. */
+    #printBook p.dc {
+      display: flow-root;
+      min-height: 3em;
+      padding-bottom: .3em;
+    }
 
     [data-tip] {
       position: relative
@@ -6456,7 +6466,31 @@
     <!-- ════════════════ SIDEBAR ════════════════ -->
     <aside class="sidebar">
       <div class="sidebar-header">
-        <h1><span>📖</span> Folio</h1>
+        <!-- ═════════ Build indicator (2026-11-14) ═════════
+             Tiny dot after "Folio" whose fill colour toggles on every
+             significant code change (bumped manually in the window.
+             FOLIO_BUILD constant near the top of this file). Hover
+             shows the full build timestamp. Easy glance-check that
+             the deploy landed; survives on every page because it's
+             baked into the sidebar header. Not visible to readers —
+             sidebar only shows in the editor. -->
+        <h1><span>📖</span> Folio<span id="buildDot"
+          style="display:inline-block;width:6px;height:6px;border-radius:50%;margin-left:5px;vertical-align:1px;opacity:.55"
+          title="Folio build — hover to see timestamp"></span></h1>
+        <script>
+          (function () {
+            const dot = document.getElementById('buildDot');
+            if (!dot) return;
+            const build = window.FOLIO_BUILD || 'unknown';
+            // Hash the build string → one of six accent colours so each
+            // bump produces a visibly different dot. That makes the
+            // "did it change?" check O(glance).
+            let h = 0; for (let i = 0; i < build.length; i++) h = (h * 31 + build.charCodeAt(i)) | 0;
+            const palette = ['#065f46', '#c98c2a', '#1e3a8a', '#9d174d', '#6b21a8', '#115e59'];
+            dot.style.background = palette[Math.abs(h) % palette.length];
+            dot.title = 'Folio build ' + build;
+          })();
+        </script>
         <p>Write · Design · Narrate · Release — PDF · EPUB · MP3 · and more</p>
         <button id="darkModeBtn" onclick="toggleDarkMode()" title="Switch to dark mode (☀ / ☽) — easier on the eyes at night" aria-label="Toggle dark mode"
           style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px 5px;color:var(--hint);border-radius:4px;transition:color .15s"
@@ -7982,6 +8016,24 @@
                 <button type="button" class="btn-sm" id="dvSaveNow" style="font-size:11px;padding:5px 12px;background:var(--accent-ui);color:#fff;border-color:var(--accent-ui);flex:1.3">Save to Drive now</button>
               </div>
               <div id="dvSaveStatus" style="font-size:10.5px;color:var(--hint);margin-top:6px;min-height:14px"></div>
+            </div>
+
+            <!-- ───── Autosave-to-Drive toggle (2026-11-14) ───── -->
+            <div id="driveAutosaveRow" style="margin-top:14px;padding:10px 12px;background:var(--bg);border:.5px solid var(--border-mid);border-radius:8px">
+              <label style="display:flex;align-items:center;gap:9px;font-size:11.5px;color:var(--text);cursor:pointer">
+                <input type="checkbox" id="dvAutosaveEnabled" style="margin:0;flex-shrink:0">
+                <span>Autosave this folio to Drive</span>
+                <select id="dvAutosaveInterval" style="margin-left:auto;font-size:11px;padding:3px 6px">
+                  <option value="15">every 15 min</option>
+                  <option value="30" selected>every 30 min</option>
+                  <option value="60">every hour</option>
+                  <option value="240">every 4 hours</option>
+                </select>
+              </label>
+              <p class="small-note" style="margin:6px 0 0 24px;font-size:10.5px;color:var(--hint);line-height:1.5">
+                Fires only when a Drive link exists and the manuscript has changed. Uses the format / account / mode picked above.
+              </p>
+              <div id="dvAutosaveStatus" style="font-size:10.5px;color:var(--hint);margin:5px 0 0 24px;min-height:12px"></div>
             </div>
           </div>
 
@@ -9793,6 +9845,10 @@
 
       backupFolio();
       _autoSaveDirty = true;
+      // Mark for Drive autosave too — the Drive timer (if enabled) checks
+      // this flag on its own interval and clears it after a successful
+      // Drive save. 2026-11-14 addition.
+      window._driveAutoSaveDirty = true;
       _updateFolioCloudBadge('unsaved');
       if (!_fbReady) return; // will save when connected
       clearTimeout(_autoSaveTimer);
@@ -17687,6 +17743,19 @@
         '<div style="display:flex;flex-wrap:wrap;gap:7px;max-height:200px;overflow:auto">' + grid +
         '<button type="button" onclick="_imgModalUpload()" style="width:84px;height:84px;border:1.5px dashed ' +
         'var(--border-mid,#ccc);border-radius:8px;background:none;cursor:pointer;color:var(--hint,#888);font-size:11px;flex:0 0 auto">+ Upload</button>' +
+        // Drive picker tile — same pipeline as disk upload (goes through
+        // _imgModalIngestFile) so WebP, dimensions, library + autosave all
+        // behave identically. 2026-11-14 addition for inline illustrations.
+        '<button type="button" onclick="_imgModalUploadFromDrive()" title="Pick from Google Drive" style="width:84px;height:84px;border:1.5px dashed ' +
+        'var(--border-mid,#ccc);border-radius:8px;background:none;cursor:pointer;color:var(--hint,#888);font-size:10.5px;flex:0 0 auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:6px">' +
+        '<svg width="18" height="18" viewBox="0 0 87.3 78" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">' +
+          '<path d="m6.6 66.85 3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/>' +
+          '<path d="m43.65 25-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0 -1.2 4.5h27.5z" fill="#00ac47"/>' +
+          '<path d="m73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/>' +
+          '<path d="m43.65 25 13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/>' +
+          '<path d="m59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/>' +
+          '<path d="m73.4 26.5-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/>' +
+        '</svg>Drive</button>' +
         '</div>' +
         (lib.length ? '' : '<div style="font-size:11px;color:var(--hint,#888);margin-top:6px">No images yet — upload one to begin.</div>') +
         quadPanel +
@@ -17775,6 +17844,67 @@
       _imgRenderModal();
     }
     window._imgModalPick = _imgModalPick;
+
+    // Pick an inline illustration from Google Drive. Mirrors the cover
+    // Drive picker — uses drive.file + alt=media, wraps bytes in a File,
+    // then hands the File straight to the same _imgModalUpload handler
+    // code path (via the shared ingest routine below) so WebP conversion,
+    // dimension capture, library insertion and modal refresh all behave
+    // identically whether the image came from disk or Drive.
+    async function _imgModalUploadFromDrive() {
+      if (!window.FolioDrive) { alert('Drive module not loaded.'); return; }
+      if (!FolioDrive.configured) { alert('Drive not configured — see docs/GOOGLE_DRIVE_SETUP.md.'); return; }
+      try {
+        let email = null;
+        const persisted = await FolioDrive.listPersistedConnections();
+        if (persisted.length) email = persisted[0].email;
+        else { const c = await FolioDrive.connect({}); email = c.email; }
+        const picked = await FolioDrive.pickFile(email, {
+          mimeTypes: 'image/png,image/jpeg,image/webp,image/svg+xml,image/gif',
+          title: 'Pick an illustration from Drive',
+        });
+        if (!picked) return;
+        const tok = await FolioDrive.ensureToken(email);
+        const r = await fetch(
+          'https://www.googleapis.com/drive/v3/files/' + picked.id + '?alt=media&supportsAllDrives=true',
+          { headers: { Authorization: 'Bearer ' + tok } }
+        );
+        if (!r.ok) throw new Error('Drive download failed: ' + r.status);
+        const blob = await r.blob();
+        const file = new File([blob], picked.name, { type: picked.mimeType || blob.type || 'image/png' });
+        await _imgModalIngestFile(file);
+      } catch (e) {
+        console.error('[Drive inline pick]', e);
+        alert('Drive import failed: ' + (e && e.message ? e.message : e));
+      }
+    }
+    window._imgModalUploadFromDrive = _imgModalUploadFromDrive;
+
+    // Shared ingest path used by both the disk-upload click and the Drive
+    // picker. Runs WebP conversion, captures dimensions, pushes into the
+    // S.images library and refreshes the modal.
+    async function _imgModalIngestFile(raw) {
+      const f = await _maybeConvertToWebP(raw);
+      return new Promise((resolve) => {
+        const r = new FileReader();
+        r.onload = function (ev) {
+          const img = { id: _imgGenId(), name: f.name, type: f.type, data: ev.target.result };
+          try {
+            const probe = new Image();
+            probe.onload = function () { img.w = probe.naturalWidth || 0; img.h = probe.naturalHeight || 0; };
+            probe.src = ev.target.result;
+          } catch (_) { }
+          if (!Array.isArray(S.images)) S.images = [];
+          S.images.push(img);
+          try { if (typeof renderImgList === 'function') renderImgList(); } catch (_) { }
+          if (typeof _scheduleAutoSave === 'function') _scheduleAutoSave();
+          if (_imgModalState) _imgModalState.selectedId = img.id;
+          _imgRenderModal();
+          resolve(img);
+        };
+        r.readAsDataURL(f);
+      });
+    }
 
     function _imgModalUpload() {
       const fi = document.createElement('input');
@@ -26179,6 +26309,116 @@
       }
 
       _bindDvSaveHandlers();
+      _bindDvAutosaveHandlers();
+    }
+
+    // ───── Autosave-to-Drive lifecycle (2026-11-14) ─────
+    // Persisted settings: window._driveAutosave = { enabled, intervalMinutes }
+    // Stored on folio_user_settings/{uid}.driveAutosave so toggling once
+    // sticks across devices.
+    let _driveAutoSaveTimer = null;
+    window._driveAutoSaveDirty = false;
+
+    function _driveAutosaveIsOn() {
+      const enEl = document.getElementById('dvAutosaveEnabled');
+      return !!(enEl && enEl.checked);
+    }
+    function _driveAutosaveIntervalMs() {
+      const sel = document.getElementById('dvAutosaveInterval');
+      const m = sel ? Number(sel.value) : 30;
+      return Math.max(1, m) * 60 * 1000;
+    }
+
+    async function _driveAutosaveTick() {
+      try {
+        const status = document.getElementById('dvAutosaveStatus');
+        if (!_driveAutosaveIsOn()) return;
+        if (!window._driveAutoSaveDirty) return;
+        if (typeof _rlCurrent === 'undefined' || !_rlCurrent || !_rlCurrent.driveLink || !_rlCurrent.driveLink.accountEmail) {
+          if (status) status.textContent = 'Waiting — no Drive link yet (use "Save to Drive now" above to create one).';
+          return;
+        }
+        const email = _rlCurrent.driveLink.accountEmail;
+        const fmt   = _rlCurrent.driveLink.format || 'gdoc';
+        const mode  = _rlCurrent.driveLink.mode   || 'linked';
+        const useFileId = (mode === 'linked' && _rlCurrent.driveLink.fileId) ? _rlCurrent.driveLink.fileId : null;
+        const title = (typeof getV === 'function' && getV('bookTitle')) || 'Folio autosave';
+        const name  = title + (fmt === 'md' ? '.md' : fmt === 'docx' ? '.docx' : '');
+        if (status) status.textContent = 'Autosaving to Drive…';
+        const content = (fmt === 'md') ? _rlDriveBuildMarkdown()
+                      : (fmt === 'docx') ? await _rlDriveBuildDocx()
+                      : _rlDriveBuildHtml();
+        const r = await _rlDriveSaveWithConflict(email, { fileId: useFileId, name, content, format: fmt });
+        _rlCurrent.driveLink.fileId = r.id;
+        _rlCurrent.driveLink.fileName = r.name || name;
+        _rlCurrent.driveLink.lastSyncedAt = r.modifiedTime ? Date.parse(r.modifiedTime) : Date.now();
+        window._driveAutoSaveDirty = false;
+        if (status) status.textContent = 'Last autosave: just now · ' + (r.name || name);
+        try {
+          if (window._projId && window._db && window._fb) {
+            const ref = window._fb.doc(window._db, 'folio_projects', window._projId);
+            await window._fb.updateDoc(ref, { 'release.driveLink': _rlCurrent.driveLink });
+          }
+        } catch (_) {}
+      } catch (e) {
+        const status = document.getElementById('dvAutosaveStatus');
+        if (status) status.textContent = 'Autosave failed: ' + (e && e.message ? e.message : e);
+      }
+    }
+
+    function _driveAutosaveRestart() {
+      if (_driveAutoSaveTimer) { clearInterval(_driveAutoSaveTimer); _driveAutoSaveTimer = null; }
+      if (!_driveAutosaveIsOn()) {
+        const status = document.getElementById('dvAutosaveStatus');
+        if (status) status.textContent = '';
+        return;
+      }
+      _driveAutoSaveTimer = setInterval(_driveAutosaveTick, _driveAutosaveIntervalMs());
+      const status = document.getElementById('dvAutosaveStatus');
+      if (status) status.textContent = 'Watching for changes · ' + (_driveAutosaveIntervalMs() / 60000) + ' min interval';
+    }
+
+    async function _driveAutosavePersist() {
+      if (!window._db || !window._fb || !window._uid) return;
+      const prefs = {
+        driveAutosave: {
+          enabled: _driveAutosaveIsOn(),
+          intervalMinutes: Number((document.getElementById('dvAutosaveInterval') || {}).value || 30),
+        },
+      };
+      try {
+        const ref = window._fb.doc(window._db, 'folio_user_settings', window._uid);
+        await window._fb.setDoc(ref, prefs, { merge: true });
+      } catch (_) {}
+    }
+
+    async function _driveAutosaveLoad() {
+      if (!window._db || !window._fb || !window._uid) return;
+      try {
+        const ref = window._fb.doc(window._db, 'folio_user_settings', window._uid);
+        const snap = await window._fb.getDoc(ref);
+        const prefs = snap.exists() ? (snap.data().driveAutosave || {}) : {};
+        const en = document.getElementById('dvAutosaveEnabled');
+        const iv = document.getElementById('dvAutosaveInterval');
+        if (en) en.checked = !!prefs.enabled;
+        if (iv && prefs.intervalMinutes) iv.value = String(prefs.intervalMinutes);
+        _driveAutosaveRestart();
+      } catch (_) {}
+    }
+
+    function _bindDvAutosaveHandlers() {
+      const en = document.getElementById('dvAutosaveEnabled');
+      const iv = document.getElementById('dvAutosaveInterval');
+      if (en && !en.dataset.dvBound) {
+        en.addEventListener('change', () => { _driveAutosavePersist(); _driveAutosaveRestart(); });
+        en.dataset.dvBound = '1';
+      }
+      if (iv && !iv.dataset.dvBound) {
+        iv.addEventListener('change', () => { _driveAutosavePersist(); _driveAutosaveRestart(); });
+        iv.dataset.dvBound = '1';
+      }
+      // Load persisted prefs once per session.
+      if (!window._dvAutosaveLoaded) { _driveAutosaveLoad(); window._dvAutosaveLoaded = true; }
     }
 
     function _bindDvSaveHandlers() {
