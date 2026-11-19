@@ -681,6 +681,22 @@ Also `folio-tts-worker.js`, `folio-email-worker.js`, `folio-publish-lulu-worker.
 Single-source rules shared with Boxes + Ink. **Never delete another app's block.** See top of `docs/CRITICAL_PATHS.md`.
 Files: `C:\dev\folio\docs\firestore.rules`
 
+### Folio Junior — family-linked kid accounts
+Guardian-owned Junior profiles for children (first users are Jacob's 6–9yo daughters).
+Phase 1a shipped 2026-11-19: profile model + append-only approvals ledger + rules
+(three safety invariants proved offline via `docs/firestore.rules.test.js`) +
+Manage Juniors panel in Settings + profile picker + PIN gate + Guild/Shelf/share
+hard-block in Junior mode + Ask-to-share flow + guardian approval inbox + per-Junior
+export and delete. Juniors do NOT get their own Firebase Auth account — they live
+under the guardian's session with a profile picker + PIN. Rules enforce guardian-
+only access to Junior profiles AND require a matching append-only approval doc
+for any Junior work to go public. Phase 1b (Harbor family-code import via
+`harbor-bridge-worker.js` on the `homeschool-math` project) is design-locked but
+not yet written. See `docs/FOLIO_JUNIOR.md` for the full model + rules architecture.
+Files: `C:\dev\folio\app.html` (FolioJunior module + UI), `C:\dev\folio\junior\privacy\index.html`,
+`C:\dev\folio\docs\firestore.rules`, `C:\dev\folio\docs\firestore.rules.test.js`,
+`C:\dev\folio\docs\FOLIO_JUNIOR.md`.
+
 ### Google Drive integration (import + sync)
 Browser-side Drive module. Tier split (locked 2026-11-12):
 - **Free**: Import-once from Drive (Google Docs, .docx, .md, .txt).

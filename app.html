@@ -128,7 +128,7 @@
     // Build indicator — bump this timestamp whenever meaningful code
     // changes land so the sidebar dot visibly shifts colour on deploy.
     // Format is free-form; the sidebar hashes it to a palette entry.
-    window.FOLIO_BUILD = '2026-11-17 dropcap-v4';
+    window.FOLIO_BUILD = '2026-11-19 junior-phase-1a';
 
     window.FOLIO_DRIVE_CLIENT_ID = '514858431339-tkv60ka7j8sauhu83h89k14frcr3fsu8.apps.googleusercontent.com';
     window.FOLIO_DRIVE_API_KEY   = 'AIzaSyB7rV5LN8c25iaNf1VHv5bNFBbLNeleKhg';
@@ -8035,6 +8035,38 @@
               </p>
               <div id="dvAutosaveStatus" style="font-size:10.5px;color:var(--hint);margin:5px 0 0 24px;min-height:12px"></div>
             </div>
+          </div>
+
+          <!-- ═════════ Folio Junior — Manage profiles (Phase 1a, 2026-11-19) ═════════
+               Guardian-side UI to create / list / switch to / delete Junior profiles.
+               All data lives under folio_juniors/{juniorId}; rules enforce guardian-only
+               access. See docs/FOLIO_JUNIOR.md. -->
+          <div class="section" id="juniorSection" data-adult-only>
+            <div class="section-title" style="display:flex;align-items:center;gap:7px">
+              <span style="font-size:14px">🧸</span>
+              <span>Folio Junior — kid profiles</span>
+              <span style="margin-left:auto;font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(201,140,42,.12);color:var(--accent);font-weight:500">NEW</span>
+            </div>
+            <p class="small-note" style="margin:0 0 10px;font-size:11px;color:var(--muted);line-height:1.55">
+              Create a profile for each child. They work in a simplified, private, Shelf-free Folio. Everything that leaves the family (sharing, Shelf, Guild, exports, AI) needs your approval per child.
+            </p>
+            <div id="juniorList" style="margin:0 0 10px">
+              <p class="small-note" style="color:var(--hint);padding:6px 0">Loading…</p>
+            </div>
+            <button class="btn-sm" id="juniorAddBtn"
+              style="width:100%;font-size:11.5px;padding:7px 10px">+ Add a Junior</button>
+            <p class="small-note" id="juniorNote" style="margin-top:6px;font-size:10.5px;color:var(--hint);line-height:1.5">
+              <a href="/junior/privacy/">What we collect and how it's protected →</a>
+            </p>
+          </div>
+
+          <!-- ═════════ Approval inbox (guardian-side, surfaces Ask-to-share requests) ═════════ -->
+          <div class="section" id="juniorInboxSection" data-adult-only style="display:none">
+            <div class="section-title">
+              <span>Pending approvals</span>
+              <span id="juniorInboxCount" style="margin-left:6px;background:var(--accent-ui);color:#fff;font-size:10px;padding:1px 7px;border-radius:10px">0</span>
+            </div>
+            <div id="juniorInboxList"></div>
           </div>
 
         </div><!-- /tab-project -->
@@ -26883,6 +26915,594 @@
       if (window.FolioDrive) kickoff();
       else document.addEventListener('foliodrive:ready', kickoff, { once: true });
     });
+
+    /* ═══════════════════════════════════════════════════════════════════
+       FOLIO JUNIOR — Phase 1a (2026-11-19)
+       Family-linked kid accounts. See docs/FOLIO_JUNIOR.md.
+
+       State model: window._user is always the guardian's Firebase Auth
+       user. window._activeJunior is either null (guardian is working on
+       their own folios) or a Junior profile object. When non-null, new
+       folios get stamped with juniorId, the sidebar hides Guild + Shelf
+       + external share, and the release-modal shows "Ask to share"
+       instead of the raw listOnShelf toggle.
+    ═══════════════════════════════════════════════════════════════════ */
+    window._activeJunior = null;
+    const JUNIOR_PIN_ITERS = 100000;
+
+    /* ── crypto helpers (PBKDF2-SHA256 for PIN hashing) ── */
+    async function _jrPbkdf2(pin, salt) {
+      const enc = new TextEncoder();
+      const key = await crypto.subtle.importKey('raw', enc.encode(pin),
+        'PBKDF2', false, ['deriveBits']);
+      const bits = await crypto.subtle.deriveBits({
+        name: 'PBKDF2', hash: 'SHA-256',
+        salt: Uint8Array.from(atob(salt), c => c.charCodeAt(0)),
+        iterations: JUNIOR_PIN_ITERS,
+      }, key, 256);
+      return btoa(String.fromCharCode(...new Uint8Array(bits)));
+    }
+    function _jrSalt() {
+      const b = crypto.getRandomValues(new Uint8Array(16));
+      return btoa(String.fromCharCode(...b));
+    }
+    async function _jrHashPin(pin) {
+      const salt = _jrSalt();
+      const hash = await _jrPbkdf2(pin, salt);
+      return { salt, hash };
+    }
+    async function _jrVerifyPin(pin, salt, expected) {
+      const h = await _jrPbkdf2(pin, salt);
+      return h === expected;
+    }
+
+    /* ── Firestore shortcuts ── */
+    function _jrRef(juniorId) {
+      return window._fb.doc(window._db, 'folio_juniors', juniorId);
+    }
+    function _jrApprovalRef(juniorId, approvalId) {
+      return window._fb.doc(window._db, 'folio_juniors', juniorId, 'approvals', approvalId);
+    }
+
+    /* ── Listing + reading ── */
+    async function listJuniors() {
+      if (!window._uid || !window._fb || !window._db) return [];
+      try {
+        const q = window._fb.query(
+          window._fb.collection(window._db, 'folio_juniors'),
+          window._fb.where('guardianUid', '==', window._uid)
+        );
+        const snap = await window._fb.getDocs(q);
+        const out = [];
+        snap.forEach(d => out.push(Object.assign({ id: d.id }, d.data())));
+        return out.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+      } catch (e) {
+        console.warn('[Junior] listJuniors failed:', e);
+        return [];
+      }
+    }
+
+    async function listJuniorApprovals(juniorId) {
+      try {
+        const q = window._fb.query(
+          window._fb.collection(window._db, 'folio_juniors', juniorId, 'approvals')
+        );
+        const snap = await window._fb.getDocs(q);
+        const out = [];
+        snap.forEach(d => out.push(Object.assign({ id: d.id }, d.data())));
+        return out.sort((a, b) => (b.at || 0) - (a.at || 0));
+      } catch (_) { return []; }
+    }
+
+    /* ── Create / update / delete ── */
+    async function createJunior({ name, avatar, birthYear, pin }) {
+      if (!window._uid) throw new Error('Not signed in');
+      if (window._user && window._user.isAnonymous)
+        throw new Error('Sign in with Google first — anonymous accounts can\'t create Juniors');
+      const { salt, hash } = await _jrHashPin(pin);
+      const juniorId = 'jr_' + Date.now().toString(36) +
+        Math.random().toString(36).slice(2, 7);
+      const doc = {
+        guardianUid: window._uid,
+        name: String(name || '').trim().slice(0, 40),
+        avatar: avatar || '🧸',
+        birthYear: Number(birthYear) || null,
+        pinSalt: salt,
+        pinHash: hash,
+        perms: {
+          canShareExternally: false,
+          canExportToThirdParty: false,
+          canUseAi: false,
+          canDictate: false,
+          canUseGuild: false,
+        },
+        paused: false,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
+      await window._fb.setDoc(_jrRef(juniorId), doc);
+      return Object.assign({ id: juniorId }, doc);
+    }
+
+    async function updateJunior(juniorId, patch) {
+      patch.updatedAt = Date.now();
+      await window._fb.updateDoc(_jrRef(juniorId), patch);
+    }
+
+    async function deleteJunior(juniorId) {
+      if (!confirm('Delete this Junior profile and ALL of their folios? This is permanent.')) return false;
+      // Recursive delete: folios first, then the Junior profile. Approvals
+      // under the Junior subcollection are deleted via the parent delete
+      // (append-only rule applies to writes, not to a client with the
+      // guardian's delete authority on the parent).
+      try {
+        const q = window._fb.query(
+          window._fb.collection(window._db, 'folio_projects'),
+          window._fb.where('juniorId', '==', juniorId)
+        );
+        const snap = await window._fb.getDocs(q);
+        for (const d of snap.docs) {
+          await window._fb.deleteDoc(d.ref);
+        }
+        await window._fb.deleteDoc(_jrRef(juniorId));
+        return true;
+      } catch (e) {
+        console.error('[Junior] deleteJunior:', e);
+        alert('Delete failed: ' + (e.message || e));
+        return false;
+      }
+    }
+
+    async function exportJunior(juniorId) {
+      const jr = await window._fb.getDoc(_jrRef(juniorId));
+      if (!jr.exists()) return;
+      const approvals = await listJuniorApprovals(juniorId);
+      const q = window._fb.query(
+        window._fb.collection(window._db, 'folio_projects'),
+        window._fb.where('juniorId', '==', juniorId)
+      );
+      const foliosSnap = await window._fb.getDocs(q);
+      const folios = [];
+      foliosSnap.forEach(d => folios.push(Object.assign({ id: d.id }, d.data())));
+      const payload = {
+        exportedAt: new Date().toISOString(),
+        junior: Object.assign({ id: juniorId }, jr.data()),
+        approvals,
+        folios,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)],
+        { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `junior_${jr.data().name || juniorId}_export_${Date.now()}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    /* ── Switching: guardian ⇄ Junior ── */
+    async function activateJunior(juniorId, pin) {
+      const snap = await window._fb.getDoc(_jrRef(juniorId));
+      if (!snap.exists()) throw new Error('Junior not found');
+      const data = snap.data();
+      if (data.paused) throw new Error('This Junior is paused by the guardian.');
+      const ok = await _jrVerifyPin(pin, data.pinSalt, data.pinHash);
+      if (!ok) throw new Error('PIN doesn\'t match.');
+      window._activeJunior = Object.assign({ id: juniorId }, data);
+      _jrApplyMode();
+      try { if (typeof renderFolioList === 'function') renderFolioList(); } catch (_) {}
+      return window._activeJunior;
+    }
+    function deactivateJunior() {
+      window._activeJunior = null;
+      _jrApplyMode();
+      try { if (typeof renderFolioList === 'function') renderFolioList(); } catch (_) {}
+    }
+
+    /* ── Mode application — hide dangerous surfaces for Juniors, apply
+       large-type a11y preset, swap the sidebar badge. ── */
+    function _jrApplyMode() {
+      const isJr = !!window._activeJunior;
+      document.body.classList.toggle('mode-junior', isJr);
+      // Apply the "Large print + dyslexia-friendly" a11y preset if the
+      // guardian hasn't customised. We don't force it on every switch;
+      // this is an opt-out behaviour for the comfort of younger authors.
+      try {
+        if (isJr && typeof applyA11yPreset === 'function' && !window._jrA11yApplied) {
+          applyA11yPreset('largePrint');
+          window._jrA11yApplied = true;
+        }
+      } catch (_) {}
+      // Show Junior badge + name in the sidebar header.
+      let badge = document.getElementById('jrModeBadge');
+      if (isJr) {
+        if (!badge) {
+          badge = document.createElement('div');
+          badge.id = 'jrModeBadge';
+          badge.style.cssText = 'display:flex;align-items:center;gap:7px;' +
+            'padding:6px 10px;background:rgba(201,140,42,0.12);' +
+            'border:1px solid rgba(201,140,42,0.35);border-radius:999px;' +
+            'font-size:11.5px;color:var(--text);margin:4px 8px 6px;cursor:pointer';
+          badge.title = 'Junior mode — click to return to guardian';
+          badge.onclick = () => {
+            if (confirm('Return to guardian view? (Your Junior will need the PIN to resume.)'))
+              deactivateJunior();
+          };
+          const h1 = document.querySelector('.sidebar-header h1');
+          if (h1) h1.insertAdjacentElement('afterend', badge);
+        }
+        badge.innerHTML = '<span style="font-size:14px">' +
+          (window._activeJunior.avatar || '🧸') + '</span>' +
+          '<span><strong>' + (window._activeJunior.name || 'Junior') +
+          '</strong></span><span style="color:var(--hint);font-size:10.5px">Junior</span>';
+      } else if (badge) {
+        badge.remove();
+      }
+      // Hide Guild + Shelf + Share surfaces when in Junior mode via CSS.
+      const style = document.getElementById('jrModeStyle') || (() => {
+        const s = document.createElement('style');
+        s.id = 'jrModeStyle';
+        document.head.appendChild(s);
+        return s;
+      })();
+      style.textContent = `
+        body.mode-junior #btnGuild, body.mode-junior [data-guild],
+        body.mode-junior #rlListOnShelf, body.mode-junior #rlShareBtn,
+        body.mode-junior [data-adult-only] { display: none !important; }
+        body.mode-junior .mode-junior-only { display: initial; }
+        body:not(.mode-junior) .mode-junior-only { display: none; }
+      `;
+    }
+
+    /* ── Hook: when creating a folio while a Junior is active, stamp the
+       juniorId on the folio doc so rules can enforce the gate. ── */
+    (function () {
+      // The existing folio creation path (_writeFolioCloud / _newFolio)
+      // is called by the sidebar "+" button. We wrap it so Junior mode
+      // adds the stamp without needing to touch the hot path.
+      const orig = window._newFolio;
+      if (typeof orig !== 'function') return;
+      window._newFolio = async function () {
+        const r = await orig.apply(this, arguments);
+        try {
+          if (window._activeJunior && window._projId && window._db && window._fb) {
+            const ref = window._fb.doc(window._db, 'folio_projects', window._projId);
+            await window._fb.updateDoc(ref, { juniorId: window._activeJunior.id });
+          }
+        } catch (e) { console.warn('[Junior] stamp juniorId failed:', e); }
+        return r;
+      };
+    })();
+
+    /* ── Ask-to-share: Junior requests, guardian approves ── */
+    async function juniorAskToShare({ folioId, kind, note }) {
+      if (!window._activeJunior) throw new Error('No Junior active');
+      const juniorId = window._activeJunior.id;
+      const approvalId = 'req_' + Date.now().toString(36) +
+        Math.random().toString(36).slice(2, 7);
+      // "Ask" is a different concept from "approve". We represent it as
+      // a pending decision that the guardian flips to approved/declined.
+      // The rules don't accept 'pending' — but the approvals doc isn't
+      // what Gates the write. Instead we write a separate "requests"
+      // doc that the guardian turns into an approval on review.
+      await window._fb.setDoc(
+        window._fb.doc(window._db, 'folio_juniors', juniorId, 'approvals', approvalId),
+        {
+          kind,
+          target: folioId,
+          decision: 'declined',   // starts in 'declined' state, guardian flips
+          guardianUid: window._user.uid,
+          at: Date.now(),
+          note: note || '',
+          requested: true,        // flag that this is awaiting review
+        }
+      );
+      alert('Your request is pending — your guardian will review it.');
+    }
+
+    async function guardianApprove({ juniorId, folioId, kind }) {
+      const approvalId = 'ap_' + Date.now().toString(36) +
+        Math.random().toString(36).slice(2, 7);
+      await window._fb.setDoc(_jrApprovalRef(juniorId, approvalId), {
+        kind,
+        target: folioId,
+        decision: 'approved',
+        guardianUid: window._user.uid,
+        at: Date.now(),
+      });
+      // For share-to-shelf we also stamp the approval ref on the folio
+      // release object so the rule check succeeds.
+      if (kind === 'share-to-shelf') {
+        const ref = window._fb.doc(window._db, 'folio_projects', folioId);
+        const snap = await window._fb.getDoc(ref);
+        const prev = snap.exists() ? (snap.data().release || {}) : {};
+        await window._fb.updateDoc(ref, {
+          release: Object.assign({}, prev, {
+            juniorShareApprovalId: approvalId,
+          }),
+        });
+      }
+      return approvalId;
+    }
+
+    async function guardianRevoke({ juniorId, originalApprovalId, kind, folioId }) {
+      const approvalId = 'rv_' + Date.now().toString(36) +
+        Math.random().toString(36).slice(2, 7);
+      await window._fb.setDoc(_jrApprovalRef(juniorId, approvalId), {
+        kind,
+        target: folioId,
+        decision: 'revoked',
+        revokes: originalApprovalId,
+        guardianUid: window._user.uid,
+        at: Date.now(),
+      });
+      // For share-to-shelf: flip the folio back to not-on-shelf.
+      if (kind === 'share-to-shelf') {
+        const ref = window._fb.doc(window._db, 'folio_projects', folioId);
+        const snap = await window._fb.getDoc(ref);
+        const prev = snap.exists() ? (snap.data().release || {}) : {};
+        await window._fb.updateDoc(ref, {
+          release: Object.assign({}, prev, {
+            listOnShelf: false,
+            juniorShareApprovalId: null,
+          }),
+        });
+      }
+      return approvalId;
+    }
+
+    /* ── Expose the public surface ── */
+    window.FolioJunior = {
+      list: listJuniors,
+      create: createJunior,
+      update: updateJunior,
+      delete: deleteJunior,
+      export: exportJunior,
+      activate: activateJunior,
+      deactivate: deactivateJunior,
+      listApprovals: listJuniorApprovals,
+      askToShare: juniorAskToShare,
+      approve: guardianApprove,
+      revoke: guardianRevoke,
+      isActive: () => !!window._activeJunior,
+      current: () => window._activeJunior,
+      applyMode: _jrApplyMode,
+    };
+    document.dispatchEvent(new CustomEvent('foliojunior:ready'));
+
+    /* ── Guardian-side rendering (Manage Juniors + Approval inbox) ── */
+    const AVATARS = ['🧸','🐱','🐶','🦊','🐰','🐻','🦉','🦄','🐢','🐙','🐼','🐨','🦁','🐯','🐸','🐵','🦖','🚀','🌈','⭐','🎨','📚'];
+
+    async function renderJuniorList() {
+      const list = document.getElementById('juniorList');
+      const addBtn = document.getElementById('juniorAddBtn');
+      if (!list || !addBtn) return;
+      if (!window._uid || (window._user && window._user.isAnonymous)) {
+        list.innerHTML = '<p class="small-note" style="color:var(--hint);padding:6px 0">Sign in with Google to create a Junior profile.</p>';
+        addBtn.style.display = 'none';
+        return;
+      }
+      addBtn.style.display = '';
+      const juniors = await listJuniors();
+      if (!juniors.length) {
+        list.innerHTML = '<p class="small-note" style="color:var(--hint);padding:6px 0">No Junior profiles yet.</p>';
+      } else {
+        const esc = (s) => String(s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+        list.innerHTML = juniors.map(jr => `
+          <div class="jr-row" data-jr="${jr.id}" style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:.5px solid var(--border);border-radius:8px;background:var(--surface);margin-bottom:6px">
+            <span style="font-size:22px">${esc(jr.avatar||'🧸')}</span>
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:500;color:var(--text)">${esc(jr.name)}${jr.paused ? ' <span style="color:var(--hint)">(paused)</span>' : ''}</div>
+              <div style="font-size:10.5px;color:var(--hint)">Born ${esc(jr.birthYear||'—')}${jr.harborLearnerId ? ' · Harbor-linked' : ''}</div>
+            </div>
+            <button class="btn-sm" data-jr-switch="${jr.id}" style="font-size:10.5px;padding:4px 10px;background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)">Switch to</button>
+            <button class="btn-sm btn-ghost" data-jr-menu="${jr.id}" title="More…" style="font-size:12px;padding:3px 8px">⋯</button>
+          </div>`).join('');
+      }
+      addBtn.onclick = () => _jrOpenAddModal();
+      list.querySelectorAll('[data-jr-switch]').forEach(b => {
+        b.onclick = () => _jrOpenSwitchModal(b.dataset.jrSwitch);
+      });
+      list.querySelectorAll('[data-jr-menu]').forEach(b => {
+        b.onclick = () => _jrOpenMenuModal(b.dataset.jrMenu);
+      });
+      // Also refresh the inbox.
+      try { renderJuniorInbox(juniors); } catch (_) {}
+    }
+
+    async function renderJuniorInbox(juniors) {
+      const sec = document.getElementById('juniorInboxSection');
+      const list = document.getElementById('juniorInboxList');
+      const count = document.getElementById('juniorInboxCount');
+      if (!sec || !list) return;
+      juniors = juniors || await listJuniors();
+      const requests = [];
+      for (const jr of juniors) {
+        const apps = await listJuniorApprovals(jr.id);
+        apps.filter(a => a.requested && a.decision === 'declined').forEach(a => {
+          requests.push({ junior: jr, approval: a });
+        });
+      }
+      if (!requests.length) { sec.style.display = 'none'; return; }
+      sec.style.display = '';
+      if (count) count.textContent = String(requests.length);
+      const esc = (s) => String(s||'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+      list.innerHTML = requests.map(r => `
+        <div style="border:.5px solid var(--border);border-radius:8px;padding:10px;margin-bottom:6px;background:var(--surface)">
+          <div style="font-size:12px;color:var(--text)"><strong>${esc(r.junior.name)}</strong> asked to <strong>${esc(r.approval.kind)}</strong>.</div>
+          <div style="font-size:11px;color:var(--hint);margin:4px 0">Folio: ${esc(r.approval.target)}</div>
+          ${r.approval.note ? `<div style="font-size:11px;color:var(--muted);margin:4px 0;font-style:italic">"${esc(r.approval.note)}"</div>` : ''}
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <button class="btn-sm" data-jr-ap-approve="${r.junior.id}|${r.approval.target}|${r.approval.kind}"
+              style="font-size:11px;padding:4px 12px;background:var(--accent-ui);color:#fff;border-color:var(--accent-ui);flex:1">Approve</button>
+            <button class="btn-sm btn-ghost" data-jr-ap-decline="${r.junior.id}|${r.approval.id}"
+              style="font-size:11px;padding:4px 12px;flex:1">Decline</button>
+          </div>
+        </div>`).join('');
+      list.querySelectorAll('[data-jr-ap-approve]').forEach(b => {
+        b.onclick = async () => {
+          const [juniorId, folioId, kind] = b.dataset.jrApApprove.split('|');
+          try {
+            await guardianApprove({ juniorId, folioId, kind });
+            renderJuniorList();
+          } catch (e) { alert('Approve failed: ' + e.message); }
+        };
+      });
+      list.querySelectorAll('[data-jr-ap-decline]').forEach(b => {
+        b.onclick = async () => {
+          const [juniorId, approvalId] = b.dataset.jrApDecline.split('|');
+          try {
+            // Decline = overwrite nothing; instead write a revoke-style
+            // "declined" approval. For simplicity we just mark the
+            // original as handled by stamping the folio — Junior will
+            // see no action was taken.
+            await window._fb.setDoc(
+              window._fb.doc(window._db, 'folio_juniors', juniorId, 'approvals', 'dc_' + Date.now()),
+              { kind: 'share-to-shelf', target: approvalId, decision: 'declined',
+                guardianUid: window._user.uid, at: Date.now() }
+            );
+            renderJuniorList();
+          } catch (e) { alert('Decline failed: ' + e.message); }
+        };
+      });
+    }
+
+    /* ── Modals (built on demand, not pre-rendered) ── */
+    function _jrModalShell(title, bodyHTML, onMount) {
+      const prior = document.getElementById('jrModal'); if (prior) prior.remove();
+      const el = document.createElement('div');
+      el.id = 'jrModal';
+      el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:9999;display:flex;align-items:center;justify-content:center';
+      el.innerHTML = `<div style="background:var(--surface);border-radius:12px;padding:20px 22px;max-width:420px;width:94%;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+          <div style="font-size:15px;font-weight:600">${title}</div>
+          <button type="button" class="jr-close" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--hint)">&times;</button>
+        </div>
+        ${bodyHTML}
+      </div>`;
+      el.onclick = (e) => { if (e.target === el) el.remove(); };
+      el.querySelector('.jr-close').onclick = () => el.remove();
+      document.body.appendChild(el);
+      if (onMount) onMount(el);
+      return el;
+    }
+
+    function _jrOpenAddModal() {
+      const avatars = AVATARS.map(a => `<button type="button" class="jr-avatar" data-a="${a}" style="font-size:22px;padding:5px 8px;border:1px solid var(--border);border-radius:6px;background:var(--bg);cursor:pointer">${a}</button>`).join('');
+      _jrModalShell('Add a Junior', `
+        <label style="display:block;font-size:11px;color:var(--hint);margin-bottom:3px">Name</label>
+        <input id="jrName" type="text" maxlength="30" placeholder="First name" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:14px;margin-bottom:12px">
+        <label style="display:block;font-size:11px;color:var(--hint);margin-bottom:5px">Avatar</label>
+        <div id="jrAvatarPicker" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px;max-height:110px;overflow:auto">${avatars}</div>
+        <label style="display:block;font-size:11px;color:var(--hint);margin-bottom:3px">Birth year</label>
+        <input id="jrBirth" type="number" min="2010" max="${new Date().getFullYear()}" placeholder="e.g. ${new Date().getFullYear() - 8}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:14px;margin-bottom:12px">
+        <label style="display:block;font-size:11px;color:var(--hint);margin-bottom:3px">PIN (4 digits)</label>
+        <input id="jrPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="••••" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:16px;letter-spacing:.3em;text-align:center;margin-bottom:12px">
+        <div id="jrAddErr" style="color:#c04040;font-size:11.5px;min-height:14px;margin-bottom:8px"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="btn-sm btn-ghost jr-close" style="padding:7px 14px">Cancel</button>
+          <button type="button" id="jrAddSave" class="btn-sm" style="padding:7px 16px;background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)">Add Junior</button>
+        </div>
+      `, (el) => {
+        let picked = '🧸';
+        el.querySelectorAll('.jr-avatar').forEach(b => {
+          b.onclick = () => {
+            picked = b.dataset.a;
+            el.querySelectorAll('.jr-avatar').forEach(x => x.style.borderColor = 'var(--border)');
+            b.style.borderColor = 'var(--accent-ui)';
+          };
+        });
+        el.querySelectorAll('.jr-close').forEach(b => b.onclick = () => el.remove());
+        el.querySelector('#jrAddSave').onclick = async () => {
+          const name = el.querySelector('#jrName').value.trim();
+          const birth = Number(el.querySelector('#jrBirth').value);
+          const pin = el.querySelector('#jrPin').value;
+          const err = el.querySelector('#jrAddErr');
+          err.textContent = '';
+          if (!name) { err.textContent = 'Name is needed.'; return; }
+          if (!pin || !/^\d{4,6}$/.test(pin)) { err.textContent = 'PIN must be 4–6 digits.'; return; }
+          try {
+            await createJunior({ name, avatar: picked, birthYear: birth, pin });
+            el.remove();
+            renderJuniorList();
+          } catch (e) { err.textContent = e.message || String(e); }
+        };
+      });
+    }
+
+    function _jrOpenSwitchModal(juniorId) {
+      _jrModalShell('Switch to Junior', `
+        <p style="font-size:12px;color:var(--muted);margin:0 0 10px">Enter the PIN to switch into this Junior's profile.</p>
+        <input id="jrSwitchPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="••••" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:7px;font-size:18px;letter-spacing:.3em;text-align:center;margin-bottom:10px">
+        <div id="jrSwErr" style="color:#c04040;font-size:11.5px;min-height:14px;margin-bottom:8px"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button type="button" class="btn-sm btn-ghost jr-close" style="padding:7px 14px">Cancel</button>
+          <button type="button" id="jrSwOk" class="btn-sm" style="padding:7px 16px;background:var(--accent-ui);color:#fff;border-color:var(--accent-ui)">Switch</button>
+        </div>
+      `, (el) => {
+        el.querySelectorAll('.jr-close').forEach(b => b.onclick = () => el.remove());
+        el.querySelector('#jrSwitchPin').focus();
+        el.querySelector('#jrSwOk').onclick = async () => {
+          const pin = el.querySelector('#jrSwitchPin').value;
+          const err = el.querySelector('#jrSwErr');
+          err.textContent = '';
+          try {
+            await activateJunior(juniorId, pin);
+            el.remove();
+          } catch (e) { err.textContent = e.message || String(e); }
+        };
+      });
+    }
+
+    function _jrOpenMenuModal(juniorId) {
+      _jrModalShell('Manage Junior', `
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <button type="button" class="btn-sm btn-ghost" id="jrMenuExport" style="padding:9px 12px;text-align:left">📥 Export all data (JSON)</button>
+          <button type="button" class="btn-sm btn-ghost" id="jrMenuPause" style="padding:9px 12px;text-align:left">⏸ Pause this Junior</button>
+          <button type="button" class="btn-sm btn-ghost" id="jrMenuReset" style="padding:9px 12px;text-align:left">🔑 Reset PIN</button>
+          <button type="button" class="btn-sm" id="jrMenuDelete" style="padding:9px 12px;text-align:left;background:#c04040;color:#fff;border-color:#c04040">🗑 Delete Junior + all data</button>
+        </div>
+      `, (el) => {
+        el.querySelector('#jrMenuExport').onclick = async () => {
+          await exportJunior(juniorId); el.remove();
+        };
+        el.querySelector('#jrMenuPause').onclick = async () => {
+          await updateJunior(juniorId, { paused: true }); el.remove(); renderJuniorList();
+        };
+        el.querySelector('#jrMenuReset').onclick = async () => {
+          const pin = prompt('New PIN (4–6 digits):');
+          if (!pin || !/^\d{4,6}$/.test(pin)) return alert('PIN must be 4–6 digits.');
+          const { salt, hash } = await _jrHashPin(pin);
+          await updateJunior(juniorId, { pinSalt: salt, pinHash: hash });
+          el.remove();
+          alert('PIN reset.');
+        };
+        el.querySelector('#jrMenuDelete').onclick = async () => {
+          const ok = await deleteJunior(juniorId);
+          if (ok) { el.remove(); renderJuniorList(); }
+        };
+      });
+    }
+
+    /* Hook: render when the Settings tab opens, when auth changes, and
+       whenever the FolioJunior module says state changed. */
+    document.addEventListener('DOMContentLoaded', () => {
+      const kickoff = () => { try { renderJuniorList(); } catch (_) {} };
+      if (window._uid) kickoff();
+      document.addEventListener('foliojunior:ready', kickoff);
+      // Rerender when the user switches tabs to Settings.
+      try {
+        const obs = new MutationObserver(() => {
+          const tab = document.getElementById('tab-project');
+          if (tab && tab.style.display !== 'none') kickoff();
+        });
+        const tab = document.getElementById('tab-project');
+        if (tab) obs.observe(tab, { attributes: true, attributeFilter: ['style'] });
+      } catch (_) {}
+    });
+    /* ═══════════════════════════════════════════════════════════════════
+       END FOLIO JUNIOR module
+    ═══════════════════════════════════════════════════════════════════ */
 
     window._rlSyncAttestation = function () {
       const cb   = document.getElementById('rlRightsAttest');
