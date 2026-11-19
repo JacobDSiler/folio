@@ -49,3 +49,5 @@ app-release-unsigned-aligned.apk
 app-release-unsigned.apk
 tutorial-workshop/
 tools/page/
+tools/*.webm
+tools/page*.webm
