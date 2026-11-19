@@ -1,0 +1,15 @@
+name = "folio-drive"
+main = "folio-drive-worker.js"
+compatibility_date = "2026-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Plain variables (not secrets — safe to commit)
+[vars]
+FIREBASE_PROJECT_ID   = "miscellaneous-117e9"
+ALLOWED_ORIGIN        = "https://onfolio.press,https://www.onfolio.press,http://localhost:8787"
+
+# Secrets — set these with `wrangler secret put <NAME> --config wrangler-drive.toml`
+# Do NOT inline them here. The three required secrets are:
+#   GOOGLE_OAUTH_CLIENT_ID      — the Web OAuth client id (from client_secret.json)
+#   GOOGLE_OAUTH_CLIENT_SECRET  — the Web OAuth client secret (from client_secret.json)
+#   GCP_SERVICE_ACCOUNT         — JSON for a service account with Cloud Datastore User role

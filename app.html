@@ -128,7 +128,7 @@
     // Build indicator — bump this timestamp whenever meaningful code
     // changes land so the sidebar dot visibly shifts colour on deploy.
     // Format is free-form; the sidebar hashes it to a palette entry.
-    window.FOLIO_BUILD = '2026-11-19 junior-phase-1a';
+    window.FOLIO_BUILD = '2026-11-19 junior-1a-harbor-handoff';
 
     window.FOLIO_DRIVE_CLIENT_ID = '514858431339-tkv60ka7j8sauhu83h89k14frcr3fsu8.apps.googleusercontent.com';
     window.FOLIO_DRIVE_API_KEY   = 'AIzaSyB7rV5LN8c25iaNf1VHv5bNFBbLNeleKhg';
@@ -27499,7 +27499,66 @@
         const tab = document.getElementById('tab-project');
         if (tab) obs.observe(tab, { attributes: true, attributeFilter: ['style'] });
       } catch (_) {}
+      // Handle Harbor handoff params on page load (Phase 1a landing).
+      try { _jrHandleHarborHandoff(); } catch (e) { console.warn('[Junior] Harbor handoff:', e); }
     });
+
+    /* ─── Harbor handoff (2026-11-19) ───
+       Harbor opens Folio Junior as
+         https://onfolio.press/?from=harbor&family=MA-XXXX&child=<profileId>&view=parent
+       When from=harbor, we:
+         (a) stash family + child in sessionStorage so Phase 1b import can use them
+         (b) if view=parent, stay in guardian view (do nothing further)
+         (c) else wait for auth, then look for a Junior whose harborLearnerId
+             matches the child param. If one exists, prompt for PIN + activate.
+         (d) if no matching Junior exists yet, open the Add Junior modal pre-
+             filled with the harborLearnerId so the guardian can pair them. */
+    async function _jrHandleHarborHandoff() {
+      const url = new URL(window.location.href);
+      if (url.searchParams.get('from') !== 'harbor') return;
+      const family = url.searchParams.get('family') || '';
+      const child  = url.searchParams.get('child')  || '';
+      const parent = url.searchParams.get('view') === 'parent';
+      // Stash for Phase 1b (Harbor bridge worker import flow).
+      try {
+        sessionStorage.setItem('folioHarborHandoff', JSON.stringify({
+          family, child, parent, at: Date.now(),
+        }));
+      } catch (_) {}
+      if (parent) return;   // guardian view — no auto-switch
+      if (!child)  return;  // nothing to resolve to
+      // Wait for auth + the FolioJunior module to be ready.
+      const waitForAuth = () => new Promise(resolve => {
+        if (window._uid && window.FolioJunior) return resolve();
+        const t = setInterval(() => {
+          if (window._uid && window.FolioJunior) { clearInterval(t); resolve(); }
+        }, 200);
+        // Bail after 10s so we don't block forever on an anonymous session.
+        setTimeout(() => { clearInterval(t); resolve(); }, 10_000);
+      });
+      await waitForAuth();
+      if (!window._uid || (window._user && window._user.isAnonymous)) return;
+      const juniors = await listJuniors();
+      const match = juniors.find(j => String(j.harborLearnerId) === String(child));
+      if (match) {
+        // Open the Switch-to-Junior modal pre-targeted at this Junior.
+        _jrOpenSwitchModal(match.id);
+      } else {
+        // No linked Junior yet — show a friendly banner telling the
+        // guardian to link this Harbor child via Settings. We use a
+        // toast if available; otherwise a one-shot banner.
+        const nm = family ? 'a child in family ' + family : 'this Harbor child';
+        const msg = 'Welcome from Harbor! ' + nm + ' isn\'t linked to Folio yet. ' +
+          'Open Settings → Folio Junior to add them.';
+        if (typeof toastInfo === 'function') toastInfo(msg, { duration: 8000 });
+        else { setTimeout(() => alert(msg), 400); }
+      }
+    }
+    // Expose the stashed handoff so Phase 1b's import flow can read it.
+    window.FolioJunior.getHarborHandoff = () => {
+      try { return JSON.parse(sessionStorage.getItem('folioHarborHandoff') || 'null'); }
+      catch (_) { return null; }
+    };
     /* ═══════════════════════════════════════════════════════════════════
        END FOLIO JUNIOR module
     ═══════════════════════════════════════════════════════════════════ */

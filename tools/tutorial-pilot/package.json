@@ -1,0 +1,24 @@
+{
+  "name": "folio-tutorial-pilot",
+  "version": "1.0.0",
+  "description": "Deterministic Playwright-based pilot for Folio tutorial videos — hits timestamps precisely, renders a branded cursor + click ring, records MP4 directly from Chromium.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install-chromium": "playwright install chromium",
+    "auth": "node auth-setup.js",
+    "run": "node run.js",
+    "run:01a": "node run.js 01a-cold-open",
+    "run:01b": "node run.js 01b-signin",
+    "run:01c": "node run.js 01c-import",
+    "run:01d": "node run.js 01d-design",
+    "run:01e": "node run.js 01e-release",
+    "run:01f": "node run.js 01f-reader",
+    "stitch:01": "node stitch.js 01",
+    "run:02-gutenberg": "node run.js 02-gutenberg",
+    "run:03-sell-paypal": "node run.js 03-sell-paypal"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0"
+  }
+}

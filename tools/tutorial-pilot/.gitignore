@@ -1,0 +1,7 @@
+node_modules/
+output/
+auth.json
+chrome-profile/
+*.webm
+*.mp4
+.DS_Store

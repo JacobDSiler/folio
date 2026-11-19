@@ -58,6 +58,10 @@
     CLIENT_ID:      _clientId,
     API_KEY:        (typeof window !== 'undefined' && window.FOLIO_DRIVE_API_KEY) || '',
     PROJECT_NUMBER: (typeof window !== 'undefined' && window.FOLIO_DRIVE_PROJECT_NUMBER) || _derivedProject,
+    // Cloudflare Worker that exchanges refresh tokens for access tokens so
+    // the user doesn't have to re-OAuth every browser session. Optional —
+    // if blank, we fall back to the session-only GIS flow (v1 behaviour).
+    WORKER_URL:     (typeof window !== 'undefined' && window.FOLIO_DRIVE_WORKER_URL) || '',
     SCOPES:         'https://www.googleapis.com/auth/drive.file',
     DISCOVERY:      'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest',
   };
@@ -156,18 +160,110 @@
   }
 
   // Returns a valid access token for `email`, re-authing silently if expired.
+  //
+  // Token acquisition ladder (first match wins):
+  //   1. In-memory session token that hasn't expired.
+  //   2. Worker-backed refresh exchange — if WORKER_URL is set and the user
+  //      has a stored refresh token on Firestore for this email. No UI.
+  //   3. Silent GIS prompt — uses the browser's active Google cookie
+  //      session. Usually no UI if the user is signed into that Google
+  //      account somewhere in Chrome.
+  //   4. Interactive GIS prompt — last resort, user sees Google's chooser.
   async function ensureToken(email) {
     const c = sessionConnections[email];
     if (c && c.token && c.expiresAt > Date.now()) return c.token;
-    // Silent re-auth (uses cookies from current browser session with Google)
+    // Worker path (Phase 3): cross-session persistence.
+    if (CFG.WORKER_URL) {
+      try {
+        const tok = await _workerExchange(email);
+        if (tok) return tok;
+      } catch (_) { /* fall through to GIS */ }
+    }
+    // Silent GIS re-auth.
     try {
       const fresh = await connect({ hintEmail: email, silent: true });
       return fresh.token;
-    } catch (e) {
-      // Fall back to interactive prompt
+    } catch (_) {
+      // Interactive fallback.
       const fresh = await connect({ hintEmail: email, silent: false });
       return fresh.token;
     }
+  }
+
+  // Ask the Worker to exchange our stored refresh token for a fresh access
+  // token. The Worker reads the refresh token from Firestore under the
+  // current user's uid, keyed by email, and calls Google's token endpoint
+  // with the client secret (held server-side). Returns null if there's
+  // no stored token or the user isn't signed in yet.
+  async function _workerExchange(email) {
+    if (!CFG.WORKER_URL) return null;
+    const idToken = await _firebaseIdToken();
+    if (!idToken) return null;
+    const r = await fetch(CFG.WORKER_URL + '/exchange', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + idToken,
+      },
+      body: JSON.stringify({ email }),
+    });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!data || !data.access_token) return null;
+    // Cache in the session map so subsequent calls hit path 1.
+    const cur = sessionConnections[email] || { email };
+    sessionConnections[email] = {
+      email,
+      name: cur.name || email,
+      picture: cur.picture || '',
+      token: data.access_token,
+      expiresAt: Date.now() + ((data.expires_in || 3600) * 1000) - 60_000,
+    };
+    return data.access_token;
+  }
+
+  // Store a refresh token with the Worker so it survives across sessions.
+  // Called once per account after an interactive OAuth that produced an
+  // offline grant. Silent on errors — persistence is a nice-to-have.
+  async function _workerStore(email, refreshToken) {
+    if (!CFG.WORKER_URL || !refreshToken) return;
+    try {
+      const idToken = await _firebaseIdToken();
+      if (!idToken) return;
+      await fetch(CFG.WORKER_URL + '/store', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + idToken,
+        },
+        body: JSON.stringify({ email, refresh_token: refreshToken }),
+      });
+    } catch (_) { /* best-effort */ }
+  }
+
+  async function _workerRevoke(email) {
+    if (!CFG.WORKER_URL) return;
+    try {
+      const idToken = await _firebaseIdToken();
+      if (!idToken) return;
+      await fetch(CFG.WORKER_URL + '/revoke', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + idToken,
+        },
+        body: JSON.stringify({ email }),
+      });
+    } catch (_) {}
+  }
+
+  async function _firebaseIdToken() {
+    try {
+      const auth = window._fbAuth && window._fbAuth.getAuth ? window._fbAuth.getAuth() : null;
+      const user = (auth && auth.currentUser) || (window._user) || null;
+      if (user && typeof user.getIdToken === 'function') return await user.getIdToken();
+    } catch (_) {}
+    return null;
   }
 
   // ────────── Pick a file via Google Picker ──────────
@@ -181,9 +277,11 @@
         const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
           .setIncludeFolders(false)
           .setSelectFolderEnabled(false)
+          .setEnableDrives(true)              // show Shared Drives alongside My Drive
           .setMimeTypes(types);
         const builder = new google.picker.PickerBuilder()
           .addView(view)
+          .enableFeature(google.picker.Feature.SUPPORT_DRIVES)   // Shared Drives
           .setOAuthToken(token)
           .setDeveloperKey(CFG.API_KEY)
           .setTitle(title || 'Pick a manuscript');
@@ -257,17 +355,36 @@
   // ────────── Save/update file contents ──────────
   // If fileId is given → PATCH that file (keeps it in place).
   // If fileId is null → POST a new file.
-  // format: 'gdoc' | 'md' | 'txt' | 'html'
-  //   ('docx' save is deferred — client-side .docx generation needs a bundled
-  //    builder lib. Use 'gdoc' or 'md' for v1 save-back.)
-  async function saveFile(email, { fileId = null, name, content, format = 'gdoc' }) {
+  // format: 'gdoc' | 'md' | 'txt' | 'html' | 'docx'
+  //   docx: content must be a Blob or ArrayBuffer of a real .docx file —
+  //         build one with the `docx` library already loaded in app.html.
+  // Options:
+  //   force: true → skip the conflict check (used when user confirms
+  //     overwrite in the "Drive copy was edited since last save" dialog).
+  //   expectedModifiedTime: ISO string → throw a DRIVE_CONFLICT error if
+  //     Drive's current modifiedTime is strictly newer than this.
+  async function saveFile(email, { fileId = null, name, content, format = 'gdoc', force = false, expectedModifiedTime = null }) {
     const token = await ensureToken(email);
 
-    if (format === 'docx') {
-      throw new Error(
-        'Saving back as .docx is coming in a follow-up. ' +
-        'For now, pick Google Doc or Markdown as the Drive format.'
-      );
+    // ───── Conflict detection — only when overwriting an existing file ─────
+    if (fileId && expectedModifiedTime && !force) {
+      try {
+        const meta = await getFileMetadata(email, fileId);
+        if (meta && meta.modifiedTime) {
+          const driveTime = Date.parse(meta.modifiedTime);
+          const lastSync  = Date.parse(expectedModifiedTime);
+          if (driveTime > lastSync + 2000 /* 2s slop for clock drift */) {
+            const err = new Error('Drive copy was edited since Folio\'s last save.');
+            err.code = 'DRIVE_CONFLICT';
+            err.driveModifiedTime = meta.modifiedTime;
+            err.fileName = meta.name;
+            throw err;
+          }
+        }
+      } catch (e) {
+        if (e && e.code === 'DRIVE_CONFLICT') throw e;
+        // Transient metadata-fetch failure — don't block the save.
+      }
     }
 
     let uploadMime, body;
@@ -283,6 +400,11 @@
     } else if (format === 'html') {
       uploadMime = MIME.HTML;
       body = String(content || '');
+    } else if (format === 'docx') {
+      uploadMime = MIME.DOCX;
+      body = (content instanceof Blob) ? content
+           : (content instanceof ArrayBuffer || ArrayBuffer.isView(content)) ? new Blob([content], { type: MIME.DOCX })
+           : (function(){ throw new Error('docx save requires Blob or ArrayBuffer content'); })();
     } else {
       throw new Error('Unknown save format: ' + format);
     }
@@ -291,18 +413,30 @@
     if (format === 'gdoc' && !fileId) metadata.mimeType = MIME.GDOC;
 
     const boundary = 'folio_' + Math.random().toString(36).slice(2) + Date.now().toString(36);
-    const multipart =
-      `--${boundary}\r\n` +
-      `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
-      JSON.stringify(metadata) + `\r\n` +
-      `--${boundary}\r\n` +
-      `Content-Type: ${uploadMime}\r\n\r\n` +
-      body + `\r\n--${boundary}--`;
+
+    // Binary-safe multipart assembly when body is a Blob (docx path) —
+    // string concatenation would mangle the binary bytes.
+    let requestBody;
+    if (body instanceof Blob) {
+      const head = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n` +
+                   JSON.stringify(metadata) +
+                   `\r\n--${boundary}\r\nContent-Type: ${uploadMime}\r\n\r\n`;
+      const tail = `\r\n--${boundary}--`;
+      requestBody = new Blob([head, body, tail], { type: `multipart/related; boundary=${boundary}` });
+    } else {
+      requestBody =
+        `--${boundary}\r\n` +
+        `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+        JSON.stringify(metadata) + `\r\n` +
+        `--${boundary}\r\n` +
+        `Content-Type: ${uploadMime}\r\n\r\n` +
+        body + `\r\n--${boundary}--`;
+    }
 
     const base = 'https://www.googleapis.com/upload/drive/v3/files';
     const url = fileId
-      ? `${base}/${fileId}?uploadType=multipart&supportsAllDrives=true`
-      : `${base}?uploadType=multipart&supportsAllDrives=true`;
+      ? `${base}/${fileId}?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime`
+      : `${base}?uploadType=multipart&supportsAllDrives=true&fields=id,name,modifiedTime`;
     const method = fileId ? 'PATCH' : 'POST';
 
     const r = await fetch(url, {
@@ -311,15 +445,27 @@
         Authorization: `Bearer ${token}`,
         'Content-Type': `multipart/related; boundary=${boundary}`,
       },
-      body: multipart,
+      body: requestBody,
     });
     if (!r.ok) throw new Error('Drive save failed: ' + r.status + ' ' + (await r.text()));
     const result = await r.json();
 
-    // Mark this connection as freshly used (for sort-order in the UI)
     _touchConnection(email).catch(() => {});
 
     return result;
+  }
+
+  // Fetch lightweight metadata for conflict detection + "stat" style use.
+  // drive.file scope grants access to files the user picked via Picker.
+  async function getFileMetadata(email, fileId, fields) {
+    const token = await ensureToken(email);
+    const f = fields || 'id,name,modifiedTime,mimeType';
+    const r = await fetch(
+      `https://www.googleapis.com/drive/v3/files/${fileId}?fields=${encodeURIComponent(f)}&supportsAllDrives=true`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!r.ok) throw new Error('Drive metadata fetch failed: ' + r.status);
+    return await r.json();
   }
 
   // ────────── Firestore persistence (account IDENTITY only, never tokens) ──
@@ -357,6 +503,7 @@
   }
 
   async function disconnectAccount(email) {
+    const sessTok = sessionConnections[email] && sessionConnections[email].token;
     delete sessionConnections[email];
     if (window._db && window._fb && window._uid) {
       const list = await listPersistedConnections();
@@ -364,13 +511,15 @@
       const ref = window._fb.doc(window._db, 'folio_user_settings', window._uid);
       await window._fb.setDoc(ref, { driveConnections: next }, { merge: true });
     }
-    // Revoke the token server-side too so the OAuth grant goes away.
-    // (Best-effort — we might not have a session token right now.)
+    // Revoke the session token server-side so the OAuth grant goes away.
     try {
-      if (google && google.accounts && google.accounts.oauth2 && sessionConnections[email]) {
-        google.accounts.oauth2.revoke(sessionConnections[email].token, () => {});
+      if (sessTok && google && google.accounts && google.accounts.oauth2) {
+        google.accounts.oauth2.revoke(sessTok, () => {});
       }
     } catch (_) {}
+    // Also drop the Worker's stored refresh token so cross-session
+    // persistence is cleanly severed.
+    _workerRevoke(email).catch(() => {});
     _notifyChange();
   }
 
@@ -443,6 +592,7 @@
     importFile,
     saveFile,
     importOnce,
+    getFileMetadata,
 
     // Tier
     canImportOnce,
