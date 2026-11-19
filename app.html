@@ -128,7 +128,7 @@
     // Build indicator — bump this timestamp whenever meaningful code
     // changes land so the sidebar dot visibly shifts colour on deploy.
     // Format is free-form; the sidebar hashes it to a palette entry.
-    window.FOLIO_BUILD = '2026-11-19 junior-1b-harbor-import';
+    window.FOLIO_BUILD = '2026-11-19 junior-1b-render-fix';
 
     window.FOLIO_DRIVE_CLIENT_ID = '514858431339-tkv60ka7j8sauhu83h89k14frcr3fsu8.apps.googleusercontent.com';
     window.FOLIO_DRIVE_API_KEY   = 'AIzaSyB7rV5LN8c25iaNf1VHv5bNFBbLNeleKhg';
@@ -27551,10 +27551,28 @@
     }
 
     /* Hook: render when the Settings tab opens, when auth changes, and
-       whenever the FolioJunior module says state changed. */
+       whenever the FolioJunior module says state changed.
+       2026-11-19 fix: Firebase Auth resolves ASYNC after DOMContentLoaded,
+       so `if (window._uid) kickoff()` reliably never fired on first page
+       load. The button handler was therefore never wired, and clicking
+       Link Harbor did nothing. New strategy: fire kickoff on every state
+       signal we can observe (DOMContentLoaded, foliodrive:ready proxy,
+       tab switch, and — critically — a 500ms poll until uid resolves,
+       with a 20-try cap). Kickoff is idempotent (just re-renders). */
     document.addEventListener('DOMContentLoaded', () => {
       const kickoff = () => { try { renderJuniorList(); } catch (_) {} };
+      // Try immediately.
       if (window._uid) kickoff();
+      // Then poll until Firebase Auth resolves (handles the race).
+      let tries = 0;
+      const pollTimer = setInterval(() => {
+        if (window._uid) {
+          clearInterval(pollTimer);
+          kickoff();
+        } else if (++tries > 30) {
+          clearInterval(pollTimer);  // give up after ~15s
+        }
+      }, 500);
       document.addEventListener('foliojunior:ready', kickoff);
       // Rerender when the user switches tabs to Settings.
       try {
