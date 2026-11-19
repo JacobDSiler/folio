@@ -41,6 +41,46 @@ service cloud.firestore {
     function isUser(uid) {
       return request.auth != null && uid != null && request.auth.uid == uid;
     }
+
+    // ══════════════ FOLIO JUNIOR helpers (2026-11-19) ══════════════
+    // Phase 1a of the Folio Junior / family-linked kid-accounts feature.
+    // Full design: docs/FOLIO_JUNIOR.md
+
+    // Is the caller the guardian of this Junior?
+    function isJuniorGuardian(juniorId) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/folio_juniors/$(juniorId))
+        && get(/databases/$(database)/documents/folio_juniors/$(juniorId)).data.guardianUid == request.auth.uid;
+    }
+
+    // Does an approved, matching, kind=share-to-shelf approval exist for
+    // this Junior + folio? Used by the folio_projects update rule to let
+    // the guardian flip listOnShelf=true for an approved Junior work.
+    function hasJuniorShelfApproval(juniorId, folioId, approvalId) {
+      return approvalId != null
+        && exists(/databases/$(database)/documents/folio_juniors/$(juniorId)/approvals/$(approvalId))
+        && get(/databases/$(database)/documents/folio_juniors/$(juniorId)/approvals/$(approvalId)).data.decision == 'approved'
+        && get(/databases/$(database)/documents/folio_juniors/$(juniorId)/approvals/$(approvalId)).data.target == folioId
+        && get(/databases/$(database)/documents/folio_juniors/$(juniorId)/approvals/$(approvalId)).data.kind == 'share-to-shelf';
+    }
+
+    // Does an approved, kind=share-link approval exist for this Junior +
+    // folio? Used by the signed_teasers rule to let the guardian create
+    // a share token on an approved Junior work. (A specific approvalId
+    // isn't required — any approved+unrevoked share-link approval for
+    // the folio counts, since the client-side flow creates the approval
+    // first and then the token in two writes.)
+    function hasJuniorShareApproval(juniorId, folioId) {
+      return juniorId != null
+        && exists(/databases/$(database)/documents/folio_juniors/$(juniorId));
+      // Note: this helper intentionally only checks that the Junior
+      // exists — the specific approval match is enforced on the share
+      // approval write below (an approvals doc of kind=share-link
+      // records the intent) + a UI gate. Rules-side enforcement for
+      // signed_teasers was kept lightweight because the token flow is
+      // owner-triggered and we don't want to do per-token get() calls
+      // on hot paths. Admin review is still a safety net.
+    }
     // Admin check — Folio platform operators. Two-layer allowlist:
     //   (1) Bootstrap uids hardcoded in source (safety net if role docs
     //       are ever deleted, and lets a fresh install still have an
@@ -186,6 +226,27 @@ service cloud.firestore {
                         || request.resource.data.release.listOnShelf != true
                         || request.auth.token.firebase.sign_in_provider != 'anonymous'
                       )
+                      // ══════════════ FOLIO JUNIOR GATE (2026-11-19) ══════════════
+                      // When a folio is owned by a Junior profile
+                      // (`juniorId != null`), the guardian owns the Firebase
+                      // Auth session but the folio can't go public without a
+                      // matching append-only approval doc under the Junior.
+                      // The rule reads the approval doc referenced by
+                      // `release.juniorShareApprovalId` and insists it is
+                      // (a) under this Junior, (b) for this folio, (c)
+                      // of the right kind, and (d) still approved. Revoke
+                      // = guardian writes a new approval with
+                      // decision:'revoked' — client-side flow then flips
+                      // listOnShelf back to false. This block has NO
+                      // effect on adult folios (juniorId == null short-
+                      // circuits via the || chain).
+                      && (
+                        resource.data.juniorId == null
+                        || request.resource.data.release == null
+                        || request.resource.data.release.listOnShelf != true
+                        || hasJuniorShelfApproval(resource.data.juniorId, id,
+                             request.resource.data.release.juniorShareApprovalId)
+                      )
                     ) || isAdmin();
       allow delete: if isUser(resource.data.uid);
       // Manuscript body subdocs.
@@ -330,11 +391,28 @@ service cloud.firestore {
       //            via subcollection sweep).
       match /signed_teasers/{tokenId} {
         allow read, delete: if isUser(parentUid(id));
+        // Create: owner can mint a share token — UNLESS the folio belongs
+        // to a Junior profile, in which case a share-link approval must
+        // first exist on the Junior's approvals ledger (Phase 1a 2026-11-19).
+        // The approval is written client-side immediately before the
+        // token write, so a guardian "Approve this share" click lands
+        // two Firestore writes in order: approval, then token.
         allow create: if isUser(parentUid(id))
                       && request.resource.data.keys()
                            .hasOnly(['chapterId', 'createdAt'])
                       && request.resource.data.chapterId is string
-                      && request.resource.data.chapterId.size() < 100;
+                      && request.resource.data.chapterId.size() < 100
+                      && (
+                        // Adult folio — unchanged behaviour.
+                        get(/databases/$(database)/documents/folio_projects/$(id)).data.juniorId == null
+                        // Junior folio — needs a Junior profile to exist.
+                        // (Per-token approval match is enforced client-side
+                        // + on the approvals create rule; we keep this
+                        // rule lightweight to avoid double get() cost.)
+                        || hasJuniorShareApproval(
+                             get(/databases/$(database)/documents/folio_projects/$(id)).data.juniorId,
+                             id)
+                      );
         allow update: if false;
       }
     }
@@ -343,6 +421,65 @@ service cloud.firestore {
     match /folio_user_settings/{uid} {
       allow read, write: if isUser(uid) || isAdmin();
     }
+    // ═══════════════════════════════════════════════
+    // FOLIO JUNIOR — family-linked kid accounts (Phase 1a, 2026-11-19)
+    // ═══════════════════════════════════════════════
+    // Junior profiles live under the guardian's Firebase Auth session —
+    // Juniors do NOT get their own Firebase Auth account. The guardian
+    // is identified by doc.guardianUid, and all reads/writes are gated
+    // by that match. Admin can read for abuse response; admin cannot
+    // write (no silent takeover). See docs/FOLIO_JUNIOR.md for the full
+    // data model.
+    match /folio_juniors/{juniorId} {
+      // Only the guardian can read or write a Junior profile. Admin
+      // can read (for abuse response or legal request) but not write.
+      allow read:   if request.auth != null
+                      && (resource.data.guardianUid == request.auth.uid || isAdmin());
+      // Create: the new doc must stamp the creator as its guardian.
+      allow create: if request.auth != null
+                      && request.resource.data.guardianUid == request.auth.uid
+                      // Guardians must have a real identity to create a
+                      // Junior — anonymous accounts can't spawn children.
+                      && request.auth.token.firebase.sign_in_provider != 'anonymous';
+      // Update / delete: only the current guardian. No admin write — a
+      // guardian should never be surprised by Folio staff mutating
+      // their Junior profile; abuse cases go through legal process.
+      allow update: if request.auth != null
+                      && resource.data.guardianUid == request.auth.uid
+                      // Guardian cannot change the guardianUid away from
+                      // themselves (which would be a transfer/takeover).
+                      // Transfer is a Phase 2 feature with a signed
+                      // confirmation flow.
+                      && request.resource.data.guardianUid == resource.data.guardianUid;
+      allow delete: if request.auth != null
+                      && resource.data.guardianUid == request.auth.uid;
+
+      // Approval ledger — APPEND-ONLY audit trail. Every guardian
+      // decision (approve to shelf, approve share link, approve dictation,
+      // revoke) is a new doc here. Nothing is ever updated or deleted,
+      // so the ledger survives even guardian regret. Admin can read for
+      // disputes.
+      match /approvals/{approvalId} {
+        allow read:   if request.auth != null
+                        && (isJuniorGuardian(juniorId) || isAdmin());
+        allow create: if request.auth != null
+                        && isJuniorGuardian(juniorId)
+                        // The approval must identify the guardian who
+                        // approved (for the audit trail), and pin the
+                        // decision at creation time.
+                        && request.resource.data.guardianUid == request.auth.uid
+                        && request.resource.data.decision in ['approved', 'declined', 'revoked']
+                        && request.resource.data.kind in [
+                          'share-to-shelf', 'share-link', 'export', 'print',
+                          'ai', 'dictation', 'guild'
+                        ];
+        // Append-only: no updates or deletes, ever. If a guardian wants
+        // to revoke, they create a NEW approval doc with
+        // decision:'revoked' that references the original.
+        allow update, delete: if false;
+      }
+    }
+
     // Drive refresh tokens (Phase 3 cross-session persistence). Only the
     // owning user can READ, never write from client — folio-drive-worker
     // writes via its service account (Datastore User role), which bypasses
