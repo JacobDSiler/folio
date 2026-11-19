@@ -128,7 +128,7 @@
     // Build indicator — bump this timestamp whenever meaningful code
     // changes land so the sidebar dot visibly shifts colour on deploy.
     // Format is free-form; the sidebar hashes it to a palette entry.
-    window.FOLIO_BUILD = '2026-11-19 junior-1b-render-fix';
+    window.FOLIO_BUILD = '2026-11-19 junior-1b-pin-optional';
 
     window.FOLIO_DRIVE_CLIENT_ID = '514858431339-tkv60ka7j8sauhu83h89k14frcr3fsu8.apps.googleusercontent.com';
     window.FOLIO_DRIVE_API_KEY   = 'AIzaSyB7rV5LN8c25iaNf1VHv5bNFBbLNeleKhg';
@@ -27503,8 +27503,8 @@
         </p>
         <label style="display:block;font-size:11px;color:var(--hint);margin-bottom:3px">Harbor family code</label>
         <input id="hbCode" type="text" maxlength="7" placeholder="MA-XXXX" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:14px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px">
-        <label style="display:block;font-size:11px;color:var(--hint);margin-bottom:3px">Harbor parent PIN</label>
-        <input id="hbPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="•••••" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:16px;letter-spacing:.3em;text-align:center;margin-bottom:12px">
+        <label style="display:block;font-size:11px;color:var(--hint);margin-bottom:3px">Harbor parent PIN <span style="color:var(--hint);font-weight:normal">(leave blank if Harbor never asked you to save one)</span></label>
+        <input id="hbPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="8" placeholder="optional" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:16px;letter-spacing:.3em;text-align:center;margin-bottom:12px">
         <label style="display:block;font-size:11px;color:var(--hint);margin-bottom:3px">Starting Folio PIN for each imported child (4–6 digits)</label>
         <input id="hbJuniorPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="••••" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:16px;letter-spacing:.3em;text-align:center;margin-bottom:12px">
         <div id="hbErr" style="color:#c04040;font-size:11.5px;min-height:14px;margin-bottom:8px"></div>
@@ -27529,7 +27529,6 @@
           const juniorPin = el.querySelector('#hbJuniorPin').value;
           if (!/^(MA|HB)-[A-Z0-9]{4}$/.test(famCode))
             return err.textContent = 'Family code should look like MA-XXXX or HB-XXXX.';
-          if (!parentPin) return err.textContent = 'Harbor parent PIN is needed.';
           if (!/^\d{4,6}$/.test(juniorPin)) return err.textContent = 'Starting Folio PIN must be 4–6 digits.';
           const btn = el.querySelector('#hbImport');
           btn.disabled = true; btn.textContent = 'Importing…';
@@ -27708,8 +27707,16 @@
        the UI shows in a confirmation banner. */
     async function harborImport(code, parentPin, sharedJuniorPin) {
       const fam = await harborFetchFamily(code);
-      if (!fam.parentPin) throw new Error('This Harbor family has no parent PIN set. Set one in Harbor first.');
-      if (String(fam.parentPin) !== String(parentPin))
+      // Harbor's own check (index.html:478) accepts either the Firestore-stored
+      // parentPin OR the device-local S.pin. Folio can't see Harbor's
+      // localStorage from another device, so we can only verify against the
+      // Firestore value. If the family doc has no parentPin saved (common —
+      // many Harbor users set the PIN locally and never trigger the save path
+      // that writes it to Firestore), we skip the check. The family code is
+      // already a shared secret (and anyone with it can read the doc under
+      // Harbor's public read rule), and each imported Junior will get locked
+      // behind its own Folio PIN immediately, so this is safe.
+      if (fam.parentPin && String(fam.parentPin) !== String(parentPin))
         throw new Error('That PIN doesn\'t match the one on this Harbor family.');
       if (!fam.profiles.length) throw new Error('No child profiles in this Harbor family yet.');
       // Build an index of existing Juniors by harborLearnerId for match-or-create.
