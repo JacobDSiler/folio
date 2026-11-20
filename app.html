@@ -128,7 +128,7 @@
     // Build indicator — bump this timestamp whenever meaningful code
     // changes land so the sidebar dot visibly shifts colour on deploy.
     // Format is free-form; the sidebar hashes it to a palette entry.
-    window.FOLIO_BUILD = '2026-11-19 junior-1b-pin-optional';
+    window.FOLIO_BUILD = '2026-11-20 junior-1b-pin-overwrite';
 
     window.FOLIO_DRIVE_CLIENT_ID = '514858431339-tkv60ka7j8sauhu83h89k14frcr3fsu8.apps.googleusercontent.com';
     window.FOLIO_DRIVE_API_KEY   = 'AIzaSyB7rV5LN8c25iaNf1VHv5bNFBbLNeleKhg';
@@ -27523,7 +27523,7 @@
         });
         el.querySelector('#hbImport').onclick = async () => {
           const err = el.querySelector('#hbErr');
-          err.textContent = '';
+          err.innerHTML = '';
           const famCode = code.value.trim().toUpperCase();
           const parentPin = el.querySelector('#hbPin').value;
           const juniorPin = el.querySelector('#hbJuniorPin').value;
@@ -27542,8 +27542,46 @@
             alert('Harbor sync complete!\n\n' + parts.join('\n') +
               '\n\nEach child now uses PIN "' + juniorPin + '". Tap ⋯ → Reset PIN to change any individually.');
           } catch (e) {
-            err.textContent = e.message || String(e);
+            const msg = e.message || String(e);
             btn.disabled = false; btn.textContent = 'Import';
+            // Escape hatch: if the PIN mismatched a stale Firestore value, offer
+            // to overwrite it. Shown only for the PIN-mismatch error, not other
+            // failures (missing family, network, etc).
+            if (/PIN doesn't match/i.test(msg) && parentPin) {
+              err.innerHTML = '';
+              const line = document.createElement('div');
+              line.innerHTML = '<div style="margin-bottom:6px">' + esc(msg) + '</div>' +
+                '<div style="font-size:11px;color:var(--muted);margin-bottom:6px;line-height:1.45">' +
+                'This usually means you set your Harbor PIN on another device and it was never pushed to Harbor\'s cloud. ' +
+                'You can overwrite the stored PIN with the one you just typed — this updates Harbor itself (any Harbor device will then accept this PIN).</div>';
+              const ovBtn = document.createElement('button');
+              ovBtn.type = 'button';
+              ovBtn.className = 'btn-sm';
+              ovBtn.style.cssText = 'padding:6px 12px;background:#7a5411;color:#fff;border-color:#7a5411;font-size:12px';
+              ovBtn.textContent = 'Overwrite Harbor PIN with "' + parentPin + '"';
+              ovBtn.onclick = async () => {
+                ovBtn.disabled = true; ovBtn.textContent = 'Updating Harbor…';
+                try {
+                  await harborOverwriteParentPin(famCode, parentPin);
+                  ovBtn.textContent = 'Updated — retrying import…';
+                  const r = await harborImport(famCode, parentPin, juniorPin);
+                  el.remove();
+                  renderJuniorList();
+                  const parts = [];
+                  if (r.created.length) parts.push('Imported ' + r.created.length + ' new (' + r.created.join(', ') + ')');
+                  if (r.updated.length) parts.push('Updated ' + r.updated.length + ' existing (' + r.updated.join(', ') + ')');
+                  alert('Harbor PIN updated and import complete!\n\n' + parts.join('\n') +
+                    '\n\nEvery Harbor device will now accept PIN "' + parentPin + '".');
+                } catch (ee) {
+                  ovBtn.disabled = false; ovBtn.textContent = 'Overwrite failed — click to retry';
+                  err.querySelector('div').textContent = ee.message || String(ee);
+                }
+              };
+              line.appendChild(ovBtn);
+              err.appendChild(line);
+            } else {
+              err.textContent = msg;
+            }
           }
         };
       });
@@ -27700,6 +27738,40 @@
         parentPin:  _harborUnwrap(fields.parentPin)  || '',
         country:    _harborUnwrap(fields.country)    || 'IE',
       };
+    }
+
+    /* Overwrite the Harbor family's Firestore-stored parentPin. Harbor's rules
+       allow unauthenticated writes to families/{code} (that's how Harbor's own
+       frontend saves). We write ONLY the parentPin field via updateMask so we
+       don't clobber profiles, country, or anything else. Also writes a
+       `parentPinSetFrom: 'folio'` marker + timestamp so the audit trail shows
+       where the change came from. Escape hatch used when a stale Firestore PIN
+       is blocking Folio import and the proper reset flow hasn't shipped yet. */
+    async function harborOverwriteParentPin(code, newPin) {
+      if (!/^\d{3,8}$/.test(String(newPin))) throw new Error('PIN must be 3–8 digits.');
+      const url = `https://firestore.googleapis.com/v1/projects/${HARBOR_PROJECT}` +
+        `/databases/(default)/documents/families/${encodeURIComponent(code)}` +
+        `?updateMask.fieldPaths=parentPin` +
+        `&updateMask.fieldPaths=parentPinSetFrom` +
+        `&updateMask.fieldPaths=parentPinSetAt` +
+        `&key=${HARBOR_API_KEY}`;
+      const body = {
+        fields: {
+          parentPin:        { stringValue: String(newPin) },
+          parentPinSetFrom: { stringValue: 'folio' },
+          parentPinSetAt:   { integerValue: String(Date.now()) },
+        }
+      };
+      const r = await fetch(url, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const t = await r.text().catch(() => '');
+        throw new Error('Harbor PIN write failed (' + r.status + '): ' + t.slice(0, 200));
+      }
+      return true;
     }
 
     /* Import Harbor profiles into Folio Juniors. Match by harborLearnerId
